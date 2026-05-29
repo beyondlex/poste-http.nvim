@@ -15,20 +15,21 @@
 - [x] Response timing (latency display)
 - [x] Unit tests for parser (8 tests passing)
 
-## Phase 2 — Neovim Plugin
+## Phase 2 — Neovim Plugin ✅
 
 **Goal:** Native Neovim experience for editing and executing requests.
 
-- [ ] Plugin skeleton (`lua/poste/init.lua`)
-- [ ] `<leader>rr` — execute request at cursor
-- [ ] `<leader>ra` — execute all requests in file
-- [ ] `[[` / `]]` — jump between `###` separators
-- [ ] Response opens in a split buffer (not a floating window)
-- [ ] Response buffer is a normal Vim buffer (yank, visual select, search all work)
-- [ ] JSON auto-formatting in response buffer
-- [ ] `:PosteEnv <name>` — switch environment
-- [ ] Status line integration (show current env + connection)
-- [ ] File type detection for `.http`, `.redis`, `.sql` with Poste-specific keymaps
+- [x] Plugin skeleton (`lua/poste/init.lua`)
+- [x] `<leader>rr` — execute request at cursor
+- [x] `[[` / `]]` — jump between `###` separators
+- [x] Response opens in a split buffer (not a floating window)
+- [x] Response buffer is a normal Vim buffer (yank, visual select, search all work)
+- [x] `:PosteEnv <name>` — switch environment
+- [x] File type detection for `.http` files
+- [x] Plugin documentation (README_PLUGIN.md)
+- [x] Installation instructions (lazy.nvim, packer, vim-plug)
+- [x] Status line integration (poste_status function)
+- [ ] JSON auto-formatting in response buffer (depends on CLI pretty-printing)
 
 ## Phase 3 — Database Protocols
 

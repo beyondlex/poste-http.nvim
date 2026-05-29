@@ -30,13 +30,30 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Run { file, line, env } => {
-            // Load environment
-            let env_path = format!("{}/../env.json", std::path::Path::new(&file).parent().unwrap().display());
-            let env_file = if std::path::Path::new(&env_path).exists() {
-                poste_core::Environment::load(&env_path)?
+            // Resolve the request file to an absolute path
+            let file_path = std::path::Path::new(&file);
+            let file_path = if file_path.is_absolute() {
+                file_path.to_path_buf()
             } else {
-                anyhow::bail!("Environment file not found: {}", env_path);
+                std::env::current_dir()?.join(file_path)
             };
+
+            // Find env.json: look in the request file's directory, then walk up
+            let mut search_dir = file_path.parent().unwrap();
+            let env_path = loop {
+                let candidate = search_dir.join("env.json");
+                if candidate.exists() {
+                    break candidate;
+                }
+                match search_dir.parent() {
+                    Some(parent) => search_dir = parent,
+                    None => anyhow::bail!(
+                        "env.json not found. Searched from {} to filesystem root",
+                        file_path.parent().unwrap().display()
+                    ),
+                }
+            };
+            let env_file = poste_core::Environment::load(env_path.to_str().unwrap())?;
             
             let env_vars = env_file.envs.get(&env)
                 .ok_or_else(|| anyhow::anyhow!("Environment '{}' not found", env))?

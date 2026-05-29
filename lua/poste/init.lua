@@ -76,6 +76,202 @@ local function log(level, msg)
 end
 
 ---------------------------------------------------------------------------
+-- Built-in floating window selector (for prompt variables)
+---------------------------------------------------------------------------
+
+--- Callback-based floating window selector with fuzzy search
+--- Calls on_select(selected_item) when user makes a selection
+--- selected_item is nil if user cancelled
+local function poste_select(items, prompt_text, on_select)
+  if #items == 0 then
+    vim.schedule(function() on_select(nil) end)
+    return
+  end
+
+  if #items <= 10 then
+    -- Short list: use inputlist (simple and fast)
+    local choices = { prompt_text .. " (Enter to confirm, 0/Esc to cancel):" }
+    for idx, item in ipairs(items) do
+      table.insert(choices, string.format("%d. %s", idx, item))
+    end
+    vim.schedule(function()
+      local choice = vim.fn.inputlist(choices)
+      if choice and choice >= 1 and choice <= #items then
+        on_select(items[choice])
+      else
+        on_select(nil)
+      end
+    end)
+    return
+  end
+
+  -- Long list: use floating window with fuzzy search
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+  vim.api.nvim_buf_set_option(buf, "filetype", "PosteSelect")
+
+  -- Calculate window size
+  local width = math.min(80, vim.o.columns - 4)
+  local height = math.min(20, #items + 2)  -- +2 for search line and border
+  local row = math.floor((vim.o.lines - height) / 2)
+  local col = math.floor((vim.o.columns - width) / 2)
+
+  -- Create floating window
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    style = "minimal",
+    border = "rounded",
+    title = prompt_text,
+    title_pos = "center",
+  })
+
+  -- State
+  local filtered = vim.deepcopy(items)
+  local selected_idx = 1
+  local search_text = ""
+  local resolved = false
+
+  -- Helper to resolve selection
+  local function resolve(result)
+    if resolved then return end
+    resolved = true
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+    vim.schedule(function() on_select(result) end)
+  end
+
+  -- Render function
+  local function render()
+    local lines = { "🔍 " .. search_text .. "_" }
+    for idx, item in ipairs(filtered) do
+      local prefix = (idx == selected_idx) and "▶ " or "  "
+      table.insert(lines, prefix .. item)
+    end
+    -- Pad with empty lines to maintain height
+    while #lines < height do
+      table.insert(lines, "")
+    end
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+    -- Highlight selected line
+    vim.api.nvim_buf_clear_namespace(buf, -1, 0, -1)
+    if selected_idx > 0 and selected_idx <= #filtered then
+      vim.api.nvim_buf_add_highlight(buf, -1, "Visual", selected_idx, 0, -1)
+    end
+  end
+
+  -- Filter items based on search text
+  local function filter_items()
+    if search_text == "" then
+      filtered = vim.deepcopy(items)
+    else
+      filtered = {}
+      local lower_search = search_text:lower()
+      for _, item in ipairs(items) do
+        if item:lower():find(lower_search, 1, true) then
+          table.insert(filtered, item)
+        end
+      end
+    end
+    selected_idx = 1
+    render()
+  end
+
+  -- Keymaps
+  local function map_key(mode, key, action)
+    vim.keymap.set(mode, key, action, { buffer = buf, nowait = true })
+  end
+
+  -- Navigation
+  map_key("n", "j", function()
+    selected_idx = math.min(selected_idx + 1, #filtered)
+    render()
+  end)
+  map_key("n", "k", function()
+    selected_idx = math.max(selected_idx - 1, 1)
+    render()
+  end)
+  map_key("n", "<Down>", function()
+    selected_idx = math.min(selected_idx + 1, #filtered)
+    render()
+  end)
+  map_key("n", "<Up>", function()
+    selected_idx = math.max(selected_idx - 1, 1)
+    render()
+  end)
+
+  -- Selection
+  map_key("n", "<CR>", function()
+    if #filtered > 0 then
+      resolve(filtered[selected_idx])
+    else
+      resolve(nil)
+    end
+  end)
+  map_key("n", "<Esc>", function()
+    resolve(nil)
+  end)
+  map_key("n", "q", function()
+    resolve(nil)
+  end)
+
+  -- Search input
+  map_key("n", "i", function()
+    vim.cmd("startinsert!")
+  end)
+  map_key("n", "a", function()
+    vim.cmd("startinsert!")
+  end)
+
+  -- Insert mode mappings
+  map_key("i", "<CR>", function()
+    if #filtered > 0 then
+      resolve(filtered[selected_idx])
+    else
+      resolve(nil)
+    end
+    vim.cmd("stopinsert")
+  end)
+  map_key("i", "<Esc>", function()
+    resolve(nil)
+    vim.cmd("stopinsert")
+  end)
+  map_key("i", "<Down>", function()
+    selected_idx = math.min(selected_idx + 1, #filtered)
+    render()
+  end)
+  map_key("i", "<Up>", function()
+    selected_idx = math.max(selected_idx - 1, 1)
+    render()
+  end)
+
+  -- Real-time filtering on text change
+  vim.api.nvim_create_autocmd("TextChanged", {
+    buffer = buf,
+    callback = function()
+      if resolved then return end
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, 1, false)
+      local first_line = lines[1] or ""
+      -- Extract search text after "🔍 " and before "_"
+      local new_search = first_line:match("^🔍 (.*)_?$") or ""
+      if new_search ~= search_text then
+        search_text = new_search
+        filter_items()
+      end
+    end,
+  })
+
+  -- Initial render
+  render()
+  vim.cmd("startinsert!")
+end
+
+---------------------------------------------------------------------------
 -- Binary discovery
 ---------------------------------------------------------------------------
 local function find_poste_binary()
@@ -781,17 +977,31 @@ end
 ---   # @prompt variable_name [opt1, opt2, ...] → selection from list (up/down arrows)
 --- Only processes @prompt lines within the request block containing cursor_line.
 --- Always prompts for input (no caching) so users can use different values each time.
---- Returns the modified full buffer content with prompts replaced.
-local function handle_prompt_variables(buf, cursor_line, content)
+--- Processes prompts asynchronously and calls on_complete with modified content.
+--- on_complete(modified_content) is called when all prompts are resolved.
+local function handle_prompt_variables(buf, cursor_line, content, on_complete)
   local start_line, end_line = find_request_block_bounds(buf, cursor_line)
-  if not start_line then return content end
+  if not start_line then
+    on_complete(content)
+    return
+  end
 
   local lines = vim.split(content, "\n", { plain = true })
   local result = {}
+  local idx = 1
 
-  for i, line in ipairs(lines) do
+  local function process_next()
+    if idx > #lines then
+      on_complete(table.concat(result, "\n"))
+      return
+    end
+
+    local line = lines[idx]
+    local line_num = idx
+    idx = idx + 1
+
     -- Only process @prompt within the current request block (1-indexed)
-    if i >= start_line and i <= end_line then
+    if line_num >= start_line and line_num <= end_line then
       -- Match: # @prompt varname [opt1, opt2, ...]  (selection mode)
       local varname_sel, options_str = line:match("^%s*#%s*@prompt%s+(%S+)%s*%[([^%]]+)%]")
 
@@ -807,79 +1017,52 @@ local function handle_prompt_variables(buf, cursor_line, content)
 
         if #options == 0 then
           table.insert(result, line)
-          goto continue
+          process_next()
+          return
         end
 
-        local selected = nil
-
-        if #options <= 20 then
-          -- Short list: use inputlist (synchronous, no blocking issues)
-          local choices = { string.format("Select value for '%s' (Enter to confirm, 0/Esc to cancel):", varname_sel) }
-          for idx, opt in ipairs(options) do
-            table.insert(choices, string.format("%d. %s", idx, opt))
+        -- Use built-in floating window selector (async)
+        local prompt = string.format("Select value for '%s'", varname_sel)
+        poste_select(options, prompt, function(selected)
+          if selected then
+            table.insert(result, string.format("@%s = %s", varname_sel, selected))
+          else
+            -- User cancelled
+            table.insert(result, line)
           end
-
-          local choice = vim.fn.inputlist(choices)
-          if choice and choice >= 1 and choice <= #options then
-            selected = options[choice]
-          end
-        else
-          -- Long list: let user type directly, with validation
-          local preview = table.concat(vim.list_slice(options, 1, 5), ", ")
-          if #options > 5 then preview = preview .. "..." end
-
-          local value = vim.fn.input {
-            prompt = string.format("Enter value for '%s' (options: %s): ", varname_sel, preview),
-            default = "",
-            completion = "customlist,v:lua.require'poste'.complete_prompt_options",
-          }
-
-          if value and value ~= "" then
-            -- Validate: must be in options list
-            if vim.tbl_contains(options, value) then
-              selected = value
-            else
-              vim.notify(string.format("Invalid value '%s', must be one of the options", value), vim.log.levels.WARN)
-            end
-          end
-
-          -- Store options for completion
-          M._prompt_options = options
-        end
-
-        if selected then
-          table.insert(result, string.format("@%s = %s", varname_sel, selected))
-        else
-          -- User cancelled or invalid input
-          table.insert(result, line)
-        end
+          process_next()
+        end)
+        return
       else
         -- Match: # @prompt varname  (text input mode)
         local varname = line:match("^%s*#%s*@prompt%s+(%S+)")
 
         if varname then
-          local ok, value = pcall(vim.fn.input, {
-            prompt = string.format("Enter value for '%s': ", varname),
-            default = "",
-          })
+          -- vim.fn.input is blocking but handles its own event loop
+          vim.schedule(function()
+            local ok, value = pcall(vim.fn.input, {
+              prompt = string.format("Enter value for '%s': ", varname),
+              default = "",
+            })
 
-          if ok and value and value ~= "" then
-            table.insert(result, string.format("@%s = %s", varname, value))
-          else
-            table.insert(result, line)
-          end
-        else
-          table.insert(result, line)
+            if ok and value and value ~= "" then
+              table.insert(result, string.format("@%s = %s", varname, value))
+            else
+              table.insert(result, line)
+            end
+            process_next()
+          end)
+          return
         end
       end
-    else
-      table.insert(result, line)
     end
 
-    ::continue::
+    -- No prompt on this line
+    table.insert(result, line)
+    process_next()
   end
 
-  return table.concat(result, "\n")
+  process_next()
 end
 
 ---------------------------------------------------------------------------
@@ -1308,32 +1491,31 @@ function M.run_request()
   local buf_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
   local buf_content = table.concat(buf_lines, "\n")
 
-  -- Handle @prompt directives: only process those in the current request block
-  buf_content = handle_prompt_variables(src_buf, line, buf_content)
+  -- Handle @prompt directives asynchronously, then continue with request execution
+  handle_prompt_variables(src_buf, line, buf_content, function(modified_content)
+    -- Resolve request variables: execute dependent requests and substitute {{RequestName.response.body.field}}
+    local buf_content = resolve_request_variables(binary, file, current_env, src_buf, line, modified_content)
 
-  -- Resolve request variables: execute dependent requests and substitute {{RequestName.response.body.field}}
-  buf_content = resolve_request_variables(binary, file, current_env, src_buf, line, buf_content)
+    -- Process form data magic variables and file inclusions
+    buf_content = process_form_data(src_buf, line, buf_content)
 
-  -- Process form data magic variables and file inclusions
-  buf_content = process_form_data(src_buf, line, buf_content)
-
-  -- Get the current request name for caching
-  local requests = collect_requests(src_buf)
-  local current_req_name = nil
-  for _, req in ipairs(requests) do
-    if line >= req.start_line and line <= req.end_line then
-      current_req_name = req.name
-      break
+    -- Get the current request name for caching
+    local requests = collect_requests(src_buf)
+    local current_req_name = nil
+    for _, req in ipairs(requests) do
+      if line >= req.start_line and line <= req.end_line then
+        current_req_name = req.name
+        break
+      end
     end
-  end
 
-  -- Extract the full request block (request line + headers) for error display
-  local req_block = extract_request_block(src_buf, line)
-  local req_text = req_block.request_line
+    -- Extract the full request block (request line + headers) for error display
+    local req_block = extract_request_block(src_buf, line)
+    local req_text = req_block.request_line
 
-  -- Find the request definition line and show spinner
-  local req_line = find_request_line(src_buf, line)
-  set_indicator(src_buf, req_line, "running")
+    -- Find the request definition line and show spinner
+    local req_line = find_request_line(src_buf, line)
+    set_indicator(src_buf, req_line, "running")
 
   local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
     vim.fn.shellescape(binary),
@@ -1439,11 +1621,12 @@ function M.run_request()
     end,
   })
 
-  -- Send buffer content via stdin and close the pipe
-  if job_id > 0 then
-    vim.fn.chansend(job_id, buf_content)
-    vim.fn.chanclose(job_id, "stdin")
-  end
+    -- Send buffer content via stdin and close the pipe
+    if job_id > 0 then
+      vim.fn.chansend(job_id, buf_content)
+      vim.fn.chanclose(job_id, "stdin")
+    end
+  end)  -- end of handle_prompt_variables callback
 end
 
 ---------------------------------------------------------------------------

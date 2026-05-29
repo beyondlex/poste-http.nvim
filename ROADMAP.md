@@ -1,0 +1,81 @@
+# Poste Roadmap
+
+## Phase 1 — MVP: HTTP + CLI (Current)
+
+**Goal:** Execute HTTP requests from `.http` files via CLI.
+
+- [x] Workspace structure (3 crates)
+- [x] Environment variable loading from `.reqq/env.json`
+- [x] `{{variable}}` substitution
+- [x] Request file parsing (extract request at cursor line)
+- [x] HTTP execution (GET/POST/PUT/DELETE/PATCH/HEAD)
+- [x] Response output (status, headers, body)
+- [x] CLI interface (`poste run <file> --line N --env <name>`)
+- [ ] JSON response pretty-printing
+- [ ] Response timing (latency display)
+- [ ] Unit tests for parser and executor
+
+## Phase 2 — Neovim Plugin
+
+**Goal:** Native Neovim experience for editing and executing requests.
+
+- [ ] Plugin skeleton (`lua/poste/init.lua`)
+- [ ] `<leader>rr` — execute request at cursor
+- [ ] `<leader>ra` — execute all requests in file
+- [ ] `[[` / `]]` — jump between `###` separators
+- [ ] Response opens in a split buffer (not a floating window)
+- [ ] Response buffer is a normal Vim buffer (yank, visual select, search all work)
+- [ ] JSON auto-formatting in response buffer
+- [ ] `:PosteEnv <name>` — switch environment
+- [ ] Status line integration (show current env + connection)
+- [ ] File type detection for `.http`, `.redis`, `.sql` with Poste-specific keymaps
+
+## Phase 3 — Database Protocols
+
+**Goal:** Support SQL databases and Redis.
+
+- [ ] PostgreSQL execution (sqlx or tokio-postgres)
+- [ ] MySQL execution (sqlx or mysql-async)
+- [ ] Redis execution (redis crate)
+- [ ] SQL ResultSet → table format in response buffer
+- [ ] Redis response formatting (bulk strings, arrays, etc.)
+- [ ] Connection URL parsing from `@connection` directive
+- [ ] Connection pooling / reuse within a session
+
+## Phase 4 — MongoDB + AMQP
+
+**Goal:** Full protocol coverage matching Ocular.
+
+- [ ] MongoDB execution (mongodb crate)
+- [ ] MongoDB shell syntax parsing (`db.collection.find({...})`)
+- [ ] MongoDB response formatting (JSON documents)
+- [ ] RabbitMQ publish/consume (lapin crate)
+- [ ] AMQP message format in request files
+
+## Phase 5 — Ocular Integration
+
+**Goal:** Bidirectional workflow between Ocular (observe) and Poste (send).
+
+- [ ] Ocular TUI: `s` key to save event as request
+- [ ] Ocular → Poste: format captured event into correct file type
+- [ ] Ocular component → Poste connection mapping
+- [ ] Auto-append to the correct request file based on protocol
+- [ ] Timestamp and source metadata in exported requests
+
+## Phase 6 — Advanced Features
+
+**Goal:** Power-user capabilities.
+
+- [ ] Request chaining (use response from request A as input to request B)
+- [ ] Response history (browse past responses)
+- [ ] Response diff (compare two executions)
+- [ ] Environment variable secrets (read from env vars or keychain)
+- [ ] Export to curl / other formats
+- [ ] Test assertions (`> {% assert response.status == 200 %}`)
+- [ ] Pre/post request scripts
+
+## Completed Milestones
+
+| Date | Milestone |
+|------|-----------|
+| 2026-05-29 | Project created, workspace structure, HTTP execution working |

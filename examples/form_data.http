@@ -1,0 +1,57 @@
+@name=John
+@age=30
+
+### URL Encoded Form
+POST https://httpbin.org/post HTTP/1.1
+Content-Type: application/x-www-form-urlencoded
+Accept: application/json
+
+name={{name}}&age={{age}}&city=NewYork
+
+### Multipart Form with File Upload
+POST https://httpbin.org/post HTTP/1.1
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary{{$timestamp}}
+
+------WebKitFormBoundary{{$timestamp}}
+Content-Disposition: form-data; name="username"
+
+admin
+------WebKitFormBoundary{{$timestamp}}
+Content-Disposition: form-data; name="email"
+
+admin@example.com
+------WebKitFormBoundary{{$timestamp}}
+Content-Disposition: form-data; name="avatar"; filename="test.txt"
+Content-Type: text/plain
+
+< README_request_variables.md
+------WebKitFormBoundary{{$timestamp}}--
+
+### Simple JSON POST
+POST https://httpbin.org/post
+Content-Type: application/json
+
+{
+  "name": "{{name}}",
+  "age": {{age}}
+}
+
+### Multipart with Multiple Files
+POST https://httpbin.org/post HTTP/1.1
+Content-Type: multipart/form-data; boundary=----Boundary{{$timestamp}}
+
+------Boundary{{$timestamp}}
+Content-Disposition: form-data; name="description"
+
+This is a test upload with multiple files
+------Boundary{{$timestamp}}
+Content-Disposition: form-data; name="file1"; filename="variables.http"
+Content-Type: text/plain
+
+< variables.http
+------Boundary{{$timestamp}}
+Content-Disposition: form-data; name="file2"; filename="prompt.http"
+Content-Type: text/plain
+
+< prompt_variables.http
+------Boundary{{$timestamp}}--

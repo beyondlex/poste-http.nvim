@@ -84,8 +84,9 @@ impl Executor {
         }
 
         // Request body
+        // Use --data-binary to preserve binary data and newlines (important for multipart/form-data)
         if !req_body.trim().is_empty() {
-            args.push("-d".to_string());
+            args.push("--data-binary".to_string());
             args.push(req_body.clone());
         }
 

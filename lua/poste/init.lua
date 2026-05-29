@@ -819,6 +819,59 @@ local function handle_prompt_variables(buf, cursor_line, content)
 end
 
 ---------------------------------------------------------------------------
+-- Form data (multipart/form-data, url-encoded, file uploads, magic vars)
+---------------------------------------------------------------------------
+
+--- Process form data magic variables and file inclusions in the request body.
+--- - Replaces {{\$timestamp}} with a unique timestamp
+--- - Replaces lines like `< /path/to/file` with actual file contents
+--- Operates on the current request block only.
+local function process_form_data(src_buf, cursor_line, content)
+  local start_line, end_line = find_request_block_bounds(src_buf, cursor_line)
+  if not start_line then return content end
+
+  -- Generate unique timestamp for this request (used as multipart boundary)
+  local timestamp = tostring(os.time()) .. math.random(100000, 999999)
+
+  local lines = vim.split(content, "\n", { plain = true })
+  local result = {}
+
+  for i, line in ipairs(lines) do
+    if i >= start_line and i <= end_line then
+      -- Replace {{$timestamp}} with unique value
+      local processed = line:gsub("{{%$timestamp}}", timestamp)
+
+      -- Check if this is a file inclusion line: `< /path/to/file`
+      local file_path = processed:match("^%s*<%s+(.+)$")
+      if file_path then
+        file_path = vim.trim(file_path)
+        -- Expand ~ to home directory
+        if file_path:sub(1, 1) == "~" then
+          file_path = vim.fn.expand("~") .. file_path:sub(2)
+        end
+        -- Read file contents
+        local f = io.open(file_path, "rb")
+        if f then
+          local file_content = f:read("*a")
+          f:close()
+          table.insert(result, file_content)
+          log("INFO", string.format("Included file: %s (%d bytes)", file_path, #file_content))
+        else
+          log("ERROR", string.format("Cannot open file: %s", file_path))
+          table.insert(result, processed)  -- keep original line on error
+        end
+      else
+        table.insert(result, processed)
+      end
+    else
+      table.insert(result, line)
+    end
+  end
+
+  return table.concat(result, "\n")
+end
+
+---------------------------------------------------------------------------
 -- Request variables (cross-request reference)
 ---------------------------------------------------------------------------
 
@@ -1196,6 +1249,9 @@ function M.run_request()
 
   -- Resolve request variables: execute dependent requests and substitute {{RequestName.response.body.field}}
   buf_content = resolve_request_variables(binary, file, current_env, src_buf, line, buf_content)
+
+  -- Process form data magic variables and file inclusions
+  buf_content = process_form_data(src_buf, line, buf_content)
 
   -- Get the current request name for caching
   local requests = collect_requests(src_buf)

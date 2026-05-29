@@ -17,34 +17,62 @@ impl Parser {
         // For now, assume .http
         let protocol = Protocol::Http;
         
-        // Find the request block containing the cursor
-        let requests: Vec<&str> = content.split("\n### ").collect();
+        // Split content into request blocks by ### markers
+        let mut blocks = Vec::new();
+        let mut current_block = String::new();
         
+        for line in content.lines() {
+            if line.trim().starts_with("###") {
+                if !current_block.is_empty() {
+                    blocks.push(current_block.clone());
+                    current_block.clear();
+                }
+            }
+            current_block.push_str(line);
+            current_block.push('\n');
+        }
+        if !current_block.is_empty() {
+            blocks.push(current_block);
+        }
+        
+        // Find the block containing the cursor line
         let mut current_line = 0;
-        for block in requests {
+        for block in &blocks {
             let block_lines = block.lines().count();
             if current_line + block_lines > line_num {
                 return self.parse_block(block, protocol);
             }
-            current_line += block_lines + 1; // +1 for the ### separator
+            current_line += block_lines;
         }
         
         anyhow::bail!("No request found at line {}", line_num);
     }
 
     fn parse_block(&self, block: &str, protocol: Protocol) -> Result<Request> {
-        let mut lines = block.lines();
+        let lines = block.lines();
         
-        // First line might be the name (after ###)
-        let name = lines.next()
-            .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty());
+        // First line should be ### Request Name
+        let mut name = None;
+        let mut request_lines = Vec::new();
         
-        // Extract connection from @connection comment
-        let connection = self.extract_connection(block)?;
+        for line in lines {
+            if line.trim().starts_with("###") {
+                // Extract name after ###
+                name = Some(line.trim().trim_start_matches("###").trim().to_string());
+            } else {
+                request_lines.push(line);
+            }
+        }
         
-        // Replace {{var}} with env values
-        let body = self.substitute_vars(block);
+        // For HTTP, connection is embedded in the request line (URL)
+        // For other protocols, we need @connection directive
+        let connection = match protocol {
+            Protocol::Http => String::new(), // Will be extracted from request line
+            _ => self.extract_connection(block)?,
+        };
+        
+        // Reconstruct body without the ### line
+        let body = self.substitute_vars(&request_lines.join("\n"));
         
         Ok(Request {
             name,

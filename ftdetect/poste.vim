@@ -6,5 +6,5 @@ if exists("g:loaded_poste")
 endif
 let g:loaded_poste = 1
 
-" Detect .http and .rest files
-autocmd BufRead,BufNewFile *.http,*.rest set filetype=http
+" Detect .http, .rest, and .redis files
+autocmd BufRead,BufNewFile *.http,*.rest,*.redis set filetype=http

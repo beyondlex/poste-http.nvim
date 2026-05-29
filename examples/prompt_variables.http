@@ -1,0 +1,23 @@
+# Prompt variables are local to each request
+# Only prompts defined in the current request block will be asked
+
+### Get Pokemon
+# @prompt pokemon
+GET https://pokeapi.co/api/v2/pokemon/{{pokemon}} HTTP/1.1
+Accept: application/json
+
+### Get Pokemon Ability
+# @prompt ability
+GET https://pokeapi.co/api/v2/ability/{{ability}} HTTP/1.1
+Accept: application/json
+
+### Search Pokemon (uses global @prompt, not local)
+# This request has no @prompt, so it won't ask for anything
+GET https://pokeapi.co/api/v2/pokemon?limit=20 HTTP/1.1
+Accept: application/json
+
+### Multiple prompts
+# @prompt type_name
+# @prompt limit
+GET https://pokeapi.co/api/v2/type/{{type_name}}?limit={{limit}} HTTP/1.1
+Accept: application/json

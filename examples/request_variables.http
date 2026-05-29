@@ -1,0 +1,29 @@
+### Login
+POST https://httpbin.org/post
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "secret123"
+}
+
+### Get User Profile
+# This request references the Login response
+# {{Login.response.body.json.username}} extracts the username from Login's response body
+GET https://httpbin.org/get?user={{Login.response.body.json.username}}
+Accept: application/json
+
+### Get User Orders
+# Reference nested field from Login response
+GET https://httpbin.org/get?user={{Login.response.body.json.username}}&token={{Login.response.body.url}}
+Accept: application/json
+
+### Get Response Header
+# Reference a header from Login response
+GET https://httpbin.org/get?content_type={{Login.response.headers.content-type}}
+Accept: application/json
+
+### Chained Request
+# Reference another request that itself references Login
+GET https://httpbin.org/get?previous={{Get User Profile.response.body.url}}
+Accept: application/json

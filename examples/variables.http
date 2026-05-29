@@ -1,0 +1,22 @@
+# File-level variables (shared across all requests)
+@base_url = https://httpbin.org
+@timeout = 30
+
+### GET request with file variables
+GET {{base_url}}/get?timeout={{timeout}}
+
+### POST with request-level variables
+@user_id = 123
+@user_name = John Doe
+POST {{base_url}}/post
+Content-Type: application/json
+
+{
+  "user_id": "{{user_id}}",
+  "name": "{{user_name}}",
+  "timeout": {{timeout}}
+}
+
+### Variable priority test
+@host = request-level.com
+GET https://{{host}}/anything

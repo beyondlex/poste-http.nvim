@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use anyhow::Result;
+use std::io::Read;
 
 #[derive(Parser)]
 #[command(name = "poste")]
@@ -13,7 +14,8 @@ struct Cli {
 enum Commands {
     /// Execute a request at a specific line
     Run {
-        /// File path
+        /// File path (used for env.json discovery and extension detection;
+        /// with --stdin the file does not need to exist on disk)
         file: String,
         /// Line number
         #[arg(short, long)]
@@ -21,6 +23,12 @@ enum Commands {
         /// Environment name
         #[arg(short, long, default_value = "dev")]
         env: String,
+        /// Output as JSON (for Neovim plugin consumption)
+        #[arg(long)]
+        json: bool,
+        /// Read request content from stdin instead of from the file
+        #[arg(long)]
+        stdin: bool,
     },
 }
 
@@ -29,75 +37,123 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Run { file, line, env } => {
-            // Resolve the request file to an absolute path
-            let file_path = std::path::Path::new(&file);
-            let file_path = if file_path.is_absolute() {
-                file_path.to_path_buf()
-            } else {
-                std::env::current_dir()?.join(file_path)
-            };
-            
-            // Canonicalize to resolve .. and symlinks
-            let file_path = std::fs::canonicalize(&file_path)
-                .map_err(|e| anyhow::anyhow!("Request file not found: {} ({})", file_path.display(), e))?;
+        Commands::Run { file, line, env, json, stdin } => {
+            let file_path = std::path::PathBuf::from(&file);
 
-            // Find env.json: look in the request file's directory, then walk up
-            let mut search_dir = file_path.parent().unwrap();
+            // Determine the directory to search for env.json, and the file extension.
+            // With --stdin the file may not exist on disk, so use its path as-is.
+            let (search_dir, file_ext) = if stdin {
+                let abs = if file_path.is_absolute() {
+                    file_path.clone()
+                } else {
+                    std::env::current_dir()?.join(&file_path)
+                };
+                let ext = abs
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("http")
+                    .to_string();
+                let dir = abs.parent()
+                    .unwrap_or_else(|| std::path::Path::new("."))
+                    .to_path_buf();
+                (dir, ext)
+            } else {
+                // Resolve and canonicalize the file path
+                let abs = if file_path.is_absolute() {
+                    file_path.clone()
+                } else {
+                    std::env::current_dir()?.join(&file_path)
+                };
+                let canonical = std::fs::canonicalize(&abs)
+                    .map_err(|e| anyhow::anyhow!("Request file not found: {} ({})", abs.display(), e))?;
+                let ext = canonical
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("http")
+                    .to_string();
+                let dir = canonical.parent().unwrap().to_path_buf();
+                (dir, ext)
+            };
+
+            // Find env.json: look in search_dir, then walk up
+            let mut dir = search_dir.as_path();
             let env_path = loop {
-                let candidate = search_dir.join("env.json");
+                let candidate = dir.join("env.json");
                 if candidate.exists() {
                     break candidate;
                 }
-                match search_dir.parent() {
-                    Some(parent) => search_dir = parent,
+                match dir.parent() {
+                    Some(parent) => dir = parent,
                     None => anyhow::bail!(
                         "env.json not found. Searched from {} to filesystem root",
-                        file_path.parent().unwrap().display()
+                        search_dir.display()
                     ),
                 }
             };
             let env_file = poste_core::Environment::load(env_path.to_str().unwrap())?;
-            
+
             let env_vars = env_file.envs.get(&env)
                 .ok_or_else(|| anyhow::anyhow!("Environment '{}' not found", env))?
                 .clone();
-            
-            // Parse the request
-            let content = std::fs::read_to_string(&file_path)?;
-            let parser = poste_core::Parser::new(env_vars);
-            let request = parser.parse_at_line(&content, line)?;
-            
-            println!("Executing: {:?}", request.name);
-            println!("Protocol: {:?}", request.protocol);
-            println!("Connection: {}", request.connection);
-            println!();
-            
-            // Execute the request and measure latency
-            let start = std::time::Instant::now();
-            let response = poste_exec::Executor::execute(&request).await?;
-            let latency_ms = start.elapsed().as_millis();
 
-            println!("Status: {}", response.status);
-            println!("Latency: {}ms", latency_ms);
-            println!("Headers:");
-            for (key, value) in &response.headers {
-                println!("  {}: {}", key, value);
-            }
-            println!();
-            println!("Body:");
-
-            // Pretty-print JSON responses
-            if response.headers.get("content-type")
-                .map(|ct| ct.contains("json"))
-                .unwrap_or(false)
-            {
-                match serde_json::from_str::<serde_json::Value>(&response.body) {
-                    Ok(json) => println!("{}", serde_json::to_string_pretty(&json).unwrap()),
-                    Err(_) => println!("{}", response.body),
-                }
+            // Read request content
+            let content = if stdin {
+                let mut buf = String::new();
+                std::io::stdin().read_to_string(&mut buf)?;
+                buf
             } else {
-                println!("{}", response.body);
+                let canonical = std::fs::canonicalize(&file_path)
+                    .unwrap_or(file_path.clone());
+                std::fs::read_to_string(&canonical)?
+            };
+
+            // Parse the request
+            let parser = poste_core::Parser::new(env_vars);
+            let request = parser.parse_at_line(&content, line, &file_ext)?;
+
+            // Load cookie jar
+            let cookie_jar = poste_exec::CookieJar::load(&env);
+
+            // Execute
+            let response = poste_exec::Executor::execute(&request, Some(&cookie_jar)).await?;
+
+            // Save cookies (best effort)
+            if let Err(e) = cookie_jar.save() {
+                eprintln!("[poste] warning: failed to save cookies: {}", e);
+            }
+
+            if json {
+                println!("{}", serde_json::to_string(&response)?);
+            } else {
+                println!("Executing: {:?}", request.name);
+                println!("Protocol: {:?}", request.protocol);
+                println!("Connection: {}", request.connection);
+                println!();
+
+                println!("Status: {}", response.status_text);
+                println!("Latency: {}ms", response.latency_ms);
+                println!("URL: {}", response.url);
+                if !response.cookies.is_empty() {
+                    println!("Cookies:");
+                    for c in &response.cookies {
+                        println!("  {}={} (domain={}, path={})", c.name, c.value, c.domain, c.path);
+                    }
+                }
+                println!("Headers:");
+                for (key, value) in &response.headers {
+                    println!("  {}: {}", key, value);
+                }
+                println!();
+                println!("Body:");
+
+                if response.content_type.contains("json") {
+                    match serde_json::from_str::<serde_json::Value>(&response.body) {
+                        Ok(json) => println!("{}", serde_json::to_string_pretty(&json).unwrap()),
+                        Err(_) => println!("{}", response.body),
+                    }
+                } else {
+                    println!("{}", response.body);
+                }
             }
         }
     }

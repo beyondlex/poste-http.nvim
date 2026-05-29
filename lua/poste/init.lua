@@ -810,19 +810,27 @@ local function handle_prompt_variables(buf, cursor_line, content)
           goto continue
         end
 
-        -- Show synchronous selection UI using vim.fn.inputlist.
-        -- We avoid vim.ui.select because plugins (dressing.nvim, telescope-ui-select)
-        -- often make it async, which would break the synchronous flow here.
-        local choices = { string.format("Select value for '%s' (press Enter to confirm, 0/empty to cancel):", varname_sel) }
-        for idx, opt in ipairs(options) do
-          table.insert(choices, string.format("%d. %s", idx, opt))
-        end
+        -- Use vim.ui.select (integrates with dressing.nvim, telescope-ui-select,
+        -- fzf-lua, snacks.nvim for nice UIs on long lists), but bridge it to
+        -- synchronous via vim.wait() so the request flow blocks until user picks.
+        local selected = nil
+        local done = false
+        vim.ui.select(options, {
+          prompt = string.format("Select value for '%s':", varname_sel),
+          kind = "poste_prompt",
+        }, function(choice)
+          selected = choice
+          done = true
+        end)
 
-        local choice = vim.fn.inputlist(choices)
-        if choice and choice >= 1 and choice <= #options then
-          table.insert(result, string.format("@%s = %s", varname_sel, options[choice]))
+        -- Block until the callback fires (handles both sync default impl
+        -- and async overrides from UI plugins). Timeout: 5 minutes.
+        vim.wait(300000, function() return done end, 50)
+
+        if selected then
+          table.insert(result, string.format("@%s = %s", varname_sel, selected))
         else
-          -- User cancelled (0 or out of range)
+          -- User cancelled (nil) or timed out
           table.insert(result, line)
         end
       else

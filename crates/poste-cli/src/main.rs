@@ -37,6 +37,10 @@ async fn main() -> Result<()> {
             } else {
                 std::env::current_dir()?.join(file_path)
             };
+            
+            // Canonicalize to resolve .. and symlinks
+            let file_path = std::fs::canonicalize(&file_path)
+                .map_err(|e| anyhow::anyhow!("Request file not found: {} ({})", file_path.display(), e))?;
 
             // Find env.json: look in the request file's directory, then walk up
             let mut search_dir = file_path.parent().unwrap();

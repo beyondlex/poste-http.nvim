@@ -1,0 +1,14 @@
+# 测试短列表（≤20项）- 应该使用 inputlist
+### Short List Test
+# @prompt color [red, green, blue, yellow, purple]
+GET https://httpbin.org/get?color={{color}}
+
+# 测试长列表（>20项）- 应该使用文本输入 + 补全
+### Long List Test
+# @prompt country [USA, Canada, Mexico, Brazil, Argentina, Chile, Peru, Colombia, Venezuela, Ecuador, Bolivia, Paraguay, Uruguay, Guyana, Suriname, France, Germany, Italy, Spain, Portugal, United_Kingdom, Netherlands, Belgium, Switzerland, Austria]
+GET https://httpbin.org/get?country={{country}}
+
+# 测试中等列表（恰好20项）- 应该使用 inputlist
+### Medium List Test
+# @prompt number [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+GET https://httpbin.org/get?number={{number}}

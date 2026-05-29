@@ -810,27 +810,47 @@ local function handle_prompt_variables(buf, cursor_line, content)
           goto continue
         end
 
-        -- Use vim.ui.select (integrates with dressing.nvim, telescope-ui-select,
-        -- fzf-lua, snacks.nvim for nice UIs on long lists), but bridge it to
-        -- synchronous via vim.wait() so the request flow blocks until user picks.
         local selected = nil
-        local done = false
-        vim.ui.select(options, {
-          prompt = string.format("Select value for '%s':", varname_sel),
-          kind = "poste_prompt",
-        }, function(choice)
-          selected = choice
-          done = true
-        end)
 
-        -- Block until the callback fires (handles both sync default impl
-        -- and async overrides from UI plugins). Timeout: 5 minutes.
-        vim.wait(300000, function() return done end, 50)
+        if #options <= 20 then
+          -- Short list: use inputlist (synchronous, no blocking issues)
+          local choices = { string.format("Select value for '%s' (Enter to confirm, 0/Esc to cancel):", varname_sel) }
+          for idx, opt in ipairs(options) do
+            table.insert(choices, string.format("%d. %s", idx, opt))
+          end
+
+          local choice = vim.fn.inputlist(choices)
+          if choice and choice >= 1 and choice <= #options then
+            selected = options[choice]
+          end
+        else
+          -- Long list: let user type directly, with validation
+          local preview = table.concat(vim.list_slice(options, 1, 5), ", ")
+          if #options > 5 then preview = preview .. "..." end
+
+          local value = vim.fn.input {
+            prompt = string.format("Enter value for '%s' (options: %s): ", varname_sel, preview),
+            default = "",
+            completion = "customlist,v:lua.require'poste'.complete_prompt_options",
+          }
+
+          if value and value ~= "" then
+            -- Validate: must be in options list
+            if vim.tbl_contains(options, value) then
+              selected = value
+            else
+              vim.notify(string.format("Invalid value '%s', must be one of the options", value), vim.log.levels.WARN)
+            end
+          end
+
+          -- Store options for completion
+          M._prompt_options = options
+        end
 
         if selected then
           table.insert(result, string.format("@%s = %s", varname_sel, selected))
         else
-          -- User cancelled (nil) or timed out
+          -- User cancelled or invalid input
           table.insert(result, line)
         end
       else
@@ -1518,6 +1538,20 @@ function M.setup(opts)
   _G.poste_status = function()
     return string.format("[env: %s]", current_env)
   end
+end
+
+-- Completion function for long prompt option lists
+-- Used by vim.fn.input() completion parameter
+function M.complete_prompt_options(arg_lead, cmd_line, cursor_pos)
+  if not M._prompt_options then return {} end
+
+  local matches = {}
+  for _, opt in ipairs(M._prompt_options) do
+    if opt:find(arg_lead, 1, true) == 1 then
+      table.insert(matches, opt)
+    end
+  end
+  return matches
 end
 
 return M

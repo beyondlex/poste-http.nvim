@@ -206,6 +206,14 @@ function M.setup(opts)
   -- Merge config
   config = vim.tbl_deep_extend("force", config, opts)
   
+  -- Helper function to setup keymaps for a buffer
+  local function setup_buffer_keymaps(buf)
+    local keymap_opts = { buffer = buf, noremap = true, silent = true }
+    vim.keymap.set("n", "<leader>rr", M.run_request, keymap_opts)
+    vim.keymap.set("n", "]]", M.jump_next, keymap_opts)
+    vim.keymap.set("n", "[[", M.jump_prev, keymap_opts)
+  end
+  
   -- Create commands
   vim.api.nvim_create_user_command("PosteRun", function()
     M.run_request()
@@ -232,14 +240,18 @@ function M.setup(opts)
     callback = function()
       -- Set filetype
       vim.bo.filetype = "http"
-      
-      -- Set up keymaps
-      local opts = { buffer = true, noremap = true, silent = true }
-      vim.keymap.set("n", "<leader>rr", M.run_request, opts)
-      vim.keymap.set("n", "]]", M.jump_next, opts)
-      vim.keymap.set("n", "[[", M.jump_prev, opts)
+      setup_buffer_keymaps(0)
     end,
   })
+  
+  -- Setup keymaps for already-open .http buffers
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    local name = vim.api.nvim_buf_get_name(buf)
+    if name:match("%.http$") or name:match("%.rest$") then
+      vim.api.nvim_buf_set_option(buf, "filetype", "http")
+      setup_buffer_keymaps(buf)
+    end
+  end
   
   -- Status line integration
   _G.poste_status = function()

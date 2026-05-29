@@ -7,11 +7,13 @@
 cargo build
 ```
 
-2. Open Neovim with the plugin:
+2. Open Neovim with the plugin loaded:
 ```bash
 cd /Users/lex/code/github/poste
-nvim --cmd "set rtp+=." examples/api.http
+nvim examples/api.http -c "set rtp+=/Users/lex/code/github/poste" -c "runtime plugin/poste.lua"
 ```
+
+**Note:** The `-c` commands must come after the filename to ensure they run after your vimrc initializes.
 
 3. Test the plugin:
    - Press `<leader>rr` to run a request

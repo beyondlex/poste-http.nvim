@@ -810,18 +810,19 @@ local function handle_prompt_variables(buf, cursor_line, content)
           goto continue
         end
 
-        -- Show selection UI (up/down arrows via vim.ui.select)
-        local selected = nil
-        vim.ui.select(options, {
-          prompt = string.format("Select value for '%s':", varname_sel),
-        }, function(choice)
-          selected = choice
-        end)
+        -- Show synchronous selection UI using vim.fn.inputlist.
+        -- We avoid vim.ui.select because plugins (dressing.nvim, telescope-ui-select)
+        -- often make it async, which would break the synchronous flow here.
+        local choices = { string.format("Select value for '%s' (press Enter to confirm, 0/empty to cancel):", varname_sel) }
+        for idx, opt in ipairs(options) do
+          table.insert(choices, string.format("%d. %s", idx, opt))
+        end
 
-        if selected then
-          table.insert(result, string.format("@%s = %s", varname_sel, selected))
+        local choice = vim.fn.inputlist(choices)
+        if choice and choice >= 1 and choice <= #options then
+          table.insert(result, string.format("@%s = %s", varname_sel, options[choice]))
         else
-          -- User cancelled
+          -- User cancelled (0 or out of range)
           table.insert(result, line)
         end
       else

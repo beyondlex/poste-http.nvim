@@ -1,0 +1,10 @@
+# @connection redis://{{redis_host}}
+
+### Session lookup
+GET session:user:42
+
+### Set cache
+SET product:100 '{"name":"Widget","price":9.99}' EX 3600
+
+### Bulk delete
+DEL session:user:41 session:user:42 session:user:43

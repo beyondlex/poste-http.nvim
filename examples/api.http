@@ -1,0 +1,14 @@
+### List users
+GET {{api_base}}/users
+Authorization: Bearer ***
+
+### Create user
+POST {{api_base}}/users
+Content-Type: application/json
+Authorization: Bearer ***
+
+{"name": "John", "email": "john@test.com"}
+
+### Get user by ID
+GET {{api_base}}/users/42
+Authorization: Bearer ***

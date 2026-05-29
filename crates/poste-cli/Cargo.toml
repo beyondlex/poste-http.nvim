@@ -1,0 +1,17 @@
+[package]
+name = "poste-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "poste"
+path = "src/main.rs"
+
+[dependencies]
+poste-core = { path = "../poste-core" }
+poste-exec = { path = "../poste-exec" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+clap.workspace = true

@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
                 .clone();
             
             // Parse the request
-            let content = std::fs::read_to_string(&file)?;
+            let content = std::fs::read_to_string(&file_path)?;
             let parser = poste_core::Parser::new(env_vars);
             let request = parser.parse_at_line(&content, line)?;
             

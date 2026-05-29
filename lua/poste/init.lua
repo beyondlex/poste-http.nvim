@@ -776,7 +776,9 @@ local function find_request_block_bounds(buf, cursor_line)
 end
 
 --- Handle @prompt directives in the current request block only.
---- Syntax: # @prompt variable_name
+--- Syntax:
+---   # @prompt variable_name                   → text input
+---   # @prompt variable_name [opt1, opt2, ...] → selection from list (up/down arrows)
 --- Only processes @prompt lines within the request block containing cursor_line.
 --- Always prompts for input (no caching) so users can use different values each time.
 --- Returns the modified full buffer content with prompts replaced.
@@ -790,29 +792,62 @@ local function handle_prompt_variables(buf, cursor_line, content)
   for i, line in ipairs(lines) do
     -- Only process @prompt within the current request block (1-indexed)
     if i >= start_line and i <= end_line then
-      -- Match: # @prompt varname
-      local varname = line:match("^%s*#%s*@prompt%s+(%S+)")
+      -- Match: # @prompt varname [opt1, opt2, ...]  (selection mode)
+      local varname_sel, options_str = line:match("^%s*#%s*@prompt%s+(%S+)%s*%[([^%]]+)%]")
 
-      if varname then
-        -- Always prompt for input (no caching)
-        local ok, value = pcall(vim.fn.input, {
-          prompt = string.format("Enter value for '%s': ", varname),
-          default = "",
-        })
+      if varname_sel and options_str then
+        -- Parse options: split by comma and trim
+        local options = {}
+        for opt in options_str:gmatch("[^,]+") do
+          local trimmed = vim.trim(opt)
+          if trimmed ~= "" then
+            table.insert(options, trimmed)
+          end
+        end
 
-        if ok and value and value ~= "" then
-          -- Replace # @prompt varname with @varname = value
-          table.insert(result, string.format("@%s = %s", varname, value))
+        if #options == 0 then
+          table.insert(result, line)
+          goto continue
+        end
+
+        -- Show selection UI (up/down arrows via vim.ui.select)
+        local selected = nil
+        vim.ui.select(options, {
+          prompt = string.format("Select value for '%s':", varname_sel),
+        }, function(choice)
+          selected = choice
+        end)
+
+        if selected then
+          table.insert(result, string.format("@%s = %s", varname_sel, selected))
         else
-          -- User cancelled or entered empty string, keep the @prompt line as-is
+          -- User cancelled
           table.insert(result, line)
         end
       else
-        table.insert(result, line)
+        -- Match: # @prompt varname  (text input mode)
+        local varname = line:match("^%s*#%s*@prompt%s+(%S+)")
+
+        if varname then
+          local ok, value = pcall(vim.fn.input, {
+            prompt = string.format("Enter value for '%s': ", varname),
+            default = "",
+          })
+
+          if ok and value and value ~= "" then
+            table.insert(result, string.format("@%s = %s", varname, value))
+          else
+            table.insert(result, line)
+          end
+        else
+          table.insert(result, line)
+        end
       end
     else
       table.insert(result, line)
     end
+
+    ::continue::
   end
 
   return table.concat(result, "\n")

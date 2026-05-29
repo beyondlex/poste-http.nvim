@@ -69,17 +69,32 @@ async fn main() -> Result<()> {
             println!("Connection: {}", request.connection);
             println!();
             
-            // Execute the request
+            // Execute the request and measure latency
+            let start = std::time::Instant::now();
             let response = poste_exec::Executor::execute(&request).await?;
-            
+            let latency_ms = start.elapsed().as_millis();
+
             println!("Status: {}", response.status);
+            println!("Latency: {}ms", latency_ms);
             println!("Headers:");
             for (key, value) in &response.headers {
                 println!("  {}: {}", key, value);
             }
             println!();
             println!("Body:");
-            println!("{}", response.body);
+
+            // Pretty-print JSON responses
+            if response.headers.get("content-type")
+                .map(|ct| ct.contains("json"))
+                .unwrap_or(false)
+            {
+                match serde_json::from_str::<serde_json::Value>(&response.body) {
+                    Ok(json) => println!("{}", serde_json::to_string_pretty(&json).unwrap()),
+                    Err(_) => println!("{}", response.body),
+                }
+            } else {
+                println!("{}", response.body);
+            }
         }
     }
 

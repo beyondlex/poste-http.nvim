@@ -1,6 +1,6 @@
 # Poste Roadmap
 
-## Phase 1 — MVP: HTTP + CLI (Current)
+## Phase 1 — MVP: HTTP + CLI ✅
 
 **Goal:** Execute HTTP requests from `.http` files via CLI.
 
@@ -11,9 +11,9 @@
 - [x] HTTP execution (GET/POST/PUT/DELETE/PATCH/HEAD)
 - [x] Response output (status, headers, body)
 - [x] CLI interface (`poste run <file> --line N --env <name>`)
-- [ ] JSON response pretty-printing
-- [ ] Response timing (latency display)
-- [ ] Unit tests for parser and executor
+- [x] JSON response pretty-printing
+- [x] Response timing (latency display)
+- [x] Unit tests for parser (8 tests passing)
 
 ## Phase 2 — Neovim Plugin
 

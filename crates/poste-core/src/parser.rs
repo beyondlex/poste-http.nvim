@@ -100,3 +100,76 @@ impl Parser {
         }).to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_substitute_vars_simple() {
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert("name".to_string(), "John".to_string());
+        let parser = Parser::new(env_vars);
+        let result = parser.substitute_vars("Hello, {{name}}!");
+        assert_eq!(result, "Hello, John!");
+    }
+
+    #[test]
+    fn test_substitute_vars_multiple() {
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert("first".to_string(), "Jane".to_string());
+        env_vars.insert("last".to_string(), "Doe".to_string());
+        let parser = Parser::new(env_vars);
+        let result = parser.substitute_vars("{{first}} {{last}}");
+        assert_eq!(result, "Jane Doe");
+    }
+
+    #[test]
+    fn test_substitute_vars_not_found() {
+        let parser = Parser::new(std::collections::HashMap::new());
+        let result = parser.substitute_vars("{{missing}}");
+        assert_eq!(result, "{{missing}}");
+    }
+
+    #[test]
+    fn test_substitute_vars_no_vars() {
+        let parser = Parser::new(std::collections::HashMap::new());
+        let result = parser.substitute_vars("no variables");
+        assert_eq!(result, "no variables");
+    }
+
+    #[test]
+    fn test_extract_connection_success() {
+        let parser = Parser::new(std::collections::HashMap::new());
+        let block = "# @connection redis://localhost:6379\nGET user:123";
+        let result = parser.extract_connection(block).unwrap();
+        assert_eq!(result, "redis://localhost:6379");
+    }
+
+    #[test]
+    fn test_extract_connection_missing() {
+        let parser = Parser::new(std::collections::HashMap::new());
+        let block = "GET http://example.com";
+        let result = parser.extract_connection(block);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_connection_postgres() {
+        let parser = Parser::new(std::collections::HashMap::new());
+        let block = "# @connection postgres://user:pass@localhost:5432/db\nSELECT 1";
+        let result = parser.extract_connection(block).unwrap();
+        assert_eq!(result, "postgres://user:pass@localhost:5432/db");
+    }
+
+    #[test]
+    fn test_extract_connection_with_vars() {
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert("db_host".to_string(), "localhost".to_string());
+        env_vars.insert("db_port".to_string(), "5432".to_string());
+        let parser = Parser::new(env_vars);
+        let block = "# @connection postgres://user:pass@{{db_host}}:{{db_port}}/mydb\nSELECT 1";
+        let result = parser.extract_connection(block).unwrap();
+        assert_eq!(result, "postgres://user:pass@localhost:5432/mydb");
+    }
+}

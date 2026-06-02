@@ -58,6 +58,15 @@ function M.setup()
     { "PosteScriptMarker", "Special" },
     { "PosteExternalScript", "Include" },
     { "PosteFileInclude",  "Include" },
+    { "PosteJsonString",   "String" },
+    { "PosteJsonNumber",   "Number" },
+    { "PosteJsonBoolean",  "Boolean" },
+    { "PosteJsonNull",     "Special" },
+    { "PosteJsonBraces",   "Delimiter" },
+    { "PosteJsonBrackets", "Delimiter" },
+    { "PosteJsonColon",    "Delimiter" },
+    { "PosteJsonComma",    "Delimiter" },
+    { "PosteJsonEscape",   "SpecialChar" },
   }
   for _, pair in ipairs(syntax_links) do
     local existing = vim.api.nvim_get_hl(0, { name = pair[1] })

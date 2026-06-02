@@ -20,3 +20,16 @@ Content-Type: application/json
 ### Variable priority test
 @host = request-level.com
 GET https://{{host}}/anything
+
+
+### POST with request-level variables
+@user_id = 123
+@user_name = John Doe
+POST {{base_url}}/post
+Content-Type: application/json
+
+{
+  "user_id": "{{user_id}}",
+  "name": "{{user_name}}",
+  "timeout": 123
+}

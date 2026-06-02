@@ -82,6 +82,28 @@ syn match PosteHeaderKey '^\s*[A-Za-z][A-Za-z0-9-]*\ze:'
   \ nextgroup=PosteHeaderSep
 syn match PosteHeaderSep ':' contained
 
+" ─── Request body (payload after blank line) ──────────
+" Body starts at a blank line (separating headers from body)
+" and ends before the next ### separator or at EOF.
+" Manual JSON syntax avoids syn include's syn-clear side effect
+" and lets {{var}} refs highlight inside JSON values.
+syn region PosteBody start=+^\s*\n+ end=+\n\ze\s*###\|\%$+ keepend
+  \ contains=PosteJsonString,PosteJsonNumber,PosteJsonBoolean,PosteJsonNull,
+  \PosteJsonBraces,PosteJsonBrackets,PosteJsonColon,PosteJsonComma,
+  \PosteVarRef,PosteMagicVar
+
+syn match  PosteJsonNumber  '[-]\?\%(\d\+\.\d\+\|\d\+\)' contained
+syn match  PosteJsonBoolean '\<\%(true\|false\)\>' contained
+syn match  PosteJsonNull    '\<null\>' contained
+syn match  PosteJsonBraces  '[{}]' contained
+syn match  PosteJsonBrackets '[\[\]]' contained
+syn match  PosteJsonColon   ':' contained
+syn match  PosteJsonComma   ',' contained
+syn region PosteJsonString  start=+"+ skip=+\\\\\|\\"+ end=+"+ contained
+  \ contains=PosteJsonEscape,PosteVarRef,PosteMagicVar
+syn match  PosteJsonEscape  '\\["\\/bfnrt]' contained
+syn match  PosteJsonEscape  '\\u\x\{4}' contained
+
 " ─── Highlight group links ──────────────────────────
 hi def link PosteSeparator   Delimiter
 hi def link PosteRequestName Title
@@ -109,5 +131,14 @@ hi def link PosteAssertion   PreProc
 hi def link PosteScriptMarker Special
 hi def link PosteExternalScript Include
 hi def link PosteFileInclude Include
+hi def link PosteJsonString  String
+hi def link PosteJsonNumber  Number
+hi def link PosteJsonBoolean Boolean
+hi def link PosteJsonNull    Special
+hi def link PosteJsonBraces  Delimiter
+hi def link PosteJsonBrackets Delimiter
+hi def link PosteJsonColon   Delimiter
+hi def link PosteJsonComma   Delimiter
+hi def link PosteJsonEscape  SpecialChar
 
 let b:current_syntax = "poste_http"

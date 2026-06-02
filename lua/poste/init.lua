@@ -557,20 +557,32 @@ function M.goto_references()
   end
 
   local function jump_to(item)
-    local target_line, target_col = item:match("^L(%d+):(%d+):")
-    if not target_line then return end
+    xpcall(function()
+      local target_line, target_col = item:match("^L(%d+):(%d+):")
+      if not target_line then return end
 
-    local line = tonumber(target_line)
-    local col = tonumber(target_col)
-    if not line or not col then return end
+      local line = tonumber(target_line)
+      local col = tonumber(target_col)
+      if not line or not col then return end
 
-    -- Ensure line is an integer
-    line = math.floor(line)
+      -- Ensure line and col are integers
+      line = math.floor(line)
+      col = math.floor(col)
 
-    -- Try to jump directly, ignore any errors
-    pcall(function()
-      vim.cmd("normal! m'")  -- Save position to jumplist
-      vim.cmd(string.format("normal! %dG", line))  -- Go to line only
+      -- Validate line is within buffer bounds
+      local line_count = vim.fn.line("$")
+      if line < 1 or line > line_count then return end
+
+      -- Validate col is within line bounds
+      local lines = vim.api.nvim_buf_get_lines(buf, line - 1, line, false)
+      local line_text = (lines and lines[1]) or ""
+      if col < 0 or col > #line_text then col = 0 end
+
+      -- Save position to jumplist and jump
+      vim.cmd("normal! m'")
+      vim.api.nvim_win_set_cursor(0, { line, col })
+    end, function(err)
+      -- Silently ignore any errors
     end)
   end
 

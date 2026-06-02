@@ -92,10 +92,16 @@ impl Parser {
         }
 
         // For HTTP, connection is embedded in the request line (URL)
-        // For other protocols, we need @connection directive
+        // For other protocols, we need @connection directive (block-level, then file-level fallback)
         let connection = match protocol {
             Protocol::Http => String::new(), // Will be extracted from request line
-            _ => self.extract_connection(block, file_vars, &request_vars)?,
+            _ => self.extract_connection(block, file_vars, &request_vars)
+                .or_else(|_| {
+                    // Fallback: look for @connection in file-level variables
+                    file_vars.get("connection")
+                        .cloned()
+                        .ok_or_else(|| anyhow::anyhow!("No @connection directive found in request block or file header"))
+                })?,
         };
 
         // Reconstruct body without the ### line
@@ -160,6 +166,12 @@ impl Parser {
 
             if let Some((key, value)) = self.parse_variable_line(line) {
                 vars.insert(key, value);
+            }
+
+            // Also parse @connection directives in comments (# @connection ... or -- @connection ...)
+            let re = Regex::new(r"(?:--|#)\s*@connection\s+(.+)").unwrap();
+            if let Some(caps) = re.captures(line) {
+                vars.insert("connection".to_string(), caps[1].trim().to_string());
             }
         }
 

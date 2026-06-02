@@ -22,6 +22,7 @@ local response_window = nil
 local last_response = nil       -- parsed JSON table from --json output
 local current_view = "body"     -- "body" | "headers" | "verbose"
 local indicator_ns = vim.api.nvim_create_namespace("poste_indicator")
+local redis_ns = vim.api.nvim_create_namespace("poste_redis")
 local indicator_mark = nil      -- extmark id of current indicator
 local indicator_buf = nil       -- buffer the indicator is on
 local spinner_timer = nil       -- uv timer for spinner animation
@@ -55,6 +56,22 @@ local function setup_hl()
     -- fg only, no bg — hl_mode="combine" on extmark handles bg inheritance
     vim.api.nvim_set_hl(0, pair[1], { fg = fg })
   end
+
+  -- Redis type-specific highlight groups
+  vim.api.nvim_set_hl(0, "PosteRedisString",   { fg = 0x98c379 })   -- green
+  vim.api.nvim_set_hl(0, "PosteRedisHash",     { fg = 0x56b6c2 })   -- cyan
+  vim.api.nvim_set_hl(0, "PosteRedisList",     { fg = 0x61afef })   -- blue
+  vim.api.nvim_set_hl(0, "PosteRedisSet",      { fg = 0xe5c07b })   -- yellow
+  vim.api.nvim_set_hl(0, "PosteRedisZset",     { fg = 0xc678dd })   -- magenta
+  vim.api.nvim_set_hl(0, "PosteRedisStream",   { fg = 0xd19a66 })   -- orange
+  vim.api.nvim_set_hl(0, "PosteRedisMeta",     { fg = 0x5c6370 })   -- gray
+  vim.api.nvim_set_hl(0, "PosteRedisError",    { fg = 0xe06c75 })   -- red
+  vim.api.nvim_set_hl(0, "PosteRedisOk",       { fg = 0x98c379 })   -- green
+  vim.api.nvim_set_hl(0, "PosteRedisNil",      { fg = 0x5c6370, italic = true }) -- gray italic
+  vim.api.nvim_set_hl(0, "PosteRedisSep",      { fg = 0x3e4452 })   -- dim separator
+  vim.api.nvim_set_hl(0, "PosteRedisIndex",    { fg = 0x5c6370 })   -- gray index
+  vim.api.nvim_set_hl(0, "PosteRedisField",    { fg = 0x56b6c2 })   -- cyan field name
+  vim.api.nvim_set_hl(0, "PosteRedisScore",    { fg = 0xc678dd })   -- magenta score
 end
 setup_hl()
 -- Re-apply when colorscheme changes or after full startup
@@ -486,6 +503,64 @@ local function split_lines(str)
   return #lines > 0 and lines or { "" }
 end
 
+--- Simple JSON pretty-printer
+local function json_pretty(value, indent)
+  indent = indent or 0
+  local indent_str = string.rep("  ", indent)
+  local indent_str_inner = string.rep("  ", indent + 1)
+  
+  if type(value) == "table" then
+    -- Check if it's an array (sequential integer keys)
+    local is_array = true
+    local max_idx = 0
+    for k, _ in pairs(value) do
+      if type(k) ~= "number" or k ~= math.floor(k) or k < 1 then
+        is_array = false
+        break
+      end
+      max_idx = math.max(max_idx, k)
+    end
+    is_array = is_array and max_idx == #value
+    
+    if is_array then
+      if #value == 0 then
+        return "[]"
+      end
+      local items = {}
+      for _, v in ipairs(value) do
+        table.insert(items, indent_str_inner .. json_pretty(v, indent + 1))
+      end
+      return "[\n" .. table.concat(items, ",\n") .. "\n" .. indent_str .. "]"
+    else
+      -- Object
+      local keys = {}
+      for k in pairs(value) do
+        table.insert(keys, k)
+      end
+      table.sort(keys)
+      if #keys == 0 then
+        return "{}"
+      end
+      local items = {}
+      for _, k in ipairs(keys) do
+        local v = value[k]
+        table.insert(items, indent_str_inner .. '"' .. k .. '": ' .. json_pretty(v, indent + 1))
+      end
+      return "{\n" .. table.concat(items, ",\n") .. "\n" .. indent_str .. "}"
+    end
+  elseif type(value) == "string" then
+    return '"' .. value:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '\\r'):gsub('\t', '\\t') .. '"'
+  elseif type(value) == "number" then
+    return tostring(value)
+  elseif type(value) == "boolean" then
+    return value and "true" or "false"
+  elseif value == nil then
+    return "null"
+  else
+    return tostring(value)
+  end
+end
+
 --- Try to pretty-print JSON body; return as-is if not JSON or if already formatted
 local function pretty_body(body, content_type)
   if not body or body == "" then return "" end
@@ -499,9 +574,8 @@ local function pretty_body(body, content_type)
   if content_type and content_type:find("json") then
     local ok, decoded = pcall(vim.json.decode, body)
     if ok and decoded then
-      -- Use vim.json.encode for proper JSON formatting
-      local ok2, pretty = pcall(vim.json.encode, decoded, { indent = "  " })
-      if ok2 and pretty then return pretty end
+      local pretty = json_pretty(decoded)
+      return pretty
     end
   end
   return body
@@ -509,8 +583,195 @@ end
 
 --- Body view: the main response content
 local function format_body(r)
+  -- Redis protocol: parse structured JSON and render with type-specific formatting
+  if r.protocol == "redis" then
+    return format_redis_body(r)
+  end
+  
   local body = pretty_body(r.body, r.content_type)
   return split_lines(body)
+end
+
+--- Redis body renderer: parses structured JSON from Rust and renders with colors
+local function format_redis_body(r)
+  local lines = {}
+  
+  -- Parse the structured JSON body
+  local ok, data = pcall(vim.json.decode, r.body)
+  if not ok or type(data) ~= "table" then
+    return split_lines(r.body or "(empty)")
+  end
+  
+  local rtype = data.type or "unknown"
+  local value = data.value
+  
+  -- Command echo
+  if r.metadata and r.metadata.command then
+    table.insert(lines, "✓ " .. r.metadata.command)
+    table.insert(lines, "")
+  end
+  
+  -- Type label
+  table.insert(lines, string.format("[%s]", rtype))
+  table.insert(lines, "")
+  
+  -- Type-specific rendering
+  if rtype == "nil" then
+    table.insert(lines, "(nil)")
+    
+  elseif rtype == "integer" then
+    table.insert(lines, tostring(value))
+    
+  elseif rtype == "string" then
+    if data.parsed then
+      -- Pretty-print JSON using vim.json with indentation
+      local pretty = vim.json.encode(data.parsed, { indent = "  " })
+      for _, line in ipairs(split_lines(pretty)) do
+        table.insert(lines, line)
+      end
+    else
+      table.insert(lines, '"' .. tostring(value) .. '"')
+    end
+    
+  elseif rtype == "hash" and type(value) == "table" then
+    local max_key_len = 0
+    local keys = {}
+    for k, _ in pairs(value) do
+      table.insert(keys, k)
+      max_key_len = math.max(max_key_len, #tostring(k))
+    end
+    table.sort(keys)
+    
+    for _, k in ipairs(keys) do
+      local v = value[k]
+      local v_str = type(v) == "string" and ('"' .. v .. '"') or tostring(v)
+      table.insert(lines, string.format("%-" .. max_key_len .. "s │ %s", k, v_str))
+    end
+    
+  elseif rtype == "list" and type(value) == "table" then
+    local max_idx_len = #tostring(math.max(0, #value - 1))
+    for i, v in ipairs(value) do
+      local v_str = type(v) == "string" and ('"' .. v .. '"') or tostring(v)
+      table.insert(lines, string.format("%-" .. max_idx_len .. "d │ %s", i - 1, v_str))
+    end
+    
+  elseif rtype == "set" and type(value) == "table" then
+    for _, v in ipairs(value) do
+      table.insert(lines, "• " .. (type(v) == "string" and v or tostring(v)))
+    end
+    
+  elseif rtype == "zset" and type(value) == "table" and #value > 0 then
+    table.insert(lines, "score │ member")
+    table.insert(lines, "──────┼────────")
+    table.sort(value, function(a, b) return (a.score or 0) > (b.score or 0) end)
+    for _, item in ipairs(value) do
+      table.insert(lines, string.format("%-5.1f │ %s", item.score or 0, item.member or ""))
+    end
+    
+  elseif rtype == "stream" then
+    table.insert(lines, "(stream rendering not yet implemented)")
+    
+  else
+    table.insert(lines, vim.inspect(value))
+  end
+  
+  table.insert(lines, "")
+  
+  -- Metadata footer
+  if r.latency_ms then
+    table.insert(lines, string.format("time: %dms", r.latency_ms))
+  end
+  if r.url then
+    table.insert(lines, string.format("db: %s", r.url))
+  end
+  
+  return lines
+end
+
+--- Apply extmark-based coloring to Redis response buffer
+local function apply_redis_highlights(buf, lines, rtype)
+  vim.api.nvim_buf_clear_namespace(buf, redis_ns, 0, -1)
+  
+  local hl_map = {
+    string = "PosteRedisString",
+    hash = "PosteRedisHash",
+    list = "PosteRedisList",
+    set = "PosteRedisSet",
+    zset = "PosteRedisZset",
+    stream = "PosteRedisStream",
+    nil = "PosteRedisNil",
+    integer = "PosteRedisString",
+  }
+  
+  local type_hl = hl_map[rtype] or "PosteRedisMeta"
+  
+  for i, line in ipairs(lines) do
+    local row = i - 1
+    
+    -- Type label line
+    if line:match("^%[.+%]$") then
+      vim.api.nvim_buf_set_extmark(buf, redis_ns, row, 0, {
+        end_row = row,
+        end_col = #line,
+        hl_group = type_hl,
+        priority = 100,
+      })
+    
+    -- Command echo
+    elseif line:match("^✓") then
+      vim.api.nvim_buf_set_extmark(buf, redis_ns, row, 0, {
+        end_row = row,
+        end_col = #line,
+        hl_group = "PosteRedisOk",
+        priority = 100,
+      })
+    
+    -- Metadata footer
+    elseif line:match("^(time:|db:)") then
+      vim.api.nvim_buf_set_extmark(buf, redis_ns, row, 0, {
+        end_row = row,
+        end_col = #line,
+        hl_group = "PosteRedisMeta",
+        priority = 100,
+      })
+    
+    -- Hash field names (before │)
+    elseif line:match("│") and rtype == "hash" then
+      local sep_pos = line:find("│")
+      if sep_pos then
+        vim.api.nvim_buf_set_extmark(buf, redis_ns, row, 0, {
+          end_row = row,
+          end_col = sep_pos - 1,
+          hl_group = "PosteRedisField",
+          priority = 100,
+        })
+      end
+    
+    -- List indices (before │)
+    elseif line:match("^%d+%s*│") and rtype == "list" then
+      local sep_pos = line:find("│")
+      if sep_pos then
+        vim.api.nvim_buf_set_extmark(buf, redis_ns, row, 0, {
+          end_row = row,
+          end_col = sep_pos - 1,
+          hl_group = "PosteRedisIndex",
+          priority = 100,
+        })
+      end
+    
+    -- Zset scores (before │)
+    elseif line:match("^[%d%.]+%s*│") and rtype == "zset" then
+      local sep_pos = line:find("│")
+      if sep_pos then
+        vim.api.nvim_buf_set_extmark(buf, redis_ns, row, 0, {
+          end_row = row,
+          end_col = sep_pos - 1,
+          hl_group = "PosteRedisScore",
+          priority = 100,
+        })
+      end
+    end
+  end
 end
 
 --- Markdown table helper: returns lines for a two-column table
@@ -887,6 +1148,14 @@ local function render_buffer(lines, filetype)
 
   -- Set filetype for treesitter highlighting
   vim.bo[buf].filetype = filetype or "text"
+
+  -- Apply Redis-specific extmark highlights if this is a Redis response
+  if last_response and last_response.protocol == "redis" and current_view == "body" then
+    local ok, data = pcall(vim.json.decode, last_response.body)
+    if ok and data and data.type then
+      apply_redis_highlights(buf, lines, data.type)
+    end
+  end
 
   -- Open split window if not already open
   if not response_window or not vim.api.nvim_win_is_valid(response_window) then

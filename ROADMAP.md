@@ -72,8 +72,8 @@
 - [ ] Response diff (compare two executions)
 - [ ] Environment variable secrets (read from env vars or keychain)
 - [ ] Export to curl / other formats
-- [ ] Test assertions (`> {% assert response.status == 200 %}`)
-- [ ] Pre/post request scripts
+- [x] Test assertions (`> {% assert response.status == 200 %}`)
+- [x] Pre/post request scripts (`< {% ... %}` pre-request, `> {% ... %}` post-request with `request.variables` and `client.global` APIs)
 
 ## Completed Milestones
 

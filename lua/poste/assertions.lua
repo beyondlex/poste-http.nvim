@@ -1,4 +1,6 @@
 --- Test assertions (> {% ... %} syntax): extraction, sandboxed execution, formatting.
+local state = require("poste.state")
+
 local M = {}
 
 ---------------------------------------------------------------------------
@@ -113,8 +115,30 @@ function M.run_assertions(response_data, code)
     end,
   })
 
+  -- Build request object (for post-request scripting within assertion blocks)
+  local request = {
+    variables = {
+      set = function(name, value)
+        state.script_variables[name] = tostring(value)
+        state.log("INFO", string.format("Post-script: request.variables.set('%s', '%s')", name, tostring(value)))
+      end,
+      get = function(name)
+        return state.script_variables[name]
+      end,
+    },
+  }
+
   -- Build client object
   local client = {
+    global = {
+      set = function(name, value)
+        state.global_vars[name] = tostring(value)
+        state.log("INFO", string.format("Post-script: client.global.set('%s', '%s')", name, tostring(value)))
+      end,
+      get = function(name)
+        return state.global_vars[name]
+      end,
+    },
     test = function(name, fn)
       current_test = { name = name, passed = 0, failed = 0, errors = {} }
       table.insert(tests, current_test)
@@ -155,6 +179,7 @@ function M.run_assertions(response_data, code)
   -- Build sandbox environment
   local env = {
     response = response,
+    request = request,
     client = client,
     assert = assert_fn,
     error = error,
@@ -165,6 +190,8 @@ function M.run_assertions(response_data, code)
     string = string,
     table = table,
     math = math,
+    os = os,
+    io = io,
     ipairs = ipairs,
     pairs = pairs,
   }

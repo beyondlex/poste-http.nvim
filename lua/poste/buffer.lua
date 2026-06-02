@@ -28,6 +28,10 @@ function M.update_winbar(active)
   if state.last_assertion_results then
     table.insert(tabs, { id = "assertions", label = "Asserts [A]" })
   end
+  -- Show Script tab when pre/post scripts produced output
+  if state.last_script_logs and #state.last_script_logs > 0 then
+    table.insert(tabs, { id = "script_logs", label = "Script [S]" })
+  end
 
   local parts = {}
   for _, tab in ipairs(tabs) do
@@ -72,6 +76,7 @@ local function get_response_buffer()
   vim.keymap.set("n", "H", function() if M.on_show_view then M.on_show_view("headers") end end, opts)
   vim.keymap.set("n", "V", function() if M.on_show_view then M.on_show_view("verbose") end end, opts)
   vim.keymap.set("n", "A", function() if M.on_show_view then M.on_show_view("assertions") end end, opts)
+  vim.keymap.set("n", "S", function() if M.on_show_view then M.on_show_view("script_logs") end end, opts)
 
   return response_buffer
 end

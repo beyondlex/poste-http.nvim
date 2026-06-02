@@ -19,7 +19,12 @@ M.config = {
 M.current_env = M.config.default_env
 M.last_response = nil            -- parsed JSON table from --json output
 M.last_assertion_results = nil   -- { tests, logs, total, passed, failed }
-M.current_view = "body"          -- "body" | "headers" | "verbose" | "assertions"
+M.last_script_logs = nil         -- { "log line 1", "log line 2", ... } from pre/post scripts
+M.current_view = "body"          -- "body" | "headers" | "verbose" | "assertions" | "script_logs"
+
+-- Script variable stores
+M.global_vars = {}               -- client.global.set/get persistence (session-scoped)
+M.script_variables = {}          -- request.variables from post-scripts (available to next request)
 
 ---------------------------------------------------------------------------
 -- Logging

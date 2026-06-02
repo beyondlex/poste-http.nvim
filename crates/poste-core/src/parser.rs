@@ -73,11 +73,39 @@ impl Parser {
         let mut found_request_line = false;
 
         let mut in_assertion_block = false;
+        let mut in_prescript_block = false;
         for line in lines {
             let trimmed = line.trim();
 
+            // Check for pre-request script block start: < {%
+            if trimmed.starts_with("<") && trimmed.contains("{%") && !trimmed.contains("%}") {
+                in_prescript_block = true;
+                continue;
+            }
+
+            // Check for pre-request script block end: %}
+            if in_prescript_block && trimmed == "%}" {
+                in_prescript_block = false;
+                continue;
+            }
+
+            // Skip lines inside pre-request script blocks
+            if in_prescript_block {
+                continue;
+            }
+
+            // Single-line pre-request script: < {% ... %}
+            if trimmed.starts_with("<") && trimmed.contains("{%") && trimmed.contains("%}") {
+                continue;
+            }
+
+            // External pre-request script: < ./path.lua
+            if trimmed.starts_with("<") && (trimmed.contains("./") || trimmed.contains("../")) && trimmed.ends_with(".lua") {
+                continue;
+            }
+
             // Check for assertion block start: > {%
-            if trimmed.starts_with(">") && trimmed.contains("{%") {
+            if trimmed.starts_with(">") && trimmed.contains("{%") && !trimmed.contains("%}") {
                 in_assertion_block = true;
                 continue;
             }
@@ -377,5 +405,41 @@ GET http://{{host}}:{{port}}/{{timeout}}
 
         // host should be from request_vars (highest priority)
         assert!(request.body.contains("http://request.com:8080/30"));
+    }
+
+    #[test]
+    fn test_prescript_multiline_stripped() {
+        let parser = Parser::new(HashMap::new());
+        let block = "### Request 1\n< {%\n  local x = 1\n%}\nGET /api/data\n";
+        let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        assert!(request.body.contains("GET /api/data"));
+        assert!(!request.body.contains("{%"));
+        assert!(!request.body.contains("local x"));
+    }
+
+    #[test]
+    fn test_prescript_singleline_stripped() {
+        let parser = Parser::new(HashMap::new());
+        let block = "### Request 1\n< {% request.variables.set(\"token\", \"abc\") %}\nGET /api/data\n";
+        let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        assert!(request.body.contains("GET /api/data"));
+        assert!(!request.body.contains("{%"));
+    }
+
+    #[test]
+    fn test_prescript_external_stripped() {
+        let parser = Parser::new(HashMap::new());
+        let block = "### Request 1\n< ./scripts/gen.lua\nGET /api/data\n";
+        let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        assert!(request.body.contains("GET /api/data"));
+        assert!(!request.body.contains("gen.lua"));
+    }
+
+    #[test]
+    fn test_prescript_injected_vars() {
+        let parser = Parser::new(HashMap::new());
+        let block = "### Request 1\n@auth_token = injected-value\nGET /api?token={{auth_token}}\n";
+        let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        assert!(request.body.contains("GET /api?token=injected-value"));
     }
 }

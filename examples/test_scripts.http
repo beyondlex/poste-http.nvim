@@ -1,0 +1,113 @@
+@host = https://httpbin.org
+
+### Pre-script: dynamic variable generation
+< {%
+  local token = "token-" .. os.time()
+  request.variables.set("auth_token", token)
+  request.variables.set("user_id", "42")
+  client.log("Generated token: " .. token)
+%}
+GET {{host}}/get
+Authorization: Bearer {{auth_token}}
+X-User-Id: {{user_id}}
+
+> {%
+  client.test("Token in response", function()
+    client.assert(response.status == 200, "Expected 200")
+    local auth = response.body.headers["Authorization"]
+    client.assert(auth ~= nil, "Authorization header missing")
+    client.assert(auth:find("^Bearer token%-") ~= nil,
+      "Expected Bearer token, got: " .. tostring(auth))
+  end)
+  -- Save token for use in subsequent requests
+  client.global.set("last_token", request.variables.get("auth_token"))
+%}
+
+### Pre-script: single-line syntax
+< {% request.variables.set("greeting", "hello") %}
+GET {{host}}/get?msg={{greeting}}
+
+> {%
+  client.test("Greeting sent", function()
+    client.assert(response.status == 200, "Expected 200")
+    client.assert(response.body.args.msg == "hello", "Expected msg=hello")
+  end)
+%}
+
+### Pre-script: external script file
+< ./scripts/generate_auth.lua
+GET {{host}}/get
+Authorization: Bearer {{auth_token}}
+
+> {%
+  client.test("External token used", function()
+    client.assert(response.status == 200, "Expected 200")
+    client.log("Response URL: " .. response.url)
+  end)
+%}
+
+### Post-script: client.global persistence (run this first!)
+GET {{host}}/get?step=1
+
+> {%
+  client.global.set("session_id", "sess-" .. os.time())
+  client.global.set("step_count", "1")
+  client.log("Session started: " .. client.global.get("session_id"))
+  client.log("You can now run the next request to use this global")
+%}
+
+### Pre-script: read global from previous request (run AFTER the request above)
+< {%
+  -- Bridge client.global values into {{...}} template variables
+  local sid = client.global.get("session_id")
+  if sid then
+    request.variables.set("session_id", sid)
+    client.log("Bridged session_id: " .. sid)
+  else
+    client.log("WARNING: session_id not set! Run the previous request first.")
+  end
+%}
+GET {{host}}/get?session={{session_id}}
+
+> {%
+  client.test("Session persisted", function()
+    local sid = client.global.get("session_id")
+    if not sid then
+      client.log("ERROR: session_id is nil. Run the 'Post-script: client.global persistence' request first!")
+    end
+    client.assert(sid ~= nil, "session_id should be set from previous request (run it first!)")
+    if sid then
+      client.log("Using session: " .. sid)
+    end
+  end)
+%}
+
+### Combined: pre-script + assertions + post-script
+< {%
+  request.variables.set("item", "widget")
+  request.variables.set("qty", "3")
+%}
+POST {{host}}/post
+Content-Type: application/json
+
+{
+  "item": "{{item}}",
+  "quantity": "{{qty}}"
+}
+
+> {%
+  client.test("POST succeeded", function()
+    client.assert(response.status == 200, "Expected 200")
+    client.assert(response.body.json.item == "widget", "Expected item=widget")
+    client.assert(tonumber(response.body.json.quantity) == 3, "Expected quantity=3")
+  end)
+  client.global.set("last_order_item", response.body.json.item)
+  client.log("Order placed: " .. response.body.json.item)
+%}
+
+### Pre-script error handling
+< {%
+  this_will_cause_an_error()
+%}
+GET {{host}}/get
+

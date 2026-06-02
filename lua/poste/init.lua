@@ -6,6 +6,7 @@ local indicators = require("poste.indicators")
 local format = require("poste.format")
 local buffer = require("poste.buffer")
 local assertions = require("poste.assertions")
+local scripts = require("poste.scripts")
 local request_vars = require("poste.request_vars")
 
 local M = {}
@@ -49,6 +50,9 @@ function M.show_view(view)
   elseif view == "assertions" then
     lines = assertions.format_assertions(state.last_assertion_results)
     filetype = "markdown"
+  elseif view == "script_logs" then
+    lines = scripts.format_script_logs(state.last_script_logs)
+    filetype = "markdown"
   else
     lines = { "Unknown view: " .. view }
     filetype = "text"
@@ -71,8 +75,9 @@ function M.run_request()
     return
   end
 
-  -- Reset assertion state for this request run
+  -- Reset assertion and script state for this request run
   state.last_assertion_results = nil
+  state.last_script_logs = nil
 
   local src_buf = vim.api.nvim_get_current_buf()
   local line = vim.fn.line(".")
@@ -91,18 +96,64 @@ function M.run_request()
 
   -- Handle @prompt directives asynchronously, then continue with request execution
   request_vars.handle_prompt_variables(src_buf, line, buf_content, binary, file, state.current_env, function(modified_content)
+    -- Capture block bounds early (from original buffer, before content transforms)
+    local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
+
     -- Resolve request variables: execute dependent requests and substitute {{RequestName.response.body.field}}
     local buf_content = request_vars.resolve_request_variables(binary, file, state.current_env, src_buf, line, modified_content)
+
+    -- Extract and run pre-request scripts (< {% ... %} and < ./script.lua)
+    local pre_script_code
+    if block_start then
+      buf_content, pre_script_code = scripts.extract_pre_script_blocks(buf_content, block_start, block_end)
+    end
+
+    if pre_script_code then
+      local pre_result = scripts.run_pre_script(pre_script_code)
+      if pre_result.error then
+        -- Pre-script failed: abort request, show error
+        state.log("ERROR", pre_result.error)
+        local req_line = indicators.find_request_line(src_buf, line)
+        indicators.set_indicator(src_buf, req_line, "error")
+        state.last_response = {
+          protocol = "error",
+          status = 0,
+          status_text = "Pre-script error",
+          latency_ms = 0,
+          url = "Pre-request script failed",
+          content_type = "text/plain",
+          headers = {},
+          body = pre_result.error,
+          cookies = {},
+          metadata = { method = "", error = pre_result.error },
+        }
+        M.show_view("verbose")
+        return
+      end
+      -- Store pre-script logs for Script tab
+      if #pre_result.logs > 0 then
+        state.last_script_logs = pre_result.logs
+      end
+      -- Inject pre-script variables into content and adjust block_end
+      if next(pre_result.variables) then
+        local injected_count = 0
+        for _ in pairs(pre_result.variables) do injected_count = injected_count + 1 end
+        buf_content = scripts.inject_pre_script_vars(buf_content, block_start, pre_result.variables)
+        block_end = block_end + injected_count
+        -- Copy pre-script variables into state so post-scripts can read them via request.variables.get()
+        for name, value in pairs(pre_result.variables) do
+          state.script_variables[name] = value
+        end
+      end
+    end
 
     -- Process form data magic variables and file inclusions
     buf_content = request_vars.process_form_data(src_buf, line, buf_content)
 
     -- Extract and strip assertion blocks before sending to Rust.
     -- Only collect assertion code from the current request block.
-    -- Use the original buffer bounds (line count is preserved by all prior transforms
-    -- except file inclusions, which only affect lines within the body, not ### boundaries).
+    -- block_end has been adjusted for any pre-script variable injection.
     local assertion_code
-    local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
     buf_content, assertion_code = assertions.extract_assertion_blocks(buf_content, block_start, block_end)
 
     -- Get the current request name for caching
@@ -155,11 +206,19 @@ function M.run_request()
           -- Cache response for subsequent request variable references
           request_vars.cache_response(current_req_name, parsed)
 
-          -- Run assertions if present
+          -- Run assertions if present (also handles post-request scripting)
           if assertion_code then
             state.last_assertion_results = assertions.run_assertions(parsed, assertion_code)
             state.log("INFO", string.format("Assertions: %d passed, %d failed",
               state.last_assertion_results.passed, state.last_assertion_results.failed))
+
+            -- Merge post-request script logs with pre-script logs
+            if state.last_assertion_results.logs and #state.last_assertion_results.logs > 0 then
+              state.last_script_logs = state.last_script_logs or {}
+              for _, msg in ipairs(state.last_assertion_results.logs) do
+                table.insert(state.last_script_logs, msg)
+              end
+            end
 
             if state.last_assertion_results.failed > 0 then
               -- Tests failed: show Asserts tab and update indicator

@@ -8,6 +8,7 @@ local buffer = require("poste.buffer")
 local assertions = require("poste.assertions")
 local scripts = require("poste.scripts")
 local request_vars = require("poste.request_vars")
+local completion = require("poste.completion")
 
 local M = {}
 
@@ -693,6 +694,9 @@ end
 function M.setup(opts)
   opts = opts or {}
   state.config = vim.tbl_deep_extend("force", state.config, opts)
+
+  -- Register nvim-cmp source (if available)
+  completion.register()
 
   local function setup_buffer_keymaps(buf)
     local keymap_opts = { buffer = buf, noremap = true, silent = true }

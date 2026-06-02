@@ -73,6 +73,22 @@ if has('nvim')
     cleanup_kulala()
     vim.schedule(cleanup_kulala)
 EOF
+
+" ─── nvim-cmp buffer source ──────────────────────
+" Register the poste completion source for this buffer (if nvim-cmp is loaded)
+lua << EOF
+pcall(function()
+  local cmp = require("cmp")
+  cmp.setup.buffer({
+    sources = cmp.config.sources({
+      { name = "poste" },
+    }, {
+      { name = "buffer" },
+    }),
+  })
+end)
+EOF
+
 endif
 
 " Undo ftplugin settings when filetype changes

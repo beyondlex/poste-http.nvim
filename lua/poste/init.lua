@@ -505,8 +505,14 @@ function M.goto_references()
     end
   end
 
-  -- Remove current line from results
-  results = vim.tbl_filter(function(r) return r.line ~= line_num end, results)
+  -- Remove current line from results (manual filter to preserve array structure)
+  local filtered_results = {}
+  for _, r in ipairs(results) do
+    if r.line ~= line_num then
+      table.insert(filtered_results, r)
+    end
+  end
+  results = filtered_results
 
   if #results == 0 then
     vim.notify("No other references found for: " .. symbol_name, vim.log.levels.INFO)
@@ -524,55 +530,56 @@ function M.goto_references()
     return
   end
 
-  -- Multiple results: use Telescope if available
-  local has_telescope, _ = pcall(require, "telescope")
-  if has_telescope then
-    local pickers = require("telescope.pickers")
-    local finders = require("telescope.finders")
-    local conf = require("telescope.config").values
-    local previewers = require("telescope.previewers")
+  -- Multiple results: use custom picker with preview
+  local items = {}
+  local preview_data = {}
 
-    -- Custom previewer that shows context around the reference
-    local context_previewer = previewers.new_buffer_previewer({
-      title = "Reference Context",
-      define_preview = function(self, entry)
-        local entry_data = entry.value
-        if not entry_data then return end
+  for idx, r in ipairs(results) do
+    table.insert(items, string.format("L%d:%d: %s", r.line, r.col, r.text))
 
-        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-        local context_lines = 5
-        local start_line = math.max(1, entry_data.line - context_lines)
-        local end_line = math.min(#lines, entry_data.line + context_lines)
+    -- Build preview: show 5 lines before and after the target line
+    local ctx = 5
+    local start_l = math.max(1, r.line - ctx)
+    local end_l = math.min(total, r.line + ctx)
+    local preview_lines = {}
+    for i = start_l, end_l do
+      local ltext = all_lines[i] or ""
+      -- Add line number prefix
+      local prefix = (i == r.line) and "▶ " .. i .. " " or "  " .. i .. " "
+      table.insert(preview_lines, prefix .. ltext)
+    end
 
-        local preview_lines = {}
-        for i = start_line, end_line do
-          local prefix = (i == entry_data.line) and "> " .. i .. ": " or "  " .. i .. ": "
-          table.insert(preview_lines, prefix .. lines[i])
-        end
-
-        vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, preview_lines)
-        vim.api.nvim_win_set_cursor(self.state.winid, {entry_data.line - start_line + 1, 0})
-      end,
+    table.insert(preview_data, {
+      lines = preview_lines,
+      filetype = vim.api.nvim_get_option_value("filetype", {buf = buf}),
+      highlight_line = r.line - start_l + 1,  -- 1-indexed within preview
     })
+  end
 
-    pickers.new({}, {
-      prompt_title = "References: " .. symbol_name,
-      finder = finders.new_table({
-        results = results,
-        entry_maker = function(entry)
-          return {
-            value = entry,
-            display = string.format("L%d:%d: %s", entry.line, entry.col, entry.text),
-            ordinal = entry.text,
-            filename = vim.api.nvim_buf_get_name(buf),
-            lnum = entry.line,
-            col = entry.col + 1,
-          }
-        end,
-      }),
-      sorter = conf.generic_sorter({}),
-      previewer = context_previewer,
-    }):find()
+  local function jump_to(item)
+    local target_line, target_col = item:match("^L(%d+):(%d+):")
+    if not target_line then return end
+
+    local line = tonumber(target_line)
+    local col = tonumber(target_col)
+    if not line or not col then return end
+
+    -- Ensure line is an integer
+    line = math.floor(line)
+
+    -- Try to jump directly, ignore any errors
+    pcall(function()
+      vim.cmd("normal! m'")  -- Save position to jumplist
+      vim.cmd(string.format("normal! %dG", line))  -- Go to line only
+    end)
+  end
+
+  local select = require("poste.select")
+  select.select(items, "References to '" .. symbol_name .. "'", function(selected)
+    if selected then
+      jump_to(selected)
+    end
+  end, preview_data)
   else
     -- Fallback: simple picker
     local items = {}

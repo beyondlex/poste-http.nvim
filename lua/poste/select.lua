@@ -236,7 +236,7 @@ local function pick_float(items, prompt_text, on_select, preview_data)
           data.highlight_line - 1, 0, -1)
         -- Scroll preview to show highlighted line
         if preview_win and vim.api.nvim_win_is_valid(preview_win) then
-          vim.api.nvim_win_set_cursor(preview_win, {data.highlight_line, 0})
+          pcall(vim.api.nvim_win_set_cursor, preview_win, {data.highlight_line, 0})
         end
       end
     end

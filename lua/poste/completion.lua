@@ -285,7 +285,7 @@ function source:complete(request, callback)
   local ctx, header_name = detect_context(line_before_cursor)
   local items = {}
 
-  -- nvim-cmp kind IDs (best effort, may vary by nvim-cmp version)
+  -- nvim-cmp kind IDs
   local Kind = require("cmp").lsp.CompletionItemKind or {}
   local KIND_KEYWORD = Kind.Keyword or Kind.Text or 1
   local KIND_PROPERTY = Kind.Property or Kind.Field or 2
@@ -294,7 +294,6 @@ function source:complete(request, callback)
   if ctx == "method" then
     items = make_items(http_methods, KIND_KEYWORD)
   elseif ctx == "method_or_header" then
-    -- Could be either: provide both methods and header names
     local method_items = make_items(http_methods, KIND_KEYWORD)
     local header_items = make_items(header_names, KIND_PROPERTY)
     for _, item in ipairs(method_items) do
@@ -310,7 +309,7 @@ function source:complete(request, callback)
     end
   end
 
-  -- Filter items based on the word being typed
+  -- Filter items based on the word being typed (case-insensitive substring match)
   if word ~= "" then
     local filtered = {}
     for _, item in ipairs(items) do
@@ -321,7 +320,8 @@ function source:complete(request, callback)
     items = filtered
   end
 
-  callback({ items = items, isIncomplete = true })
+  -- isIncomplete = false tells cmp we've done all filtering, don't re-filter
+  callback({ items = items, isIncomplete = false })
 end
 
 function source:resolve(completion_item, callback)

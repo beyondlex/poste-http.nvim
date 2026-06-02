@@ -217,7 +217,7 @@ local function pick_float(items, prompt_text, on_select, preview_data)
     if preview_win and vim.api.nvim_win_is_valid(preview_win) then
       vim.api.nvim_win_close(preview_win, true)
     end
-    vim.schedule(function() on_select(result) end)
+    vim.schedule(function() pcall(on_select, result) end)
   end
 
   local function update_preview()
@@ -346,7 +346,7 @@ end
 --- @param preview_data table[]|nil Optional: list of {lines, filetype, highlight_line} per item
 function M.select(items, prompt, on_select, preview_data)
   if #items == 0 then
-    vim.schedule(function() on_select(nil) end)
+    vim.schedule(function() pcall(on_select, nil) end)
     return
   end
 

@@ -347,65 +347,6 @@ end
 -- Headers view: protocol-aware metadata display
 ---------------------------------------------------------------------------
 
-function M.format_headers(r)
-  local lines = {}
-
-  if r.protocol == "error" then
-    table.insert(lines, "# Request Headers")
-    table.insert(lines, "")
-    if r.headers and #r.headers > 0 then
-      for _, h in ipairs(r.headers) do
-        table.insert(lines, string.format("**%s**: %s", h[1], h[2]))
-      end
-    else
-      table.insert(lines, "_(no request headers)_")
-    end
-
-  elseif r.protocol == "http" then
-    table.insert(lines, "# Response Headers")
-    table.insert(lines, "")
-    if r.headers and #r.headers > 0 then
-      for _, h in ipairs(r.headers) do
-        table.insert(lines, string.format("**%s**: %s", h[1], h[2]))
-      end
-    else
-      table.insert(lines, "_(no headers)_")
-    end
-
-  elseif r.protocol == "redis" then
-    table.insert(lines, "# Connection Info")
-    table.insert(lines, "")
-    table.insert(lines, string.format("**Server**: %s", r.url or ""))
-    if r.metadata then
-      if r.metadata.command then
-        table.insert(lines, string.format("**Last Command**: %s", r.metadata.command))
-      end
-      if r.metadata.type then
-        table.insert(lines, string.format("**Value Type**: %s", r.metadata.type))
-      end
-    end
-
-  else
-    -- Generic fallback for future protocols
-    table.insert(lines, "# Response Metadata")
-    table.insert(lines, "")
-    if r.metadata then
-      local has_content = false
-      for k, v in pairs(r.metadata) do
-        table.insert(lines, string.format("**%s**: %s", k, v))
-        has_content = true
-      end
-      if not has_content then
-        table.insert(lines, "_(no metadata)_")
-      end
-    else
-      table.insert(lines, "_(no metadata)_")
-    end
-  end
-
-  return lines
-end
-
 ---------------------------------------------------------------------------
 -- Verbose view: markdown-friendly layout with full details
 ---------------------------------------------------------------------------
@@ -470,6 +411,16 @@ function M.format_verbose(r)
     table.insert(lines, "**Env**: " .. (r.metadata and r.metadata.env or ""))
     table.insert(lines, "**Exit code**: " .. (r.metadata and r.metadata.exit_code or ""))
     table.insert(lines, "**Status**: " .. (r.status_text or ""))
+
+    -- Request headers
+    if r.headers and #r.headers > 0 then
+      table.insert(lines, "")
+      table.insert(lines, "## Request Headers")
+      table.insert(lines, "")
+      for _, h in ipairs(r.headers) do
+        table.insert(lines, string.format("**%s**: %s", h[1], h[2]))
+      end
+    end
 
     if r.body and r.body ~= "" then
       table.insert(lines, "")

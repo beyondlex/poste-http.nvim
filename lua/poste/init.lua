@@ -41,9 +41,6 @@ function M.show_view(view)
   if view == "body" then
     lines = format.format_body(state.last_response)
     filetype = format.detect_filetype(state.last_response.content_type)
-  elseif view == "headers" then
-    lines = format.format_headers(state.last_response)
-    filetype = "markdown"
   elseif view == "verbose" then
     lines = format.format_verbose(state.last_response)
     filetype = "markdown"

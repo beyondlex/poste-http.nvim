@@ -14,15 +14,11 @@ M.on_show_view = nil
 -- Winbar (tab indicators)
 ---------------------------------------------------------------------------
 
-function M.update_winbar(active)
-  if not response_window or not vim.api.nvim_win_is_valid(response_window) then
-    return
-  end
-
+--- Get list of active tabs based on current state
+local function get_active_tabs()
   local tabs = {
     { id = "body",    label = "Body [B]" },
-    { id = "headers", label = "Headers [H]" },
-    { id = "verbose", label = "Verbose [V]" },
+    { id = "verbose", label = "Verbose [I]" },
   }
   -- Only show Asserts tab when assertions were run
   if state.last_assertion_results then
@@ -32,7 +28,15 @@ function M.update_winbar(active)
   if state.last_script_logs and #state.last_script_logs > 0 then
     table.insert(tabs, { id = "script_logs", label = "Script [S]" })
   end
+  return tabs
+end
 
+function M.update_winbar(active)
+  if not response_window or not vim.api.nvim_win_is_valid(response_window) then
+    return
+  end
+
+  local tabs = get_active_tabs()
   local parts = {}
   for _, tab in ipairs(tabs) do
     if tab.id == active then
@@ -43,6 +47,27 @@ function M.update_winbar(active)
   end
 
   vim.wo[response_window].winbar = table.concat(parts)
+end
+
+--- Cycle to the next/previous tab. direction: 1 = forward, -1 = backward
+function M.cycle_tab(direction)
+  if not M.on_show_view then return end
+  local tabs = get_active_tabs()
+  if #tabs == 0 then return end
+  direction = direction or 1
+
+  -- Find current tab index
+  local current_idx = 1
+  for i, tab in ipairs(tabs) do
+    if tab.id == state.current_view then
+      current_idx = i
+      break
+    end
+  end
+
+  -- Move to next/previous tab (wrap around)
+  local next_idx = ((current_idx - 1 + direction) % #tabs) + 1
+  M.on_show_view(tabs[next_idx].id)
 end
 
 ---------------------------------------------------------------------------
@@ -73,10 +98,11 @@ local function get_response_buffer()
 
   -- Tab switching keymaps — delegate to on_show_view callback
   vim.keymap.set("n", "B", function() if M.on_show_view then M.on_show_view("body") end end, opts)
-  vim.keymap.set("n", "H", function() if M.on_show_view then M.on_show_view("headers") end end, opts)
-  vim.keymap.set("n", "V", function() if M.on_show_view then M.on_show_view("verbose") end end, opts)
+  vim.keymap.set("n", "I", function() if M.on_show_view then M.on_show_view("verbose") end end, opts)
   vim.keymap.set("n", "A", function() if M.on_show_view then M.on_show_view("assertions") end end, opts)
   vim.keymap.set("n", "S", function() if M.on_show_view then M.on_show_view("script_logs") end end, opts)
+  vim.keymap.set("n", "<Tab>", function() M.cycle_tab(1) end, opts)
+  vim.keymap.set("n", "<S-Tab>", function() M.cycle_tab(-1) end, opts)
 
   return response_buffer
 end

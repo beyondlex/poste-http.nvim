@@ -334,6 +334,57 @@ local function execute_dependent_request(binary, file, env_name, dep_req, buf_co
     return nil
   end
 
+  -- Recursively resolve cross-request variable references in the dependent request
+  local all_lines = vim.split(buf_content, "\n", { plain = true })
+  local dep_block_lines = {}
+  for i = dep_req.start_line, dep_req.end_line do
+    table.insert(dep_block_lines, all_lines[i] or "")
+  end
+  local dep_block_text = table.concat(dep_block_lines, "\n")
+
+  -- Find and resolve cross-request variable references
+  local dep_refs = find_request_variable_refs(dep_block_text)
+  if #dep_refs > 0 then
+    state.log("INFO", string.format("Dependent request '%s' has %d cross-request reference(s)", dep_req.name, #dep_refs))
+    local dep_cached = {}
+    for _, ref in ipairs(dep_refs) do
+      if not dep_cached[ref.request_name] then
+        -- Find the referenced request
+        local ref_req = nil
+        local requests = M.collect_requests(0)  -- Use current buffer
+        for _, req in ipairs(requests) do
+          if req.name == ref.request_name then
+            ref_req = req
+            break
+          end
+        end
+        if ref_req then
+          -- Recursively execute
+          local response = execute_dependent_request(binary, file, env_name, ref_req, buf_content)
+          if response then
+            dep_cached[ref.request_name] = response
+          end
+        end
+      end
+    end
+
+    -- Substitute resolved values
+    local resolved_dep_block = dep_block_text
+    for _, ref in ipairs(dep_refs) do
+      local value = resolve_request_variable(ref.full:sub(3, -3), dep_cached)
+      if value then
+        resolved_dep_block = resolved_dep_block:gsub(vim.pesc(ref.full), tostring(value))
+      end
+    end
+
+    -- Rebuild buf_content with resolved dependent block
+    local resolved_lines = vim.split(resolved_dep_block, "\n", { plain = true })
+    for i, line in ipairs(resolved_lines) do
+      all_lines[dep_req.start_line + i - 1] = line
+    end
+    buf_content = table.concat(all_lines, "\n")
+  end
+
   -- Send buffer content (with prompts and assertions already resolved)
   local clean_content = strip_prompt_lines(buf_content)
   clean_content = assertions.extract_assertion_blocks(clean_content)

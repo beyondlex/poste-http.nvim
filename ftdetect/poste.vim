@@ -6,8 +6,7 @@ if exists("g:loaded_poste")
 endif
 let g:loaded_poste = 1
 
-" Detect .http and .rest files as poste_http
+" Try to set filetype early; Neovim's built-in detection may override this.
+" The after/ftdetect/poste.vim ensures our filetype wins regardless.
 autocmd BufRead,BufNewFile *.http,*.rest setfiletype poste_http
-
-" Detect .redis files as poste_redis (reserved for future syntax)
 autocmd BufRead,BufNewFile *.redis setfiletype poste_redis

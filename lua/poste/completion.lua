@@ -250,10 +250,14 @@ end
 local function make_items(words, kind)
   local items = {}
   for _, word in ipairs(words) do
+    -- Remove hyphens from filterText to help cmp's fuzzy matcher
+    -- e.g., "Content-Type" → filterText = "ContentType"
+    local filter_text = word:gsub("-", "")
+
     table.insert(items, {
       label = word,
       kind = kind,
-      filterText = word,
+      filterText = filter_text,
       sortText = word,
       insertText = word,
     })
@@ -261,12 +265,12 @@ local function make_items(words, kind)
   return items
 end
 
---- Simple fuzzy match: check if pattern appears in str (case-insensitive)
+--- Prefix match: check if str starts with pattern (case-insensitive)
 local function fuzzy_match(str, pattern)
   if pattern == "" then return true end
   local lower_str = str:lower()
   local lower_pattern = pattern:lower()
-  return lower_str:find(lower_pattern, 1, true) ~= nil
+  return lower_str:find("^" .. lower_pattern) ~= nil
 end
 
 function source:complete(request, callback)
@@ -309,19 +313,9 @@ function source:complete(request, callback)
     end
   end
 
-  -- Filter items based on the word being typed (case-insensitive substring match)
-  if word ~= "" then
-    local filtered = {}
-    for _, item in ipairs(items) do
-      if fuzzy_match(item.label, word) then
-        table.insert(filtered, item)
-      end
-    end
-    items = filtered
-  end
-
-  -- isIncomplete = false tells cmp we've done all filtering, don't re-filter
-  callback({ items = items, isIncomplete = false })
+  -- Return all items, let cmp do the filtering
+  -- isIncomplete = true tells cmp to re-query when input changes
+  callback({ items = items, isIncomplete = true })
 end
 
 function source:resolve(completion_item, callback)

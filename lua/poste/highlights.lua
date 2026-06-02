@@ -32,6 +32,33 @@ function M.setup()
     vim.api.nvim_set_hl(0, pair[1], { fg = fg })
   end
 
+  -- Source file syntax highlight groups (linked to standard groups).
+  -- These provide sensible defaults for any colorscheme. Users can
+  -- override individual groups with :highlight PosteMethod guifg=#ff0000
+  -- and the override persists across colorscheme switches.
+  local syntax_links = {
+    { "PosteSeparator",    "Delimiter" },
+    { "PosteRequestName",  "Title" },
+    { "PosteVarRef",       "Identifier" },
+    { "PosteMagicVar",     "Special" },
+    { "PosteMethod",       "Keyword" },
+    { "PosteUrl",          "Underlined" },
+    { "PosteHttpVersion",  "Constant" },
+    { "PosteHeaderKey",    "Type" },
+    { "PosteDirective",    "PreProc" },
+    { "PostePreScript",    "PreProc" },
+    { "PosteAssertion",    "PreProc" },
+    { "PosteScriptMarker", "Special" },
+    { "PosteExternalScript", "Include" },
+    { "PosteFileInclude",  "Include" },
+  }
+  for _, pair in ipairs(syntax_links) do
+    local existing = vim.api.nvim_get_hl(0, { name = pair[1] })
+    if vim.tbl_isempty(existing) then
+      vim.api.nvim_set_hl(0, pair[1], { link = pair[2] })
+    end
+  end
+
   -- Redis type-specific highlight groups
   vim.api.nvim_set_hl(0, "PosteRedisString",   { fg = 0x98c379 })   -- green
   vim.api.nvim_set_hl(0, "PosteRedisHash",     { fg = 0x56b6c2 })   -- cyan

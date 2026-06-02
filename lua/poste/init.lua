@@ -382,7 +382,12 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.http", "*.rest", "*.redis" },
     callback = function()
-      vim.bo.filetype = "http"
+      local name = vim.api.nvim_buf_get_name(0)
+      if name:match("%.redis$") then
+        vim.bo.filetype = "poste_redis"
+      else
+        vim.bo.filetype = "poste_http"
+      end
       setup_buffer_keymaps(0)
     end,
   })
@@ -390,8 +395,11 @@ function M.setup(opts)
   -- Already-open buffers
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     local name = vim.api.nvim_buf_get_name(buf)
-    if name:match("%.http$") or name:match("%.rest$") or name:match("%.redis$") then
-      vim.api.nvim_buf_set_option(buf, "filetype", "http")
+    if name:match("%.http$") or name:match("%.rest$") then
+      vim.api.nvim_buf_set_option(buf, "filetype", "poste_http")
+      setup_buffer_keymaps(buf)
+    elseif name:match("%.redis$") then
+      vim.api.nvim_buf_set_option(buf, "filetype", "poste_redis")
       setup_buffer_keymaps(buf)
     end
   end

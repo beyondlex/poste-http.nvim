@@ -322,6 +322,50 @@ function M.jump_prev()
   vim.notify("No previous requests", vim.log.levels.INFO)
 end
 
+function M.goto_definition()
+  local buf = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local line_num = cursor[1]
+  local col = cursor[2]  -- 0-indexed
+
+  local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
+
+  -- Find the {{...}} reference under the cursor on this line
+  local req_name = nil
+  local start_pos = 1
+  while true do
+    local s, e = line_text:find("{{[^}]+}}", start_pos)
+    if not s then break end
+    if col + 1 >= s and col + 1 <= e then  -- col is 0-indexed, s/e are 1-indexed
+      local ref_text = line_text:sub(s + 2, e - 2)  -- strip {{ and }}
+      -- Extract request name (part before the first dot)
+      req_name = vim.trim(ref_text:match("^([^%.]+)%.") or ref_text)
+      break
+    end
+    start_pos = e + 1
+  end
+
+  if not req_name then
+    vim.notify("No named request reference under cursor", vim.log.levels.INFO)
+    return
+  end
+
+  -- Use collect_requests to find the matching ### line
+  local requests = request_vars.collect_requests(buf)
+  for _, req in ipairs(requests) do
+    if req.name == req_name then
+      -- normal! m' pushes current pos to the window jumplist;
+      -- nvim_win_set_cursor moves without adding to jumplist.
+      -- Result: exactly one jumplist entry → one Ctrl-o jumps back.
+      vim.cmd("normal! m'")
+      vim.api.nvim_win_set_cursor(0, { req.start_line, 0 })
+      return
+    end
+  end
+
+  vim.notify("Request not found: " .. req_name, vim.log.levels.WARN)
+end
+
 ---------------------------------------------------------------------------
 -- Environment
 ---------------------------------------------------------------------------
@@ -346,6 +390,7 @@ function M.setup(opts)
     vim.keymap.set("n", "<leader>rr", M.run_request, keymap_opts)
     vim.keymap.set("n", "]]", M.jump_next, keymap_opts)
     vim.keymap.set("n", "[[", M.jump_prev, keymap_opts)
+    vim.keymap.set("n", "gd", M.goto_definition, keymap_opts)
     vim.keymap.set("n", "<leader>rp", function()
       local curl = require("poste.curl")
       curl.paste_curl("+")

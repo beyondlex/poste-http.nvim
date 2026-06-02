@@ -743,6 +743,10 @@ function M.setup(opts)
     copy.copy_to_clipboard("+")
   end, { desc = "Copy current request as curl command to clipboard" })
 
+  vim.api.nvim_create_user_command("PosteCmpStatus", function()
+    vim.notify(completion.status(), vim.log.levels.INFO)
+  end, { desc = "Check poste completion status" })
+
   -- Autocommand: set up keymaps for supported file types
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.http", "*.rest", "*.redis" },

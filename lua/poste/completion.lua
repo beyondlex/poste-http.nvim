@@ -169,7 +169,13 @@ function source.new()
 end
 
 function source.get_keyword_pattern()
-  return [=[[\w\-*/+.]*]=]
+  -- Match any word character sequence (letters, digits, hyphens, dots, slashes, etc.)
+  -- This needs to be broad enough to match methods, headers, and MIME types
+  return [=[[\w\-*/+.]+]=]
+end
+
+function source:get_trigger_characters()
+  return { " ", ":", "/", "-" }
 end
 
 function source:get_debug_name()
@@ -207,31 +213,38 @@ local function detect_context(line_before_cursor)
     return nil, nil
   end
 
+  -- Check if this is a method line (starts with HTTP method keyword)
+  local first_word = trimmed:match("^(%S+)")
+  if first_word then
+    for _, method in ipairs(http_methods) do
+      if first_word:upper() == method then
+        -- This is a method line, already have the method → no completion
+        return nil, nil
+      end
+    end
+  end
+
   -- Check if we're after a colon (header value context)
-  local colon_pos = line_before_cursor:find(":")
+  -- But only if it's a proper header (Header-Name: value), not a URL
+  local colon_pos = line_before_cursor:find(":%s")  -- colon followed by space
   if colon_pos then
     -- Extract header name (before the colon)
     local header_name = vim.trim(line_before_cursor:sub(1, colon_pos - 1))
-    -- Make sure it's a valid header (not empty, starts with letter)
-    if header_name ~= "" and header_name:match("^[A-Za-z]") then
+    -- Make sure it's a valid header (not empty, starts with letter, no spaces)
+    if header_name ~= "" and header_name:match("^[A-Za-z][A-Za-z0-9%-]*$") then
       return "header_value", header_name
     end
+  end
+
+  -- Check for URL (contains ://)
+  if line_before_cursor:find("://") then
+    -- This is a URL line, no completion
     return nil, nil
   end
 
   -- No colon yet — check if it looks like a header name or method
-  -- If the line has a space (e.g., "GET https://..."), no completion
+  -- If the line has a space, it's likely not a header name being typed
   if line_before_cursor:find("%s") and not line_before_cursor:match("^%s*$") then
-    -- Has space but no colon — likely in URL area or after method
-    -- Check if it starts with a method
-    local first_word = line_before_cursor:match("^(%S+)")
-    if first_word then
-      for _, m in ipairs(http_methods) do
-        if first_word == m then
-          return nil, nil  -- Already have method, in URL area
-        end
-      end
-    end
     return nil, nil
   end
 
@@ -334,6 +347,7 @@ function M.register()
     -- cmp is already loaded, register immediately
     cmp.register_source("poste", source.new())
     registered = true
+    vim.notify("poste: cmp source registered", vim.log.levels.DEBUG)
   else
     -- cmp not loaded yet (e.g., lazy-loaded by LazyVim)
     -- Register when user enters insert mode (cmp will be loaded by then)
@@ -362,6 +376,30 @@ function M.register()
       end,
     })
   end
+end
+
+-- Diagnostic function to check completion status
+function M.status()
+  local ok, cmp = pcall(require, "cmp")
+  if not ok then
+    return "cmp not loaded"
+  end
+
+  local sources = cmp.get_config().sources or {}
+  local has_poste = false
+  for _, src in ipairs(sources) do
+    if src.name == "poste" then
+      has_poste = true
+      break
+    end
+  end
+
+  return string.format(
+    "cmp loaded: yes, registered: %s, buffer has poste: %s, filetype: %s",
+    tostring(registered),
+    tostring(has_poste),
+    vim.bo.filetype
+  )
 end
 
 return M

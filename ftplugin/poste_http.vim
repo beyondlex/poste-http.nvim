@@ -82,8 +82,10 @@ local function setup_buffer_cmp()
   local ok, cmp = pcall(require, "cmp")
   if not ok then return end
   cmp.setup.buffer({
+    enabled = true,
+    autocomplete = true,
     sources = cmp.config.sources({
-      { name = "poste" },
+      { name = "poste", priority = 100 },
     }, {
       { name = "buffer" },
     }),

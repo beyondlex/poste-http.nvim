@@ -93,218 +93,204 @@ function M.run_request()
 
   -- Handle @prompt directives asynchronously, then continue with request execution
   request_vars.handle_prompt_variables(src_buf, line, buf_content, binary, file, state.current_env, function(modified_content)
-    -- Capture block bounds early (from original buffer, before content transforms)
-    local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
-
-    -- Resolve request variables: execute dependent requests and substitute {{RequestName.response.body.field}}
-    local buf_content = request_vars.resolve_request_variables(binary, file, state.current_env, src_buf, line, modified_content)
-
-    -- Extract and run pre-request scripts (< {% ... %} and < ./script.lua)
-    local pre_script_code
-    if block_start then
-      buf_content, pre_script_code = scripts.extract_pre_script_blocks(buf_content, block_start, block_end)
-    end
-
-    if pre_script_code then
-      local pre_result = scripts.run_pre_script(pre_script_code)
-      if pre_result.error then
-        -- Pre-script failed: abort request, show error
-        state.log("ERROR", pre_result.error)
-        local req_line = indicators.find_request_line(src_buf, line)
-        indicators.set_indicator(src_buf, req_line, "error")
-        state.last_response = {
-          protocol = "error",
-          status = 0,
-          status_text = "Pre-script error",
-          latency_ms = 0,
-          url = "Pre-request script failed",
-          content_type = "text/plain",
-          headers = {},
-          body = pre_result.error,
-          cookies = {},
-          metadata = { method = "", error = pre_result.error },
-        }
-        M.show_view("verbose")
-        return
-      end
-      -- Store pre-script logs for Script tab
-      if #pre_result.logs > 0 then
-        state.last_script_logs = pre_result.logs
-      end
-      -- Inject pre-script variables into content and adjust block_end
-      if next(pre_result.variables) then
-        local injected_count = 0
-        for _ in pairs(pre_result.variables) do injected_count = injected_count + 1 end
-        buf_content = scripts.inject_pre_script_vars(buf_content, block_start, pre_result.variables)
-        block_end = block_end + injected_count
-        -- Copy pre-script variables into state so post-scripts can read them via request.variables.get()
-        for name, value in pairs(pre_result.variables) do
-          state.script_variables[name] = value
-        end
-      end
-    end
-
-    -- Process form data magic variables and file inclusions
-    buf_content = request_vars.process_form_data(src_buf, line, buf_content)
-
-    -- Extract and strip assertion blocks before sending to Rust.
-    -- Only collect assertion code from the current request block.
-    -- block_end has been adjusted for any pre-script variable injection.
-    local assertion_code
-    buf_content, assertion_code = assertions.extract_assertion_blocks(buf_content, block_start, block_end)
-
-    -- Get the current request name for caching
-    local requests = request_vars.collect_requests(src_buf)
-    local current_req_name = nil
-    for _, req in ipairs(requests) do
-      if line >= req.start_line and line <= req.end_line then
-        current_req_name = req.name
-        break
-      end
-    end
-
-    -- Extract the full request block (request line + headers) for error display
-    local req_block = indicators.extract_request_block(src_buf, line)
-    local req_text = req_block.request_line
-
-    -- Find the request definition line and show spinner
+    -- Show spinner immediately before any async operations
     local req_line = indicators.find_request_line(src_buf, line)
     indicators.set_indicator(src_buf, req_line, "running")
 
-  local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
-    vim.fn.shellescape(binary),
-    vim.fn.shellescape(file),
-    line,
-    vim.fn.shellescape(state.current_env)
-  )
+    -- Capture block bounds early (from original buffer, before content transforms)
+    local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
 
-  state.log("INFO", string.format("cmd: %s", cmd))
+    -- Resolve request variables asynchronously (callback chain, non-blocking)
+    request_vars.resolve_request_variables(binary, file, state.current_env, src_buf, line, modified_content, function(buf_content)
 
-  local stderr_buf = {}  -- accumulate stderr lines
-
-  local job_id = vim.fn.jobstart(cmd, {
-    stdin = "pipe",
-    stdout_buffered = true,
-    stderr_buffered = true,
-    on_stdout = function(_, data)
-      if not data then return end
-      while #data > 0 and data[#data] == "" do
-        data[#data] = nil
+      -- Extract and run pre-request scripts (< {% ... %} and < ./script.lua)
+      local pre_script_code
+      if block_start then
+        buf_content, pre_script_code = scripts.extract_pre_script_blocks(buf_content, block_start, block_end)
       end
-      if #data == 0 then return end
 
-      local output = table.concat(data, "\n")
-      state.log("INFO", "stdout: " .. output:sub(1, 200))
-
-      vim.schedule(function()
-        local ok, parsed = pcall(vim.json.decode, output)
-        if ok and parsed and type(parsed) == "table" then
-          state.last_response = parsed
-          -- Cache response for subsequent request variable references
-          request_vars.cache_response(current_req_name, parsed)
-
-          -- Run assertions if present (also handles post-request scripting)
-          if assertion_code then
-            state.last_assertion_results = assertions.run_assertions(parsed, assertion_code)
-            state.log("INFO", string.format("Assertions: %d passed, %d failed",
-              state.last_assertion_results.passed, state.last_assertion_results.failed))
-
-            -- Merge post-request script logs with pre-script logs
-            if state.last_assertion_results.logs and #state.last_assertion_results.logs > 0 then
-              state.last_script_logs = state.last_script_logs or {}
-              for _, msg in ipairs(state.last_assertion_results.logs) do
-                table.insert(state.last_script_logs, msg)
-              end
-            end
-
-            if state.last_assertion_results.failed > 0 then
-              -- Tests failed: show Asserts tab and update indicator
-              M.show_view("assertions")
-              indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms, state.last_assertion_results)
-            else
-              -- All tests passed: show body tab with assertion count
-              M.show_view("body")
-              indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms, state.last_assertion_results)
-            end
-          else
-            -- No assertions: show body tab
-            M.show_view("body")
-            indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms)
-          end
-        else
-          -- JSON parse failed — replace last_response with error object
-          state.log("WARN", "JSON parse failed, showing raw output")
+      if pre_script_code then
+        local pre_result = scripts.run_pre_script(pre_script_code)
+        if pre_result.error then
+          state.log("ERROR", pre_result.error)
           indicators.set_indicator(src_buf, req_line, "error")
           state.last_response = {
             protocol = "error",
             status = 0,
-            status_text = "JSON parse failed",
+            status_text = "Pre-script error",
             latency_ms = 0,
-            url = vim.trim(req_text),
+            url = "Pre-request script failed",
             content_type = "text/plain",
-            headers = req_block.headers,
-            body = output,
+            headers = {},
+            body = pre_result.error,
             cookies = {},
-            metadata = {
-              method = "",
-              error = "JSON parse failed",
-              exit_code = "?",
-              request_line = vim.trim(req_text),
-              env = state.current_env,
-            },
+            metadata = { method = "", error = pre_result.error },
           }
           M.show_view("verbose")
+          return
         end
-      end)
-    end,
-    on_stderr = function(_, data)
-      if not data then return end
-      while #data > 0 and data[#data] == "" do
-        data[#data] = nil
+        if #pre_result.logs > 0 then
+          state.last_script_logs = pre_result.logs
+        end
+        if next(pre_result.variables) then
+          local injected_count = 0
+          for _ in pairs(pre_result.variables) do injected_count = injected_count + 1 end
+          buf_content = scripts.inject_pre_script_vars(buf_content, block_start, pre_result.variables)
+          block_end = block_end + injected_count
+          for name, value in pairs(pre_result.variables) do
+            state.script_variables[name] = value
+          end
+        end
       end
-      if #data == 0 then return end
-      for _, l in ipairs(data) do
-        table.insert(stderr_buf, l)
-      end
-    end,
-    on_exit = function(_, code)
-      if code ~= 0 then
-        state.log("ERROR", string.format("exit code %d (line %d, env %s)", code, line, state.current_env))
-        vim.schedule(function()
-          indicators.set_indicator(src_buf, req_line, "error")
 
-          -- Replace last_response with a synthetic error object so all tabs
-          -- (Body/Headers/Verbose) show the error, not a stale success.
-          local stderr_text = table.concat(stderr_buf, "\n")
-          state.last_response = {
-            protocol = "error",
-            status = 0,
-            status_text = "Failed (exit " .. code .. ")",
-            latency_ms = 0,
-            url = vim.trim(req_text),
-            content_type = "text/plain",
-            headers = req_block.headers,
-            body = stderr_text ~= "" and stderr_text or "Request failed with exit code " .. code,
-            cookies = {},
-            metadata = {
-              method = "",
-              error = stderr_text,
-              exit_code = tostring(code),
-              request_line = vim.trim(req_text),
-              env = state.current_env,
-            },
-          }
-          M.show_view("verbose")
-        end)
-      end
-    end,
-  })
+      -- Process form data magic variables and file inclusions
+      buf_content = request_vars.process_form_data(src_buf, line, buf_content)
 
-    -- Send buffer content via stdin and close the pipe
-    if job_id > 0 then
-      vim.fn.chansend(job_id, buf_content)
-      vim.fn.chanclose(job_id, "stdin")
-    end
+      -- Extract and strip assertion blocks before sending to Rust
+      local assertion_code
+      buf_content, assertion_code = assertions.extract_assertion_blocks(buf_content, block_start, block_end)
+
+      -- Get the current request name for caching
+      local requests = request_vars.collect_requests(src_buf)
+      local current_req_name = nil
+      for _, req in ipairs(requests) do
+        if line >= req.start_line and line <= req.end_line then
+          current_req_name = req.name
+          break
+        end
+      end
+
+      -- Extract the full request block (request line + headers) for error display
+      local req_block = indicators.extract_request_block(src_buf, line)
+      local req_text = req_block.request_line
+
+      local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
+        vim.fn.shellescape(binary),
+        vim.fn.shellescape(file),
+        line,
+        vim.fn.shellescape(state.current_env)
+      )
+
+      state.log("INFO", string.format("cmd: %s", cmd))
+
+      local stderr_buf = {}
+
+      local job_id = vim.fn.jobstart(cmd, {
+        stdin = "pipe",
+        stdout_buffered = true,
+        stderr_buffered = true,
+        on_stdout = function(_, data)
+          if not data then return end
+          while #data > 0 and data[#data] == "" do
+            data[#data] = nil
+          end
+          if #data == 0 then return end
+
+          local output = table.concat(data, "\n")
+          state.log("INFO", "stdout: " .. output:sub(1, 200))
+
+          vim.schedule(function()
+            local ok, parsed = pcall(vim.json.decode, output)
+            if ok and parsed and type(parsed) == "table" then
+              state.last_response = parsed
+              request_vars.cache_response(current_req_name, parsed)
+
+              if assertion_code then
+                state.last_assertion_results = assertions.run_assertions(parsed, assertion_code)
+                state.log("INFO", string.format("Assertions: %d passed, %d failed",
+                  state.last_assertion_results.passed, state.last_assertion_results.failed))
+
+                if state.last_assertion_results.logs and #state.last_assertion_results.logs > 0 then
+                  state.last_script_logs = state.last_script_logs or {}
+                  for _, msg in ipairs(state.last_assertion_results.logs) do
+                    table.insert(state.last_script_logs, msg)
+                  end
+                end
+
+                if state.last_assertion_results.failed > 0 then
+                  M.show_view("assertions")
+                  indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms, state.last_assertion_results)
+                else
+                  M.show_view("body")
+                  indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms, state.last_assertion_results)
+                end
+              else
+                M.show_view("body")
+                indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms)
+              end
+            else
+              state.log("WARN", "JSON parse failed, showing raw output")
+              indicators.set_indicator(src_buf, req_line, "error")
+              state.last_response = {
+                protocol = "error",
+                status = 0,
+                status_text = "JSON parse failed",
+                latency_ms = 0,
+                url = vim.trim(req_text),
+                content_type = "text/plain",
+                headers = req_block.headers,
+                body = output,
+                cookies = {},
+                metadata = {
+                  method = "",
+                  error = "JSON parse failed",
+                  exit_code = "?",
+                  request_line = vim.trim(req_text),
+                  env = state.current_env,
+                },
+              }
+              M.show_view("verbose")
+            end
+          end)
+        end,
+        on_stderr = function(_, data)
+          if not data then return end
+          while #data > 0 and data[#data] == "" do
+            data[#data] = nil
+          end
+          if #data == 0 then return end
+          for _, l in ipairs(data) do
+            table.insert(stderr_buf, l)
+          end
+        end,
+        on_exit = function(_, code)
+          if code ~= 0 then
+            state.log("ERROR", string.format("exit code %d (line %d, env %s)", code, line, state.current_env))
+            vim.schedule(function()
+              indicators.set_indicator(src_buf, req_line, "error")
+              local stderr_text = table.concat(stderr_buf, "\n")
+              state.last_response = {
+                protocol = "error",
+                status = 0,
+                status_text = "Failed (exit " .. code .. ")",
+                latency_ms = 0,
+                url = vim.trim(req_text),
+                content_type = "text/plain",
+                headers = req_block.headers,
+                body = stderr_text ~= "" and stderr_text or "Request failed with exit code " .. code,
+                cookies = {},
+                metadata = {
+                  method = "",
+                  error = stderr_text,
+                  exit_code = tostring(code),
+                  request_line = vim.trim(req_text),
+                  env = state.current_env,
+                },
+              }
+              M.show_view("verbose")
+            end)
+          end
+        end,
+      })
+
+      if job_id > 0 then
+        vim.fn.chansend(job_id, buf_content)
+        vim.fn.chanclose(job_id, "stdin")
+      else
+        indicators.set_indicator(src_buf, req_line, "error")
+        vim.notify("Failed to start poste job", vim.log.levels.ERROR, { title = "Poste" })
+      end
+    end)  -- end of resolve_request_variables callback
   end)  -- end of handle_prompt_variables callback
 end
 
@@ -360,6 +346,14 @@ function M.setup(opts)
     vim.keymap.set("n", "<leader>rr", M.run_request, keymap_opts)
     vim.keymap.set("n", "]]", M.jump_next, keymap_opts)
     vim.keymap.set("n", "[[", M.jump_prev, keymap_opts)
+    vim.keymap.set("n", "<leader>rp", function()
+      local curl = require("poste.curl")
+      curl.paste_curl("+")
+    end, keymap_opts)
+    vim.keymap.set("n", "<leader>rc", function()
+      local copy = require("poste.copy")
+      copy.copy_to_clipboard("+")
+    end, keymap_opts)
   end
 
   -- Commands
@@ -377,6 +371,16 @@ function M.setup(opts)
     nargs = "?",
     desc = "Switch environment or show current",
   })
+
+  vim.api.nvim_create_user_command("PostePasteCurl", function()
+    local curl = require("poste.curl")
+    curl.paste_curl("+")
+  end, { desc = "Paste curl command from clipboard as HTTP request" })
+
+  vim.api.nvim_create_user_command("PosteCopyAsCurl", function()
+    local copy = require("poste.copy")
+    copy.copy_to_clipboard("+")
+  end, { desc = "Copy current request as curl command to clipboard" })
 
   -- Autocommand: set up keymaps for supported file types
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {

@@ -191,7 +191,13 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
   elseif status == "success" then
     local virt_text = { { " ✓ ", "PosteSuccess" } }
     if latency_ms and latency_ms > 0 then
-      table.insert(virt_text, { string.format("%.2f ms", latency_ms), "PosteLatency" })
+      local latency_text
+      if latency_ms >= 1000 then
+        latency_text = string.format("%.2f s", latency_ms / 1000)
+      else
+        latency_text = string.format("%.2f ms", latency_ms)
+      end
+      table.insert(virt_text, { latency_text, "PosteLatency" })
     end
     -- Add assertion results if present
     if assertion_results and assertion_results.total > 0 then

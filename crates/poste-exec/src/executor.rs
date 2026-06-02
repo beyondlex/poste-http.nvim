@@ -34,14 +34,14 @@ impl Executor {
         }
 
         // First line: METHOD URL
+        // Handle unresolved {{variable references}} that may contain spaces
+        // (e.g. {{Request Name.response.body.field}} with spaces in the request name).
         let request_line = lines[0].trim();
-        let parts: Vec<&str> = request_line.split_whitespace().collect();
-        if parts.len() < 2 {
-            anyhow::bail!("Invalid HTTP request line: {}", request_line);
-        }
+        let space_pos = request_line.find(char::is_whitespace)
+            .ok_or_else(|| anyhow::anyhow!("Invalid HTTP request line: {}", request_line))?;
 
-        let method = parts[0].to_uppercase();
-        let url = parts[1].to_string();
+        let method = request_line[..space_pos].to_uppercase();
+        let url = request_line[space_pos..].trim_start().to_string();
 
         // Parse request headers and find body separator
         let mut req_headers = Vec::new();

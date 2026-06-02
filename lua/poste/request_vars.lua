@@ -279,31 +279,32 @@ local function find_request_variable_refs(block_text)
 end
 
 ---------------------------------------------------------------------------
--- Dependent request execution
+-- Dependent request execution (fully async via callback chain)
 ---------------------------------------------------------------------------
 
---- Execute a dependent request and return its response.
---- Uses cache if available.
-local function execute_dependent_request(binary, file, env_name, dep_req, buf_content)
+--- Execute a single dependent request asynchronously.
+--- Uses cache if available. Calls on_complete(response_or_nil).
+--- Non-blocking: uses jobstart on_exit callback chain.
+local function execute_dependent_request_async(binary, file, env_name, dep_req, resolved_content, on_complete)
   -- Check cache first
   if request_response_cache[dep_req.name] then
     state.log("INFO", string.format("Using cached response for '%s'", dep_req.name))
-    return request_response_cache[dep_req.name]
+    vim.schedule(function() on_complete(request_response_cache[dep_req.name]) end)
+    return
   end
 
-  -- Execute via CLI
   local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
     vim.fn.shellescape(binary),
     vim.fn.shellescape(file),
-    dep_req.start_line,  -- 1-indexed, cursor on ### line
+    dep_req.start_line,
     vim.fn.shellescape(env_name)
   )
 
   state.log("INFO", string.format("Executing dependent request '%s' at line %d", dep_req.name, dep_req.start_line))
 
-  -- Capture stdout/stderr in buffers
   local stdout_buf = {}
   local stderr_buf = {}
+  local completed = false
 
   local job_id = vim.fn.jobstart(cmd, {
     stdin = "pipe",
@@ -312,113 +313,167 @@ local function execute_dependent_request(binary, file, env_name, dep_req, buf_co
     on_stdout = function(_, data)
       if data then
         for _, line in ipairs(data) do
-          if line ~= "" then
-            table.insert(stdout_buf, line)
-          end
+          if line ~= "" then table.insert(stdout_buf, line) end
         end
       end
     end,
     on_stderr = function(_, data)
       if data then
         for _, line in ipairs(data) do
-          if line ~= "" then
-            table.insert(stderr_buf, line)
-          end
+          if line ~= "" then table.insert(stderr_buf, line) end
         end
       end
+    end,
+    on_exit = function(_, code)
+      if completed then return end
+      completed = true
+      -- Cancel the timeout timer
+      if timeout_timer then timeout_timer:stop() timeout_timer:close() end
+
+      if code ~= 0 then
+        state.log("WARN", string.format("Dependent request '%s' failed with exit code %d", dep_req.name, code))
+        on_complete(nil)
+        return
+      end
+
+      if #stdout_buf == 0 then
+        state.log("WARN", "No output from dependent request")
+        on_complete(nil)
+        return
+      end
+
+      local stdout_text = table.concat(stdout_buf, "\n")
+      local ok, parsed = pcall(vim.json.decode, stdout_text)
+      if not ok then
+        state.log("WARN", string.format("Failed to parse dependent request response: %s", stdout_text:sub(1, 100)))
+        on_complete(nil)
+        return
+      end
+
+      request_response_cache[dep_req.name] = parsed
+      state.log("INFO", string.format("Cached response for '%s'", dep_req.name))
+      on_complete(parsed)
     end,
   })
 
   if job_id <= 0 then
     state.log("ERROR", "Failed to start job for dependent request")
-    return nil
+    on_complete(nil)
+    return
   end
 
-  -- Recursively resolve cross-request variable references in the dependent request
-  local all_lines = vim.split(buf_content, "\n", { plain = true })
-  local dep_block_lines = {}
-  for i = dep_req.start_line, dep_req.end_line do
-    table.insert(dep_block_lines, all_lines[i] or "")
-  end
-  local dep_block_text = table.concat(dep_block_lines, "\n")
-
-  -- Find and resolve cross-request variable references
-  local dep_refs = find_request_variable_refs(dep_block_text)
-  if #dep_refs > 0 then
-    state.log("INFO", string.format("Dependent request '%s' has %d cross-request reference(s)", dep_req.name, #dep_refs))
-    local dep_cached = {}
-    for _, ref in ipairs(dep_refs) do
-      if not dep_cached[ref.request_name] then
-        -- Find the referenced request
-        local ref_req = nil
-        local requests = M.collect_requests(0)  -- Use current buffer
-        for _, req in ipairs(requests) do
-          if req.name == ref.request_name then
-            ref_req = req
-            break
-          end
-        end
-        if ref_req then
-          -- Recursively execute
-          local response = execute_dependent_request(binary, file, env_name, ref_req, buf_content)
-          if response then
-            dep_cached[ref.request_name] = response
-          end
-        end
-      end
+  -- 30s timeout via uv timer (non-blocking, doesn't freeze event loop)
+  local uv = vim.uv or vim.loop
+  local timeout_timer = uv.new_timer()
+  timeout_timer:start(30000, 0, vim.schedule_wrap(function()
+    if completed then
+      timeout_timer:close()
+      return
     end
+    completed = true
+    timeout_timer:close()
+    vim.fn.jobstop(job_id)
+    state.log("ERROR", string.format("Dependent request '%s' timed out after 30s", dep_req.name))
+    vim.notify(string.format("Dependency '%s' timed out", dep_req.name), vim.log.levels.ERROR, { title = "Poste" })
+    on_complete(nil)
+  end))
 
-    -- Substitute resolved values
-    local resolved_dep_block = dep_block_text
-    for _, ref in ipairs(dep_refs) do
-      local value = resolve_request_variable(ref.full:sub(3, -3), dep_cached)
-      if value then
-        resolved_dep_block = resolved_dep_block:gsub(vim.pesc(ref.full), tostring(value))
-      end
-    end
-
-    -- Rebuild buf_content with resolved dependent block
-    local resolved_lines = vim.split(resolved_dep_block, "\n", { plain = true })
-    for i, line in ipairs(resolved_lines) do
-      all_lines[dep_req.start_line + i - 1] = line
-    end
-    buf_content = table.concat(all_lines, "\n")
-  end
-
-  -- Send buffer content (with prompts and assertions already resolved)
-  local clean_content = strip_prompt_lines(buf_content)
+  -- Send resolved content via stdin
+  local clean_content = strip_prompt_lines(resolved_content)
   clean_content = assertions.extract_assertion_blocks(clean_content)
   vim.fn.chansend(job_id, clean_content)
   vim.fn.chanclose(job_id, "stdin")
+end
 
-  -- Wait for completion (blocking)
-  local exit_codes = vim.fn.jobwait({ job_id })
-  if exit_codes[1] ~= 0 then
-    state.log("WARN", string.format("Dependent request '%s' failed with exit code %d", dep_req.name, exit_codes[1]))
-    if #stderr_buf > 0 then
-      state.log("WARN", "stderr: " .. table.concat(stderr_buf, "\n"))
+--- Build a flat execution order for all dependencies (topological via DFS).
+--- Dependencies already cached are skipped.
+local function build_dep_order(refs, requests, content)
+  local order = {}
+  local seen = {}
+
+  local function collect(dep_req)
+    if seen[dep_req.name] or request_response_cache[dep_req.name] then
+      return
     end
-    return nil
+    seen[dep_req.name] = true
+
+    -- Extract dep's block text and find its own cross-request refs
+    local all_lines = vim.split(content, "\n", { plain = true })
+    local dep_lines = {}
+    for i = dep_req.start_line, dep_req.end_line do
+      table.insert(dep_lines, all_lines[i] or "")
+    end
+    local dep_block_text = table.concat(dep_lines, "\n")
+    local dep_refs = find_request_variable_refs(dep_block_text)
+
+    -- Recursively collect sub-dependencies first (they must execute before us)
+    for _, ref in ipairs(dep_refs) do
+      if not seen[ref.request_name] and not request_response_cache[ref.request_name] then
+        for _, req in ipairs(requests) do
+          if req.name == ref.request_name then
+            collect(req)
+            break
+          end
+        end
+      end
+    end
+
+    table.insert(order, dep_req)
   end
 
-  -- Parse output
-  if #stdout_buf == 0 then
-    state.log("WARN", "No output from dependent request")
-    return nil
+  for _, ref in ipairs(refs) do
+    if not request_response_cache[ref.request_name] then
+      for _, req in ipairs(requests) do
+        if req.name == ref.request_name then
+          collect(req)
+          break
+        end
+      end
+    end
   end
 
-  local stdout_text = table.concat(stdout_buf, "\n")
-  local ok, parsed = pcall(vim.json.decode, stdout_text)
-  if not ok then
-    state.log("WARN", string.format("Failed to parse dependent request response: %s", stdout_text:sub(1, 100)))
-    return nil
+  return order
+end
+
+--- Execute all dependencies in order via callback chain.
+--- Each dep's on_exit triggers the next dep's execution.
+local function execute_deps_sequential(binary, file, env_name, dep_order, content, requests, idx, on_complete)
+  idx = idx or 1
+  if idx > #dep_order then
+    on_complete()
+    return
   end
 
-  -- Cache the response
-  request_response_cache[dep_req.name] = parsed
-  state.log("INFO", string.format("Cached response for '%s'", dep_req.name))
+  local dep_req = dep_order[idx]
 
-  return parsed
+  -- Resolve this dep's own variable refs using already-cached responses
+  local all_lines = vim.split(content, "\n", { plain = true })
+  local dep_lines = {}
+  for i = dep_req.start_line, dep_req.end_line do
+    table.insert(dep_lines, all_lines[i] or "")
+  end
+  local dep_block_text = table.concat(dep_lines, "\n")
+  local dep_refs = find_request_variable_refs(dep_block_text)
+
+  local resolved_dep_block = dep_block_text
+  for _, ref in ipairs(dep_refs) do
+    local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
+    if value then
+      resolved_dep_block = resolved_dep_block:gsub(vim.pesc(ref.full), tostring(value))
+    end
+  end
+
+  -- Rebuild content with resolved dep block
+  local resolved_lines = vim.split(resolved_dep_block, "\n", { plain = true })
+  for i, line in ipairs(resolved_lines) do
+    all_lines[dep_req.start_line + i - 1] = line
+  end
+  local resolved_content = table.concat(all_lines, "\n")
+
+  execute_dependent_request_async(binary, file, env_name, dep_req, resolved_content, function(_response)
+    -- Move to next dep regardless of success/failure
+    execute_deps_sequential(binary, file, env_name, dep_order, content, requests, idx + 1, on_complete)
+  end)
 end
 
 ---------------------------------------------------------------------------
@@ -481,41 +536,67 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
             end
 
             if dep_req then
-              -- Execute the dependent request
-              local response = execute_dependent_request(binary, file, env_name, dep_req, content)
-              if response then
-                -- Extract the array from response using the path
-                local value = resolve_request_variable(ref_match, { [req_name] = response })
-                if value and type(value) == "table" then
-                  -- Use array values as options
-                  local options = {}
-                  for _, item in ipairs(value) do
-                    if type(item) == "string" then
-                      table.insert(options, item)
-                    elseif type(item) == "number" then
-                      table.insert(options, tostring(item))
-                    elseif type(item) == "table" then
-                      -- If it's an object, try to stringify it
-                      table.insert(options, vim.inspect(item))
+              -- Execute the dependent request asynchronously
+              local all_lines = vim.split(content, "\n", { plain = true })
+              local dep_lines = {}
+              for i = dep_req.start_line, dep_req.end_line do
+                table.insert(dep_lines, all_lines[i] or "")
+              end
+              local dep_resolved = table.concat(dep_lines, "\n")
+
+              execute_dependent_request_async(binary, file, env_name, dep_req, dep_resolved, function(response)
+                if response then
+                  local value = resolve_request_variable(ref_match, { [req_name] = response })
+                  if value and type(value) == "table" then
+                    local options = {}
+                    for _, item in ipairs(value) do
+                      if type(item) == "string" then
+                        table.insert(options, item)
+                      elseif type(item) == "number" then
+                        table.insert(options, tostring(item))
+                      elseif type(item) == "table" then
+                        table.insert(options, vim.inspect(item))
+                      end
+                    end
+
+                    if #options > 0 then
+                      local prompt = string.format("Select value for '%s'", varname_sel)
+                      poste_select.select(options, prompt, function(selected)
+                        if selected then
+                          table.insert(result, string.format("@%s = %s", varname_sel, selected))
+                        else
+                          table.insert(result, line)
+                        end
+                        process_next()
+                      end)
+                      return
                     end
                   end
-
-                  if #options > 0 then
-                    -- Use built-in floating window selector (async)
-                    local prompt = string.format("Select value for '%s'", varname_sel)
-                    poste_select.select(options, prompt, function(selected)
-                      if selected then
-                        table.insert(result, string.format("@%s = %s", varname_sel, selected))
-                      else
-                        -- User cancelled
-                        table.insert(result, line)
-                      end
-                      process_next()
-                    end)
-                    return
+                end
+                -- Fallback to static options
+                local options = {}
+                for opt in options_str:gmatch("[^,]+") do
+                  local trimmed = vim.trim(opt)
+                  if trimmed ~= "" and not trimmed:match("{{") then
+                    table.insert(options, trimmed)
                   end
                 end
-              end
+                if #options > 0 then
+                  local prompt = string.format("Select value for '%s'", varname_sel)
+                  poste_select.select(options, prompt, function(selected)
+                    if selected then
+                      table.insert(result, string.format("@%s = %s", varname_sel, selected))
+                    else
+                      table.insert(result, line)
+                    end
+                    process_next()
+                  end)
+                else
+                  table.insert(result, line)
+                  process_next()
+                end
+              end)
+              return
             end
             -- If we get here, something went wrong with dynamic options
             state.log("WARN", string.format("Could not resolve dynamic options for '%s'", varname_sel))
@@ -586,9 +667,9 @@ end
 ---------------------------------------------------------------------------
 
 --- Resolve all request variables in the buffer content for the current request block.
---- Executes dependent requests if not already cached.
---- Returns modified buffer content with variables substituted.
-function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, content)
+--- Fully async: executes dependent requests via callback chain, then substitutes variables.
+--- Calls on_complete(resolved_content) when all dependencies are resolved.
+function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, content, on_complete)
   local requests = M.collect_requests(buf)
 
   -- Find the current request block
@@ -601,7 +682,8 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
   end
 
   if not current_req then
-    return content
+    on_complete(content)
+    return
   end
 
   -- Extract current block text
@@ -615,57 +697,66 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
   -- Find request variable references
   local refs = find_request_variable_refs(block_text)
   if #refs == 0 then
-    return content
+    on_complete(content)
+    return
   end
 
   state.log("INFO", string.format("Found %d request variable reference(s)", #refs))
 
-  -- Execute dependent requests and build cache
-  local cached_responses = {}
-  for _, ref in ipairs(refs) do
-    if not cached_responses[ref.request_name] then
-      -- Find the request block
-      local dep_req = nil
-      for _, req in ipairs(requests) do
-        if req.name == ref.request_name then
-          dep_req = req
-          break
-        end
-      end
+  -- Build topological execution order for all dependencies
+  local dep_order = build_dep_order(refs, requests, content)
 
-      if dep_req then
-        local response = execute_dependent_request(binary, file, env_name, dep_req, content)
-        if response then
-          cached_responses[ref.request_name] = response
-        end
+  if #dep_order == 0 then
+    -- All dependencies already cached, substitute immediately
+    local resolved_block = block_text
+    for _, ref in ipairs(refs) do
+      local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
+      if value then
+        resolved_block = resolved_block:gsub(vim.pesc(ref.full), tostring(value))
       else
-        state.log("WARN", string.format("Referenced request '%s' not found", ref.request_name))
+        state.log("WARN", string.format("Could not resolve variable: %s", ref.full))
       end
     end
-  end
 
-  -- Substitute variables in block text
-  local resolved_block = block_text
-  for _, ref in ipairs(refs) do
-    local value = resolve_request_variable(ref.full:sub(3, -3), cached_responses)  -- strip {{ }}
-    if value then
-      resolved_block = resolved_block:gsub(vim.pesc(ref.full), tostring(value))
-    else
-      state.log("WARN", string.format("Could not resolve variable: %s", ref.full))
+    local result_lines = {}
+    local resolved_split = vim.split(resolved_block, "\n", { plain = true })
+    for i, l in ipairs(all_lines) do
+      if i >= current_req.start_line and i <= current_req.end_line then
+        table.insert(result_lines, resolved_split[i - current_req.start_line + 1] or l)
+      else
+        table.insert(result_lines, l)
+      end
     end
+    on_complete(table.concat(result_lines, "\n"))
+    return
   end
 
-  -- Replace block in full content
-  local result_lines = {}
-  for i, l in ipairs(all_lines) do
-    if i >= current_req.start_line and i <= current_req.end_line then
-      table.insert(result_lines, vim.split(resolved_block, "\n", { plain = true })[i - current_req.start_line + 1] or l)
-    else
-      table.insert(result_lines, l)
+  -- Execute dependencies sequentially via callback chain (fully non-blocking)
+  execute_deps_sequential(binary, file, env_name, dep_order, content, requests, 1, function()
+    -- All deps resolved: substitute variables in current block
+    local resolved_block = block_text
+    for _, ref in ipairs(refs) do
+      local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
+      if value then
+        resolved_block = resolved_block:gsub(vim.pesc(ref.full), tostring(value))
+      else
+        state.log("WARN", string.format("Could not resolve variable: %s", ref.full))
+      end
     end
-  end
 
-  return table.concat(result_lines, "\n")
+    -- Replace block in full content
+    local result_lines = {}
+    local resolved_split = vim.split(resolved_block, "\n", { plain = true })
+    for i, l in ipairs(all_lines) do
+      if i >= current_req.start_line and i <= current_req.end_line then
+        table.insert(result_lines, resolved_split[i - current_req.start_line + 1] or l)
+      else
+        table.insert(result_lines, l)
+      end
+    end
+
+    on_complete(table.concat(result_lines, "\n"))
+  end)
 end
 
 --- Cache the current request's response for use by subsequent request variables

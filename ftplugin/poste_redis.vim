@@ -1,4 +1,4 @@
-" Vim ftplugin for Poste HTTP request files (.http, .rest)
+" Vim ftplugin for Poste Redis request files (.redis)
 
 if exists("b:did_ftplugin")
   finish
@@ -7,20 +7,16 @@ let b:did_ftplugin = 1
 
 " Comment settings
 setlocal commentstring=#\ %s
-setlocal comments=:#,s:/*,mb:*,ex:*/
+setlocal comments=:#
 
 " ─── Kulala.nvim conflict cleanup ──────────────────────
-" When a .http file is opened, Neovim's built-in detection first sets
-" filetype=http, which causes kulala.nvim to attach its LSP client and
-" tree-sitter diagnostics.  Poste's after/ftdetect then overrides the
-" filetype to poste_http, but by that point kulala is already attached.
-" Clean up kulala's state so we don't get spurious "Parsing error" diagnostics.
+" Same cleanup as poste_http.vim — remove kulala diagnostics and LSP
+" that may have attached during the brief filetype=http window.
 if has('nvim')
   lua << EOF
     local function cleanup_kulala()
       local bufnr = vim.api.nvim_get_current_buf()
 
-      -- Clear kulala's diagnostics for this buffer only
       local ok, ns = pcall(vim.api.nvim_get_namespaces)
       if ok then
         for name, id in pairs(ns) do
@@ -30,7 +26,6 @@ if has('nvim')
         end
       end
 
-      -- Detach any kulala LSP clients attached to this buffer
       pcall(function()
         for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
           if client.name == "kulala" then
@@ -40,7 +35,6 @@ if has('nvim')
       end)
     end
 
-    -- Run cleanup now and also defer it to catch late-attaching LSP
     cleanup_kulala()
     vim.schedule(cleanup_kulala)
 EOF

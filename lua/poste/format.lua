@@ -522,8 +522,10 @@ function M.format_verbose(r)
       elseif (r.content_type or ""):find("xml") then
         lang = "xml"
       end
+      -- Pretty-print JSON body
+      local body = pretty_body(r.body, r.content_type)
       table.insert(lines, "```" .. lang)
-      for l in r.body:gmatch("[^\r\n]+") do
+      for l in body:gmatch("[^\r\n]+") do
         table.insert(lines, l)
       end
       table.insert(lines, "```")

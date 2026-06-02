@@ -164,7 +164,7 @@ local function poste_select(items, prompt_text, on_select)
 
   -- Render function
   local function render()
-    local lines = { "🔍 " .. search_text .. "_" }
+    local lines = { "\239\132\133 " .. search_text }
     for idx, item in ipairs(filtered) do
       local prefix = (idx == selected_idx) and "▶ " or "  "
       table.insert(lines, prefix .. item)
@@ -186,16 +186,22 @@ local function poste_select(items, prompt_text, on_select)
   local function filter_items()
     if search_text == "" then
       filtered = vim.deepcopy(items)
+      selected_idx = 1
     else
       filtered = {}
       local lower_search = search_text:lower()
+      local exact_idx = nil
       for _, item in ipairs(items) do
         if item:lower():find(lower_search, 1, true) then
           table.insert(filtered, item)
+          -- Check for exact match (case-insensitive)
+          if item:lower() == lower_search and not exact_idx then
+            exact_idx = #filtered
+          end
         end
       end
+      selected_idx = exact_idx or 1
     end
-    selected_idx = 1
     render()
   end
 
@@ -247,16 +253,16 @@ local function poste_select(items, prompt_text, on_select)
 
   -- Insert mode mappings
   map_key("i", "<CR>", function()
+    vim.cmd("stopinsert")
     if #filtered > 0 then
       resolve(filtered[selected_idx])
     else
       resolve(nil)
     end
-    vim.cmd("stopinsert")
   end)
   map_key("i", "<Esc>", function()
-    resolve(nil)
     vim.cmd("stopinsert")
+    resolve(nil)
   end)
   map_key("i", "<Down>", function()
     selected_idx = math.min(selected_idx + 1, #filtered)
@@ -267,15 +273,15 @@ local function poste_select(items, prompt_text, on_select)
     render()
   end)
 
-  -- Real-time filtering on text change
-  vim.api.nvim_create_autocmd("TextChanged", {
+  -- Real-time filtering on text change (TextChangedI for insert mode)
+  vim.api.nvim_create_autocmd("TextChangedI", {
     buffer = buf,
     callback = function()
       if resolved then return end
       local lines = vim.api.nvim_buf_get_lines(buf, 0, 1, false)
       local first_line = lines[1] or ""
-      -- Extract search text after "🔍 " and before "_"
-      local new_search = first_line:match("^🔍 (.*)_?$") or ""
+      -- Extract search text after prefix
+      local new_search = first_line:match("^\239\132\133 (.*)$") or ""
       if new_search ~= search_text then
         search_text = new_search
         filter_items()
@@ -699,7 +705,7 @@ local function apply_redis_highlights(buf, lines, rtype)
     set = "PosteRedisSet",
     zset = "PosteRedisZset",
     stream = "PosteRedisStream",
-    nil = "PosteRedisNil",
+    ["nil"] = "PosteRedisNil",
     integer = "PosteRedisString",
   }
   

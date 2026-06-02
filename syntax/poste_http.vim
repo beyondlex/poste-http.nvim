@@ -7,62 +7,80 @@ if exists("b:current_syntax")
   finish
 endif
 
-" ─── Comments & Directives ──────────────────────────
-" Directives must be checked before plain comments since both start with # or --
-syn match PosteDirective display
-  \ '^\s*[#-]\{-}\s*@\%(prompt\|connection\)\s\+.*$'
-syn match PosteComment display '^\s*#.*$'
-syn match PosteComment display '^\s*--.*$'
+" ─── Request separator + name (MUST be before comments) ─────
+syn region PosteRequestName
+  \ start='^###' end='$'
+  \ contains=PosteSeparator keepend
+syn match PosteSeparator '^###' contained
 
-" ─── Request separator ──────────────────────────────
-syn match PosteSeparator display '^###'
-syn match PosteRequestName display '^###\s\+\zs.*$'
+" ─── Comments & Directives ──────────────────────────
+syn match PosteDirective
+  \ '^\s*[#-]\{-}\s*@\%(prompt\|connection\)\s\+.*$'
+syn match PosteComment '^\s*#\s.*$'
+syn match PosteComment '^\s*--.*$'
 
 " ─── Variable definitions: @name = value / @name value ──
-syn match PosteVarDef display '^\s*@\w\+'
+syn match PosteVarDef '^\s*@\w\+'
   \ nextgroup=PosteVarAssign,PosteVarValue skipwhite
-syn match PosteVarAssign display '=' contained
+syn match PosteVarAssign '=' contained
   \ nextgroup=PosteVarValue skipwhite
-syn match PosteVarValue display '.\+$' contained
+syn match PosteVarValue '.\+$' contained
 
 " ─── Variable references ────────────────────────────
-syn match PosteMagicVar display '{{\$\w\+}}'
-syn match PosteVarRef display '{{[^}]\+}}'
+syn match PosteMagicVar '{{\$\w\+}}'
+syn match PosteVarRef '{{[^}]\+}}'
 
 " ─── Pre-request script blocks ──────────────────────
 syn region PostePreScript start='<\s*{%$' end='^%}'
   \ contains=PosteScriptMarker keepend
-syn match PostePreScript display '<\s*{%.*%}'
+syn match PostePreScript '<\s*{%.*%}'
   \ contains=PosteScriptMarker
 
 " ─── Assertion / post-request script blocks ─────────
 syn region PosteAssertion start='>\s*{%$' end='^%}'
   \ contains=PosteScriptMarker keepend
-syn match PosteAssertion display '>\s*{%.*%}'
+syn match PosteAssertion '>\s*{%.*%}'
   \ contains=PosteScriptMarker
 
 " Script markers (contained in PreScript / Assertion regions)
-syn match PosteScriptMarker display '{%' contained
-syn match PosteScriptMarker display '%}' contained
+syn match PosteScriptMarker '{%' contained
+syn match PosteScriptMarker '%}' contained
 
 " ─── External script reference ──────────────────────
-syn match PosteExternalScript display '<\s\+\./\S*\.lua\s*$'
+syn match PosteExternalScript '<\s\+\./\S*\.lua\s*$'
 
 " ─── File inclusion in body ─────────────────────────
-syn match PosteFileInclude display '<\s\+/\S\+'
+syn match PosteFileInclude '<\s\+/\S\+'
 
 " ─── HTTP request line ──────────────────────────────
-syn keyword PosteMethod
-  \ GET POST PUT DELETE PATCH HEAD OPTIONS TRACE CONNECT
-  \ nextgroup=PosteUrl skipwhite
-syn match PosteUrl display '\S\+' contained
+" Methods MUST be defined before PosteHeaderKey to take precedence
+" Use \ze (end match) to ensure we match the whole word
+syn match PosteMethodGET    '^\s*GET\ze\s'    nextgroup=PosteUrl skipwhite
+syn match PosteMethodPOST   '^\s*POST\ze\s'   nextgroup=PosteUrl skipwhite
+syn match PosteMethodPUT    '^\s*PUT\ze\s'    nextgroup=PosteUrl skipwhite
+syn match PosteMethodDELETE '^\s*DELETE\ze\s' nextgroup=PosteUrl skipwhite
+syn match PosteMethodPATCH  '^\s*PATCH\ze\s'  nextgroup=PosteUrl skipwhite
+syn match PosteMethodHEAD   '^\s*HEAD\ze\s'   nextgroup=PosteUrl skipwhite
+syn match PosteMethodOPTIONS '^\s*OPTIONS\ze\s' nextgroup=PosteUrl skipwhite
+syn match PosteMethodOther  '^\s*\%(TRACE\|CONNECT\)\ze\s' nextgroup=PosteUrl skipwhite
+
+" URL: match scheme://... or plain path
+" contains=PosteVarRef,PosteMagicVar lets {{...}} highlight inside URLs
+syn match PosteUrl '[a-zA-Z][a-zA-Z0-9+.-]*://\S\+' contained
+  \ contains=PosteVarRef,PosteMagicVar
   \ nextgroup=PosteHttpVersion skipwhite
-syn match PosteHttpVersion display 'HTTP/\d\+\%(\.\d\+\)\?' contained
+syn match PosteUrl '\S\+' contained
+  \ contains=PosteVarRef,PosteMagicVar
+  \ nextgroup=PosteHttpVersion skipwhite
+
+syn match PosteHttpVersion 'HTTP/\d\+\%(\.\d\+\)\?' contained
 
 " ─── Headers ────────────────────────────────────────
-syn match PosteHeaderKey display '^\s*[^:<>{}@#]\{-}\ze:'
+" Only match typical header key characters (letters, digits, hyphens)
+" This naturally excludes HTTP methods which are followed by URLs, not colons
+syn match PosteHeaderKey '^\s*[A-Za-z][A-Za-z0-9-]*\ze:'
   \ nextgroup=PosteHeaderSep
-syn match PosteHeaderSep display ':' contained
+syn match PosteHeaderSep ':' contained
 
 " ─── Highlight group links ──────────────────────────
 hi def link PosteSeparator   Delimiter
@@ -73,7 +91,14 @@ hi def link PosteVarAssign   Operator
 hi def link PosteVarValue    String
 hi def link PosteVarRef      Identifier
 hi def link PosteMagicVar    Special
-hi def link PosteMethod      Keyword
+hi def link PosteMethodGET    Keyword
+hi def link PosteMethodPOST   Keyword
+hi def link PosteMethodPUT    Keyword
+hi def link PosteMethodDELETE Keyword
+hi def link PosteMethodPATCH  Keyword
+hi def link PosteMethodHEAD   Keyword
+hi def link PosteMethodOPTIONS Keyword
+hi def link PosteMethodOther  Keyword
 hi def link PosteUrl         Underlined
 hi def link PosteHttpVersion Constant
 hi def link PosteHeaderKey   Type

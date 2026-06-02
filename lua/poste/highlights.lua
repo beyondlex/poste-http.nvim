@@ -41,7 +41,14 @@ function M.setup()
     { "PosteRequestName",  "Title" },
     { "PosteVarRef",       "Identifier" },
     { "PosteMagicVar",     "Special" },
-    { "PosteMethod",       "Keyword" },
+    { "PosteMethodGET",    "Keyword" },
+    { "PosteMethodPOST",   "Keyword" },
+    { "PosteMethodPUT",    "Keyword" },
+    { "PosteMethodDELETE", "Keyword" },
+    { "PosteMethodPATCH",  "Keyword" },
+    { "PosteMethodHEAD",   "Keyword" },
+    { "PosteMethodOPTIONS", "Keyword" },
+    { "PosteMethodOther",  "Keyword" },
     { "PosteUrl",          "Underlined" },
     { "PosteHttpVersion",  "Constant" },
     { "PosteHeaderKey",    "Type" },
@@ -58,6 +65,18 @@ function M.setup()
       vim.api.nvim_set_hl(0, pair[1], { link = pair[2] })
     end
   end
+
+  -- HTTP method colors: GET=green, POST=yellow, PUT=orange, DELETE=red
+  vim.api.nvim_set_hl(0, "PosteMethodGET",    { fg = 0x98c379, bold = true }) -- green
+  vim.api.nvim_set_hl(0, "PosteMethodPOST",   { fg = 0xe5c07b, bold = true }) -- yellow
+  vim.api.nvim_set_hl(0, "PosteMethodPUT",    { fg = 0xd19a66, bold = true }) -- orange
+  vim.api.nvim_set_hl(0, "PosteMethodDELETE", { fg = 0xe06c75, bold = true }) -- red
+  vim.api.nvim_set_hl(0, "PosteMethodPATCH",  { fg = 0xc678dd, bold = true }) -- magenta
+  vim.api.nvim_set_hl(0, "PosteMethodHEAD",   { fg = 0x56b6c2, bold = true }) -- cyan
+  vim.api.nvim_set_hl(0, "PosteMethodOther",  { fg = 0x5c6370, bold = true }) -- gray
+
+  -- Request name: bold with a distinct color
+  vim.api.nvim_set_hl(0, "PosteRequestName", { fg = 0x61afef, bold = true }) -- blue bold
 
   -- Redis type-specific highlight groups
   vim.api.nvim_set_hl(0, "PosteRedisString",   { fg = 0x98c379 })   -- green

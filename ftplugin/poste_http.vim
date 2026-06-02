@@ -9,6 +9,9 @@ let b:did_ftplugin = 1
 setlocal commentstring=#\ %s
 setlocal comments=:#,s:/*,mb:*,ex:*/
 
+" Disable auto-continuing comments on o/O
+setlocal formatoptions-=o
+
 " ─── Kulala.nvim conflict cleanup ──────────────────────
 " When a .http file is opened, Neovim's built-in detection first sets
 " filetype=http, which causes kulala.nvim to attach its LSP client and
@@ -39,6 +42,32 @@ if has('nvim')
         end
       end)
     end
+
+    -- Remove kulala's TextChanged autocmd that keeps re-adding diagnostics
+    pcall(function()
+      vim.api.nvim_clear_autocmds({
+        group = "KulalaDiagnostics",
+        buffer = vim.api.nvim_get_current_buf()
+      })
+    end)
+
+    -- Set up our own autocmd to clear kulala diagnostics on every text change
+    local poste_group = vim.api.nvim_create_augroup("PosteKulalaCleanup", { clear = true })
+    vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+      group = poste_group,
+      buffer = vim.api.nvim_get_current_buf(),
+      callback = function()
+        local bufnr = vim.api.nvim_get_current_buf()
+        pcall(function()
+          local ns = vim.api.nvim_get_namespaces()
+          for name, id in pairs(ns) do
+            if name:find("kulala") then
+              vim.diagnostic.set(id, bufnr, {})
+            end
+          end
+        end)
+      end,
+    })
 
     -- Run cleanup now and also defer it to catch late-attaching LSP
     cleanup_kulala()

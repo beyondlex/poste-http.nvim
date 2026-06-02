@@ -310,9 +310,6 @@ function source:complete(request, callback)
     end
   end
 
-  -- Return all items, let cmp do the filtering
-  -- isIncomplete = true tells cmp to re-query when input changes
-  vim.notify(string.format("poste: context=%s, word=%s, returning %d items", ctx, word, #items), vim.log.levels.INFO)
   callback({ items = items, isIncomplete = true })
 end
 

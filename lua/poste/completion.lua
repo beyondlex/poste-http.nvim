@@ -169,9 +169,9 @@ function source.new()
 end
 
 function source.get_keyword_pattern()
-  -- Match any word character sequence (letters, digits, hyphens, dots, slashes, etc.)
-  -- This needs to be broad enough to match methods, headers, and MIME types
-  return [=[[\w\-*/+.]+]=]
+  -- Vim regex: match letters, digits, underscore, hyphen, slash, dot
+  -- \w inside [] doesn't work in Vim regex — use explicit ranges
+  return [=[\k\+]=]
 end
 
 function source:get_trigger_characters()
@@ -187,7 +187,7 @@ function source:is_available()
 end
 
 --- Detect the completion context from the line up to cursor.
---- Returns: "method" | "header_name" | "header_value" | nil
+--- Returns: "method" | "method_or_header" | "header_value" | nil
 --- For header_value, also returns the header name.
 local function detect_context(line_before_cursor)
   -- Trim leading whitespace for analysis
@@ -213,44 +213,37 @@ local function detect_context(line_before_cursor)
     return nil, nil
   end
 
-  -- Check if this is a method line (starts with HTTP method keyword)
-  local first_word = trimmed:match("^(%S+)")
-  if first_word then
+  -- Check for URL (contains ://) → no completion
+  if line_before_cursor:find("://") then
+    return nil, nil
+  end
+
+  -- Check if this line already has a complete HTTP method followed by space
+  -- e.g., "GET https://..." or "POST http://..."
+  local method_match = trimmed:match("^(%u+)%s")
+  if method_match then
     for _, method in ipairs(http_methods) do
-      if first_word:upper() == method then
-        -- This is a method line, already have the method → no completion
+      if method_match == method then
+        -- Already have method, rest is URL → no completion
         return nil, nil
       end
     end
   end
 
-  -- Check if we're after a colon (header value context)
-  -- But only if it's a proper header (Header-Name: value), not a URL
-  local colon_pos = line_before_cursor:find(":%s")  -- colon followed by space
-  if colon_pos then
-    -- Extract header name (before the colon)
-    local header_name = vim.trim(line_before_cursor:sub(1, colon_pos - 1))
-    -- Make sure it's a valid header (not empty, starts with letter, no spaces)
-    if header_name ~= "" and header_name:match("^[A-Za-z][A-Za-z0-9%-]*$") then
-      return "header_value", header_name
-    end
+  -- Check if we're in header value context (after colon)
+  -- Match "Header-Name:" or "Header-Name: " (colon at end or colon+space)
+  local header_name = line_before_cursor:match("^%s*([A-Za-z][A-Za-z0-9%-]*):")
+  if header_name then
+    return "header_value", header_name
   end
 
-  -- Check for URL (contains ://)
-  if line_before_cursor:find("://") then
-    -- This is a URL line, no completion
-    return nil, nil
+  -- No colon — single word being typed → method or header name
+  if not line_before_cursor:find("%s") then
+    return "method_or_header", nil
   end
 
-  -- No colon yet — check if it looks like a header name or method
-  -- If the line has a space, it's likely not a header name being typed
-  if line_before_cursor:find("%s") and not line_before_cursor:match("^%s*$") then
-    return nil, nil
-  end
-
-  -- Single word, no space, no colon → could be method or header name
-  -- We'll return both possibilities — the caller can provide both sets
-  return "method_or_header", nil
+  -- Has space but no colon and no method → no completion
+  return nil, nil
 end
 
 --- Build completion items from a list of strings.
@@ -260,33 +253,16 @@ local function make_items(words, kind)
     table.insert(items, {
       label = word,
       kind = kind,
+      filterText = word,
     })
   end
   return items
-end
-
---- Filter items by prefix.
-local function filter_items(items, prefix)
-  if not prefix or prefix == "" then
-    return items
-  end
-  local lower_prefix = prefix:lower()
-  local filtered = {}
-  for _, item in ipairs(items) do
-    if item.label:lower():find(lower_prefix, 1, true) == 1 then
-      table.insert(filtered, item)
-    end
-  end
-  return filtered
 end
 
 function source:complete(request, callback)
   local line = request.context.cursor_before_line
   local col = request.offset
   local line_before_cursor = line:sub(1, col - 1)
-
-  -- Get the word being typed (for filtering)
-  local word = request.context.cursor_before_line:sub(request.offset)
 
   local ctx, header_name = detect_context(line_before_cursor)
   local items = {}
@@ -309,8 +285,6 @@ function source:complete(request, callback)
     for _, item in ipairs(header_items) do
       table.insert(items, item)
     end
-  elseif ctx == "header_name" then
-    items = make_items(header_names, KIND_PROPERTY)
   elseif ctx == "header_value" and header_name then
     local values = header_values[header_name:lower()]
     if values then
@@ -318,11 +292,7 @@ function source:complete(request, callback)
     end
   end
 
-  -- Filter by prefix
-  items = filter_items(items, word)
-
-  vim.notify(string.format("poste: returning %d items (ctx=%s)", #items, tostring(ctx)), vim.log.levels.DEBUG)
-
+  -- Let cmp handle fuzzy filtering — return all items
   callback({ items = items, isIncomplete = true })
 end
 
@@ -349,7 +319,6 @@ function M.register()
     -- cmp is already loaded, register immediately
     cmp.register_source("poste", source.new())
     registered = true
-    vim.notify("poste: cmp source registered", vim.log.levels.DEBUG)
   else
     -- cmp not loaded yet (e.g., lazy-loaded by LazyVim)
     -- Register when user enters insert mode (cmp will be loaded by then)

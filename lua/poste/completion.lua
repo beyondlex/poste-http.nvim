@@ -321,6 +321,8 @@ function source:complete(request, callback)
   -- Filter by prefix
   items = filter_items(items, word)
 
+  vim.notify(string.format("poste: returning %d items (ctx=%s)", #items, tostring(ctx)), vim.log.levels.DEBUG)
+
   callback({ items = items, isIncomplete = true })
 end
 

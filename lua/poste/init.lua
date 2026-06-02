@@ -592,21 +592,6 @@ function M.goto_references()
       jump_to(selected)
     end
   end, preview_data)
-  else
-    -- Fallback: simple picker
-    local items = {}
-    for _, r in ipairs(results) do
-      table.insert(items, string.format("L%d:%d: %s", r.line, r.col, r.text))
-    end
-
-    vim.ui.select(items, { prompt = "References to " .. symbol_name }, function(choice)
-      if choice then
-        local line, col = choice:match("L(%d+):(%d+):")
-        vim.cmd("normal! m'")
-        vim.api.nvim_win_set_cursor(0, { tonumber(line), tonumber(col) })
-      end
-    end)
-  end
 end
 
 ---------------------------------------------------------------------------

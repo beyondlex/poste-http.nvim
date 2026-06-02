@@ -250,16 +250,18 @@ end
 local function make_items(words, kind)
   local items = {}
   for _, word in ipairs(words) do
-    -- Remove hyphens from filterText to help cmp's fuzzy matcher
-    -- e.g., "Content-Type" → filterText = "ContentType"
-    local filter_text = word:gsub("-", "")
+    -- Remove hyphens from both label and filterText for cmp's fuzzy matcher
+    -- insertText will insert the full word with hyphens
+    local no_hyphen = word:gsub("-", "")
 
     table.insert(items, {
-      label = word,
+      label = no_hyphen,
       kind = kind,
-      filterText = filter_text,
+      filterText = no_hyphen,
       sortText = word,
       insertText = word,
+      -- Show the original word in the detail column
+      detail = word ~= no_hyphen and word or nil,
     })
   end
   return items

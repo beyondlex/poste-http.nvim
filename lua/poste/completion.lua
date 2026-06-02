@@ -254,15 +254,33 @@ local function make_items(words, kind)
       label = word,
       kind = kind,
       filterText = word,
+      sortText = word,
+      insertText = word,
     })
   end
   return items
+end
+
+--- Simple fuzzy match: check if pattern appears in str (case-insensitive)
+local function fuzzy_match(str, pattern)
+  if pattern == "" then return true end
+  local lower_str = str:lower()
+  local lower_pattern = pattern:lower()
+  return lower_str:find(lower_pattern, 1, true) ~= nil
 end
 
 function source:complete(request, callback)
   local line = request.context.cursor_before_line
   local col = request.offset
   local line_before_cursor = line:sub(1, col - 1)
+
+  -- Extract the word being typed (for filtering)
+  local word = ""
+  local keyword_pattern = source.get_keyword_pattern()
+  local match_start, match_end = line_before_cursor:find(keyword_pattern .. "$")
+  if match_start then
+    word = line_before_cursor:sub(match_start, match_end)
+  end
 
   local ctx, header_name = detect_context(line_before_cursor)
   local items = {}
@@ -292,7 +310,17 @@ function source:complete(request, callback)
     end
   end
 
-  -- Let cmp handle fuzzy filtering — return all items
+  -- Filter items based on the word being typed
+  if word ~= "" then
+    local filtered = {}
+    for _, item in ipairs(items) do
+      if fuzzy_match(item.label, word) then
+        table.insert(filtered, item)
+      end
+    end
+    items = filtered
+  end
+
   callback({ items = items, isIncomplete = true })
 end
 

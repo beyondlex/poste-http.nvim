@@ -324,10 +324,44 @@ M.source = source
 ---------------------------------------------------------------------------
 -- Registration
 ---------------------------------------------------------------------------
+local registered = false
+
 function M.register()
+  if registered then return end
+
   local ok, cmp = pcall(require, "cmp")
-  if not ok then return end
-  cmp.register_source("poste", source.new())
+  if ok then
+    -- cmp is already loaded, register immediately
+    cmp.register_source("poste", source.new())
+    registered = true
+  else
+    -- cmp not loaded yet (e.g., lazy-loaded by LazyVim)
+    -- Register when user enters insert mode (cmp will be loaded by then)
+    local group = vim.api.nvim_create_augroup("PosteCmpRegister", { clear = true })
+    vim.api.nvim_create_autocmd("InsertEnter", {
+      group = group,
+      callback = function()
+        if registered then return end
+        local ok2, cmp2 = pcall(require, "cmp")
+        if ok2 then
+          cmp2.register_source("poste", source.new())
+          registered = true
+          -- Set up buffer for current buffer if it's an HTTP file
+          if vim.bo.filetype == "poste_http" or vim.bo.filetype == "poste_redis" then
+            cmp2.setup.buffer({
+              sources = cmp2.config.sources({
+                { name = "poste" },
+              }, {
+                { name = "buffer" },
+              }),
+            })
+          end
+          -- Remove autocmd after successful registration
+          vim.api.nvim_del_augroup_by_name("PosteCmpRegister")
+        end
+      end,
+    })
+  end
 end
 
 return M

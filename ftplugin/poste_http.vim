@@ -75,10 +75,12 @@ if has('nvim')
 EOF
 
 " ─── nvim-cmp buffer source ──────────────────────
-" Register the poste completion source for this buffer (if nvim-cmp is loaded)
+" Set up poste completion source for this buffer.
+" Handles both immediate availability and lazy-loaded cmp.
 lua << EOF
-pcall(function()
-  local cmp = require("cmp")
+local function setup_buffer_cmp()
+  local ok, cmp = pcall(require, "cmp")
+  if not ok then return end
   cmp.setup.buffer({
     sources = cmp.config.sources({
       { name = "poste" },
@@ -86,7 +88,25 @@ pcall(function()
       { name = "buffer" },
     }),
   })
-end)
+end
+
+-- Try immediately
+pcall(setup_buffer_cmp)
+
+-- If cmp not loaded yet, set up InsertEnter autocmd
+if not pcall(require, "cmp") then
+  local buf = vim.api.nvim_get_current_buf()
+  local group = vim.api.nvim_create_augroup("PosteHttpCmpBuffer", { clear = true })
+  vim.api.nvim_create_autocmd("InsertEnter", {
+    group = group,
+    buffer = buf,
+    callback = function()
+      pcall(setup_buffer_cmp)
+      -- Clean up autocmd after successful setup
+      vim.api.nvim_del_augroup_by_name("PosteHttpCmpBuffer")
+    end,
+  })
+end
 EOF
 
 endif

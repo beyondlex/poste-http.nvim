@@ -85,7 +85,7 @@ local function setup_buffer_cmp()
     enabled = true,
     autocomplete = true,
     sources = cmp.config.sources({
-      { name = "poste", priority = 100 },
+      { name = "poste", priority = 100, min_length = 1 },
     }, {
       { name = "buffer" },
     }),

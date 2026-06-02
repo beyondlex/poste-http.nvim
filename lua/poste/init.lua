@@ -354,16 +354,240 @@ function M.goto_definition()
   local requests = request_vars.collect_requests(buf)
   for _, req in ipairs(requests) do
     if req.name == req_name then
-      -- normal! m' pushes current pos to the window jumplist;
-      -- nvim_win_set_cursor moves without adding to jumplist.
-      -- Result: exactly one jumplist entry → one Ctrl-o jumps back.
       vim.cmd("normal! m'")
       vim.api.nvim_win_set_cursor(0, { req.start_line, 0 })
       return
     end
   end
 
-  vim.notify("Request not found: " .. req_name, vim.log.levels.WARN)
+  -- Not a named request: look for @var definition
+  -- Priority: request-level (within current block) > file-level (before first ###)
+  local total = vim.api.nvim_buf_line_count(buf)
+
+  -- Find current request block
+  local current_req = nil
+  for _, req in ipairs(requests) do
+    if line_num >= req.start_line and line_num <= req.end_line then
+      current_req = req
+      break
+    end
+  end
+
+  -- Search for @varname definition
+  local var_pattern = "^%s*@" .. vim.pesc(req_name) .. "[%s=]"
+  local found_line = nil
+
+  -- 1. Request-level: within current block
+  if current_req then
+    for i = current_req.start_line, current_req.end_line do
+      local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+      if text:match(var_pattern) then
+        found_line = i
+        break
+      end
+    end
+  end
+
+  -- 2. File-level: before first ### (or entire file if no blocks)
+  if not found_line then
+    local end_line = #requests > 0 and requests[1].start_line - 1 or total
+    for i = 1, end_line do
+      local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+      if text:match(var_pattern) then
+        found_line = i
+        break
+      end
+    end
+  end
+
+  if found_line then
+    vim.cmd("normal! m'")
+    vim.api.nvim_win_set_cursor(0, { found_line, 0 })
+    return
+  end
+
+  vim.notify("Definition not found: " .. req_name, vim.log.levels.WARN)
+end
+
+function M.goto_references()
+  local buf = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local line_num = cursor[1]
+  local col = cursor[2]  -- 0-indexed
+
+  local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
+  local total = vim.api.nvim_buf_line_count(buf)
+
+  local symbol_name = nil
+  local is_request = false
+
+  -- 1. Check for {{...}} reference under cursor
+  local start_pos = 1
+  while true do
+    local s, e = line_text:find("{{[^}]+}}", start_pos)
+    if not s then break end
+    if col + 1 >= s and col + 1 <= e then
+      local ref_text = line_text:sub(s + 2, e - 2)
+      symbol_name = vim.trim(ref_text:match("^([^%.]+)%.") or ref_text)
+      -- If it contains .response. or .request., it's a named request reference
+      if ref_text:match("%.response%.") or ref_text:match("%.request%.") then
+        is_request = true
+      end
+      break
+    end
+    start_pos = e + 1
+  end
+
+  -- 2. Check for @var definition under cursor
+  if not symbol_name then
+    local var_name = line_text:match("^%s*@(.-)[%s=]")
+    if var_name then
+      symbol_name = vim.trim(var_name)
+    end
+  end
+
+  -- 3. Check for ### Request Name
+  if not symbol_name then
+    local req_name = line_text:match("^%s*###%s*(.+)")
+    if req_name then
+      symbol_name = vim.trim(req_name)
+      is_request = true
+    end
+  end
+
+  if not symbol_name then
+    vim.notify("No variable or request reference under cursor", vim.log.levels.INFO)
+    return
+  end
+
+  local results = {}
+  local seen = {}
+
+  -- Read all lines in a single API call (was N calls, now 1)
+  local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+
+  local function add(line_i, text, ref_col)
+    if not seen[line_i] and line_i ~= line_num then
+      seen[line_i] = true
+      table.insert(results, { line = line_i, text = text, col = ref_col })
+    end
+  end
+
+  local esc = vim.pesc(symbol_name)
+
+  if is_request then
+    local def_pat = "^%s*###%s*" .. esc .. "%s*$"
+    local ref_pat = "{{" .. esc .. "[%}%.]"
+    for i = 1, total do
+      local text = all_lines[i] or ""
+      if text:match(def_pat) then
+        add(i, vim.trim(text), 0)
+      else
+        local ref_col = text:find(ref_pat)
+        if ref_col then
+          add(i, vim.trim(text), ref_col - 1)
+        end
+      end
+    end
+  else
+    local def_pat = "^%s*@" .. esc .. "[%s=]"
+    local ref_pat = "{{" .. esc .. "[%}%.]"
+    for i = 1, total do
+      local text = all_lines[i] or ""
+      if text:match(def_pat) then
+        add(i, vim.trim(text), 0)
+      else
+        local ref_col = text:find(ref_pat)
+        if ref_col then
+          add(i, vim.trim(text), ref_col - 1)
+        end
+      end
+    end
+  end
+
+  -- Remove current line from results
+  results = vim.tbl_filter(function(r) return r.line ~= line_num end, results)
+
+  if #results == 0 then
+    vim.notify("No other references found for: " .. symbol_name, vim.log.levels.INFO)
+    return
+  end
+
+  -- Sort by line number
+  table.sort(results, function(a, b) return a.line < b.line end)
+
+  -- Single result: jump directly
+  if #results == 1 then
+    local r = results[1]
+    vim.cmd("normal! m'")
+    vim.api.nvim_win_set_cursor(0, { r.line, r.col })
+    return
+  end
+
+  -- Multiple results: use Telescope if available
+  local has_telescope, _ = pcall(require, "telescope")
+  if has_telescope then
+    local pickers = require("telescope.pickers")
+    local finders = require("telescope.finders")
+    local conf = require("telescope.config").values
+    local previewers = require("telescope.previewers")
+
+    -- Custom previewer that shows context around the reference
+    local context_previewer = previewers.new_buffer_previewer({
+      title = "Reference Context",
+      define_preview = function(self, entry)
+        local entry_data = entry.value
+        if not entry_data then return end
+
+        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        local context_lines = 5
+        local start_line = math.max(1, entry_data.line - context_lines)
+        local end_line = math.min(#lines, entry_data.line + context_lines)
+
+        local preview_lines = {}
+        for i = start_line, end_line do
+          local prefix = (i == entry_data.line) and "> " .. i .. ": " or "  " .. i .. ": "
+          table.insert(preview_lines, prefix .. lines[i])
+        end
+
+        vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, preview_lines)
+        vim.api.nvim_win_set_cursor(self.state.winid, {entry_data.line - start_line + 1, 0})
+      end,
+    })
+
+    pickers.new({}, {
+      prompt_title = "References: " .. symbol_name,
+      finder = finders.new_table({
+        results = results,
+        entry_maker = function(entry)
+          return {
+            value = entry,
+            display = string.format("L%d:%d: %s", entry.line, entry.col, entry.text),
+            ordinal = entry.text,
+            filename = vim.api.nvim_buf_get_name(buf),
+            lnum = entry.line,
+            col = entry.col + 1,
+          }
+        end,
+      }),
+      sorter = conf.generic_sorter({}),
+      previewer = context_previewer,
+    }):find()
+  else
+    -- Fallback: simple picker
+    local items = {}
+    for _, r in ipairs(results) do
+      table.insert(items, string.format("L%d:%d: %s", r.line, r.col, r.text))
+    end
+
+    vim.ui.select(items, { prompt = "References to " .. symbol_name }, function(choice)
+      if choice then
+        local line, col = choice:match("L(%d+):(%d+):")
+        vim.cmd("normal! m'")
+        vim.api.nvim_win_set_cursor(0, { tonumber(line), tonumber(col) })
+      end
+    end)
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -391,6 +615,9 @@ function M.setup(opts)
     vim.keymap.set("n", "]]", M.jump_next, keymap_opts)
     vim.keymap.set("n", "[[", M.jump_prev, keymap_opts)
     vim.keymap.set("n", "gd", M.goto_definition, keymap_opts)
+    vim.keymap.set("n", "gr", M.goto_references, keymap_opts)
+    vim.keymap.set("n", "]q", function() vim.cmd("cnext") end, keymap_opts)
+    vim.keymap.set("n", "[q", function() vim.cmd("cprev") end, keymap_opts)
     vim.keymap.set("n", "<leader>rp", function()
       local curl = require("poste.curl")
       curl.paste_curl("+")

@@ -545,6 +545,9 @@ function M.goto_references()
 
   local esc = vim.pesc(symbol_name)
 
+  -- Comment pattern: lines starting with # or -- (after optional whitespace)
+  local comment_pat = "^%s*[#%-]"
+
   if is_request then
     local def_pat = "^%s*###%s*" .. esc .. "%s*$"
     local ref_pat = "{{" .. esc .. "[%}%.]"
@@ -552,7 +555,8 @@ function M.goto_references()
       local text = all_lines[i] or ""
       if text:match(def_pat) then
         add(i, vim.trim(text), 0)
-      else
+      elseif not text:match(comment_pat) then
+        -- Skip comment lines — they are documentation, not actual references
         local ref_col = text:find(ref_pat)
         if ref_col then
           add(i, vim.trim(text), ref_col - 1)
@@ -566,7 +570,7 @@ function M.goto_references()
       local text = all_lines[i] or ""
       if text:match(def_pat) then
         add(i, vim.trim(text), 0)
-      else
+      elseif not text:match(comment_pat) then
         local ref_col = text:find(ref_pat)
         if ref_col then
           add(i, vim.trim(text), ref_col - 1)

@@ -1,0 +1,14 @@
+### Get Items
+GET https://httpbin.org/get?items[]=apple&items[]=banana&items[]=cherry&items[]=date&items[]=elderberry
+
+### Select Fruit
+# @prompt fruit [{{Get Items.response.body.args.items}}]
+GET https://httpbin.org/get?fruit={{fruit}}
+
+### Static Options (existing feature)
+# @prompt method [GET, POST, PUT, DELETE]
+GET https://httpbin.org/get?method={{method}}
+
+### Text Input (existing feature)
+# @prompt username
+GET https://httpbin.org/get?user={{username}}

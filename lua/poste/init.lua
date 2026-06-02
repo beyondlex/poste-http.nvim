@@ -1519,100 +1519,6 @@ local function find_request_block_bounds(buf, cursor_line)
   return start_line, end_line
 end
 
---- Handle @prompt directives in the current request block only.
---- Syntax:
----   # @prompt variable_name                   → text input
----   # @prompt variable_name [opt1, opt2, ...] → selection from list (up/down arrows)
---- Only processes @prompt lines within the request block containing cursor_line.
---- Always prompts for input (no caching) so users can use different values each time.
---- Processes prompts asynchronously and calls on_complete with modified content.
---- on_complete(modified_content) is called when all prompts are resolved.
-local function handle_prompt_variables(buf, cursor_line, content, on_complete)
-  local start_line, end_line = find_request_block_bounds(buf, cursor_line)
-  if not start_line then
-    on_complete(content)
-    return
-  end
-
-  local lines = vim.split(content, "\n", { plain = true })
-  local result = {}
-  local idx = 1
-
-  local function process_next()
-    if idx > #lines then
-      on_complete(table.concat(result, "\n"))
-      return
-    end
-
-    local line = lines[idx]
-    local line_num = idx
-    idx = idx + 1
-
-    -- Only process @prompt within the current request block (1-indexed)
-    if line_num >= start_line and line_num <= end_line then
-      -- Match: # @prompt varname [opt1, opt2, ...]  (selection mode)
-      local varname_sel, options_str = line:match("^%s*#%s*@prompt%s+(%S+)%s*%[([^%]]+)%]")
-
-      if varname_sel and options_str then
-        -- Parse options: split by comma and trim
-        local options = {}
-        for opt in options_str:gmatch("[^,]+") do
-          local trimmed = vim.trim(opt)
-          if trimmed ~= "" then
-            table.insert(options, trimmed)
-          end
-        end
-
-        if #options == 0 then
-          table.insert(result, line)
-          process_next()
-          return
-        end
-
-        -- Use built-in floating window selector (async)
-        local prompt = string.format("Select value for '%s'", varname_sel)
-        poste_select(options, prompt, function(selected)
-          if selected then
-            table.insert(result, string.format("@%s = %s", varname_sel, selected))
-          else
-            -- User cancelled
-            table.insert(result, line)
-          end
-          process_next()
-        end)
-        return
-      else
-        -- Match: # @prompt varname  (text input mode)
-        local varname = line:match("^%s*#%s*@prompt%s+(%S+)")
-
-        if varname then
-          -- vim.fn.input is blocking but handles its own event loop
-          vim.schedule(function()
-            local ok, value = pcall(vim.fn.input, {
-              prompt = string.format("Enter value for '%s': ", varname),
-              default = "",
-            })
-
-            if ok and value and value ~= "" then
-              table.insert(result, string.format("@%s = %s", varname, value))
-            else
-              table.insert(result, line)
-            end
-            process_next()
-          end)
-          return
-        end
-      end
-    end
-
-    -- No prompt on this line
-    table.insert(result, line)
-    process_next()
-  end
-
-  process_next()
-end
-
 ---------------------------------------------------------------------------
 -- Form data (multipart/form-data, url-encoded, file uploads, magic vars)
 ---------------------------------------------------------------------------
@@ -1746,14 +1652,24 @@ local function get_nested_value(obj, path)
     -- Handle array indexing: items[0] or items[2]
     local field, idx = part:match("^(.+)%[(%d+)%]$")
     if field and idx then
-      current = current[field]
-      if type(current) == "table" then
-        current = current[tonumber(idx) + 1]  -- Lua is 1-indexed
+      -- Try exact field name first, then fallback to field[] suffix
+      local arr = current[field]
+      if arr == nil and type(current) == "table" then
+        arr = current[field .. "[]"]
+      end
+      if type(arr) == "table" then
+        current = arr[tonumber(idx) + 1]  -- Lua is 1-indexed
       else
         return nil
       end
     else
-      current = current[part]
+      -- Try exact key first, then fallback to key with [] suffix
+      -- This handles cases like httpbin's "items[]" key being accessed as "items"
+      local value = current[part]
+      if value == nil and type(current) == "table" then
+        value = current[part .. "[]"]
+      end
+      current = value
     end
   end
 
@@ -1932,6 +1848,161 @@ local function execute_dependent_request(binary, file, env_name, dep_req, buf_co
   return parsed
 end
 
+--- Handle @prompt directives in the current request block only.
+--- Syntax:
+---   # @prompt variable_name                   → text input
+---   # @prompt variable_name [opt1, opt2, ...] → selection from list (up/down arrows)
+---   # @prompt variable_name [{{Req.response.body.field}}] → dynamic options from request response
+--- Only processes @prompt lines within the request block containing cursor_line.
+--- Always prompts for input (no caching) so users can use different values each time.
+--- Processes prompts asynchronously and calls on_complete with modified content.
+--- on_complete(modified_content) is called when all prompts are resolved.
+local function handle_prompt_variables(buf, cursor_line, content, binary, file, env_name, on_complete)
+  local start_line, end_line = find_request_block_bounds(buf, cursor_line)
+  if not start_line then
+    on_complete(content)
+    return
+  end
+
+  local lines = vim.split(content, "\n", { plain = true })
+  local result = {}
+  local idx = 1
+
+  local function process_next()
+    if idx > #lines then
+      on_complete(table.concat(result, "\n"))
+      return
+    end
+
+    local line = lines[idx]
+    local line_num = idx
+    idx = idx + 1
+
+    -- Only process @prompt within the current request block (1-indexed)
+    if line_num >= start_line and line_num <= end_line then
+      -- Match: # @prompt varname [opt1, opt2, ...]  (selection mode)
+      local varname_sel, options_str = line:match("^%s*#%s*@prompt%s+(%S+)%s*%[(.+)%]")
+
+      if varname_sel and options_str then
+        -- Check if options contain a request variable reference
+        local ref_match = options_str:match("{{([^}]+%.response%.[^}]+)}}")
+
+        if ref_match then
+          -- Dynamic options: resolve request variable reference
+          local requests = collect_requests(buf)
+          local req_name = ref_match:match("^([^%.]+)%.")
+
+          if req_name then
+            -- Find the referenced request
+            local dep_req = nil
+            for _, req in ipairs(requests) do
+              if req.name == req_name then
+                dep_req = req
+                break
+              end
+            end
+
+            if dep_req then
+              -- Execute the dependent request
+              local response = execute_dependent_request(binary, file, env_name, dep_req, content)
+              if response then
+                -- Extract the array from response using the path
+                local value = resolve_request_variable(ref_match, { [req_name] = response })
+                if value and type(value) == "table" then
+                  -- Use array values as options
+                  local options = {}
+                  for _, item in ipairs(value) do
+                    if type(item) == "string" then
+                      table.insert(options, item)
+                    elseif type(item) == "number" then
+                      table.insert(options, tostring(item))
+                    elseif type(item) == "table" then
+                      -- If it's an object, try to stringify it
+                      table.insert(options, vim.inspect(item))
+                    end
+                  end
+
+                  if #options > 0 then
+                    -- Use built-in floating window selector (async)
+                    local prompt = string.format("Select value for '%s'", varname_sel)
+                    poste_select(options, prompt, function(selected)
+                      if selected then
+                        table.insert(result, string.format("@%s = %s", varname_sel, selected))
+                      else
+                        -- User cancelled
+                        table.insert(result, line)
+                      end
+                      process_next()
+                    end)
+                    return
+                  end
+                end
+              end
+            end
+            -- If we get here, something went wrong with dynamic options
+            log("WARN", string.format("Could not resolve dynamic options for '%s'", varname_sel))
+          end
+        end
+
+        -- Static options: parse by splitting on comma and trimming
+        local options = {}
+        for opt in options_str:gmatch("[^,]+") do
+          local trimmed = vim.trim(opt)
+          if trimmed ~= "" then
+            table.insert(options, trimmed)
+          end
+        end
+
+        if #options == 0 then
+          table.insert(result, line)
+          process_next()
+          return
+        end
+
+        -- Use built-in floating window selector (async)
+        local prompt = string.format("Select value for '%s'", varname_sel)
+        poste_select(options, prompt, function(selected)
+          if selected then
+            table.insert(result, string.format("@%s = %s", varname_sel, selected))
+          else
+            -- User cancelled
+            table.insert(result, line)
+          end
+          process_next()
+        end)
+        return
+      else
+        -- Match: # @prompt varname  (text input mode)
+        local varname = line:match("^%s*#%s*@prompt%s+(%S+)")
+
+        if varname then
+          -- vim.fn.input is blocking but handles its own event loop
+          vim.schedule(function()
+            local ok, value = pcall(vim.fn.input, {
+              prompt = string.format("Enter value for '%s': ", varname),
+              default = "",
+            })
+
+            if ok and value and value ~= "" then
+              table.insert(result, string.format("@%s = %s", varname, value))
+            else
+              table.insert(result, line)
+            end
+            process_next()
+          end)
+          return
+        end
+      end
+    end
+
+    -- No prompt on this line
+    table.insert(result, line)
+    process_next()
+  end
+
+  process_next()
+end
+
 --- Resolve all request variables in the buffer content for the current request block.
 --- Executes dependent requests if not already cached.
 --- Returns modified buffer content with variables substituted.
@@ -2044,7 +2115,7 @@ function M.run_request()
   local buf_content = table.concat(buf_lines, "\n")
 
   -- Handle @prompt directives asynchronously, then continue with request execution
-  handle_prompt_variables(src_buf, line, buf_content, function(modified_content)
+  handle_prompt_variables(src_buf, line, buf_content, binary, file, current_env, function(modified_content)
     -- Resolve request variables: execute dependent requests and substitute {{RequestName.response.body.field}}
     local buf_content = resolve_request_variables(binary, file, current_env, src_buf, line, modified_content)
 

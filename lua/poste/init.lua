@@ -530,31 +530,38 @@ function M.goto_references()
     return
   end
 
-  -- Multiple results: use custom picker with preview
+  -- Multiple results: use custom picker with lazy preview loading
   local items = {}
-  local preview_data = {}
+  local filetype = vim.api.nvim_get_option_value("filetype", {buf = buf})
 
   for idx, r in ipairs(results) do
     table.insert(items, string.format("L%d:%d: %s", r.line, r.col, r.text))
-
-    -- Build preview: show 5 lines before and after the target line
-    local ctx = 5
-    local start_l = math.max(1, r.line - ctx)
-    local end_l = math.min(total, r.line + ctx)
-    local preview_lines = {}
-    for i = start_l, end_l do
-      local ltext = all_lines[i] or ""
-      -- Add line number prefix
-      local prefix = (i == r.line) and "▶ " .. i .. " " or "  " .. i .. " "
-      table.insert(preview_lines, prefix .. ltext)
-    end
-
-    table.insert(preview_data, {
-      lines = preview_lines,
-      filetype = vim.api.nvim_get_option_value("filetype", {buf = buf}),
-      highlight_line = r.line - start_l + 1,  -- 1-indexed within preview
-    })
   end
+
+  -- Lazy preview loader: only build preview when needed
+  local preview_data = setmetatable({}, {
+    __index = function(_, idx)
+      local r = results[idx]
+      if not r then return nil end
+
+      -- Build preview on demand
+      local ctx = 5
+      local start_l = math.max(1, r.line - ctx)
+      local end_l = math.min(total, r.line + ctx)
+      local preview_lines = {}
+      for i = start_l, end_l do
+        local ltext = all_lines[i] or ""
+        local prefix = (i == r.line) and "▶ " .. i .. " " or "  " .. i .. " "
+        preview_lines[i - start_l + 1] = prefix .. ltext
+      end
+
+      return {
+        lines = preview_lines,
+        filetype = filetype,
+        highlight_line = r.line - start_l + 1,
+      }
+    end
+  })
 
   local function jump_to(item)
     xpcall(function()

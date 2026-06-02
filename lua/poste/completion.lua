@@ -281,12 +281,8 @@ function source:complete(request, callback)
   local line_before_cursor = line:sub(1, col - 1)
 
   -- Extract the word being typed (for filtering)
-  local word = ""
-  local keyword_pattern = source.get_keyword_pattern()
-  local match_start, match_end = line_before_cursor:find(keyword_pattern .. "$")
-  if match_start then
-    word = line_before_cursor:sub(match_start, match_end)
-  end
+  -- Use Lua pattern to match word characters at the end of line
+  local word = line_before_cursor:match("[%w_%-/.]+$") or ""
 
   local ctx, header_name = detect_context(line_before_cursor)
   local items = {}
@@ -297,9 +293,8 @@ function source:complete(request, callback)
   local KIND_PROPERTY = Kind.Property or Kind.Field or 2
   local KIND_VALUE = Kind.Value or Kind.EnumMember or 3
 
-  if ctx == "method" then
-    items = make_items(http_methods, KIND_KEYWORD)
-  elseif ctx == "method_or_header" then
+  if ctx == "method" or ctx == "method_or_header" then
+    -- Return both methods and headers since user could be typing either
     local method_items = make_items(http_methods, KIND_KEYWORD)
     local header_items = make_items(header_names, KIND_PROPERTY)
     for _, item in ipairs(method_items) do
@@ -317,6 +312,7 @@ function source:complete(request, callback)
 
   -- Return all items, let cmp do the filtering
   -- isIncomplete = true tells cmp to re-query when input changes
+  vim.notify(string.format("poste: context=%s, word=%s, returning %d items", ctx, word, #items), vim.log.levels.INFO)
   callback({ items = items, isIncomplete = true })
 end
 

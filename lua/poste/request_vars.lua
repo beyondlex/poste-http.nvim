@@ -12,24 +12,48 @@ local request_response_cache = {}
 -- Form data (multipart/form-data, url-encoded, file uploads, magic vars)
 ---------------------------------------------------------------------------
 
+--- Generate a UUID v4 (random). Safe for LuaJIT (math.random max 2^31-1).
+local function generate_uuid()
+  -- 32 hex digits in 8-4-4-4-12 groups, with version=4 and variant=10xx
+  local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+  return template:gsub("[xy]", function(c)
+    local v = (c == "x") and math.random(0, 15) or math.random(8, 11)
+    return string.format("%x", v)
+  end)
+end
+
+--- Magic variables: {{name}} → generated value
+local magic_vars = {
+  timestamp = function() return tostring(os.time()) .. math.random(100000, 999999) end,
+  uuid      = function() return generate_uuid() end,
+  date      = function() return os.date("%Y-%m-%d") end,
+  randomInt = function() return tostring(math.random(0, 9999999)) end,
+}
+
 --- Process form data magic variables and file inclusions in the request body.
---- - Replaces {{$timestamp}} with a unique timestamp
+--- - Replaces {{$timestamp}}, {{$uuid}}, {{$date}}, {{$randomInt}}
 --- - Replaces lines like `< /path/to/file` with actual file contents
 --- Operates on the current request block only.
 function M.process_form_data(src_buf, cursor_line, content)
   local start_line, end_line = require("poste.indicators").find_request_block_bounds(src_buf, cursor_line)
   if not start_line then return content end
 
-  -- Generate unique timestamp for this request (used as multipart boundary)
-  local timestamp = tostring(os.time()) .. math.random(100000, 999999)
+  -- Generate magic variable values once per request
+  local generated = {}
+  for name, gen in pairs(magic_vars) do
+    generated[name] = gen()
+  end
 
   local lines = vim.split(content, "\n", { plain = true })
   local result = {}
 
   for i, line in ipairs(lines) do
     if i >= start_line and i <= end_line then
-      -- Replace {{$timestamp}} with unique value
-      local processed = line:gsub("{{%$timestamp}}", timestamp)
+      -- Replace all magic variables
+      local processed = line
+      for name, value in pairs(generated) do
+        processed = processed:gsub("{{%$" .. name .. "}}", value)
+      end
 
       -- Check if this is a file inclusion line: `< /path/to/file`
       local file_path = processed:match("^%s*<%s+(.+)$")

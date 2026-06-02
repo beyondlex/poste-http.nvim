@@ -1,0 +1,31 @@
+@host = https://httpbin.org
+
+### Magic variables demo
+POST {{host}}/post
+Content-Type: application/json
+
+{
+  "uuid": "{{$uuid}}",
+  "timestamp": "{{$timestamp}}",
+  "date": "{{$date}}",
+  "random_id": {{$randomInt}},
+  "same_uuid_again": "{{$uuid}}",
+  "same_timestamp_again": "{{$timestamp}}"
+}
+
+> {%
+  client.test("Magic vars substituted", function()
+    local body = response.body.json
+    client.assert(body.uuid ~= nil, "uuid should be set")
+    client.assert(body.uuid:match("%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x") ~= nil,
+      "uuid format invalid: " .. tostring(body.uuid))
+    client.assert(body.timestamp ~= nil, "timestamp should be set")
+    client.assert(body.date:match("^%d%d%d%d%-%d%d%-%d%d$") ~= nil,
+      "date format invalid: " .. tostring(body.date))
+    client.assert(tonumber(body.random_id) >= 0 and tonumber(body.random_id) <= 9999999,
+      "randomInt out of range: " .. tostring(body.random_id))
+    -- Same request = same value (generated once per request)
+    client.assert(body.uuid == body.same_uuid_again, "uuid should be same within one request")
+    client.assert(body.timestamp == body.same_timestamp_again, "timestamp should be same within one request")
+  end)
+%}

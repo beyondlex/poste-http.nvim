@@ -1,0 +1,55 @@
+@host = https://httpbin.org
+
+### Login with MD5 hashed password
+< {%
+  -- Hash password with MD5 before sending
+  local password = "mysecretpassword"
+  local password_hash = md5(password)
+  request.variables.set("password_hash", password_hash)
+  client.log("Password MD5: " .. password_hash)
+%}
+POST {{host}}/post
+Content-Type: application/json
+
+{
+  "username": "alice",
+  "password": "{{password_hash}}"
+}
+
+> {%
+  client.test("MD5 hash sent correctly", function()
+    client.assert(response.status == 200, "Expected 200")
+    -- MD5 of "mysecretpassword"
+    local expected = "4cab2a2db6a3c31b01d804def28276e6"
+    client.assert(response.body.json.password == expected,
+      "Password hash mismatch: " .. response.body.json.password)
+  end)
+%}
+
+### Verify MD5 in post-request
+GET {{host}}/get?password=secret
+
+> {%
+  client.test("MD5 available in post-script", function()
+    local hash = md5("secret")
+    client.log("MD5 of 'secret': " .. hash)
+    client.assert(hash == "5ebe2294ecd0e0f08eab7690d2a6ee69",
+      "MD5 hash incorrect: " .. hash)
+  end)
+%}
+
+### MD5 for cache-busting
+< {%
+  local cache_key = md5(os.time() .. math.random(1000, 9999))
+  request.variables.set("cache_key", cache_key)
+%}
+GET {{host}}/get?cache={{cache_key}}
+
+> {%
+  client.test("Cache key is MD5 format", function()
+    client.assert(response.status == 200, "Expected 200")
+    local cache = response.body.args.cache
+    client.assert(cache ~= nil and #cache == 32,
+      "Cache key should be 32-char MD5: " .. tostring(cache))
+  end)
+%}

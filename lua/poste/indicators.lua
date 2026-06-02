@@ -60,6 +60,8 @@ end
 --- Find the request definition line: walk backward from `start_line` to
 --- find the ### separator, then return the first non-empty, non-comment
 --- line after it (the GET/POST/SET/etc line).
+--- Skips pre-request script blocks (< {% ... %} and < ./script.lua) and
+--- variable definitions (@var = value).
 --- Returns (line_number_0indexed, nil) or (nil, nil) if not found.
 function M.find_request_line(buf, start_line)
   -- Walk backward to find ### separator
@@ -75,10 +77,36 @@ function M.find_request_line(buf, start_line)
   if not header_line then return nil end
 
   local total = vim.api.nvim_buf_line_count(buf)
+  local in_prescript = false
+
   for i = header_line + 1, total do
     local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+    local trimmed = vim.trim(text)
+
     if text:match("^%s*###") then break end  -- next block
-    if text:match("%S") and not text:match("^%s*#") and not text:match("^%s*%-%-") then
+
+    -- Skip pre-request script blocks
+    if in_prescript then
+      if trimmed == "%}" then
+        in_prescript = false
+      end
+    elseif trimmed:match("^<%s*{%%") and not trimmed:match("%%}$") then
+      -- Multi-line pre-script start: < {% (no closing %})
+      in_prescript = true
+    elseif trimmed:match("^<%s*{%%.*%%}$") then
+      -- Single-line pre-script: < {% code %}
+      -- skip
+    elseif trimmed:match("^<%s*%.?%.") and trimmed:match("%.lua%s*$") then
+      -- External script: < ./path.lua
+      -- skip
+    elseif trimmed:match("^@%S+%s*[= ]") then
+      -- Variable definition: @var = value
+      -- skip
+    elseif trimmed == "" or trimmed:match("^#") or trimmed:match("^%-%-") then
+      -- Empty line, comment
+      -- skip
+    else
+      -- This is the actual request line
       return i - 1  -- 0-indexed for extmark
     end
   end

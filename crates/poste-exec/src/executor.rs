@@ -175,7 +175,7 @@ impl Executor {
             .body
             .lines()
             .map(|l| l.trim())
-            .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("--"))
+            .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("--") && !l.starts_with('>'))
             .collect();
 
         if cmd_lines.is_empty() {

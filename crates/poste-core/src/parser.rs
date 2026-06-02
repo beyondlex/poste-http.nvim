@@ -72,22 +72,49 @@ impl Parser {
         let mut request_vars = HashMap::new();
         let mut found_request_line = false;
 
+        let mut in_assertion_block = false;
         for line in lines {
-            if line.trim().starts_with("###") {
+            let trimmed = line.trim();
+
+            // Check for assertion block start: > {%
+            if trimmed.starts_with(">") && trimmed.contains("{%") {
+                in_assertion_block = true;
+                continue;
+            }
+
+            // Check for assertion block end: %}
+            if in_assertion_block && trimmed == "%}" {
+                in_assertion_block = false;
+                continue;
+            }
+
+            // Skip lines inside assertion blocks
+            if in_assertion_block {
+                continue;
+            }
+
+            // Single-line assertion: > {% ... %}
+            if trimmed.starts_with(">") && trimmed.contains("{%") && trimmed.contains("%}") {
+                continue;
+            }
+
+            if trimmed.starts_with("###") {
                 // Extract name after ###
-                name = Some(line.trim().trim_start_matches("###").trim().to_string());
+                name = Some(trimmed.trim_start_matches("###").trim().to_string());
             } else if !found_request_line {
                 // Check if this is a variable definition before the request line
                 if let Some((key, value)) = self.parse_variable_line(line) {
                     request_vars.insert(key, value);
-                } else if !line.trim().is_empty() && !line.trim().starts_with('#') {
+                } else if !trimmed.is_empty() && !trimmed.starts_with('#') && !trimmed.starts_with('>') {
                     // This is the actual request line, mark it and add to request_lines
                     found_request_line = true;
                     request_lines.push(line);
                 }
             } else {
-                // After request line, everything is part of the request
-                request_lines.push(line);
+                // After request line, add to request body (but skip assertion markers)
+                if !trimmed.starts_with(">") {
+                    request_lines.push(line);
+                }
             }
         }
 

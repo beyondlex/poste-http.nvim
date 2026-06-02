@@ -396,7 +396,7 @@ local spinner_gen = 0  -- generation counter to invalidate stale spinner callbac
 --- Place or update a virtual-text indicator on the request line.
 --- status: "running" | "success" | "error"
 --- latency_ms: optional, shown after ✓ on success
-local function set_indicator(buf, line_0, status, latency_ms)
+local function set_indicator(buf, line_0, status, latency_ms, assertion_results)
   if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
   if not line_0 then return end
 
@@ -437,6 +437,20 @@ local function set_indicator(buf, line_0, status, latency_ms)
     local virt_text = { { " ✓ ", "PosteSuccess" } }
     if latency_ms and latency_ms > 0 then
       table.insert(virt_text, { string.format("%.2f ms", latency_ms), "PosteLatency" })
+    end
+    -- Add assertion results if present
+    if assertion_results and assertion_results.total > 0 then
+      if assertion_results.failed > 0 then
+        table.insert(virt_text, {
+          string.format("  ✘ %d/%d tests", assertion_results.failed, assertion_results.total),
+          "PosteError",
+        })
+      else
+        table.insert(virt_text, {
+          string.format("  ✓ %d/%d tests", assertion_results.passed, assertion_results.total),
+          "PosteSuccess",
+        })
+      end
     end
     indicator_mark = vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
       virt_text = virt_text,
@@ -1085,6 +1099,257 @@ local function format_verbose(r)
 end
 
 ---------------------------------------------------------------------------
+-- Test assertions (> {% ... %} syntax)
+---------------------------------------------------------------------------
+
+-- Module-level storage for assertion results
+local last_assertion_results = nil
+
+--- Extract `> {% ... %}` assertion blocks from request content.
+--- Always strips ALL assertion blocks (replacing with empty lines to preserve line count).
+--- Only collects assertion code within the optional start_line/end_line range (1-indexed).
+--- When start_line/end_line are nil, collects from all blocks.
+--- Returns (stripped_content, assertion_code_or_nil).
+local function extract_assertion_blocks(content, start_line, end_line)
+  local lines = vim.split(content, "\n", { plain = true })
+  local result = {}
+  local code_parts = {}
+  local in_block = false
+  local block_lines = {}
+  local block_start_line = 0
+
+  for i, line in ipairs(lines) do
+    local trimmed = vim.trim(line)
+
+    -- Single-line: > {% code %}
+    if not in_block then
+      local code = trimmed:match("^>%s*{%%(.-)%%}$")
+      if code then
+        -- Only collect code if within range (or no range specified)
+        if not start_line or (i >= start_line and i <= end_line) then
+          table.insert(code_parts, code)
+        end
+        table.insert(result, "")  -- preserve line count
+      elseif trimmed:match("^>%s*{%%") then
+        -- Multi-line start: > {%
+        in_block = true
+        block_lines = {}
+        block_start_line = i
+        table.insert(result, "")  -- preserve line count
+      else
+        table.insert(result, line)
+      end
+    else
+      -- Inside multi-line block
+      if trimmed == "%}" then
+        -- End of block
+        if not start_line or (block_start_line >= start_line and i <= end_line) then
+          table.insert(code_parts, table.concat(block_lines, "\n"))
+        end
+        in_block = false
+        block_lines = {}
+      else
+        table.insert(block_lines, line)
+      end
+      table.insert(result, "")  -- preserve line count
+    end
+  end
+
+  if #code_parts == 0 then
+    return table.concat(result, "\n"), nil
+  end
+
+  return table.concat(result, "\n"), table.concat(code_parts, "\n")
+end
+
+--- Run assertion code in a sandboxed environment.
+--- Returns: { tests = [...], logs = [...], total = N, passed = N, failed = N }
+local function run_assertions(response_data, code)
+  local tests = {}
+  local logs = {}
+  local current_test = nil
+
+  -- Build case-insensitive headers table
+  local headers = {}
+  if response_data.headers then
+    for _, pair in ipairs(response_data.headers) do
+      if pair[1] then
+        headers[pair[1]:lower()] = pair[2]
+      end
+    end
+  end
+
+  -- Build response object with lazy JSON body decoding
+  local raw_body = response_data.body
+  local decoded_body = nil
+  local response = setmetatable({
+    status = response_data.status,
+    headers = setmetatable(headers, {
+      __index = function(t, k)
+        return rawget(t, k:lower())
+      end,
+    }),
+    latency_ms = response_data.latency_ms,
+    content_type = response_data.content_type,
+    url = response_data.url,
+  }, {
+    __index = function(t, k)
+      if k == "body" then
+        if decoded_body == nil then
+          local ok, parsed = pcall(vim.json.decode, raw_body)
+          if ok and parsed then
+            decoded_body = parsed
+          else
+            decoded_body = raw_body
+          end
+        end
+        return decoded_body
+      end
+      return rawget(t, k)
+    end,
+  })
+
+  -- Build client object
+  local client = {
+    test = function(name, fn)
+      current_test = { name = name, passed = 0, failed = 0, errors = {} }
+      table.insert(tests, current_test)
+      local ok, err = pcall(fn)
+      if not ok then
+        table.insert(current_test.errors, tostring(err))
+        current_test.failed = current_test.failed + 1
+      end
+      current_test = nil
+    end,
+    assert = function(cond, msg)
+      if not cond then
+        local err_msg = msg or "Assertion failed"
+        if current_test then
+          table.insert(current_test.errors, err_msg)
+          current_test.failed = current_test.failed + 1
+        end
+        error(err_msg, 2)
+      else
+        if current_test then
+          current_test.passed = current_test.passed + 1
+        end
+      end
+    end,
+    log = function(msg)
+      table.insert(logs, tostring(msg))
+    end,
+  }
+
+  -- Top-level assert shorthand (outside client.test)
+  local assert_fn = function(cond, msg)
+    if not cond then
+      local err_msg = msg or "Assertion failed"
+      error(err_msg, 2)
+    end
+  end
+
+  -- Build sandbox environment
+  local env = {
+    response = response,
+    client = client,
+    assert = assert_fn,
+    error = error,
+    pcall = pcall,
+    tostring = tostring,
+    tonumber = tonumber,
+    type = type,
+    string = string,
+    table = table,
+    math = math,
+    ipairs = ipairs,
+    pairs = pairs,
+  }
+
+  -- Execute code in sandbox
+  local fn, load_err = load(code, "assertions", "t", env)
+  if not fn then
+    return {
+      tests = {},
+      logs = {},
+      total = 1,
+      passed = 0,
+      failed = 1,
+      error = "Syntax error: " .. tostring(load_err),
+    }
+  end
+
+  local ok, run_err = pcall(fn)
+  if not ok then
+    return {
+      tests = tests,
+      logs = logs,
+      total = #tests,
+      passed = 0,
+      failed = #tests,
+      error = "Runtime error: " .. tostring(run_err),
+    }
+  end
+
+  -- Count totals
+  local total_passed = 0
+  local total_failed = 0
+  for _, test in ipairs(tests) do
+    if test.failed == 0 and #test.errors == 0 then
+      total_passed = total_passed + 1
+    else
+      total_failed = total_failed + 1
+    end
+  end
+
+  return {
+    tests = tests,
+    logs = logs,
+    total = #tests,
+    passed = total_passed,
+    failed = total_failed,
+  }
+end
+
+--- Format assertion results for display
+local function format_assertions(results)
+  if not results then
+    return { "No assertions defined" }
+  end
+
+  local lines = {
+    string.format("## Test Results: %d passed, %d failed", results.passed, results.failed),
+    "",
+  }
+
+  if results.error then
+    table.insert(lines, "**Error**: " .. results.error)
+    table.insert(lines, "")
+  end
+
+  for _, test in ipairs(results.tests) do
+    local icon = (test.failed == 0 and #test.errors == 0) and "✓" or "✘"
+    table.insert(lines, string.format("### %s %s", icon, test.name))
+
+    if #test.errors > 0 then
+      for _, err in ipairs(test.errors) do
+        table.insert(lines, string.format("  ✘ %s", err))
+      end
+    end
+  end
+
+  if #results.logs > 0 then
+    table.insert(lines, "")
+    table.insert(lines, "## Logs")
+    table.insert(lines, "")
+    for _, msg in ipairs(results.logs) do
+      table.insert(lines, msg)
+    end
+  end
+
+  return lines
+end
+
+---------------------------------------------------------------------------
 -- Winbar (tab indicators)
 ---------------------------------------------------------------------------
 local function update_winbar(active)
@@ -1097,6 +1362,10 @@ local function update_winbar(active)
     { id = "headers", label = "Headers [H]" },
     { id = "verbose", label = "Verbose [V]" },
   }
+  -- Only show Asserts tab when assertions were run
+  if last_assertion_results then
+    table.insert(tabs, { id = "assertions", label = "Asserts [A]" })
+  end
 
   local parts = {}
   for _, tab in ipairs(tabs) do
@@ -1139,6 +1408,7 @@ local function get_response_buffer()
   vim.keymap.set("n", "B", function() M.show_view("body") end, opts)
   vim.keymap.set("n", "H", function() M.show_view("headers") end, opts)
   vim.keymap.set("n", "V", function() M.show_view("verbose") end, opts)
+  vim.keymap.set("n", "A", function() M.show_view("assertions") end, opts)
 
   return response_buffer
 end
@@ -1201,6 +1471,9 @@ function M.show_view(view)
     filetype = "markdown"
   elseif view == "verbose" then
     lines = format_verbose(last_response)
+    filetype = "markdown"
+  elseif view == "assertions" then
+    lines = format_assertions(last_assertion_results)
     filetype = "markdown"
   else
     lines = { "Unknown view: " .. view }
@@ -1623,8 +1896,9 @@ local function execute_dependent_request(binary, file, env_name, dep_req, buf_co
     return nil
   end
 
-  -- Send buffer content (with prompts already resolved)
+  -- Send buffer content (with prompts and assertions already resolved)
   local clean_content = strip_prompt_lines(buf_content)
+  clean_content = extract_assertion_blocks(clean_content)
   vim.fn.chansend(job_id, clean_content)
   vim.fn.chanclose(job_id, "stdin")
 
@@ -1751,6 +2025,9 @@ function M.run_request()
     return
   end
 
+  -- Reset assertion state for this request run
+  last_assertion_results = nil
+
   local src_buf = vim.api.nvim_get_current_buf()
   local line = vim.fn.line(".")
 
@@ -1773,6 +2050,14 @@ function M.run_request()
 
     -- Process form data magic variables and file inclusions
     buf_content = process_form_data(src_buf, line, buf_content)
+
+    -- Extract and strip assertion blocks before sending to Rust.
+    -- Only collect assertion code from the current request block.
+    -- Use the original buffer bounds (line count is preserved by all prior transforms
+    -- except file inclusions, which only affect lines within the body, not ### boundaries).
+    local assertion_code
+    local block_start, block_end = find_request_block_bounds(src_buf, line)
+    buf_content, assertion_code = extract_assertion_blocks(buf_content, block_start, block_end)
 
     -- Get the current request name for caching
     local requests = collect_requests(src_buf)
@@ -1825,8 +2110,27 @@ function M.run_request()
           if current_req_name then
             request_response_cache[current_req_name] = parsed
           end
-          M.show_view("body")
-          set_indicator(src_buf, req_line, "success", parsed.latency_ms)
+
+          -- Run assertions if present
+          if assertion_code then
+            last_assertion_results = run_assertions(parsed, assertion_code)
+            log("INFO", string.format("Assertions: %d passed, %d failed",
+              last_assertion_results.passed, last_assertion_results.failed))
+
+            if last_assertion_results.failed > 0 then
+              -- Tests failed: show Asserts tab and update indicator
+              M.show_view("assertions")
+              set_indicator(src_buf, req_line, "success", parsed.latency_ms, last_assertion_results)
+            else
+              -- All tests passed: show body tab with assertion count
+              M.show_view("body")
+              set_indicator(src_buf, req_line, "success", parsed.latency_ms, last_assertion_results)
+            end
+          else
+            -- No assertions: show body tab
+            M.show_view("body")
+            set_indicator(src_buf, req_line, "success", parsed.latency_ms)
+          end
         else
           -- JSON parse failed — replace last_response with error object
           log("WARN", "JSON parse failed, showing raw output")

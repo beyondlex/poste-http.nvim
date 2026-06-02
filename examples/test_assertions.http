@@ -1,0 +1,72 @@
+### Test GET request with passing assertions
+GET https://httpbin.org/get?name=test&value=123
+
+> {%
+  client.test("Status is 200", function()
+    client.assert(response.status == 200, "Expected status 200")
+  end)
+  client.test("Response has args", function()
+    client.assert(response.body.args.name == "test", "Expected name=test")
+    client.assert(response.body.args.value == "123", "Expected value=123")
+  end)
+  client.test("Content-Type is JSON", function()
+    client.assert(response.content_type:find("application/json"), "Expected JSON content type")
+  end)
+%}
+
+### Test with failing assertion
+GET https://httpbin.org/get
+
+> {%
+  client.test("Status is 404", function()
+    client.assert(response.status == 404, "Expected status 404 but got " .. response.status)
+  end)
+  client.test("Response has missing field", function()
+    client.assert(response.body.missing_field ~= nil, "Expected missing_field to exist")
+  end)
+%}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Test POST with JSON body
+POST https://httpbin.org/post
+Content-Type: application/json
+
+{
+  "user": "alice",
+  "age": 30
+}
+> {%
+  client.test("POST successful", function()
+    client.assert(response.status == 200, "Expected 200")
+    client.assert(response.body.json.user == "alice", "Expected user=alice")
+    client.assert(response.body.json.age == 30, "Expected age=30")
+  end)
+%}
+
+### Test without assertions (should work as before)
+GET https://httpbin.org/status/201
+
+
+
+
+
+
+
+

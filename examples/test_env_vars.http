@@ -1,0 +1,10 @@
+# Test environment variables from env.json
+# These variables are defined in env.json (dev environment)
+
+### Get Base URL
+GET {{base_url}}/get
+Accept: application/json
+
+### Use API Key
+GET {{base_url}}/headers
+Authorization: Bearer {{api_key}}

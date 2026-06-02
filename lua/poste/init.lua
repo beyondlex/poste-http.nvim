@@ -406,6 +406,76 @@ function M.goto_definition()
     return
   end
 
+  -- 3. env.json: search for variable in environment file
+  local buf_path = vim.api.nvim_buf_get_name(buf)
+  if buf_path == "" then
+    vim.notify("Definition not found: " .. req_name, vim.log.levels.WARN)
+    return
+  end
+
+  -- Search for env.json: start from buffer directory, walk up
+  local search_dir = vim.fn.fnamemodify(buf_path, ":h")
+  local env_file = nil
+
+  while search_dir and search_dir ~= "" and search_dir ~= "/" do
+    local candidate = search_dir .. "/env.json"
+    if vim.fn.filereadable(candidate) == 1 then
+      env_file = candidate
+      break
+    end
+    local parent = vim.fn.fnamemodify(search_dir, ":h")
+    if parent == search_dir then break end
+    search_dir = parent
+  end
+
+  if not env_file then
+    vim.notify("Definition not found: " .. req_name, vim.log.levels.WARN)
+    return
+  end
+
+  -- Read and parse env.json
+  local env_lines = vim.fn.readfile(env_file)
+  if not env_lines or #env_lines == 0 then
+    vim.notify("Cannot read env.json", vim.log.levels.WARN)
+    return
+  end
+
+  local env_content = table.concat(env_lines, "\n")
+  local ok, env_data = pcall(vim.json.decode, env_content)
+  if not ok or type(env_data) ~= "table" then
+    vim.notify("Cannot parse env.json", vim.log.levels.WARN)
+    return
+  end
+
+  -- Get current environment (e.g., "dev")
+  local current_env = state.current_env
+  local env_vars = env_data[current_env]
+  if not env_vars or type(env_vars) ~= "table" then
+    vim.notify(string.format("Environment '%s' not found in env.json", current_env), vim.log.levels.WARN)
+    return
+  end
+
+  -- Check if variable exists in this environment
+  if env_vars[req_name] then
+    -- Find the line in env.json
+    local target_line = nil
+    for i, line in ipairs(env_lines) do
+      -- Match "varname": or "varname" :
+      if line:match('^%s*"' .. vim.pesc(req_name) .. '"%s*:') then
+        target_line = i
+        break
+      end
+    end
+
+    if target_line then
+      -- Jump to env.json file
+      vim.cmd("normal! m'")
+      vim.cmd("edit " .. vim.fn.fnameescape(env_file))
+      vim.api.nvim_win_set_cursor(0, { target_line, 0 })
+      return
+    end
+  end
+
   vim.notify("Definition not found: " .. req_name, vim.log.levels.WARN)
 end
 

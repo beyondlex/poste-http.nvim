@@ -1,59 +1,109 @@
---- Floating window selector with fuzzy search.
---- Calls on_select(selected_item) when user makes a selection.
---- selected_item is nil if user cancelled.
+--- Item selector with automatic picker detection.
+--- Priority: telescope → fzf-lua → mini.pick → snacks → built-in float → vim.ui.select.
+--- All branches call on_select(item) on pick, on_select(nil) on cancel.
 local M = {}
 
-function M.select(items, prompt_text, on_select)
-  if #items == 0 then
-    vim.schedule(function() on_select(nil) end)
-    return
+---------------------------------------------------------------------------
+-- External picker integrations
+---------------------------------------------------------------------------
+
+local function pick_telescope(items, prompt, on_select)
+  local pickers = require("telescope.pickers")
+  local finders = require("telescope.finders")
+  local conf = require("telescope.config").values
+  local actions = require("telescope.actions")
+  local state = require("telescope.actions.state")
+
+  local resolved = false
+  local function resolve(item)
+    if resolved then return end
+    resolved = true
+    actions.close(require("telescope.actions.state").get_current_picker(prompt and prompt:gsub(" ", "_") or "poste_select").prompt_bufnr)
+    on_select(item)
   end
 
-  if #items <= 10 then
-    -- Short list: use input() which accepts both index numbers and text values
-    local choices_str = {}
-    for idx, item in ipairs(items) do
-      table.insert(choices_str, string.format("  %d. %s", idx, item))
+  pickers.new({}, {
+    prompt_title = prompt,
+    finder = finders.new_table { results = items },
+    sorter = conf.generic_sorter({}),
+    attach_mappings = function(_, map)
+      map({ "i", "n" }, "<CR>", function(bufnr)
+        local sel = state.get_selected_entry()
+        -- Close picker first, then invoke callback
+        actions.close(bufnr)
+        resolved = true
+        on_select(sel and sel[1] or nil)
+      end)
+      return true
+    end,
+  }):find()
+end
+
+local function pick_fzf(items, prompt, on_select)
+  local fzf = require("fzf-lua")
+  fzf.fzf_exec(items, {
+    prompt = (prompt or "Select") .. "> ",
+    actions = {
+      ["default"] = function(sel)
+        on_select(sel and sel[1] or nil)
+      end,
+    },
+  })
+end
+
+local function pick_mini(items, prompt, on_select)
+  local pick = require("mini.pick")
+  local result = pick.start({
+    items = items,
+    source = { name = prompt or "Select" },
+  })
+  on_select(result)
+end
+
+local function pick_snacks(items, prompt, on_select)
+  local snacks = require("snacks.picker")
+  snacks({
+    title = prompt,
+    items = items,
+    format = "text",
+    confirm = function(picker, item)
+      picker:close()
+      on_select(item and item.text or nil)
+    end,
+  })
+end
+
+--- Detect the best available picker plugin.
+--- Returns the picker function or nil if none found.
+local function detect_picker()
+  local candidates = {
+    { mod = "telescope.pickers", fn = pick_telescope },
+    { mod = "fzf-lua",           fn = pick_fzf },
+    { mod = "mini.pick",         fn = pick_mini },
+    { mod = "snacks.picker",     fn = pick_snacks },
+  }
+  for _, c in ipairs(candidates) do
+    if pcall(require, c.mod) then
+      return c.fn
     end
-    local display = prompt_text .. "\n" .. table.concat(choices_str, "\n") .. "\n"
-    vim.schedule(function()
-      local ok, raw = pcall(vim.fn.input, { prompt = display .. "> ", default = "" })
-      if not ok or not raw or raw == "" then
-        on_select(nil)
-        return
-      end
-      -- Try as numeric index first
-      local num = tonumber(raw)
-      if num and num >= 1 and num <= #items then
-        on_select(items[num])
-        return
-      end
-      -- Fall back to case-insensitive text match
-      local lower_raw = raw:lower()
-      for _, item in ipairs(items) do
-        if item:lower() == lower_raw then
-          on_select(item)
-          return
-        end
-      end
-      -- No match
-      on_select(nil)
-    end)
-    return
   end
+  return nil
+end
 
-  -- Long list: use floating window with fuzzy search
+---------------------------------------------------------------------------
+-- Built-in floating window fallback (with fuzzy search)
+---------------------------------------------------------------------------
+
+local function pick_float(items, prompt_text, on_select)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
   vim.api.nvim_buf_set_option(buf, "filetype", "PosteSelect")
 
-  -- Calculate window size
   local width = math.min(80, vim.o.columns - 4)
-  local height = math.min(20, #items + 2)  -- +2 for search line and border
+  local height = math.min(20, #items + 2)
   local row = math.floor((vim.o.lines - height) / 2)
   local col = math.floor((vim.o.columns - width) / 2)
 
-  -- Create floating window
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",
     width = width,
@@ -66,13 +116,11 @@ function M.select(items, prompt_text, on_select)
     title_pos = "center",
   })
 
-  -- State
   local filtered = vim.deepcopy(items)
   local selected_idx = 1
   local search_text = ""
   local resolved = false
 
-  -- Helper to resolve selection
   local function resolve(result)
     if resolved then return end
     resolved = true
@@ -82,27 +130,21 @@ function M.select(items, prompt_text, on_select)
     vim.schedule(function() on_select(result) end)
   end
 
-  -- Render function
   local function render()
     local lines = { "\239\132\133 " .. search_text }
     for idx, item in ipairs(filtered) do
       local prefix = (idx == selected_idx) and "▶ " or "  "
       table.insert(lines, prefix .. item)
     end
-    -- Pad with empty lines to maintain height
-    while #lines < height do
-      table.insert(lines, "")
-    end
+    while #lines < height do table.insert(lines, "") end
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
-    -- Highlight selected line
     vim.api.nvim_buf_clear_namespace(buf, -1, 0, -1)
     if selected_idx > 0 and selected_idx <= #filtered then
       vim.api.nvim_buf_add_highlight(buf, -1, "Visual", selected_idx, 0, -1)
     end
   end
 
-  -- Filter items based on search text
   local function filter_items()
     if search_text == "" then
       filtered = vim.deepcopy(items)
@@ -114,7 +156,6 @@ function M.select(items, prompt_text, on_select)
       for _, item in ipairs(items) do
         if item:lower():find(lower_search, 1, true) then
           table.insert(filtered, item)
-          -- Check for exact match (case-insensitive)
           if item:lower() == lower_search and not exact_idx then
             exact_idx = #filtered
           end
@@ -125,82 +166,33 @@ function M.select(items, prompt_text, on_select)
     render()
   end
 
-  -- Keymaps
-  local function map_key(mode, key, action)
+  local function map(mode, key, action)
     vim.keymap.set(mode, key, action, { buffer = buf, nowait = true })
   end
 
-  -- Navigation
-  map_key("n", "j", function()
-    selected_idx = math.min(selected_idx + 1, #filtered)
-    render()
-  end)
-  map_key("n", "k", function()
-    selected_idx = math.max(selected_idx - 1, 1)
-    render()
-  end)
-  map_key("n", "<Down>", function()
-    selected_idx = math.min(selected_idx + 1, #filtered)
-    render()
-  end)
-  map_key("n", "<Up>", function()
-    selected_idx = math.max(selected_idx - 1, 1)
-    render()
-  end)
+  map("n", "j",      function() selected_idx = math.min(selected_idx + 1, #filtered); render() end)
+  map("n", "k",      function() selected_idx = math.max(selected_idx - 1, 1);         render() end)
+  map("n", "<Down>", function() selected_idx = math.min(selected_idx + 1, #filtered); render() end)
+  map("n", "<Up>",   function() selected_idx = math.max(selected_idx - 1, 1);         render() end)
 
-  -- Selection
-  map_key("n", "<CR>", function()
-    if #filtered > 0 then
-      resolve(filtered[selected_idx])
-    else
-      resolve(nil)
-    end
-  end)
-  map_key("n", "<Esc>", function()
-    resolve(nil)
-  end)
-  map_key("n", "q", function()
-    resolve(nil)
-  end)
+  map("n", "<CR>", function() resolve(#filtered > 0 and filtered[selected_idx] or nil) end)
+  map("n", "<Esc>", function() resolve(nil) end)
+  map("n", "q",     function() resolve(nil) end)
 
-  -- Search input
-  map_key("n", "i", function()
-    vim.cmd("startinsert!")
-  end)
-  map_key("n", "a", function()
-    vim.cmd("startinsert!")
-  end)
+  map("n", "i", function() vim.cmd("startinsert!") end)
+  map("n", "a", function() vim.cmd("startinsert!") end)
 
-  -- Insert mode mappings
-  map_key("i", "<CR>", function()
-    vim.cmd("stopinsert")
-    if #filtered > 0 then
-      resolve(filtered[selected_idx])
-    else
-      resolve(nil)
-    end
-  end)
-  map_key("i", "<Esc>", function()
-    vim.cmd("stopinsert")
-    resolve(nil)
-  end)
-  map_key("i", "<Down>", function()
-    selected_idx = math.min(selected_idx + 1, #filtered)
-    render()
-  end)
-  map_key("i", "<Up>", function()
-    selected_idx = math.max(selected_idx - 1, 1)
-    render()
-  end)
+  map("i", "<CR>",   function() vim.cmd("stopinsert"); resolve(#filtered > 0 and filtered[selected_idx] or nil) end)
+  map("i", "<Esc>",  function() vim.cmd("stopinsert"); resolve(nil) end)
+  map("i", "<Down>", function() selected_idx = math.min(selected_idx + 1, #filtered); render() end)
+  map("i", "<Up>",   function() selected_idx = math.max(selected_idx - 1, 1);         render() end)
 
-  -- Real-time filtering on text change (TextChangedI for insert mode)
   vim.api.nvim_create_autocmd("TextChangedI", {
     buffer = buf,
     callback = function()
       if resolved then return end
       local lines = vim.api.nvim_buf_get_lines(buf, 0, 1, false)
       local first_line = lines[1] or ""
-      -- Extract search text after prefix
       local new_search = first_line:match("^\239\132\133 (.*)$") or ""
       if new_search ~= search_text then
         search_text = new_search
@@ -209,9 +201,47 @@ function M.select(items, prompt_text, on_select)
     end,
   })
 
-  -- Initial render
   render()
   vim.cmd("startinsert!")
+end
+
+---------------------------------------------------------------------------
+-- Last-resort: vim.ui.select (works even without a GUI)
+---------------------------------------------------------------------------
+
+local function pick_vimui(items, prompt, on_select)
+  vim.ui.select(items, { prompt = prompt }, function(choice)
+    on_select(choice)
+  end)
+end
+
+---------------------------------------------------------------------------
+-- Public API
+---------------------------------------------------------------------------
+
+--- Show a picker for `items` and call `on_select(selected_item)` (nil if cancelled).
+function M.select(items, prompt, on_select)
+  if #items == 0 then
+    vim.schedule(function() on_select(nil) end)
+    return
+  end
+
+  -- 1. Try external picker (telescope, fzf-lua, mini.pick, snacks)
+  local picker = detect_picker()
+  if picker then
+    local ok, err = pcall(picker, items, prompt, on_select)
+    if ok then return end
+    -- Picker failed at runtime; fall through to built-in
+    require("poste.state").log("WARN", "picker failed, falling back: " .. tostring(err))
+  end
+
+  -- 2. Built-in floating window
+  local ok, err = pcall(pick_float, items, prompt, on_select)
+  if ok then return end
+
+  -- 3. Ultimate fallback: vim.ui.select
+  require("poste.state").log("WARN", "float picker failed, using vim.ui.select: " .. tostring(err))
+  pick_vimui(items, prompt, on_select)
 end
 
 return M

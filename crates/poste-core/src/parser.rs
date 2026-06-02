@@ -234,7 +234,7 @@ impl Parser {
     }
 
     fn substitute_vars(&self, input: &str, file_vars: &HashMap<String, String>, request_vars: &HashMap<String, String>) -> String {
-        let re = Regex::new(r"\{\{(\w+)\}\}").unwrap();
+        let re = Regex::new(r"\{\{([^}]+)\}\}").unwrap();
         re.replace_all(input, |caps: &regex::Captures| {
             let var_name = &caps[1];
             // Priority: request_vars > file_vars > env

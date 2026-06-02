@@ -27,7 +27,7 @@ syn match PosteVarValue display '.\+$' contained
 
 " ─── Variable references ────────────────────────────
 syn match PosteMagicVar display '{{\$\w\+}}'
-syn match PosteVarRef display '{{\w\+}}'
+syn match PosteVarRef display '{{[^}]\+}}'
 
 " ─── Pre-request script blocks ──────────────────────
 syn region PostePreScript start='<\s*{%$' end='^%}'

@@ -66,11 +66,11 @@
 ## 🔧 Medium Priority
 
 ### Developer Experience
-- [ ] Add more HTTP headers to completion list
-- [ ] Add more MIME types to completion list
-- [ ] Support for common authentication schemes (Bearer, Basic, Digest, OAuth)
-- [ ] Cookie completion
-- [ ] HTTP status code completion in assertions
+- [x] Add more HTTP headers to completion list
+- [x] Add more MIME types to completion list
+- [x] Support for common authentication schemes (Bearer, Basic, Digest, OAuth)
+- [x] Cookie completion
+- [x] HTTP status code completion in assertions
 
 ### Documentation
 - [ ] Update README with completion examples

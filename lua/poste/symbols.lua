@@ -92,22 +92,13 @@ local function show_telescope_picker(requests)
   local action_state = require("telescope.actions.state")
   local entry_display = require("telescope.pickers.entry_display")
 
-  -- Calculate max URL path length (cap at 40)
-  local max_path_len = 0
-  for _, req in ipairs(requests) do
-    if req.url_path then
-      max_path_len = math.max(max_path_len, #req.url_path)
-    end
-  end
-  max_path_len = math.min(max_path_len, 40)
-
   local displayer = entry_display.create({
     separator = " ",
     items = {
-      { width = 8 },                    -- method
-      { remaining = true },             -- name
-      { width = max_path_len + 1 },     -- url path
-      { width = 6 },                    -- line number
+      { width = 8 },   -- method
+      { width = 30 },  -- name
+      { width = 42 },  -- url path
+      { width = 6 },   -- line number
     },
   })
 
@@ -115,8 +106,8 @@ local function show_telescope_picker(requests)
     local path = entry.value.url_path
     return displayer({
       { entry.value.method or "—", "PosteSymbolMethod" },
-      { entry.value.name, "Normal" },
-      { path and truncate(path, 40) or "", "Comment" },
+      { truncate(entry.value.name, 30), "Normal" },
+      { path and truncate(path, 42) or "", "Comment" },
       { "L" .. entry.value.line, "Comment" },
     })
   end

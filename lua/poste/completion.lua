@@ -166,41 +166,105 @@ local header_values = {
 }
 
 ---------------------------------------------------------------------------
+-- Caching infrastructure
+---------------------------------------------------------------------------
+-- Buffer-level caches (invalidated on text change via changedtick)
+local buffer_caches = {}     -- bufnr → { changedtick, file_vars, req_names }
+local env_cache = {}         -- path → { mtime, env_name, vars }
+local cache_autocmds = {}    -- bufnr → true
+
+--- Set up text-change autocmd for a buffer to invalidate cache.
+local function ensure_cache_autocmd(buf)
+  if cache_autocmds[buf] then return end
+  cache_autocmds[buf] = true
+  local group = vim.api.nvim_create_augroup("PosteCompletionCache_" .. buf, { clear = true })
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = group,
+    buffer = buf,
+    callback = function()
+      buffer_caches[buf] = nil
+    end,
+  })
+  vim.api.nvim_create_autocmd("BufDelete", {
+    group = group,
+    buffer = buf,
+    callback = function()
+      buffer_caches[buf] = nil
+      cache_autocmds[buf] = nil
+    end,
+  })
+end
+
+--- Get buffer-level cache, rescanning if buffer has changed.
+local function get_buffer_cache(buf)
+  local ct = vim.api.nvim_buf_get_changedtick(buf)
+  local cached = buffer_caches[buf]
+  if cached and cached.changedtick == ct then
+    return cached
+  end
+
+  -- Rescan entire buffer for file vars and request names in one pass
+  local file_vars = {}
+  local req_names = {}
+  local seen_names = {}
+  local past_file_vars = false
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+
+  for _, line in ipairs(lines) do
+    if line:match("^%s*###") then
+      past_file_vars = true
+      local name = line:match("^%s*###%s+(.+)")
+      if name then
+        name = vim.trim(name)
+        if name ~= "" and not seen_names[name] then
+          seen_names[name] = true
+          table.insert(req_names, name)
+        end
+      end
+    elseif not past_file_vars then
+      local var_name = line:match("^%s*@(%w[%w_]*)%s*=")
+      if var_name then file_vars[var_name] = true end
+    end
+  end
+
+  local entry = {
+    changedtick = ct,
+    file_vars = file_vars,
+    req_names = req_names,
+  }
+  buffer_caches[buf] = entry
+  ensure_cache_autocmd(buf)
+  return entry
+end
+
+---------------------------------------------------------------------------
 -- Variable collection (for {{var}} completion)
 ---------------------------------------------------------------------------
 
---- Collect file-level variables (@var = value before the first ###).
+--- Get file-level variables from cache.
 local function collect_file_vars(buf)
-  local vars = {}
-  local line_count = vim.api.nvim_buf_line_count(buf)
-  for i = 1, math.min(line_count, 200) do
-    local line = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1]
-    if not line then break end
-    if line:match("^%s*###") then break end
-    local name = line:match("^%s*@(%w[%w_]*)%s*=")
-    if name then vars[name] = true end
-  end
-  return vars
+  return get_buffer_cache(buf).file_vars
 end
 
---- Collect request-level variables (@var = value in the current request block).
+--- Collect request-level variables (current request block only, not cached).
 local function collect_request_vars(buf, cursor_line)
   local vars = {}
-  local indicators = require("poste.indicators")
+  local ok, indicators = pcall(require, "poste.indicators")
+  if not ok then return vars end
   local start_line, end_line = indicators.find_request_block_bounds(buf, cursor_line)
   if not start_line then return vars end
 
   local lines = vim.api.nvim_buf_get_lines(buf, start_line - 1, end_line, false)
   for _, line in ipairs(lines) do
-    if line:match("^%s*###") then goto continue end
-    local name = line:match("^%s*@(%w[%w_]*)%s*=")
-    if name then vars[name] = true end
-    ::continue::
+    if not line:match("^%s*###") then
+      local name = line:match("^%s*@(%w[%w_]*)%s*=")
+      if name then vars[name] = true end
+    end
   end
   return vars
 end
 
---- Load environment variables from env.json for the current environment.
+--- Get environment variables from env.json (cached by path + mtime + env).
 local function collect_env_vars()
   local bufname = vim.api.nvim_buf_get_name(0)
   if bufname == "" then return {} end
@@ -219,43 +283,45 @@ local function collect_env_vars()
 
   if not env_file then return {} end
 
+  -- Check cache: skip re-read if mtime and env name unchanged
+  local info = vim.uv.fs_stat(env_file)
+  local mtime = info and info.mtime and info.mtime.sec or 0
+
+  local state = require("poste.state")
+  local env_name = state.current_env or state.config.default_env
+
+  local cached = env_cache[env_file]
+  if cached and cached.mtime == mtime and cached.env_name == env_name then
+    return cached.vars
+  end
+
   local ok, content = pcall(vim.fn.readfile, env_file)
   if not ok or not content then return {} end
 
   local json_ok, data = pcall(vim.fn.json_decode, table.concat(content, "\n"))
-  if not json_ok or type(data) ~= "table" then return {} end
+  if not json_ok or type(data) ~= "table" then
+    env_cache[env_file] = nil
+    return {}
+  end
 
-  local state = require("poste.state")
-  local env_name = state.current_env or state.config.default_env
   local env_data = data[env_name]
-  if type(env_data) ~= "table" then return {} end
+  if type(env_data) ~= "table" then
+    env_cache[env_file] = nil
+    return {}
+  end
 
   local vars = {}
   for k, _ in pairs(env_data) do
     vars[k] = true
   end
+
+  env_cache[env_file] = { mtime = mtime, env_name = env_name, vars = vars }
   return vars
 end
 
---- Collect request names (### headers) from the buffer.
+--- Get request names from buffer cache.
 local function collect_request_names(buf)
-  local names = {}
-  local seen = {}
-  local line_count = vim.api.nvim_buf_line_count(buf)
-  for i = 1, line_count do
-    local line = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1]
-    if line then
-      local name = line:match("^%s*###%s+(.+)")
-      if name then
-        name = vim.trim(name)
-        if name ~= "" and not seen[name] then
-          seen[name] = true
-          table.insert(names, name)
-        end
-      end
-    end
-  end
-  return names
+  return get_buffer_cache(buf).req_names
 end
 
 --- Magic variables matching request_vars.lua definitions.
@@ -271,6 +337,7 @@ local magic_var_defs = {
 ---------------------------------------------------------------------------
 
 --- Detect the completion context from the line up to cursor.
+--- Optimized with direct string ops instead of pattern matching where possible.
 --- Returns: context_type, extra_data
 --- Context types:
 ---   "method"           - empty line, expecting HTTP method
@@ -279,67 +346,70 @@ local magic_var_defs = {
 ---   "variable"         - inside {{...}} (extra_data = text after {{)
 ---   nil                - no completion
 local function detect_context(line_before_cursor)
-  -- Trim leading whitespace for analysis
+  -- Fast-path: empty or whitespace-only → method completion
   local trimmed = vim.trim(line_before_cursor)
-
-  -- Empty line or only whitespace → could be method
   if trimmed == "" then
     return "method", nil
   end
 
-  -- After ### (request name line) → no completion
-  if trimmed:match("^###") then
+  -- Direct string prefix checks (faster than :match)
+  local first_char = trimmed:sub(1, 1)
+  if first_char == "#" then
+    -- After ### (request name line) → no completion
+    if trimmed:sub(2, 2) == "#" then return nil, nil end
+    -- Comment lines → no completion
     return nil, nil
   end
 
-  -- Comment lines → no completion
-  if trimmed:match("^#") or trimmed:match("^%-%-") then
+  -- Comment: -- (direct check instead of pattern)
+  if first_char == "-" and trimmed:sub(2, 2) == "-" then
     return nil, nil
   end
 
   -- @var definition → no completion
-  if trimmed:match("^@") then
+  if first_char == "@" then
     return nil, nil
   end
 
-  -- Check for variable reference: inside {{...}}
-  -- Find last {{ and }} before cursor using reverse search
+  -- Variable reference: check for unclosed {{ before cursor
   local rev = line_before_cursor:reverse()
-  local last_open = rev:find("{{")
-  local last_close = rev:find("}}")
+  local last_open = rev:find("{{", 1, true)   -- plain string find
+  local last_close = rev:find("}}", 1, true)  -- plain string find
   if last_open and (not last_close or last_close > last_open) then
     -- Cursor is inside an unclosed {{...}}
-    -- Convert reversed index to original: text after {{ starts at (#s - last_open + 2)
     local after_open = line_before_cursor:sub(#line_before_cursor - last_open + 2)
     return "variable", after_open
   end
 
-  -- Check for URL (contains ://) → no completion
-  if line_before_cursor:find("://") then
+  -- URL check (direct string find instead of pattern)
+  if line_before_cursor:find("://", 1, true) then
     return nil, nil
   end
 
-  -- Check if this line already has a complete HTTP method followed by space
-  -- e.g., "GET https://..." or "POST http://..."
+  -- Check if line already has a complete HTTP method followed by space
   local method_match = trimmed:match("^(%u+)%s")
   if method_match then
     for _, method in ipairs(http_methods) do
       if method_match == method then
-        -- Already have method, rest is URL → no completion
-        return nil, nil
+        return nil, nil  -- already have method, rest is URL
       end
     end
   end
 
-  -- Check if we're in header value context (after colon)
-  -- Match "Header-Name:" or "Header-Name: " (colon at end or colon+space)
-  local header_name = line_before_cursor:match("^%s*([A-Za-z][A-Za-z0-9%-]*):")
-  if header_name then
-    return "header_value", header_name
+  -- Header value context: extract header name before colon
+  -- Manual parsing is faster than pattern for short lines
+  local colon_pos = line_before_cursor:find(":", 1, true)
+  if colon_pos then
+    -- Extract header name (letters, digits, hyphens) before colon
+    local header_part = line_before_cursor:sub(1, colon_pos - 1)
+    local header_name = header_part:match("^%s*([A-Za-z][A-Za-z0-9%-]*)$")
+    if header_name then
+      return "header_value", header_name
+    end
   end
 
-  -- No colon — single word being typed → method or header name
-  if not line_before_cursor:find("%s") then
+  -- No colon, no space → single word being typed (method or header name)
+  if not line_before_cursor:find(" ", 1, true) then
     return "method_or_header", nil
   end
 
@@ -399,19 +469,23 @@ local function get_items_for_context(line_before_cursor)
     end
 
     -- Regular variables (file + request + env)
+    -- Merge all sources: file vars from cache, request vars computed, env vars from cache
     local all_vars = {}
-    local file_vars = collect_file_vars(buf)
-    local req_vars = collect_request_vars(buf, cursor_line)
-    local env_vars = collect_env_vars()
+    local cache = get_buffer_cache(buf)
 
+    -- File-level vars (cached)
+    for name in pairs(cache.file_vars) do
+      all_vars[name] = "file"
+    end
+
+    -- Request-level vars (computed on-demand, scoped to current block)
+    local req_vars = collect_request_vars(buf, cursor_line)
     for name in pairs(req_vars) do
       all_vars[name] = "request"
     end
-    for name in pairs(file_vars) do
-      if not all_vars[name] then
-        all_vars[name] = "file"
-      end
-    end
+
+    -- Environment vars (cached by mtime)
+    local env_vars = collect_env_vars()
     for name in pairs(env_vars) do
       if not all_vars[name] then
         all_vars[name] = "env"
@@ -435,9 +509,8 @@ local function get_items_for_context(line_before_cursor)
       })
     end
 
-    -- Request name references (for {{RequestName.response.body}})
-    local req_names = collect_request_names(buf)
-    for _, name in ipairs(req_names) do
+    -- Request name references (cached)
+    for _, name in ipairs(cache.req_names) do
       table.insert(items, {
         label = name .. ".response.body",
         kind = KIND_REFERENCE,
@@ -478,6 +551,34 @@ local function get_items_for_context(line_before_cursor)
 
   return items
 end
+
+--- Profile completion performance (run manually with :PosteCmpProfile).
+--- Measures latency of context detection and item generation.
+local function profile_completion()
+  local iterations = 100
+  local line = vim.api.nvim_get_current_line()
+  local col = vim.api.nvim_win_get_cursor(0)[2]
+  local line_before_cursor = line:sub(1, col)
+
+  -- Warm up cache
+  get_items_for_context(line_before_cursor)
+
+  local start = vim.loop.hrtime()
+  for _ = 1, iterations do
+    get_items_for_context(line_before_cursor)
+  end
+  local elapsed_ms = (vim.loop.hrtime() - start) / 1e6
+
+  local avg_us = (elapsed_ms * 1000) / iterations
+  local status = string.format(
+    "completion profile: %d iterations in %.2fms (avg %.1fμs per call) | context: %s",
+    iterations, elapsed_ms, avg_us,
+    vim.inspect({ detect_context(line_before_cursor) })
+  )
+  vim.notify(status, vim.log.levels.INFO)
+end
+
+M.profile = profile_completion
 
 ---------------------------------------------------------------------------
 -- blink.cmp source (module-level interface)
@@ -726,5 +827,19 @@ function M.status()
 
   return "no completion engine registered"
 end
+
+---------------------------------------------------------------------------
+-- Test interface (expose internals for unit tests)
+---------------------------------------------------------------------------
+M._test = {
+  detect_context = detect_context,
+  build_items = build_items,
+  get_items_for_context = get_items_for_context,
+  get_buffer_cache = get_buffer_cache,
+  collect_file_vars = collect_file_vars,
+  collect_env_vars = collect_env_vars,
+  collect_request_vars = collect_request_vars,
+  collect_request_names = collect_request_names,
+}
 
 return M

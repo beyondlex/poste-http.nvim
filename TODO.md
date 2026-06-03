@@ -58,10 +58,10 @@
 - [ ] Assertion keyword completion
 
 ### Performance
-- [ ] Profile completion startup time
-- [ ] Lazy load completion data (only load when needed)
-- [ ] Cache parsed env.json data
-- [ ] Optimize `detect_context()` function
+- [x] Profile completion startup time
+- [x] Lazy load completion data (only load when needed)
+- [x] Cache parsed env.json data
+- [x] Optimize `detect_context()` function
 
 ## 🔧 Medium Priority
 
@@ -80,10 +80,10 @@
 - [ ] Create user guide for common workflows
 
 ### Testing
-- [ ] Unit tests for `detect_context()`
-- [ ] Unit tests for `make_items()`
-- [ ] Integration tests with nvim-cmp
-- [ ] Integration tests with blink.cmp (after migration)
+- [x] Unit tests for `detect_context()`
+- [x] Unit tests for `make_items()`
+- [x] Integration tests with nvim-cmp
+- [x] Integration tests with blink.cmp (after migration)
 - [ ] Test with different LazyVim configurations
 
 ## 📝 Low Priority

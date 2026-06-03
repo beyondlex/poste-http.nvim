@@ -747,6 +747,10 @@ function M.setup(opts)
     vim.notify(completion.status(), vim.log.levels.INFO)
   end, { desc = "Check poste completion status" })
 
+  vim.api.nvim_create_user_command("PosteCmpProfile", function()
+    completion.profile()
+  end, { desc = "Profile poste completion performance" })
+
   -- Autocommand: set up keymaps for supported file types
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.http", "*.rest", "*.redis" },

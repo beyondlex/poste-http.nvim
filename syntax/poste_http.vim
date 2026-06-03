@@ -30,17 +30,27 @@ syn match PosteVarValue '.\+$' contained
 syn match PosteMagicVar '{{\$\w\+}}'
 syn match PosteVarRef '{{[^}]\+}}'
 
+" ─── Include Lua syntax for script blocks ─────────────
+" syn include redirects all lua.vim definitions into the @PosteLua cluster.
+" Must unlet b:current_syntax because lua.vim has a guard that skips if set.
+syn include @PosteLua syntax/lua.vim
+unlet! b:current_syntax
+
 " ─── Pre-request script blocks ──────────────────────
+" Multi-line: < {% ... %}
 syn region PostePreScript start='<\s*{%$' end='^%}'
-  \ contains=PosteScriptMarker keepend
+  \ contains=PosteScriptMarker,@PosteLua keepend
+" Single-line: < {% ... %}
 syn match PostePreScript '<\s*{%.*%}'
-  \ contains=PosteScriptMarker
+  \ contains=PosteScriptMarker,@PosteLua
 
 " ─── Assertion / post-request script blocks ─────────
+" Multi-line: > {% ... %}
 syn region PosteAssertion start='>\s*{%$' end='^%}'
-  \ contains=PosteScriptMarker keepend
+  \ contains=PosteScriptMarker,@PosteLua keepend
+" Single-line: > {% ... %}
 syn match PosteAssertion '>\s*{%.*%}'
-  \ contains=PosteScriptMarker
+  \ contains=PosteScriptMarker,@PosteLua
 
 " Script markers (contained in PreScript / Assertion regions)
 syn match PosteScriptMarker '{%' contained
@@ -84,10 +94,10 @@ syn match PosteHeaderSep ':' contained
 
 " ─── Request body (payload after blank line) ──────────
 " Body starts at a blank line (separating headers from body)
-" and ends before the next ### separator or at EOF.
+" and ends before the next ### separator, pre/post-script block, or at EOF.
 " Manual JSON syntax avoids syn include's syn-clear side effect
 " and lets {{var}} refs highlight inside JSON values.
-syn region PosteBody start=+^\s*\n+ end=+\n\ze\s*###\|\%$+ keepend
+syn region PosteBody start=+^\s*\n+ end=+\n\ze\s*\%(###\|<\s*{%\|>\s*{%\)\|\%$+ keepend
   \ contains=PosteJsonString,PosteJsonNumber,PosteJsonBoolean,PosteJsonNull,
   \PosteJsonBraces,PosteJsonBrackets,PosteJsonColon,PosteJsonComma,
   \PosteVarRef,PosteMagicVar

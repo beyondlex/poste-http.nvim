@@ -54,8 +54,8 @@
 - [x] Request name completion in variable references
 - [x] Environment variable completion from env.json
 - [x] Magic variable completion (`{{$timestamp}}`, `{{$uuid}}`, etc.)
-- [ ] Pre/post script keyword completion
-- [ ] Assertion keyword completion
+- [x] Pre/post script keyword completion
+- [x] Assertion keyword completion
 
 ### Performance
 - [x] Profile completion startup time

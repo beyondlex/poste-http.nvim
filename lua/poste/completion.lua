@@ -6,6 +6,8 @@
 ---   - Variable references ({{var_name}} from file, request, env)
 ---   - Request name references ({{RequestName.response.body}})
 ---   - Magic variables ({{$timestamp}}, {{$uuid}}, ...)
+---   - Pre-request script keywords (request.variables, client.global, ...)
+---   - Post-request assertion keywords (client.test, client.assert, response, ...)
 ---
 --- For blink.cmp: this module IS the source (blink.cmp calls require("poste.completion").new())
 --- For nvim-cmp:  use M.source subtable + M.register()
@@ -163,6 +165,39 @@ local header_values = {
     "GET, POST, PUT, DELETE, PATCH, OPTIONS",
   },
   ["access-control-allow-credentials"] = { "true", "false" },
+}
+
+---------------------------------------------------------------------------
+-- Data: Pre-request script keywords (< {% ... %})
+---------------------------------------------------------------------------
+local pre_script_keywords = {
+  { name = "request.variables.set",  desc = "Set variable for request" },
+  { name = "request.variables.get",  desc = "Get variable value" },
+  { name = "client.global.set",      desc = "Set persistent global variable" },
+  { name = "client.global.get",      desc = "Get persistent global variable" },
+  { name = "client.log",             desc = "Log message to script output" },
+  { name = "md5",                    desc = "Compute MD5 hash" },
+}
+
+---------------------------------------------------------------------------
+-- Data: Post-request assertion keywords (> {% ... %})
+---------------------------------------------------------------------------
+local post_script_keywords = {
+  -- Assertion API
+  { name = "client.test",            desc = "Define named test block" },
+  { name = "client.assert",          desc = "Assert condition (throws on false)" },
+  { name = "assert",                 desc = "Top-level assert shorthand" },
+  -- Response object
+  { name = "response.status",        desc = "HTTP status code" },
+  { name = "response.headers",       desc = "Response headers (case-insensitive)" },
+  { name = "response.body",          desc = "Parsed JSON body" },
+  { name = "response.content_type",  desc = "Content-Type header" },
+  { name = "response.latency_ms",    desc = "Request duration in milliseconds" },
+  { name = "response.url",           desc = "Request URL" },
+  -- Also include pre-request keywords (client.global, client.log available)
+  { name = "client.global.set",      desc = "Set persistent global variable" },
+  { name = "client.global.get",      desc = "Get persistent global variable" },
+  { name = "client.log",             desc = "Log message to script output" },
 }
 
 ---------------------------------------------------------------------------
@@ -336,6 +371,72 @@ local magic_var_defs = {
 -- Shared logic: context detection and item building
 ---------------------------------------------------------------------------
 
+--- Detect if cursor is inside a script block (< {% ... %} or > {% ... %}).
+--- Scans buffer for script markers to determine context.
+--- Returns: "pre_script", "post_script", or nil
+local function detect_script_context(buf, cursor_line, cursor_col)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, cursor_line, false)
+
+  -- Track whether we're inside a script block and what type
+  local in_script = nil  -- "pre" or "post"
+  local script_start = nil
+
+  for i, line in ipairs(lines) do
+    if in_script then
+      -- Check if this line closes the script block
+      if line:find("%%}") then
+        -- If we're on the closing line, check if cursor is before %}
+        if i == cursor_line then
+          local close_pos = line:find("%%}")
+          if cursor_col <= close_pos then
+            return in_script == "pre" and "pre_script" or "post_script"
+          end
+        end
+        in_script = nil
+        script_start = nil
+      elseif i == cursor_line then
+        -- We're inside the script block on this line
+        return in_script == "pre" and "pre_script" or "post_script"
+      end
+    else
+      -- Check for script block start
+      local pre_start = line:find("<%s*{%%")
+      local post_start = line:find(">%s*{%%")
+
+      if pre_start or post_start then
+        local start_pos = pre_start or post_start
+        in_script = pre_start and "pre" or "post"
+        script_start = i
+
+        -- Check if script closes on same line
+        local close_pos = line:find("%%}")
+        if close_pos then
+          -- Single-line script: < {% ... %} or > {% ... %}
+          if i == cursor_line and cursor_col > start_pos and cursor_col <= close_pos then
+            return in_script == "pre" and "pre_script" or "post_script"
+          end
+          in_script = nil
+          script_start = nil
+        elseif i == cursor_line then
+          -- Cursor is on the opening line, after the marker
+          if cursor_col > start_pos then
+            return in_script == "pre" and "pre_script" or "post_script"
+          end
+          in_script = nil
+          script_start = nil
+        end
+      end
+    end
+  end
+
+  -- If we're still in a script at the end, cursor must be inside it
+  if in_script then
+    return in_script == "pre" and "pre_script" or "post_script"
+  end
+
+  return nil
+end
+
 --- Detect the completion context from the line up to cursor.
 --- Optimized with direct string ops instead of pattern matching where possible.
 --- Returns: context_type, extra_data
@@ -344,8 +445,18 @@ local magic_var_defs = {
 ---   "method_or_header" - single word, could be method or header name
 ---   "header_value"     - after "Header:" (extra_data = header name)
 ---   "variable"         - inside {{...}} (extra_data = text after {{)
+---   "pre_script"       - inside < {% ... %} block
+---   "post_script"      - inside > {% ... %} block
 ---   nil                - no completion
-local function detect_context(line_before_cursor)
+local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
+  -- Check if we're inside a script block (takes precedence over all other contexts)
+  if buf and cursor_line and cursor_col then
+    local script_ctx = detect_script_context(buf, cursor_line, cursor_col)
+    if script_ctx then
+      return script_ctx, line_before_cursor
+    end
+  end
+
   -- Fast-path: empty or whitespace-only → method completion
   local trimmed = vim.trim(line_before_cursor)
   if trimmed == "" then
@@ -434,25 +545,52 @@ local function build_items(words, kind)
   return items
 end
 
+--- Build completion items from keyword definitions (name + desc).
+local function build_keyword_items(keywords, kind)
+  local items = {}
+  for _, kw in ipairs(keywords) do
+    table.insert(items, {
+      label = kw.name,
+      kind = kind,
+      insertText = kw.name,
+      filterText = kw.name,
+      sortText = kw.name,
+      detail = kw.desc,
+    })
+  end
+  return items
+end
+
 --- Get completion items for a given line context.
 --- Shared between both engines.
-local function get_items_for_context(line_before_cursor)
+local function get_items_for_context(line_before_cursor, buf, cursor_line, cursor_col)
   -- LSP CompletionItemKind constants
   local KIND_KEYWORD = 14   -- Keyword
   local KIND_PROPERTY = 10  -- Property
   local KIND_VALUE = 12     -- Value
   local KIND_VARIABLE = 6   -- Variable
   local KIND_REFERENCE = 18 -- Reference
+  local KIND_FUNCTION = 3   -- Function
 
-  local ctx, extra = detect_context(line_before_cursor)
+  local ctx, extra = detect_context(line_before_cursor, buf, cursor_line, cursor_col)
   local items = {}
+
+  if ctx == "pre_script" then
+    -- Pre-request script context: provide request.* and client.* keywords
+    items = build_keyword_items(pre_script_keywords, KIND_FUNCTION)
+    return items
+  elseif ctx == "post_script" then
+    -- Post-request assertion context: provide client.test, response.*, etc.
+    items = build_keyword_items(post_script_keywords, KIND_FUNCTION)
+    return items
+  end
 
   if ctx == "variable" then
     -- Variable reference context: {{...}}
     local after_open = extra or ""
     local is_magic = after_open:sub(1, 1) == "$"
-    local buf = vim.api.nvim_get_current_buf()
-    local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+    buf = buf or vim.api.nvim_get_current_buf()
+    cursor_line = cursor_line or vim.api.nvim_win_get_cursor(0)[1]
 
     -- Magic variables (only when $ prefix is present)
     if is_magic then
@@ -556,16 +694,19 @@ end
 --- Measures latency of context detection and item generation.
 local function profile_completion()
   local iterations = 100
+  local buf = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local cursor_line = cursor[1]
+  local col = cursor[2]
   local line = vim.api.nvim_get_current_line()
-  local col = vim.api.nvim_win_get_cursor(0)[2]
   local line_before_cursor = line:sub(1, col)
 
   -- Warm up cache
-  get_items_for_context(line_before_cursor)
+  get_items_for_context(line_before_cursor, buf, cursor_line, col)
 
   local start = vim.loop.hrtime()
   for _ = 1, iterations do
-    get_items_for_context(line_before_cursor)
+    get_items_for_context(line_before_cursor, buf, cursor_line, col)
   end
   local elapsed_ms = (vim.loop.hrtime() - start) / 1e6
 
@@ -573,7 +714,7 @@ local function profile_completion()
   local status = string.format(
     "completion profile: %d iterations in %.2fms (avg %.1fμs per call) | context: %s",
     iterations, elapsed_ms, avg_us,
-    vim.inspect({ detect_context(line_before_cursor) })
+    vim.inspect({ detect_context(line_before_cursor, buf, cursor_line, col) })
   )
   vim.notify(status, vim.log.levels.INFO)
 end
@@ -607,10 +748,13 @@ end
 --- @param callback function  called with { items, is_incomplete_forward }
 function M:get_completions(ctx, callback)
   local line = ctx.line or ""
-  local col = (ctx.cursor and ctx.cursor[2]) or 0
+  local cursor = ctx.cursor or { 0, 0 }
+  local cursor_line = cursor[1]
+  local col = cursor[2] or 0
+  local buf = ctx.bufnr or vim.api.nvim_get_current_buf()
   local line_before_cursor = line:sub(1, col)
 
-  local items = get_items_for_context(line_before_cursor)
+  local items = get_items_for_context(line_before_cursor, buf, cursor_line, col)
 
   callback({
     items = items,
@@ -661,8 +805,11 @@ function source:complete(request, callback)
   local line = request.context.cursor_before_line
   local col = request.offset
   local line_before_cursor = line:sub(1, col - 1)
+  local buf = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local cursor_line = cursor[1]
 
-  local ctx, extra = detect_context(line_before_cursor)
+  local ctx, extra = detect_context(line_before_cursor, buf, cursor_line, col - 1)
   local items = {}
 
   -- nvim-cmp kind IDs
@@ -672,10 +819,35 @@ function source:complete(request, callback)
   local KIND_VALUE = Kind.Value or Kind.EnumMember or 3
   local KIND_VARIABLE = Kind.Variable or 4
   local KIND_REFERENCE = Kind.Reference or 5
+  local KIND_FUNCTION = Kind.Function or 6
 
-  if ctx == "variable" then
+  if ctx == "pre_script" then
+    -- Pre-request script keywords
+    for _, kw in ipairs(pre_script_keywords) do
+      table.insert(items, {
+        label = kw.name,
+        kind = KIND_FUNCTION,
+        insertText = kw.name,
+        filterText = kw.name,
+        sortText = kw.name,
+        detail = kw.desc,
+      })
+    end
+  elseif ctx == "post_script" then
+    -- Post-request assertion keywords
+    for _, kw in ipairs(post_script_keywords) do
+      table.insert(items, {
+        label = kw.name,
+        kind = KIND_FUNCTION,
+        insertText = kw.name,
+        filterText = kw.name,
+        sortText = kw.name,
+        detail = kw.desc,
+      })
+    end
+  elseif ctx == "variable" then
     -- Reuse the shared get_items_for_context for variable completions
-    items = get_items_for_context(line_before_cursor)
+    items = get_items_for_context(line_before_cursor, buf, cursor_line, col - 1)
   elseif ctx == "method" or ctx == "method_or_header" then
     -- For nvim-cmp, strip hyphens for its weaker fuzzy matcher
     local function make_cmp_items(words, kind)
@@ -833,13 +1005,17 @@ end
 ---------------------------------------------------------------------------
 M._test = {
   detect_context = detect_context,
+  detect_script_context = detect_script_context,
   build_items = build_items,
+  build_keyword_items = build_keyword_items,
   get_items_for_context = get_items_for_context,
   get_buffer_cache = get_buffer_cache,
   collect_file_vars = collect_file_vars,
   collect_env_vars = collect_env_vars,
   collect_request_vars = collect_request_vars,
   collect_request_names = collect_request_names,
+  pre_script_keywords = pre_script_keywords,
+  post_script_keywords = post_script_keywords,
 }
 
 return M

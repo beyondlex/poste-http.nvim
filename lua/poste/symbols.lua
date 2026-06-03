@@ -154,6 +154,7 @@ function M.show_symbols()
   vim.bo[prompt_buf].buftype = "nofile"
   vim.bo[prompt_buf].bufhidden = "wipe"
   vim.bo[prompt_buf].filetype = "poste_picker_prompt"  -- not in blink.cmp per_filetype
+  vim.api.nvim_buf_set_lines(prompt_buf, 0, -1, false, { "> " })
 
   -----------------------------------------------------------------------
   -- Create results buffer (bottom, normal mode)

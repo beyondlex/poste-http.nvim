@@ -9,6 +9,7 @@ local assertions = require("poste.assertions")
 local scripts = require("poste.scripts")
 local request_vars = require("poste.request_vars")
 local completion = require("poste.completion")
+local symbols = require("poste.symbols")
 
 local M = {}
 
@@ -715,6 +716,9 @@ function M.setup(opts)
       local copy = require("poste.copy")
       copy.copy_to_clipboard("+")
     end, keymap_opts)
+    vim.keymap.set("n", "gs", function()
+      symbols.show_symbols()
+    end, keymap_opts)
   end
 
   -- Commands
@@ -750,6 +754,10 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("PosteCmpProfile", function()
     completion.profile()
   end, { desc = "Profile poste completion performance" })
+
+  vim.api.nvim_create_user_command("PosteSymbols", function()
+    symbols.show_symbols()
+  end, { desc = "Show symbol outline (all HTTP requests)" })
 
   -- Autocommand: set up keymaps for supported file types
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {

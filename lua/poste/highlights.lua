@@ -87,6 +87,10 @@ function M.setup()
   -- Request name: bold with a distinct color
   vim.api.nvim_set_hl(0, "PosteRequestName", { fg = 0x61afef, bold = true }) -- blue bold
 
+  -- Symbol outline highlights
+  vim.api.nvim_set_hl(0, "PosteSymbolCurrent", { bg = 0x3e4452, bold = true }) -- highlighted bg
+  vim.api.nvim_set_hl(0, "PosteSymbolMethod", { fg = 0x98c379, bold = true })  -- green for [GET] [POST] etc
+
   -- Redis type-specific highlight groups
   vim.api.nvim_set_hl(0, "PosteRedisString",   { fg = 0x98c379 })   -- green
   vim.api.nvim_set_hl(0, "PosteRedisHash",     { fg = 0x56b6c2 })   -- cyan

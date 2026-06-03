@@ -86,6 +86,7 @@ SELECT * FROM users WHERE active = true;
 In Neovim:
 - `<leader>rr` — Execute request at cursor
 - `]]` / `[[` — Jump to next/previous request
+- `gs` — Show symbol outline (all requests in floating window)
 - `:ReqqEnv dev` — Switch environment
 
 CLI:

@@ -74,10 +74,21 @@ if has('nvim')
     vim.schedule(cleanup_kulala)
 EOF
 
-" ─── nvim-cmp buffer source ──────────────────────
-" Set up poste completion source for this buffer.
-" Handles both immediate availability and lazy-loaded cmp.
+" ─── Completion source setup ──────────────────────
+" Supports both blink.cmp (LazyVim default) and nvim-cmp.
+" blink.cmp: sources are config-based, no buffer setup needed.
+" nvim-cmp: requires buffer-level source registration.
 lua << EOF
+-- Check if blink.cmp is available (LazyVim default)
+local blink_ok = pcall(require, "blink.cmp")
+if blink_ok then
+  -- blink.cmp uses sources.providers config, not buffer-level registration.
+  -- Users add the poste provider in their blink.cmp config.
+  -- See README.md for configuration example.
+  return
+end
+
+-- Fall back to nvim-cmp buffer setup
 local function setup_buffer_cmp()
   local ok, cmp = pcall(require, "cmp")
   if not ok then return end

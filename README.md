@@ -93,6 +93,28 @@ CLI:
 poste run requests/api.http --line 2 --env dev
 ```
 
+## Completion
+
+Poste provides context-aware completions for `.http` files:
+
+- **HTTP methods** — `GET`, `POST`, `PUT`, etc.
+- **Header names** — `Content-Type`, `Accept-Encoding`, `Authorization`, etc.
+- **Header values** — `application/json`, `Bearer `, `gzip`, etc.
+
+### blink.cmp (LazyVim default)
+
+Registration is automatic — no extra config needed. Poste registers itself as a blink.cmp provider at setup time.
+
+### nvim-cmp
+
+If you use nvim-cmp instead, buffer-level registration is also automatic. No extra config needed.
+
+### Check status
+
+```vim
+:PosteCmpStatus
+```
+
 ## Architecture
 
 ```

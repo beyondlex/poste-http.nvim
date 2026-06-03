@@ -35,12 +35,12 @@
 **Why:** LazyVim defaults to blink.cmp, which is faster and has better built-in fuzzy matching.
 
 **Tasks:**
-- [ ] Research blink.cmp source API
-- [ ] Rewrite `lua/poste/completion.lua` for blink.cmp
-- [ ] Update `ftplugin/poste_http.vim` buffer configuration
-- [ ] Remove nvim-cmp dependency from user configuration
+- [x] Research blink.cmp source API
+- [x] Rewrite `lua/poste/completion.lua` for blink.cmp
+- [x] Update `ftplugin/poste_http.vim` buffer configuration
+- [x] Support both blink.cmp and nvim-cmp (backward compatible)
 - [ ] Test with LazyVim's default setup (no `lazyvim.json` changes needed)
-- [ ] Document migration in README
+- [x] Document migration in README
 
 **Benefits:**
 - No need to enable nvim-cmp in `lazyvim.json`
@@ -50,10 +50,10 @@
 
 ### Completion Enhancements
 - [ ] URL completion (common endpoints)
-- [ ] Variable name completion (`{{var_name}}`)
-- [ ] Request name completion in variable references
-- [ ] Environment variable completion from env.json
-- [ ] Magic variable completion (`{{$timestamp}}`, `{{$uuid}}`, etc.)
+- [x] Variable name completion (`{{var_name}}`)
+- [x] Request name completion in variable references
+- [x] Environment variable completion from env.json
+- [x] Magic variable completion (`{{$timestamp}}`, `{{$uuid}}`, etc.)
 - [ ] Pre/post script keyword completion
 - [ ] Assertion keyword completion
 
@@ -115,7 +115,7 @@
 - ~~[x] Hyphenated words not matching correctly (Con → Content-Type)~~ **FIXED**
 - ~~[x] Context detection issues~~ **FIXED**
 - [ ] May conflict with other completion sources
-- [ ] Requires manual `lazyvim.json` configuration
+- ~~[ ] Requires manual `lazyvim.json` configuration~~ **RESOLVED** (blink.cmp support added)
 
 ### General
 - [ ] No completion for `@variable` definitions
@@ -142,7 +142,7 @@
 ## 🚀 Release Checklist
 
 Before v1.0:
-- [ ] Migrate to blink.cmp
+- [x] Migrate to blink.cmp
 - [ ] Complete all high priority items
 - [ ] Add comprehensive tests
 - [ ] Update documentation
@@ -152,6 +152,6 @@ Before v1.0:
 
 ---
 
-**Last Updated:** 2026-01-02
-**Current Version:** Working on nvim-cmp completion
-**Next Goal:** Migrate to blink.cmp
+**Last Updated:** 2026-06-03
+**Current Version:** Dual completion engine (blink.cmp + nvim-cmp)
+**Next Goal:** Completion enhancements (URL, variables, env vars)

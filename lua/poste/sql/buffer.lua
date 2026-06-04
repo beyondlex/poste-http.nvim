@@ -674,7 +674,9 @@ function M.render_dataset(lines, meta)
 
   -- Dataset window options: no wrapping, horizontal scroll
   vim.api.nvim_set_option_value("wrap", false, { win = dataset_window })
-  vim.api.nvim_set_option_value("sidescrolloff", 5, { win = dataset_window })
+  -- Set sidescrolloff=0 initially to prevent auto-scroll during render.
+  -- We'll set it to 5 after the winbar is built.
+  vim.api.nvim_set_option_value("sidescrolloff", 0, { win = dataset_window })
   vim.api.nvim_set_option_value("cursorline", false, { win = dataset_window })
   vim.api.nvim_set_option_value("cursorcolumn", false, { win = dataset_window })
   vim.api.nvim_set_option_value("conceallevel", 0, { win = dataset_window })
@@ -717,7 +719,10 @@ function M.render_dataset(lines, meta)
     if meta and meta.type == "resultset" and meta.row_count > 0 then
       state.sql.cell.row = 1
       state.sql.cell.col = 1
-      M.position_cursor(1, 1)
+      -- On initial load, just set cursor directly without position_cursor's
+      -- scroll logic. This avoids auto-scroll when cursor is at (1,1) and
+      -- everything is already visible.
+      pcall(vim.api.nvim_win_set_cursor, dataset_window, { meta.data_start_line, 0 })
       sql_highlights.highlight_cell(buf, 1, 1, meta)
     else
       pcall(vim.api.nvim_win_set_cursor, dataset_window, { 1, 0 })
@@ -725,12 +730,12 @@ function M.render_dataset(lines, meta)
   end
 
   -- Sync winbar after cursor positioning.
-  -- vim.schedule ensures leftcol is accurate — Neovim updates the view state
-  -- during the redraw cycle that happens after nvim_win_set_cursor returns.
+  -- Call update_winbar synchronously to build the winbar with leftcol=0
+  -- (before any auto-scroll happens). Then set sidescrolloff=5 for smooth
+  -- scrolling during user interaction.
   if winbar_plain_header then
-    vim.schedule(function()
-      M.update_winbar()
-    end)
+    M.update_winbar()
+    vim.api.nvim_set_option_value("sidescrolloff", 5, { win = dataset_window })
   end
 
   -- Keep focus in the SQL file buffer (do NOT switch to dataset window)

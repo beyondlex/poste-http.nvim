@@ -28,6 +28,42 @@ local function pad_right(s, width)
   return s .. string.rep(" ", width - dw)
 end
 
+--- Parse connection URL to extract host:port/database for display.
+--- Examples:
+---   mysql://user:pass@localhost:13306/blog → localhost:13306/blog
+---   postgres://user@host:5432/db → host:5432/db
+---   sqlite:/path/to/db.sqlite → db.sqlite
+--- @param conn string Connection URL
+--- @return string Short display format
+local function parse_connection_short(conn)
+  if not conn or conn == "" then return "unknown" end
+
+  -- Handle SQLite: extract filename from path
+  if conn:match("^sqlite:") then
+    local path = conn:match("^sqlite:(.*)$") or conn
+    local filename = path:match("([^/\\]+)$") or path
+    return filename
+  end
+
+  -- Handle standard URLs: protocol://user:pass@host:port/db
+  local host, port, db = conn:match("^%w+://[^@]*@([^:]+):(%d+)/([^?]+)")
+  if host and port and db then
+    -- Remove query parameters from db name
+    db = db:match("^[^?]+") or db
+    return string.format("%s:%s/%s", host, port, db)
+  end
+
+  -- Handle URLs without port: protocol://user:pass@host/db
+  host, db = conn:match("^%w+://[^@]*@([^/]+)/([^?]+)")
+  if host and db then
+    db = db:match("^[^?]+") or db
+    return string.format("%s/%s", host, db)
+  end
+
+  -- Fallback: return original connection string
+  return conn
+end
+
 --- Pad a string to a given display width (left-pad with spaces).
 local function pad_left(s, width)
   local dw = displaywidth(s)
@@ -323,13 +359,19 @@ function M.format_resultset(data)
   if dialect == vim.NIL then dialect = "" end
 
   line_num = line_num + 1
-  local meta_line = string.format("%d row%s returned · %dms · %s%s (%s)",
+  -- Extract short connection format (host:port/database) from full URL
+  local conn_short = parse_connection_short(conn)
+
+  -- Try to get table name from response metadata, fallback to database or dialect
+  local table_name = data.table or db or dialect or "query"
+  if table_name == vim.NIL then table_name = "query" end
+
+  local meta_line = string.format("%d row%s returned · %dms · %s (%s)",
     total_rows,
     total_rows == 1 and "" or "s",
     total_ms,
-    conn,
-    db and (" / " .. db) or "",
-    dialect
+    conn_short,
+    table_name
   )
   lines[line_num] = meta_line
 

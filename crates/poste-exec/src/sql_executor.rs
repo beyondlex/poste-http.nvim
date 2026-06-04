@@ -203,18 +203,72 @@ fn pg_value_to_json(row: &sqlx::postgres::PgRow, idx: usize) -> Value {
                 v.to_string().parse::<f64>().map(|n| json!(n)).unwrap_or(json!(v.to_string()))
             }).unwrap_or(Value::Null)
         }
-        "DATE" => row.try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(idx)
-            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
-        "TIMESTAMP" => row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx)
-            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
-        "TIMESTAMPTZ" => row.try_get::<Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>, _>(idx)
-            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
-        "TIME" => row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(idx)
-            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
-        "UUID" => row.try_get::<Option<sqlx::types::uuid::Uuid>, _>(idx)
-            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
-        "INET" | "CIDR" => row.try_get::<Option<sqlx::types::ipnetwork::IpNetwork>, _>(idx)
-            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
+        "DATE" => {
+            if let Ok(Some(v)) = row.try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(idx) {
+                json!(v.format("%Y-%m-%d").to_string())
+            } else if let Ok(Some(s)) = row.try_get::<Option<String>, _>(idx) {
+                json!(s)
+            } else if let Ok(Some(b)) = row.try_get::<Option<Vec<u8>>, _>(idx) {
+                json!(String::from_utf8_lossy(&b).to_string())
+            } else {
+                Value::Null
+            }
+        }
+        "TIMESTAMP" => {
+            if let Ok(Some(v)) = row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx) {
+                json!(v.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
+            } else if let Ok(Some(s)) = row.try_get::<Option<String>, _>(idx) {
+                json!(s)
+            } else if let Ok(Some(b)) = row.try_get::<Option<Vec<u8>>, _>(idx) {
+                json!(String::from_utf8_lossy(&b).to_string())
+            } else {
+                Value::Null
+            }
+        }
+        "TIMESTAMPTZ" => {
+            if let Ok(Some(v)) = row.try_get::<Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>, _>(idx) {
+                json!(v.format("%Y-%m-%d %H:%M:%S%.3f %:z").to_string())
+            } else if let Ok(Some(s)) = row.try_get::<Option<String>, _>(idx) {
+                json!(s)
+            } else if let Ok(Some(b)) = row.try_get::<Option<Vec<u8>>, _>(idx) {
+                json!(String::from_utf8_lossy(&b).to_string())
+            } else {
+                Value::Null
+            }
+        }
+        "TIME" => {
+            if let Ok(Some(v)) = row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(idx) {
+                json!(v.format("%H:%M:%S%.3f").to_string())
+            } else if let Ok(Some(s)) = row.try_get::<Option<String>, _>(idx) {
+                json!(s)
+            } else if let Ok(Some(b)) = row.try_get::<Option<Vec<u8>>, _>(idx) {
+                json!(String::from_utf8_lossy(&b).to_string())
+            } else {
+                Value::Null
+            }
+        }
+        "UUID" => {
+            if let Ok(Some(v)) = row.try_get::<Option<sqlx::types::uuid::Uuid>, _>(idx) {
+                json!(v.to_string())
+            } else if let Ok(Some(s)) = row.try_get::<Option<String>, _>(idx) {
+                json!(s)
+            } else if let Ok(Some(b)) = row.try_get::<Option<Vec<u8>>, _>(idx) {
+                json!(String::from_utf8_lossy(&b).to_string())
+            } else {
+                Value::Null
+            }
+        }
+        "INET" | "CIDR" => {
+            if let Ok(Some(v)) = row.try_get::<Option<sqlx::types::ipnetwork::IpNetwork>, _>(idx) {
+                json!(v.to_string())
+            } else if let Ok(Some(s)) = row.try_get::<Option<String>, _>(idx) {
+                json!(s)
+            } else if let Ok(Some(b)) = row.try_get::<Option<Vec<u8>>, _>(idx) {
+                json!(String::from_utf8_lossy(&b).to_string())
+            } else {
+                Value::Null
+            }
+        }
         "JSON" | "JSONB" => {
             // sqlx requires the Json<T> wrapper for JSON/JSONB columns,
             // NOT try_get::<String> which fails silently.
@@ -364,14 +418,38 @@ fn mysql_value_to_json(row: &sqlx::mysql::MySqlRow, idx: usize) -> Value {
                 v.to_string().parse::<f64>().map(|n| json!(n)).unwrap_or(json!(v.to_string()))
             }).unwrap_or(Value::Null)
         }
-        "DATE" => row.try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(idx)
-            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
-        "DATETIME" => row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx)
-            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
-        "TIMESTAMP" => row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx)
-            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
-        "TIME" => row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(idx)
-            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
+        "DATE" => {
+            if let Ok(Some(v)) = row.try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(idx) {
+                json!(v.format("%Y-%m-%d").to_string())
+            } else if let Ok(Some(v)) = row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx) {
+                json!(v.format("%Y-%m-%d").to_string())
+            } else {
+                Value::Null
+            }
+        }
+        "DATETIME" => {
+            // MySQL DATETIME → chrono::NaiveDateTime
+            match row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx) {
+                Ok(Some(v)) => json!(v.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
+                Ok(None) => Value::Null,
+                Err(_) => Value::Null,
+            }
+        }
+        "TIMESTAMP" => {
+            // MySQL TIMESTAMP → chrono::DateTime<Utc> (stored as UTC)
+            match row.try_get::<Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>, _>(idx) {
+                Ok(Some(v)) => json!(v.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
+                Ok(None) => Value::Null,
+                Err(_) => Value::Null,
+            }
+        }
+        "TIME" => {
+            match row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(idx) {
+                Ok(Some(v)) => json!(v.format("%H:%M:%S%.3f").to_string()),
+                Ok(None) => Value::Null,
+                Err(_) => Value::Null,
+            }
+        }
         "JSON" => {
             // Try Json<Value> wrapper first (sqlx native), fall back to String
             if let Ok(Some(json_val)) = row.try_get::<Option<sqlx::types::Json<Value>>, _>(idx) {

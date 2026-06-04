@@ -372,7 +372,7 @@ end
 -- Yank cell value
 ---------------------------------------------------------------------------
 
---- Yank the current cell value to the default register.
+--- Yank the current cell value to the default register and system clipboard.
 function M.yank_cell()
   if not current_meta or current_meta.type ~= "resultset" then return end
 
@@ -396,7 +396,8 @@ function M.yank_cell()
   end
 
   vim.fn.setreg('"', val)
-  vim.notify(string.format('Yanked: %s', val:sub(1, 50)), vim.log.levels.INFO, { title = "Poste SQL" })
+  vim.fn.setreg('+', val)
+  vim.notify(string.format('Yanked to clipboard: %s', val:sub(1, 50)), vim.log.levels.INFO, { title = "Poste SQL" })
 end
 
 ---------------------------------------------------------------------------

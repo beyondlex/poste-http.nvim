@@ -29,6 +29,9 @@ enum Commands {
         /// Read request content from stdin instead of from the file
         #[arg(long)]
         stdin: bool,
+        /// Override database name (for USE statement context from the editor)
+        #[arg(long)]
+        database: Option<String>,
     },
     /// Manage SQL connections
     Connection {
@@ -72,7 +75,7 @@ async fn main() -> Result<()> {
         Commands::Connection { action } => {
             handle_connection_command(action).await?;
         }
-        Commands::Run { file, line, env, json, stdin } => {
+        Commands::Run { file, line, env, json, stdin, database } => {
             let file_path = std::path::PathBuf::from(&file);
 
             // Determine the directory to search for env.json, and the file extension.
@@ -159,6 +162,13 @@ async fn main() -> Result<()> {
                     .map_err(|e| anyhow::anyhow!("Failed to resolve connection '{}': {}", conn_name, e))?;
             }
 
+            // Override database from --database flag (USE statement context from editor)
+            if let Some(ref db) = database {
+                if is_sql_protocol(&request.protocol) && !request.connection.is_empty() {
+                    request.connection = replace_database_in_url(&request.connection, db);
+                }
+            }
+
             // Auto-detect protocol from connection URL for .sql files (which default to Postgres)
             // If the resolved connection is a SQLite URL, override to Sqlite protocol
             if request.protocol == poste_core::Protocol::Postgres && request.connection.starts_with("sqlite:") {
@@ -221,6 +231,25 @@ async fn main() -> Result<()> {
 /// Check if a protocol is SQL-based.
 fn is_sql_protocol(protocol: &poste_core::Protocol) -> bool {
     matches!(protocol, poste_core::Protocol::Postgres | poste_core::Protocol::Mysql | poste_core::Protocol::Sqlite)
+}
+
+/// Replace the database name in a connection URL.
+/// Input: "postgres://user:pass@host:5432/olddb" → "postgres://user:pass@host:5432/newdb"
+/// Handles URLs with or without auth, port, and existing database.
+fn replace_database_in_url(url: &str, new_db: &str) -> String {
+    // Find the scheme separator
+    if let Some(scheme_end) = url.find("://") {
+        let after_scheme = &url[scheme_end + 3..];
+        // Find the last '/' which separates host:port from database
+        if let Some(last_slash) = after_scheme.rfind('/') {
+            let base = &url[..scheme_end + 3 + last_slash + 1];
+            return format!("{}{}", base, new_db);
+        }
+        // No database part yet — append /newdb
+        return format!("{}/{}", url, new_db);
+    }
+    // Not a standard URL — return as-is
+    url.to_string()
 }
 
 /// Check if a connection string looks like a URL (not a name).

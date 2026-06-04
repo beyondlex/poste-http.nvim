@@ -6,6 +6,8 @@ if exists("b:current_syntax")
   finish
 endif
 
+syn case ignore
+
 " ─── Request separator + name ────────────────────────
 syn region PosteSqlRequestName
   \ start='^###' end='$'

@@ -65,7 +65,7 @@ function M.setup()
     link = "PosteSqlBorder",
   })
   -- Winbar │ separators: invisible (blend with winbar background)
-  local winbar_hl = vim.api.nvim_get_hl(0, { name = "WinBar" })
+  local winbar_hl = resolve_hl("WinBar")
   local winbar_bg = (winbar_hl and winbar_hl.bg) or normal.bg or (dark and 0x1e1e1e or 0xffffff)
   vim.api.nvim_set_hl(0, "PosteSqlWinbarSep", {
     fg = winbar_bg,

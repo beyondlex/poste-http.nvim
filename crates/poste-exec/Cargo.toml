@@ -10,6 +10,7 @@ serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
+regex.workspace = true
 
 # HTTP: curl subprocess (gives verbose trace for free)
 tempfile = "3"
@@ -18,3 +19,6 @@ dirs = "6"
 
 # Redis
 redis = { version = "0.27", features = ["tokio-comp"] }
+
+# SQL (PostgreSQL, MySQL, SQLite)
+sqlx.workspace = true

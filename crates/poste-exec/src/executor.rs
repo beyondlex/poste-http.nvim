@@ -13,8 +13,9 @@ impl Executor {
         let mut response = match request.protocol {
             Protocol::Http => Self::execute_http(request, cookie_jar).await,
             Protocol::Redis => Self::execute_redis(request).await,
-            Protocol::Mysql => Self::execute_mysql(request).await,
-            Protocol::Postgres => Self::execute_postgres(request).await,
+            Protocol::Mysql | Protocol::Postgres | Protocol::Sqlite => {
+                crate::sql_executor::execute_sql(request).await
+            }
             Protocol::Mongodb => Self::execute_mongodb(request).await,
             Protocol::Amqp => Self::execute_amqp(request).await,
         }?;
@@ -228,14 +229,6 @@ impl Executor {
             cookies: Vec::new(),
             metadata,
         })
-    }
-
-    async fn execute_mysql(_request: &Request) -> Result<Response> {
-        anyhow::bail!("MySQL not implemented yet")
-    }
-
-    async fn execute_postgres(_request: &Request) -> Result<Response> {
-        anyhow::bail!("PostgreSQL not implemented yet")
     }
 
     async fn execute_mongodb(_request: &Request) -> Result<Response> {

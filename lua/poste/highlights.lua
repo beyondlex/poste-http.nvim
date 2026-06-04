@@ -106,6 +106,16 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteRedisIndex",    { fg = 0x5c6370 })   -- gray index
   vim.api.nvim_set_hl(0, "PosteRedisField",    { fg = 0x56b6c2 })   -- cyan field name
   vim.api.nvim_set_hl(0, "PosteRedisScore",    { fg = 0xc678dd })   -- magenta score
+
+  -- SQL dataset highlight groups
+  vim.api.nvim_set_hl(0, "PosteSqlHeader",       { bold = true })
+  vim.api.nvim_set_hl(0, "PosteSqlNull",         { fg = 0x5c6370, italic = true })  -- gray italic
+  vim.api.nvim_set_hl(0, "PosteSqlMeta",         { fg = 0x5c6370 })                 -- gray
+  vim.api.nvim_set_hl(0, "PosteSqlBorder",       { fg = 0x3e4452 })                 -- dim
+  vim.api.nvim_set_hl(0, "PosteSqlCellSelected", { bg = 0x3e4452, bold = true })    -- visual-like
+  vim.api.nvim_set_hl(0, "PosteSqlModified",     { bg = 0x4a3d00 })                 -- yellow tint
+  vim.api.nvim_set_hl(0, "PosteSqlDeleted",      { bg = 0x3d0000 })                 -- red tint
+  vim.api.nvim_set_hl(0, "PosteSqlAdded",        { bg = 0x003d00 })                 -- green tint
 end
 
 -- Apply highlights immediately on require

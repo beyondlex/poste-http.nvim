@@ -68,6 +68,13 @@ buffer.on_show_view = M.show_view
 -- Run request
 ---------------------------------------------------------------------------
 function M.run_request()
+  -- SQL filetype: delegate to SQL module
+  local ft = vim.bo.filetype
+  if ft == "poste_sql" or ft == "poste_sqlite" then
+    require("poste.sql.init").run_sql_request()
+    return
+  end
+
   local binary = find_poste_binary()
   if not binary then
     vim.notify("Poste binary not found. Make sure it's in PATH or built locally.", vim.log.levels.ERROR)
@@ -759,6 +766,24 @@ function M.setup(opts)
     symbols.show_symbols()
   end, { desc = "Show symbol outline (all HTTP requests)" })
 
+  -- SQL connection management
+  vim.api.nvim_create_user_command("PosteConnection", function()
+    require("poste.sql.connections").show_menu()
+  end, { desc = "Manage SQL connections" })
+
+  -- SQL context switching
+  vim.api.nvim_create_user_command("PosteSQLContext", function(args)
+    local context = require("poste.sql.context")
+    local parts = {}
+    for word in args.args:gmatch("%S+") do
+      table.insert(parts, word)
+    end
+    context.switch_context(parts)
+  end, {
+    nargs = "*",
+    desc = "Switch SQL execution context (connection/database)",
+  })
+
   -- Autocommand: set up keymaps for supported file types
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.http", "*.rest", "*.redis" },
@@ -773,6 +798,20 @@ function M.setup(opts)
     end,
   })
 
+  -- SQL files: set up keymaps (same keymaps as HTTP)
+  vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
+    pattern = { "*.sql", "*.sqlite" },
+    callback = function()
+      local name = vim.api.nvim_buf_get_name(0)
+      if name:match("%.sqlite$") then
+        vim.bo.filetype = "poste_sqlite"
+      else
+        vim.bo.filetype = "poste_sql"
+      end
+      setup_buffer_keymaps(0)
+    end,
+  })
+
   -- Already-open buffers
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     local name = vim.api.nvim_buf_get_name(buf)
@@ -782,12 +821,27 @@ function M.setup(opts)
     elseif name:match("%.redis$") then
       vim.api.nvim_buf_set_option(buf, "filetype", "poste_redis")
       setup_buffer_keymaps(buf)
+    elseif name:match("%.sqlite$") then
+      vim.api.nvim_buf_set_option(buf, "filetype", "poste_sqlite")
+      setup_buffer_keymaps(buf)
+    elseif name:match("%.sql$") then
+      vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
+      setup_buffer_keymaps(buf)
     end
   end
 
   -- Status line integration
   _G.poste_status = function()
-    return string.format("[env: %s]", state.current_env)
+    local parts = { string.format("[env: %s]", state.current_env) }
+    -- Add SQL context if in SQL file
+    local ft = vim.bo.filetype
+    if ft == "poste_sql" or ft == "poste_sqlite" then
+      local sql_status = require("poste.sql.context").get_status_text()
+      if sql_status ~= "" then
+        parts[#parts + 1] = sql_status
+      end
+    end
+    return table.concat(parts, " ")
   end
 end
 

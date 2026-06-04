@@ -27,6 +27,22 @@ M.global_vars = {}               -- client.global.set/get persistence (session-s
 M.script_variables = {}          -- request.variables from post-scripts (available to next request)
 
 ---------------------------------------------------------------------------
+-- SQL-specific state (isolated from HTTP/Redis)
+---------------------------------------------------------------------------
+M.sql = {
+  context = {
+    connection = nil,   -- current connection string or name
+    database = nil,     -- current database (set by USE statement or @database)
+  },
+  last_dataset = nil,   -- last parsed dataset JSON for cell navigation
+  pagination = {},      -- { page, page_size, total_rows, original_query }
+  cell = {              -- current cell position in dataset buffer
+    row = 1,
+    col = 1,
+  },
+}
+
+---------------------------------------------------------------------------
 -- Logging
 ---------------------------------------------------------------------------
 function M.log(level, msg)

@@ -17,6 +17,7 @@ impl Parser {
         match file_ext.to_lowercase().as_str() {
             "redis" => Protocol::Redis,
             "sql" => Protocol::Postgres, // default .sql to Postgres; can be overridden via @protocol directive
+            "sqlite" => Protocol::Sqlite,
             "mongo" => Protocol::Mongodb,
             "amqp" => Protocol::Amqp,
             "mysql" => Protocol::Mysql,

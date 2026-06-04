@@ -247,16 +247,21 @@ local function build_winbar_text(leftcol, win_width)
     local range = sql_highlights.find_cell_range(header, vis_col)
     if not range then break end
 
-    -- Column's display position (byte offset relative to leftcol)
-    local screen_start = range.ext_start - leftcol
+    -- ext_end is 0-based byte of the trailing space (before closing │).
+    -- The closing │ is 3 bytes (UTF-8), so the cell's right edge in the
+    -- rendered winbar is at 1-based byte (ext_end + 4).
+    -- This is the display width of the winbar if this is the last included column.
+    local winbar_right = range.ext_end + 4 - leftcol
 
-    -- Skip if column is entirely to the left of the visible area
-    if range.ext_end < leftcol then goto continue end
+    -- Skip if column's closing │ is entirely to the left of the visible area
+    if winbar_right <= 0 then goto continue end
 
-    -- Stop if column starts beyond the right edge of the window
-    if screen_start >= win_width then break end
+    -- Stop if including this column would make the winbar wider than the window.
+    -- This prevents Neovim from truncating the winbar with "<" on the left,
+    -- which causes misalignment between header and data columns.
+    if winbar_right > win_width then break end
 
-    -- This column is at least partially visible — extract cell content
+    -- This column fits within the window — extract cell content
     local cell_bytes = header:sub(range.ext_start + 1, range.ext_end)
     local escaped = cell_bytes:gsub("%%", "%%%%")
     -- Data column index: vis_col 1 = row number, vis_col 2 = data col 1
@@ -288,6 +293,8 @@ function M.update_winbar()
     return vim.fn.winsaveview().leftcol
   end)
   local win_width = vim.api.nvim_win_get_width(dataset_window)
+  -- Safety: if win_width is 0 (window not yet fully drawn), skip width filter
+  if win_width <= 0 then win_width = 9999 end
 
   local text = build_winbar_text(leftcol, win_width)
   if not text then return end
@@ -701,10 +708,8 @@ function M.render_dataset(lines, meta)
   vim.api.nvim_set_option_value("relativenumber", false, { win = dataset_window })
   vim.api.nvim_set_option_value("signcolumn", "no", { win = dataset_window })
 
-  -- Set initial winbar to empty — update_winbar() will populate it
-  -- via vim.schedule after cursor positioning (when leftcol is accurate).
-  -- This avoids the timing issue where leftcol is 0 during synchronous setup
-  -- but Neovim auto-scrolls the buffer during the next redraw cycle.
+  -- Set initial winbar to empty — update_winbar() populates it below
+  -- after cursor positioning (with leftcol and win_width from the window).
   pcall(vim.api.nvim_set_option_value, "winbar", "", { win = dataset_window })
   if not winbar_plain_header then
     -- No header to show (non-resultset or missing header_line)

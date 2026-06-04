@@ -222,62 +222,53 @@ function M.position_cursor(row, col)
   end
 end
 
---- Build winbar text from a (possibly sliced) plain header string.
---- Slices the plain header at leftcol byte offset, then applies highlight markers
---- so the visible columns align with the scrolled data rows.
+--- Build winbar text showing only columns visible at the given scroll offset.
+--- Uses find_cell_range on the full plain header to locate each column's byte range,
+--- then includes only columns whose start position is >= leftcol.
+--- This avoids string slicing (which loses column identity after re-splitting).
 --- @param leftcol number Byte offset of the first visible column (0 = no scroll)
 --- @return string|nil winbar text with highlight markers
 local function build_winbar_text(leftcol)
   if not winbar_plain_header then return nil end
 
-  local plain = winbar_plain_header
-
-  -- Slice at leftcol byte offset when scrolled
-  if leftcol > 0 then
-    plain = plain:sub(leftcol + 1)
-    -- Ensure plain starts with │ separator (advance past padding if needed)
-    if plain:sub(1, 1) == " " then
-      local sep = plain:find("│", 1, true)
-      if sep then
-        plain = plain:sub(sep)
-      end
-    end
-  end
-
-  -- Now rebuild with highlight markers from the (possibly sliced) plain text
-  local parts = vim.split(plain, "│", { plain = true })
+  local header = winbar_plain_header
   local indicator = ""
   if winbar_sort_col then
     indicator = winbar_sort_asc and "↑" or "↓"
   end
 
-  local winbar_cells = {}
-  for i, part in ipairs(parts) do
-    if part == "" then
-      winbar_cells[i] = part
-    else
-      local escaped = part:gsub("%%", "%%%%")
-      -- parts[1] is empty, parts[2] is row number col (or first data col if sliced), etc.
-      -- Determine data column index: if sliced, we need to account for the offset.
-      -- For simplicity, check all parts against winbar_sort_col by reconstructing the index.
-      -- This is approximate but works for the common case where sort column is visible.
-      local col_idx = i - 2  -- assume standard layout (row num + data cols)
-      if winbar_sort_col and winbar_sort_col == col_idx and indicator ~= "" then
+  -- Find byte ranges for all visual columns (row number + data columns)
+  -- Visual col 1 = row number, visual col 2 = data col 1, etc.
+  local visible_cells = {}
+  for vis_col = 1, 200 do
+    local range = sql_highlights.find_cell_range(header, vis_col)
+    if not range then break end
+
+    -- Skip columns whose content starts before the visible area
+    -- (ext_start is the byte of the leading space after │)
+    if range.ext_start >= leftcol then
+      -- Extract cell content from the full header (includes padding spaces)
+      local cell_bytes = header:sub(range.ext_start + 1, range.ext_end)
+      local escaped = cell_bytes:gsub("%%", "%%%%")
+      -- Data column index: vis_col 1 = row number, vis_col 2 = data col 1
+      local data_col_idx = vis_col - 1
+      if winbar_sort_col and winbar_sort_col == data_col_idx and indicator ~= "" then
         local trimmed = escaped:gsub(" $", "")
-        -- Append %#PosteSqlHeader# after indicator to reset highlight for next cell
-        winbar_cells[i] = trimmed .. "%#PosteSqlSortIndicator#" .. indicator .. "%#PosteSqlHeader#"
+        visible_cells[#visible_cells + 1] = trimmed .. "%#PosteSqlSortIndicator#" .. indicator .. "%#PosteSqlHeader#"
       else
-        winbar_cells[i] = escaped
+        visible_cells[#visible_cells + 1] = escaped
       end
     end
   end
 
-  return "%#PosteSqlHeader#" .. table.concat(winbar_cells, "│")
+  if #visible_cells == 0 then return nil end
+  return "%#PosteSqlHeader#" .. "│" .. table.concat(visible_cells, "│") .. "│"
 end
 
 --- Update winbar to match horizontal scroll position.
---- Uses leftcol (byte offset) to slice the plain header at the correct position,
---- then rebuilds the winbar with highlight markers so it aligns with data rows.
+--- Reads leftcol from the dataset window and rebuilds the winbar to show
+--- only the columns visible at that scroll offset, keeping it aligned
+--- with the scrolled data rows.
 function M.update_winbar()
   if is_updating_winbar then return end
   if not winbar_plain_header or not dataset_window then return end
@@ -288,6 +279,7 @@ function M.update_winbar()
   end)
 
   local text = build_winbar_text(leftcol)
+  if not text then return end
 
   is_updating_winbar = true
   pcall(vim.api.nvim_set_option_value, "winbar", text, { win = dataset_window })
@@ -633,45 +625,16 @@ function M.render_dataset(lines, meta)
 
   -- Sticky header: extract header line for winbar, remove top border + header + separator from buffer.
   -- This keeps column names visible at the top while data rows scroll.
+  -- The winbar text is built by update_winbar() which uses find_cell_range to
+  -- show only visible columns — this keeps the header aligned during horizontal scroll.
   local removed_lines = 0
-  local winbar_text = nil
   if meta and meta.type == "resultset" and meta.header_line then
     local header_line = clean[meta.header_line]
     if header_line then
-      -- Save plain header for scroll sync (before any modification)
+      -- Save plain header for scroll sync (update_winbar uses this)
       winbar_plain_header = header_line
-
-      -- Build winbar with sort indicators
-      -- Split header by │, add ↑/↓ to sorted column, keep space in others
-      local parts = vim.split(header_line, "│", { plain = true })
-      local indicator = ""
-      if sort_state and sort_state.col then
-        indicator = sort_state.ascending and "↑" or "↓"
-      end
-      local winbar_parts = {}
-      for i, part in ipairs(parts) do
-        if part == "" then
-          -- First/last empty parts (before first │ and after last │)
-          winbar_parts[i] = part
-        else
-          -- Escape % in original column name for winbar
-          local escaped_part = part:gsub("%%", "%%%%")
-          -- Data cell: check if this is the sorted column
-          -- parts[1] is empty, parts[2] is row number col, parts[3] is data col 1, etc.
-          -- col_idx maps to data column index (1-based), row number col gets 0
-          local col_idx = i - 2
-          if sort_state and sort_state.col == col_idx and indicator ~= "" then
-            -- Replace last space with indicator using different highlight group.
-            -- In Lua gsub replacement, % is a special char (backreference),
-            -- so use string concatenation instead of gsub for the marker.
-            local trimmed = escaped_part:gsub(" $", "")
-            winbar_parts[i] = trimmed .. "%#PosteSqlSortIndicator#" .. indicator .. "%#PosteSqlHeader#"
-          else
-            winbar_parts[i] = escaped_part
-          end
-        end
-      end
-      winbar_text = "%#PosteSqlHeader#" .. table.concat(winbar_parts, "│")
+      winbar_sort_col = sort_state and sort_state.col or nil
+      winbar_sort_asc = sort_state and sort_state.ascending or nil
 
       -- Remove lines: top border (header_line - 1), header (header_line), separator (header_line + 1)
       table.remove(clean, meta.header_line + 1)  -- separator first (highest index)
@@ -719,20 +682,13 @@ function M.render_dataset(lines, meta)
   vim.api.nvim_set_option_value("relativenumber", false, { win = dataset_window })
   vim.api.nvim_set_option_value("signcolumn", "no", { win = dataset_window })
 
-  -- Set sticky header via winbar (Neovim 0.8+)
-  -- Store sort info for scroll sync (winbar_plain_header already saved above)
-  winbar_sort_col = sort_state and sort_state.col or nil
-  winbar_sort_asc = sort_state and sort_state.ascending or nil
-  if winbar_text then
-    local ok, _ = pcall(vim.api.nvim_set_option_value, "winbar", winbar_text, { win = dataset_window })
-    if not ok then
-      -- Fallback: winbar not supported, header already removed from buffer — put it back
-      -- This shouldn't happen on modern Neovim but just in case
-      vim.api.nvim_set_option_value("winbar", "", { win = dataset_window })
-      winbar_plain_header = nil
-    end
-  else
-    pcall(vim.api.nvim_set_option_value, "winbar", "", { win = dataset_window })
+  -- Set initial winbar to empty — update_winbar() will populate it
+  -- via vim.schedule after cursor positioning (when leftcol is accurate).
+  -- This avoids the timing issue where leftcol is 0 during synchronous setup
+  -- but Neovim auto-scrolls the buffer during the next redraw cycle.
+  pcall(vim.api.nvim_set_option_value, "winbar", "", { win = dataset_window })
+  if not winbar_plain_header then
+    -- No header to show (non-resultset or missing header_line)
     winbar_plain_header = nil
   end
 
@@ -768,8 +724,14 @@ function M.render_dataset(lines, meta)
     end
   end
 
-  -- Sync winbar after cursor positioning (may have triggered scroll)
-  M.update_winbar()
+  -- Sync winbar after cursor positioning.
+  -- vim.schedule ensures leftcol is accurate — Neovim updates the view state
+  -- during the redraw cycle that happens after nvim_win_set_cursor returns.
+  if winbar_plain_header then
+    vim.schedule(function()
+      M.update_winbar()
+    end)
+  end
 
   -- Keep focus in the SQL file buffer (do NOT switch to dataset window)
 end

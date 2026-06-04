@@ -1,0 +1,34 @@
+{
+  "pg-ecommerce": {
+    "dialect": "postgres",
+    "host": "localhost",
+    "port": 15432,
+    "database": "ecommerce",
+    "user": "poste",
+    "password": "poste_test"
+  },
+  "pg-analytics": {
+    "dialect": "postgres",
+    "host": "localhost",
+    "port": 15432,
+    "database": "analytics",
+    "user": "poste",
+    "password": "poste_test"
+  },
+  "my-blog": {
+    "dialect": "mysql",
+    "host": "localhost",
+    "port": 13306,
+    "database": "blog",
+    "user": "root",
+    "password": "poste_test"
+  },
+  "my-inventory": {
+    "dialect": "mysql",
+    "host": "localhost",
+    "port": 13306,
+    "database": "inventory",
+    "user": "root",
+    "password": "poste_test"
+  }
+}

@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: poste-test-postgres
+    environment:
+      POSTGRES_USER: poste
+      POSTGRES_PASSWORD: poste_test
+    ports:
+      - "15432:5432"
+    volumes:
+      - ./init/postgres:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U poste"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  mysql:
+    image: mysql:8.0
+    container_name: poste-test-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: poste_test
+    ports:
+      - "13306:3306"
+    volumes:
+      - ./init/mysql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pposte_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 10

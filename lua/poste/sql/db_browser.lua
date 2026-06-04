@@ -831,28 +831,47 @@ local function generate_select_query(buf_line)
 
   -- Build schema-qualified name for PostgreSQL
   local schema_prefix = ""
+  local dialect = get_dialect(table_node)
   if table_node.meta and table_node.meta.schema then
-    local dialect = get_dialect(table_node)
     if dialect == "postgres" then
       schema_prefix = table_node.meta.schema .. "."
     end
   end
 
+  -- Build context directives
+  local context_lines = {}
+  local conn = get_connection(table_node)
+  if conn then
+    table.insert(context_lines, "-- @connection " .. conn)
+  end
+
+  local db_name = table_node.meta and table_node.meta.database
+  if db_name and dialect == "mysql" then
+    table.insert(context_lines, "USE " .. db_name .. ";")
+  end
+
   local query_lines = {
     "",
-    "### Query: " .. table_node.name,
-    "SELECT * FROM " .. schema_prefix .. table_node.name .. " LIMIT 100;",
-    "",
   }
+
+  -- Add context lines
+  for _, line in ipairs(context_lines) do
+    table.insert(query_lines, line)
+  end
+
+  table.insert(query_lines, "### Query: " .. table_node.name)
+  table.insert(query_lines, "SELECT * FROM " .. schema_prefix .. table_node.name .. " LIMIT 100;")
+  table.insert(query_lines, "")
 
   local line_count = vim.api.nvim_buf_line_count(source_buf)
   vim.api.nvim_buf_set_lines(source_buf, line_count, line_count, false, query_lines)
 
-  -- Move cursor to the SELECT line
+  -- Move cursor to the SELECT line (skip context lines)
+  local select_line = line_count + 1 + #context_lines + 2
   local target_win = vim.fn.bufwinid(source_buf)
   if target_win and target_win ~= -1 then
     vim.api.nvim_set_current_win(target_win)
-    vim.api.nvim_win_set_cursor(target_win, { line_count + 3, 0 })
+    vim.api.nvim_win_set_cursor(target_win, { select_line, 0 })
   end
 
   vim.notify("Generated SELECT for: " .. table_node.name, vim.log.levels.INFO)
@@ -890,20 +909,40 @@ local function generate_describe_query(buf_line)
     describe_sql = string.format("PRAGMA table_info(%s);", table_node.name)
   end
 
+  -- Build context directives
+  local context_lines = {}
+  local conn = get_connection(table_node)
+  if conn then
+    table.insert(context_lines, "-- @connection " .. conn)
+  end
+
+  local db_name = table_node.meta and table_node.meta.database
+  if db_name and dialect == "mysql" then
+    table.insert(context_lines, "USE " .. db_name .. ";")
+  end
+
   local query_lines = {
     "",
-    "### Describe: " .. table_node.name,
-    describe_sql,
-    "",
   }
+
+  -- Add context lines
+  for _, line in ipairs(context_lines) do
+    table.insert(query_lines, line)
+  end
+
+  table.insert(query_lines, "### Describe: " .. table_node.name)
+  table.insert(query_lines, describe_sql)
+  table.insert(query_lines, "")
 
   local line_count = vim.api.nvim_buf_line_count(source_buf)
   vim.api.nvim_buf_set_lines(source_buf, line_count, line_count, false, query_lines)
 
+  -- Move cursor to the DESCRIBE line (skip context lines)
+  local describe_line = line_count + 1 + #context_lines + 2
   local target_win = vim.fn.bufwinid(source_buf)
   if target_win and target_win ~= -1 then
     vim.api.nvim_set_current_win(target_win)
-    vim.api.nvim_win_set_cursor(target_win, { line_count + 2, 0 })
+    vim.api.nvim_win_set_cursor(target_win, { describe_line, 0 })
   end
 
   vim.notify("Generated DESCRIBE for: " .. table_node.name, vim.log.levels.INFO)

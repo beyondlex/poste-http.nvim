@@ -60,6 +60,17 @@ function M.setup()
     fg = dark and 0xe5c07b or 0x8b6914,
     bold = true,
   })
+  -- Winbar top border (┌─┬─┐): same color as cell borders
+  vim.api.nvim_set_hl(0, "PosteSqlWinbarBorder", {
+    link = "PosteSqlBorder",
+  })
+  -- Winbar │ separators: invisible (blend with winbar background)
+  local winbar_hl = vim.api.nvim_get_hl(0, { name = "WinBar" })
+  local winbar_bg = (winbar_hl and winbar_hl.bg) or normal.bg or (dark and 0x1e1e1e or 0xffffff)
+  vim.api.nvim_set_hl(0, "PosteSqlWinbarSep", {
+    fg = winbar_bg,
+    bg = winbar_bg,
+  })
   -- Meta footer
   vim.api.nvim_set_hl(0, "PosteSqlMeta", {
     fg = dark and 0x7f848e or 0x6a737d,

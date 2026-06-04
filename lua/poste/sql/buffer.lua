@@ -21,6 +21,7 @@ local current_lines = nil
 local winbar_sort_col = nil     -- data column index that's sorted (or nil)
 local winbar_sort_asc = nil     -- true = ascending, false = descending
 local winbar_plain_header = nil -- full plain header line for byte alignment
+local winbar_plain_border = nil -- top border line (┌─┬─┐) for winbar
 local scroll_autocmd_id = nil   -- WinScrolled autocmd handle
 local is_updating_winbar = false -- prevent recursive WinScrolled
 
@@ -247,74 +248,80 @@ local function build_winbar_text(leftcol, win_width)
   if not winbar_plain_header then return nil end
 
   local header = winbar_plain_header
+  local border = winbar_plain_border
   local sep = "│"
   local sep_len = #sep  -- 3 bytes in UTF-8
 
   -- Adjust win_width to account for left padding
   win_width = win_width - LEFT_PADDING
 
-  -- Walk the header byte-by-byte, tracking display width.
-  -- Include bytes whose display position falls in [leftcol, leftcol + win_width).
-  -- This produces a substring that is character-for-character aligned with the
-  -- visible portion of the data rows.
-  local result_bytes = {}
-  local disp_pos = 0
-  local byte_idx = 1
+  -- Helper function to extract visible portion of a line with highlight groups
+  local function extract_visible(line, highlight_normal, highlight_sep)
+    local result = {}
+    local disp_pos = 0
+    local byte_idx = 1
 
-  while byte_idx <= #header do
-    -- Detect multi-byte │ separator by comparing the full sequence
-    local maybe_sep = header:sub(byte_idx, byte_idx + sep_len - 1)
-    local char_bytes, char_width
+    while byte_idx <= #line do
+      local maybe_sep = line:sub(byte_idx, byte_idx + sep_len - 1)
+      local char_bytes, char_width, is_sep
 
-    if maybe_sep == sep then
-      char_bytes = sep_len
-      char_width = 1
-    else
-      -- Advance by full UTF-8 character to handle CJK, emoji, etc.
-      local b = header:byte(byte_idx)
-      if b < 0x80 then char_bytes = 1
-      elseif b < 0xE0 then char_bytes = 2
-      elseif b < 0xF0 then char_bytes = 3
-      else char_bytes = 4
-      end
-      if byte_idx + char_bytes - 1 > #header then
-        char_bytes = #header - byte_idx + 1
-      end
-      char_width = vim.fn.strdisplaywidth(header:sub(byte_idx, byte_idx + char_bytes - 1))
-      if char_width == 0 then char_width = 1 end
-    end
-
-    -- Check if this character's display range [disp_pos, disp_pos+char_width)
-    -- overlaps with the viewport [leftcol, leftcol+win_width).
-    local char_start = disp_pos
-    local char_end = disp_pos + char_width
-
-    if char_end > leftcol and char_start < leftcol + win_width then
-      if char_start < leftcol then
-        -- Character starts before viewport (mid-cell or mid-double-width-char).
-        -- Neovim pads the hidden portion with spaces, so we must too.
-        local visible_width = math.min(char_end, leftcol + win_width) - leftcol
-        result_bytes[#result_bytes + 1] = string.rep(" ", visible_width)
-      elseif char_end > leftcol + win_width then
-        -- Character extends past the right edge — pad the visible portion.
-        local visible_width = leftcol + win_width - char_start
-        result_bytes[#result_bytes + 1] = string.rep(" ", visible_width)
+      if maybe_sep == sep then
+        char_bytes = sep_len
+        char_width = 1
+        is_sep = true
       else
-        -- Character fully within viewport
-        result_bytes[#result_bytes + 1] = header:sub(byte_idx, byte_idx + char_bytes - 1)
+        local b = line:byte(byte_idx)
+        if b < 0x80 then char_bytes = 1
+        elseif b < 0xE0 then char_bytes = 2
+        elseif b < 0xF0 then char_bytes = 3
+        else char_bytes = 4
+        end
+        if byte_idx + char_bytes - 1 > #line then
+          char_bytes = #line - byte_idx + 1
+        end
+        char_width = vim.fn.strdisplaywidth(line:sub(byte_idx, byte_idx + char_bytes - 1))
+        if char_width == 0 then char_width = 1 end
+        is_sep = false
       end
+
+      local char_start = disp_pos
+      local char_end = disp_pos + char_width
+
+      if char_end > leftcol and char_start < leftcol + win_width then
+        local hl_group = (is_sep and highlight_sep) or highlight_normal
+        result[#result + 1] = hl_group
+
+        if char_start < leftcol then
+          local visible_width = math.min(char_end, leftcol + win_width) - leftcol
+          result[#result + 1] = string.rep(" ", visible_width)
+        elseif char_end > leftcol + win_width then
+          local visible_width = leftcol + win_width - char_start
+          result[#result + 1] = string.rep(" ", visible_width)
+        else
+          result[#result + 1] = line:sub(byte_idx, byte_idx + char_bytes - 1)
+        end
+      end
+
+      disp_pos = char_end
+      byte_idx = byte_idx + char_bytes
     end
 
-    disp_pos = char_end
-    byte_idx = byte_idx + char_bytes
+    return table.concat(result)
   end
 
-  if #result_bytes == 0 then return nil end
+  -- Build top border line (if available)
+  local border_text = ""
+  if border and #border > 0 then
+    local visible_border = extract_visible(border, "%#PosteSqlWinbarBorder#", "%#PosteSqlWinbarBorder#")
+    if #visible_border > 0 then
+      border_text = PADDING_SPACES .. visible_border .. "\n"
+    end
+  end
 
-  local visible_text = table.concat(result_bytes)
+  -- Build header line with invisible │ separators
+  local visible_header = extract_visible(header, "%#PosteSqlHeader#", "%#PosteSqlWinbarSep#")
 
-  -- Escape % for Neovim's statusline/winbar format syntax
-  local escaped = visible_text:gsub("%%", "%%%%")
+  if #visible_header == 0 then return nil end
 
   -- Append sort indicator after the trailing │ (does not affect column alignment)
   local indicator = ""
@@ -322,7 +329,7 @@ local function build_winbar_text(leftcol, win_width)
     indicator = "%#PosteSqlSortIndicator#" .. (winbar_sort_asc and " ↑" or " ↓") .. "%#PosteSqlHeader#"
   end
 
-  return "%#PosteSqlHeader#" .. PADDING_SPACES .. escaped .. indicator
+  return border_text .. "%#PosteSqlHeader#" .. PADDING_SPACES .. visible_header .. indicator
 end
 
 --- Update winbar to match horizontal scroll position.
@@ -693,9 +700,11 @@ function M.render_dataset(lines, meta)
   local removed_lines = 0
   if meta and meta.type == "resultset" and meta.header_line then
     local header_line = clean[meta.header_line]
+    local border_line = clean[meta.header_line - 1]  -- top border (┌─┬─┐)
     if header_line then
-      -- Save plain header for scroll sync (update_winbar uses this)
+      -- Save plain header and border for scroll sync (update_winbar uses these)
       winbar_plain_header = header_line
+      winbar_plain_border = border_line
       winbar_sort_col = sort_state and sort_state.col or nil
       winbar_sort_asc = sort_state and sort_state.ascending or nil
 

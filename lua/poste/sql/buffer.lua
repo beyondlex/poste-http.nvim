@@ -109,6 +109,7 @@ function M.goto_first_col()
   state.sql.cell.col = 1
   M.position_cursor(state.sql.cell.row, 1)
   sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, 1, current_meta)
+  M.update_winbar()
 end
 
 --- Jump to last column.
@@ -118,6 +119,7 @@ function M.goto_last_col()
   state.sql.cell.col = last
   M.position_cursor(state.sql.cell.row, last)
   sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, last, current_meta)
+  M.update_winbar()
 end
 
 --- Jump to header row. With sticky header (winbar), the header is always
@@ -222,13 +224,14 @@ function M.position_cursor(row, col)
   end
 end
 
---- Build winbar text showing only columns visible at the given scroll offset.
+--- Build winbar text showing only columns visible within the window.
 --- Uses find_cell_range on the full plain header to locate each column's byte range,
---- then includes only columns whose start position is >= leftcol.
---- This avoids string slicing (which loses column identity after re-splitting).
+--- then includes only columns whose display position falls within [leftcol, leftcol+win_width].
+--- This ensures the winbar never exceeds the window width and always aligns with visible data.
 --- @param leftcol number Byte offset of the first visible column (0 = no scroll)
+--- @param win_width number Window width in screen columns
 --- @return string|nil winbar text with highlight markers
-local function build_winbar_text(leftcol)
+local function build_winbar_text(leftcol, win_width)
   if not winbar_plain_header then return nil end
 
   local header = winbar_plain_header
@@ -244,21 +247,28 @@ local function build_winbar_text(leftcol)
     local range = sql_highlights.find_cell_range(header, vis_col)
     if not range then break end
 
-    -- Skip columns whose content starts before the visible area
-    -- (ext_start is the byte of the leading space after │)
-    if range.ext_start >= leftcol then
-      -- Extract cell content from the full header (includes padding spaces)
-      local cell_bytes = header:sub(range.ext_start + 1, range.ext_end)
-      local escaped = cell_bytes:gsub("%%", "%%%%")
-      -- Data column index: vis_col 1 = row number, vis_col 2 = data col 1
-      local data_col_idx = vis_col - 1
-      if winbar_sort_col and winbar_sort_col == data_col_idx and indicator ~= "" then
-        local trimmed = escaped:gsub(" $", "")
-        visible_cells[#visible_cells + 1] = trimmed .. "%#PosteSqlSortIndicator#" .. indicator .. "%#PosteSqlHeader#"
-      else
-        visible_cells[#visible_cells + 1] = escaped
-      end
+    -- Column's display position (byte offset relative to leftcol)
+    local screen_start = range.ext_start - leftcol
+
+    -- Skip if column is entirely to the left of the visible area
+    if range.ext_end < leftcol then goto continue end
+
+    -- Stop if column starts beyond the right edge of the window
+    if screen_start >= win_width then break end
+
+    -- This column is at least partially visible — extract cell content
+    local cell_bytes = header:sub(range.ext_start + 1, range.ext_end)
+    local escaped = cell_bytes:gsub("%%", "%%%%")
+    -- Data column index: vis_col 1 = row number, vis_col 2 = data col 1
+    local data_col_idx = vis_col - 1
+    if winbar_sort_col and winbar_sort_col == data_col_idx and indicator ~= "" then
+      local trimmed = escaped:gsub(" $", "")
+      visible_cells[#visible_cells + 1] = trimmed .. "%#PosteSqlSortIndicator#" .. indicator .. "%#PosteSqlHeader#"
+    else
+      visible_cells[#visible_cells + 1] = escaped
     end
+
+    ::continue::
   end
 
   if #visible_cells == 0 then return nil end
@@ -266,8 +276,8 @@ local function build_winbar_text(leftcol)
 end
 
 --- Update winbar to match horizontal scroll position.
---- Reads leftcol from the dataset window and rebuilds the winbar to show
---- only the columns visible at that scroll offset, keeping it aligned
+--- Reads leftcol and win_width from the dataset window and rebuilds the winbar
+--- to show only the columns visible within the window, keeping it aligned
 --- with the scrolled data rows.
 function M.update_winbar()
   if is_updating_winbar then return end
@@ -277,8 +287,9 @@ function M.update_winbar()
   local leftcol = vim.api.nvim_win_call(dataset_window, function()
     return vim.fn.winsaveview().leftcol
   end)
+  local win_width = vim.api.nvim_win_get_width(dataset_window)
 
-  local text = build_winbar_text(leftcol)
+  local text = build_winbar_text(leftcol, win_width)
   if not text then return end
 
   is_updating_winbar = true
@@ -671,6 +682,12 @@ function M.render_dataset(lines, meta)
   end
 
   vim.api.nvim_win_set_buf(dataset_window, buf)
+
+  -- Reset horizontal scroll position. The window may retain leftcol from a
+  -- previous render when nvim_win_set_buf attaches a new buffer.
+  pcall(vim.api.nvim_win_call, dataset_window, function()
+    vim.fn.winrestview({ leftcol = 0 })
+  end)
 
   -- Dataset window options: no wrapping, horizontal scroll
   vim.api.nvim_set_option_value("wrap", false, { win = dataset_window })

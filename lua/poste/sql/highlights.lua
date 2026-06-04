@@ -123,23 +123,31 @@ function M.find_cell_range(line, col)
   if not line or line == "" then return nil end
   local sep = "│"
   local sep_len = #sep  -- 3 bytes in UTF-8
-  local scan = 1
-  for i = 1, col do
-    local next_sep = line:find(sep, scan, true)
-    if not next_sep then return nil end
-    local close_sep = line:find(sep, next_sep + sep_len, true)
-    if not close_sep then return nil end
-    if i == col then
-      -- extmark range: include leading+trailing spaces
-      local ext_start = next_sep + sep_len - 1  -- 0-based, the leading space
-      local ext_end = close_sep - 1             -- 0-based exclusive, up to trailing space
-      -- cursor column: display width from line start to content start
-      local cursor_col = vim.fn.strdisplaywidth(line:sub(1, next_sep + sep_len - 1))
-      return { ext_start = ext_start, ext_end = ext_end, cursor_col = cursor_col }
-    end
-    scan = close_sep + sep_len
+
+  -- Find all separator positions
+  local seps = {}
+  local pos = 1
+  while true do
+    pos = line:find(sep, pos, true)
+    if not pos then break end
+    seps[#seps + 1] = pos
+    pos = pos + sep_len
   end
-  return nil
+
+  -- Cell col is between seps[col] and seps[col+1]
+  if col > #seps - 1 then return nil end
+
+  local next_sep = seps[col]
+  local close_sep = seps[col + 1]
+
+  -- extmark range: include leading+trailing spaces
+  local ext_start = next_sep + sep_len - 1  -- 0-based, the leading space
+  local ext_end = close_sep - 1             -- 0-based exclusive, up to trailing space
+
+  -- cursor column: display width from line start to content start (after │ and space)
+  local cursor_col = vim.fn.strdisplaywidth(line:sub(1, next_sep + sep_len))
+
+  return { ext_start = ext_start, ext_end = ext_end, cursor_col = cursor_col }
 end
 
 --- Highlight the currently selected cell in the dataset.

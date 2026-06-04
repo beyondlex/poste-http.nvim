@@ -173,7 +173,14 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
 
 /// Convert a PostgreSQL row column value to serde_json::Value.
 fn pg_value_to_json(row: &sqlx::postgres::PgRow, idx: usize) -> Value {
-    use sqlx::{Column, Row, TypeInfo};
+    use sqlx::{Column, Row, TypeInfo, ValueRef};
+
+    // Check for NULL first — avoids type decode failures on nullable columns
+    if let Ok(raw) = row.try_get_raw(idx) {
+        if raw.is_null() {
+            return Value::Null;
+        }
+    }
 
     let type_name = row.column(idx).type_info().name();
 
@@ -190,17 +197,44 @@ fn pg_value_to_json(row: &sqlx::postgres::PgRow, idx: usize) -> Value {
             .ok().flatten().map(|v| json!(v)).unwrap_or(Value::Null),
         "FLOAT8" => row.try_get::<Option<f64>, _>(idx)
             .ok().flatten().map(|v| json!(v)).unwrap_or(Value::Null),
+        "NUMERIC" => {
+            let val: Option<rust_decimal::Decimal> = row.try_get::<_, _>(idx).ok().flatten();
+            val.map(|v: rust_decimal::Decimal| {
+                v.to_string().parse::<f64>().map(|n| json!(n)).unwrap_or(json!(v.to_string()))
+            }).unwrap_or(Value::Null)
+        }
+        "DATE" => row.try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(idx)
+            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
+        "TIMESTAMP" => row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx)
+            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
+        "TIMESTAMPTZ" => row.try_get::<Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>, _>(idx)
+            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
+        "TIME" => row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(idx)
+            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
+        "UUID" => row.try_get::<Option<sqlx::types::uuid::Uuid>, _>(idx)
+            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
+        "INET" | "CIDR" => row.try_get::<Option<sqlx::types::ipnetwork::IpNetwork>, _>(idx)
+            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
         "JSON" | "JSONB" => {
-            // Get as string and try to parse as JSON
-            row.try_get::<Option<String>, _>(idx)
-                .ok().flatten()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or(Value::Null)
+            // sqlx requires the Json<T> wrapper for JSON/JSONB columns,
+            // NOT try_get::<String> which fails silently.
+            if let Ok(Some(json_val)) = row.try_get::<Option<sqlx::types::Json<Value>>, _>(idx) {
+                json_val.0
+            } else if let Ok(Some(s)) = row.try_get::<Option<String>, _>(idx) {
+                serde_json::from_str(&s).unwrap_or(json!(s))
+            } else {
+                Value::Null
+            }
         }
         _ => {
             // Fall back to string representation
-            row.try_get::<Option<String>, _>(idx)
-                .ok().flatten().map(|v| json!(v)).unwrap_or(Value::Null)
+            if let Ok(Some(s)) = row.try_get::<Option<String>, _>(idx) {
+                json!(s)
+            } else if let Ok(Some(b)) = row.try_get::<Option<Vec<u8>>, _>(idx) {
+                json!(String::from_utf8_lossy(&b).to_string())
+            } else {
+                Value::Null
+            }
         }
     }
 }
@@ -324,17 +358,32 @@ fn mysql_value_to_json(row: &sqlx::mysql::MySqlRow, idx: usize) -> Value {
             .ok().flatten().map(|v| json!(v)).unwrap_or(Value::Null),
         "DOUBLE" => row.try_get::<Option<f64>, _>(idx)
             .ok().flatten().map(|v| json!(v)).unwrap_or(Value::Null),
-        "DECIMAL" => row.try_get::<Option<String>, _>(idx)
-            .ok().flatten()
-            .map(|s| {
-                s.parse::<f64>().map(|v| json!(v)).unwrap_or(json!(s))
-            })
-            .unwrap_or(Value::Null),
+        "DECIMAL" => {
+            let val: Option<rust_decimal::Decimal> = row.try_get::<_, _>(idx).ok().flatten();
+            val.map(|v: rust_decimal::Decimal| {
+                v.to_string().parse::<f64>().map(|n| json!(n)).unwrap_or(json!(v.to_string()))
+            }).unwrap_or(Value::Null)
+        }
+        "DATE" => row.try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(idx)
+            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
+        "DATETIME" => row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx)
+            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
+        "TIMESTAMP" => row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx)
+            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
+        "TIME" => row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(idx)
+            .ok().flatten().map(|v| json!(v.to_string())).unwrap_or(Value::Null),
         "JSON" => {
-            row.try_get::<Option<String>, _>(idx)
-                .ok().flatten()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or(Value::Null)
+            // Try Json<Value> wrapper first (sqlx native), fall back to String
+            if let Ok(Some(json_val)) = row.try_get::<Option<sqlx::types::Json<Value>>, _>(idx) {
+                json_val.0
+            } else if let Ok(Some(s)) = row.try_get::<Option<String>, _>(idx) {
+                serde_json::from_str(&s).unwrap_or(json!(s))
+            } else if let Ok(Some(b)) = row.try_get::<Option<Vec<u8>>, _>(idx) {
+                let s = String::from_utf8_lossy(&b);
+                serde_json::from_str(&s).unwrap_or(json!(s.to_string()))
+            } else {
+                Value::Null
+            }
         }
         // Explicit string types — covers VARCHAR, VAR_STRING, TEXT, CHAR, ENUM, etc.
         // SHOW TABLES returns VAR_STRING which must be matched here.

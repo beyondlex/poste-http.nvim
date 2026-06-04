@@ -135,6 +135,8 @@ function M.goto_last_row()
 end
 
 --- Position the cursor at the given data row and column.
+--- Uses lazy horizontal scrolling: only scrolls when the cursor approaches
+--- the window edge, and stops scrolling when the last column is fully visible.
 --- @param row number 1-based data row index
 --- @param col number 1-based column index
 function M.position_cursor(row, col)
@@ -142,27 +144,136 @@ function M.position_cursor(row, col)
   if not vim.api.nvim_win_is_valid(dataset_window) then return end
 
   local line_idx = (current_meta.data_start_line or 1) + row - 1
+  local buf = vim.api.nvim_win_get_buf(dataset_window)
 
-  -- Compute cursor column from the actual buffer line (handles CJK, truncation)
-  local line = vim.api.nvim_buf_get_lines(
-    vim.api.nvim_win_get_buf(dataset_window), line_idx - 1, line_idx, false
-  )[1] or ""
+  -- Compute target byte offset from the actual buffer line
+  local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
   local range = sql_highlights.find_cell_range(line, col)
-  local cursor_col = range and range.cursor_col or 0
+  local target_col = range and range.cursor_col or 0
 
-  pcall(vim.api.nvim_win_set_cursor, dataset_window, { line_idx, cursor_col })
-
-  -- Scroll horizontally to make the cell visible
-  pcall(vim.api.nvim_win_call, dataset_window, function()
-    vim.cmd("normal! zs")
+  -- Read current view state BEFORE touching cursor/scroll
+  local saved_leftcol = vim.api.nvim_win_call(dataset_window, function()
+    return vim.fn.winsaveview().leftcol
   end)
+  local win_width = vim.api.nvim_win_get_width(dataset_window)
+
+  -- Check if target byte offset is within the currently visible range.
+  -- A right margin triggers scrolling slightly before the cursor leaves
+  -- the window, giving a smoother experience.
+  local left_margin = 2
+  local right_margin = 3
+  local target_on_screen = target_col >= math.max(0, saved_leftcol - left_margin)
+    and target_col < saved_leftcol + win_width - right_margin
+
+  -- Check if the last column is fully visible in the CURRENT view.
+  -- If so, there's no more data to the right — scrolling is pointless.
+  local last_col = current_meta.col_count or 0
+  local last_col_fits = true
+  if last_col > 0 then
+    local last_range = sql_highlights.find_cell_range(line, last_col)
+    if last_range then
+      -- Screen position of the last column's right edge
+      local last_right_screen = last_range.ext_end - saved_leftcol
+      last_col_fits = last_right_screen <= win_width
+    end
+  end
+
+  -- Set cursor (may trigger Neovim auto-scroll if target is off-screen)
+  pcall(vim.api.nvim_win_set_cursor, dataset_window, { line_idx, target_col })
+
+  -- Decide whether to adjust horizontal scroll
+  if target_on_screen then
+    -- Target cell was already visible — restore original scroll position.
+    -- This prevents the "jump to left edge" behavior on every l press.
+    -- Temporarily disable sidescrolloff to prevent it from re-scrolling
+    -- after we restore the view.
+    local saved_sso = vim.api.nvim_get_option_value("sidescrolloff", { win = dataset_window })
+    vim.api.nvim_set_option_value("sidescrolloff", 0, { win = dataset_window })
+    pcall(vim.api.nvim_win_call, dataset_window, function()
+      local v = vim.fn.winsaveview()
+      v.leftcol = saved_leftcol
+      vim.fn.winrestview(v)
+    end)
+    vim.api.nvim_set_option_value("sidescrolloff", saved_sso, { win = dataset_window })
+  else
+    -- Target is off-screen, need to scroll
+    if last_col_fits then
+      -- Last column is fully visible: no more data to reveal.
+      -- Keep Neovim's auto-scroll (minimal shift to show the cell).
+      -- Do NOT use zs — that would create empty space on the right.
+    else
+      -- More columns exist beyond the window: scroll with zs to bring
+      -- the target cell to the left portion of the window.
+      pcall(vim.api.nvim_win_call, dataset_window, function()
+        vim.cmd("normal! zs")
+      end)
+    end
+  end
 end
 
 ---------------------------------------------------------------------------
 -- Cell preview (K key)
 ---------------------------------------------------------------------------
 
+--- Try to decode a string as JSON and pretty-print it.
+--- Handles double-encoded JSON (string inside string).
+--- @param s string
+--- @return string|nil Pretty-printed text, or nil if not JSON
+local function try_pretty_json(s)
+  local ok, decoded = pcall(vim.json.decode, s)
+  if ok and type(decoded) == "table" then
+    return vim.inspect(decoded)
+  end
+  -- Handle double-encoded JSON: decoded result is itself a JSON string
+  if ok and type(decoded) == "string" then
+    local ok2, decoded2 = pcall(vim.json.decode, decoded)
+    if ok2 and type(decoded2) == "table" then
+      return vim.inspect(decoded2)
+    end
+  end
+  return nil
+end
+
+--- Pretty-print a value for the preview popup.
+--- Tables and JSON strings are expanded with vim.inspect for full readability.
+--- @param val any The raw cell value
+--- @return string text Pretty-printed text
+--- @return string ft Filetype for syntax highlighting
+local function pretty_print(val)
+  -- NULL
+  if val == nil or val == vim.NIL then
+    return "(NULL)", "text"
+  end
+
+  -- Lua table (JSON/JSONB column decoded as nested object)
+  if type(val) == "table" then
+    return vim.inspect(val), "lua"
+  end
+
+  local s = tostring(val)
+
+  -- String values: attempt JSON decode (handles JSONB stored as text,
+  -- double-encoded JSON, or values with leading whitespace)
+  if type(val) == "string" then
+    local pretty = try_pretty_json(s)
+    if pretty then
+      return pretty, "lua"
+    end
+    -- Try after stripping leading whitespace
+    local trimmed = s:match("^%s*(.*)")
+    if trimmed ~= s then
+      pretty = try_pretty_json(trimmed)
+      if pretty then
+        return pretty, "lua"
+      end
+    end
+  end
+
+  return s, "text"
+end
+
 --- Show a floating window with the full cell value.
+--- Content is word-wrapped and scrollable for long values.
 function M.preview_cell()
   if not current_meta or current_meta.type ~= "resultset" then return end
 
@@ -174,70 +285,87 @@ function M.preview_cell()
   local col = state.sql.cell.col
 
   if not res.rows or not res.rows[row] then return end
-  local val = res.rows[row][col]
+  local raw_val = res.rows[row][col]
 
-  if val == nil or val == vim.NIL then
-    val = "(NULL)"
-  elseif type(val) == "table" then
-    local ok, encoded = pcall(vim.json.encode, val)
-    val = ok and encoded or vim.inspect(val)
-  else
-    val = tostring(val)
-  end
+  local text, ft = pretty_print(raw_val)
 
-  -- Determine filetype for syntax highlighting
-  local ft = "text"
-  if type(res.rows[row][col]) == "table" then
-    -- Try to detect JSON
-    local ok, _ = pcall(vim.json.decode, val)
-    if ok then ft = "json" end
-  end
-
-  -- Show floating preview
+  -- Split into lines
   local lines = {}
-  for line in (val .. "\n"):gmatch("(.-)\n") do
+  for line in (text .. "\n"):gmatch("(.-)\n") do
     lines[#lines + 1] = line
   end
 
+  -- Calculate dimensions: cap width, let wrap handle the rest
+  local max_width = math.min(math.floor(vim.o.columns * 0.7), 120)
   local width = 0
   for _, l in ipairs(lines) do
-    width = math.max(width, #l)
+    width = math.max(width, vim.fn.strdisplaywidth(l))
   end
-  width = math.min(width + 2, 80)
-  local height = math.min(#lines, 20)
+  width = math.min(width + 2, max_width)
+
+  -- Height: show up to 60% of screen, minimum 3 lines
+  local max_height = math.floor(vim.o.lines * 0.6)
+  local height = math.max(3, math.min(#lines + 1, max_height))
 
   local col_name = res.columns[col] and res.columns[col].name or "?"
   local border_label = string.format(" %s ", col_name)
+  local row_info = string.format(" R%d ", row)
 
   local float_buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
   vim.bo[float_buf].filetype = ft
   vim.bo[float_buf].modifiable = false
 
-  local win = vim.api.nvim_open_win(float_buf, true, {
-    relative = "cursor",
-    row = 1,
-    col = 0,
+  local win_opts = {
+    relative = "editor",
+    row = math.floor((vim.o.lines - height) / 2),
+    col = math.floor((vim.o.columns - width) / 2),
     width = width,
     height = height,
     style = "minimal",
     border = "rounded",
     title = border_label,
-    title_pos = "center",
-  })
+    title_pos = "left",
+    footer = row_info,       -- Neovim 0.10+
+    footer_pos = "right",    -- Neovim 0.10+
+  }
+  -- Try with title/footer; fall back to plain if unsupported (< 0.10)
+  local ok, win = pcall(vim.api.nvim_open_win, float_buf, true, win_opts)
+  if not ok then
+    win_opts.title = nil
+    win_opts.title_pos = nil
+    win_opts.footer = nil
+    win_opts.footer_pos = nil
+    win = vim.api.nvim_open_win(float_buf, true, win_opts)
+  end
+
+  -- Enable wrapping and scrolling inside the float
+  vim.wo[win].wrap = true
+  vim.wo[win].linebreak = true
+  vim.wo[win].breakindent = false
+  vim.wo[win].scrolloff = 1
+  vim.wo[win].sidescrolloff = 0
+  vim.wo[win].cursorline = true
+
+  -- Scroll keymaps: j/k, d/u (half-page), g/G (top/bottom), space/bs (page)
+  local scroll_opts = { buffer = float_buf, noremap = true, silent = true }
+  vim.keymap.set("n", "j", "<C-e>", scroll_opts)
+  vim.keymap.set("n", "k", "<C-y>", scroll_opts)
+  vim.keymap.set("n", "d", "<C-d>", scroll_opts)
+  vim.keymap.set("n", "u", "<C-u>", scroll_opts)
+  vim.keymap.set("n", "g", "gg", scroll_opts)
+  vim.keymap.set("n", "G", "G", scroll_opts)
+  vim.keymap.set("n", "<Space>", "<C-f>", scroll_opts)
+  vim.keymap.set("n", "<BS>", "<C-b>", scroll_opts)
 
   -- Close on q or Esc
-  local close_opts = { buffer = float_buf, noremap = true, silent = true }
-  vim.keymap.set("n", "q", function()
+  local close_fn = function()
     if vim.api.nvim_win_is_valid(win) then
       vim.api.nvim_win_close(win, true)
     end
-  end, close_opts)
-  vim.keymap.set("n", "<Esc>", function()
-    if vim.api.nvim_win_is_valid(win) then
-      vim.api.nvim_win_close(win, true)
-    end
-  end, close_opts)
+  end
+  vim.keymap.set("n", "q", close_fn, scroll_opts)
+  vim.keymap.set("n", "<Esc>", close_fn, scroll_opts)
 end
 
 ---------------------------------------------------------------------------
@@ -303,7 +431,7 @@ function M.render_dataset(lines, meta)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, clean)
   vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
 
-  vim.wo.conceallevel = 0
+  vim.api.nvim_set_option_value("conceallevel", 0, { win = dataset_window })
 
   -- Apply highlights
   sql_highlights.apply_dataset_highlights(buf, lines, meta)
@@ -328,6 +456,10 @@ function M.render_dataset(lines, meta)
   vim.api.nvim_set_option_value("cursorline", false, { win = dataset_window })
   vim.api.nvim_set_option_value("cursorcolumn", false, { win = dataset_window })
 
+  -- NOTE: Cell text color is handled by syntax group PosteDatasetCellText
+  -- in syntax/poste_dataset.vim, NOT by extmarks. Extmarks always override
+  -- syntax highlighting's fg, regardless of priority or hl_mode.
+
   -- Position cursor at first data cell
   if meta and meta.type == "resultset" and meta.row_count > 0 then
     state.sql.cell.row = 1
@@ -338,8 +470,7 @@ function M.render_dataset(lines, meta)
     pcall(vim.api.nvim_win_set_cursor, dataset_window, { 1, 0 })
   end
 
-  -- Focus the dataset window
-  vim.api.nvim_set_current_win(dataset_window)
+  -- Keep focus in the SQL file buffer (do NOT switch to dataset window)
 end
 
 --- Close the dataset split.

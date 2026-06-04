@@ -18,14 +18,21 @@ syn match PosteDatasetBorder '[┌┐└┘├┤┬┴┼─╞╡╤╧╪═�
 " This provides fallback syntax highlighting.
 syn match PosteDatasetHeader '^\s*│[^│]*│[^│]*│.*$' contained
 
-" ─── NULL values ────────────────────────────────────
-syn match PosteDatasetNull '(NULL)'
+" ─── Cell text container ─────────────────────────────
+" Matches entire cell content between │ separators. Acts as a container
+" so that specific sub-patterns (numbers, bools, nulls) can overlay on top.
+" WITHOUT contains=, Vim syntax would claim the entire match and prevent
+" sub-patterns from matching inside it.
+syn match PosteDatasetCellText '\(│\)\@<=[^│]\+\(│\)\@=' contains=PosteDatasetNull,PosteDatasetNumber,PosteDatasetBool
 
-" ─── Numbers (right-aligned in cells) ───────────────
-syn match PosteDatasetNumber '\(│\s*\)\@<=-\?\d\+\%(\.\d\+\)\?\(\s*│\)\@='
+" ─── NULL values (contained within cell text) ───────
+syn match PosteDatasetNull '(NULL)' contained
 
-" ─── Boolean values ─────────────────────────────────
-syn match PosteDatasetBool '\(│\s*\)\@<=\%(true\|false\)\(\s*│\)\@='
+" ─── Numbers (right-aligned in cells, contained) ────
+syn match PosteDatasetNumber '-\?\d\+\%(\.\d\+\)\?' contained
+
+" ─── Boolean values (contained within cell text) ────
+syn match PosteDatasetBool '\%(true\|false\)' contained
 
 " ─── Meta line (bottom stats) ───────────────────────
 syn match PosteDatasetMeta '^\d\+ row.*$'
@@ -34,12 +41,15 @@ syn match PosteDatasetMeta '^Context switched.*$'
 syn match PosteDatasetMeta '^\d\+ row.*affected.*$'
 
 " ─── Highlight group links ──────────────────────────
-hi def link PosteDatasetSep     NonText
-hi def link PosteDatasetBorder  Delimiter
-hi def link PosteDatasetHeader  Title
-hi def link PosteDatasetNull    Comment
-hi def link PosteDatasetNumber  Number
-hi def link PosteDatasetBool    Boolean
-hi def link PosteDatasetMeta    Comment
+" These link to PosteSql* groups which are set with explicit
+" theme-aware colors in sql/highlights.lua setup().
+hi def link PosteDatasetSep        PosteSqlSep
+hi def link PosteDatasetBorder     PosteSqlBorder
+hi def link PosteDatasetHeader     PosteSqlHeader
+hi def link PosteDatasetCellText   PosteSqlCellText
+hi def link PosteDatasetNull       PosteSqlNull
+hi def link PosteDatasetNumber     PosteSqlNumber
+hi def link PosteDatasetBool       PosteSqlBool
+hi def link PosteDatasetMeta       PosteSqlMeta
 
 let b:current_syntax = "poste_dataset"

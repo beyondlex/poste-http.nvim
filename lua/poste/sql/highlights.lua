@@ -13,19 +13,22 @@ local function resolve_hl(name)
   return hl
 end
 
+--- Check if a color value indicates a dark background (luminance < 0.5).
+local function is_dark(color)
+  if not color then return true end  -- assume dark if unset
+  local r = math.floor(color / 0x10000) % 0x100 / 255
+  local g = math.floor(color / 0x100) % 0x100 / 255
+  local b = color % 0x100 / 255
+  return (0.299 * r + 0.587 * g + 0.114 * b) < 0.5
+end
+
 --- Define all SQL highlight groups and register autocmds.
 function M.setup()
+  -- Groups that keep link-based defaults (not dataset-specific)
   local groups = {
-    { "PosteSqlHeader",     "Title" },
-    { "PosteSqlNull",       "Comment" },
-    { "PosteSqlMeta",       "Comment" },
-    { "PosteSqlBorder",     "Delimiter" },
-    { "PosteSqlCellSelected", "Visual" },
     { "PosteSqlModified",   "DiffChange" },
     { "PosteSqlDeleted",    "DiffDelete" },
     { "PosteSqlAdded",      "DiffAdd" },
-    { "PosteSqlNumber",     "Number" },
-    { "PosteSqlBool",       "Boolean" },
   }
 
   for _, pair in ipairs(groups) do
@@ -34,6 +37,54 @@ function M.setup()
       vim.api.nvim_set_hl(0, pair[1], { link = pair[2] })
     end
   end
+
+  -- Theme-aware colors for dataset buffer text.
+  -- Detect dark/light from Normal background luminance.
+  local normal = resolve_hl("Normal")
+  local dark = is_dark(normal.bg)
+
+  -- Cell text: ensure readable fg for data cells
+  vim.api.nvim_set_hl(0, "PosteSqlCellText", {
+    fg = dark and 0xd4d4d4 or 0x333333,
+  })
+  -- Separators (│): visible but subtle
+  vim.api.nvim_set_hl(0, "PosteSqlSep", {
+    fg = dark and 0x5c6370 or 0x999999,
+  })
+  -- Borders (┌─┬─┐): slightly brighter than separators
+  vim.api.nvim_set_hl(0, "PosteSqlBorder", {
+    fg = dark and 0x636d83 or 0x888888,
+  })
+  -- Header row: bright and bold
+  vim.api.nvim_set_hl(0, "PosteSqlHeader", {
+    fg = dark and 0xe5c07b or 0x8b6914,
+    bold = true,
+  })
+  -- Meta footer
+  vim.api.nvim_set_hl(0, "PosteSqlMeta", {
+    fg = dark and 0x7f848e or 0x6a737d,
+    italic = true,
+  })
+  -- NULL values
+  vim.api.nvim_set_hl(0, "PosteSqlNull", {
+    fg = dark and 0x5c6370 or 0x999999,
+    italic = true,
+  })
+  -- Numbers: distinct color (green/cyan for dark, blue for light)
+  vim.api.nvim_set_hl(0, "PosteSqlNumber", {
+    fg = dark and 0x98c379 or 0x005cc5,
+  })
+  -- Booleans: distinct color (orange for dark, purple for light)
+  vim.api.nvim_set_hl(0, "PosteSqlBool", {
+    fg = dark and 0xd19a66 or 0x6f42c1,
+  })
+
+  -- Cell selection: bright bg with contrasting fg
+  vim.api.nvim_set_hl(0, "PosteSqlCellSelected", {
+    fg = 0xffffff,
+    bg = dark and 0x3b6fa0 or 0x2563eb,
+    bold = true,
+  })
 end
 
 -- Apply highlights on require
@@ -72,9 +123,11 @@ function M.apply_dataset_highlights(buf, lines, meta)
     })
   end
 
-  -- Border lines
+  -- Border lines (┌, ├, └ start borders; │ starts data rows)
+  -- Must use explicit prefix check — Lua's [...] character class matches
+  -- bytes, not Unicode codepoints, so [┌├└] also matches │ (same UTF-8 prefix).
   for i, line in ipairs(lines) do
-    if line:match("^[┌├└]") then
+    if line:sub(1, 3) == "┌" or line:sub(1, 3) == "├" or line:sub(1, 3) == "└" then
       vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 0, {
         end_row = i - 1,
         end_col = #line,
@@ -112,6 +165,11 @@ function M.apply_dataset_highlights(buf, lines, meta)
     })
   end
 end
+
+-- NOTE: Cell text color is now handled via syntax highlighting in
+-- syntax/poste_dataset.vim (PosteDatasetCellText group) instead of extmarks.
+-- Extmarks always override syntax highlighting's fg attribute regardless
+-- of priority or hl_mode setting.
 
 --- Find the byte range and cursor column for a cell in a rendered dataset line.
 --- Reads the actual line content to locate │ separators, so it works

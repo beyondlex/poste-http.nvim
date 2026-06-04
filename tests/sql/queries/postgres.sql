@@ -1,5 +1,11 @@
 -- @connection pg-ecommerce
 
+###
+SELECT 1;
+
+### 
+use ecommerce;
+
 ### List all users
 SELECT * FROM users;
 
@@ -17,6 +23,9 @@ FROM order_items oi
 JOIN products p ON p.id = oi.product_id
 GROUP BY p.name
 ORDER BY revenue DESC;
+
+###
+select quantity, unit_price from order_items;
 
 ### Orders with item details
 SELECT o.id AS order_id,
@@ -38,6 +47,9 @@ SELECT event_type, user_id, payload->>'url' AS url, created_at
 FROM events
 ORDER BY created_at DESC
 LIMIT 20;
+
+### events
+select * from events;
 
 ### Session durations
 SELECT s.id,

@@ -8,6 +8,14 @@ show tables;
 
 ###
 select * from posts;
+###
+select body from posts;
+
+###
+select s.*, c.* from posts s left join comments c on c.post_id = c.id;
+
+###
+select * from comments;
 
 ### All posts with author and category
 SELECT p.title,

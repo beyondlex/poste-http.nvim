@@ -145,6 +145,11 @@ function M.position_cursor(row, col)
   local col_pos = current_meta.col_positions and current_meta.col_positions[col] or 0
 
   pcall(vim.api.nvim_win_set_cursor, dataset_window, { line_idx, col_pos })
+
+  -- Scroll horizontally to make the cell visible
+  pcall(vim.api.nvim_win_call, dataset_window, function()
+    vim.cmd("normal! zs")
+  end)
 end
 
 ---------------------------------------------------------------------------
@@ -310,6 +315,12 @@ function M.render_dataset(lines, meta)
   end
 
   vim.api.nvim_win_set_buf(dataset_window, buf)
+
+  -- Dataset window options: no wrapping, horizontal scroll
+  vim.api.nvim_set_option_value("wrap", false, { win = dataset_window })
+  vim.api.nvim_set_option_value("sidescrolloff", 5, { win = dataset_window })
+  vim.api.nvim_set_option_value("cursorline", false, { win = dataset_window })
+  vim.api.nvim_set_option_value("cursorcolumn", false, { win = dataset_window })
 
   -- Position cursor at first data cell
   if meta and meta.type == "resultset" and meta.row_count > 0 then

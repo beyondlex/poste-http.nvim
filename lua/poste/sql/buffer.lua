@@ -56,6 +56,9 @@ local function get_dataset_buffer()
   -- ─── Yank cell value ───────────────────────────
   vim.keymap.set("n", "yy", function() M.yank_cell() end, opts)
 
+  -- ─── Sort by current column ────────────────────
+  vim.keymap.set("n", "s", function() M.sort_by_current_col() end, opts)
+
   -- ─── Refresh ───────────────────────────────────
   vim.keymap.set("n", "R", function()
     -- Re-run the last SQL query
@@ -109,12 +112,10 @@ function M.goto_last_col()
   sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, last, current_meta)
 end
 
---- Jump to header row (for column name visibility).
+--- Jump to header row. With sticky header (winbar), the header is always
+--- visible at the top; this scrolls the data view to the first row.
 function M.goto_header()
-  if not current_meta or not current_meta.header_line then return end
-  if dataset_window and vim.api.nvim_win_is_valid(dataset_window) then
-    pcall(vim.api.nvim_win_set_cursor, dataset_window, { current_meta.header_line, 0 })
-  end
+  M.goto_first_row()
 end
 
 --- Jump to first data row.
@@ -401,6 +402,119 @@ function M.yank_cell()
 end
 
 ---------------------------------------------------------------------------
+-- Sort
+---------------------------------------------------------------------------
+
+--- Sort state: { col, ascending } or nil (unsorted)
+local sort_state = nil
+
+--- Original row order for resetting sort
+local original_rows = nil
+
+--- Flag: true when render_dataset is called from sort (preserves sort state)
+local is_sorting = false
+
+--- Sort the dataset by the current column.
+--- Cycle: ascending -> descending -> reset (original order) -> ascending ...
+function M.sort_by_current_col()
+  if not current_meta or current_meta.type ~= "resultset" then return end
+
+  local data = state.sql.last_dataset
+  if not data or not data.results or #data.results == 0 then return end
+
+  local res = data.results[1]
+  if not res.rows or #res.rows == 0 then return end
+
+  local col = state.sql.cell.col
+
+  -- Determine next sort state: asc -> desc -> reset -> asc
+  local ascending, is_reset
+  if not sort_state or sort_state.col ~= col then
+    -- New column: start ascending
+    ascending = true
+    is_reset = false
+  elseif sort_state.ascending then
+    -- Same column, was ascending: go descending
+    ascending = false
+    is_reset = false
+  else
+    -- Same column, was descending: reset to original order
+    is_reset = true
+  end
+
+  if is_reset then
+    -- Restore original order
+    res.rows = original_rows
+    sort_state = nil
+  else
+    sort_state = { col = col, ascending = ascending }
+
+    -- Save original rows on first sort
+    if not original_rows then
+      original_rows = {}
+      for i, row in ipairs(res.rows) do
+        original_rows[i] = row
+      end
+    end
+
+    -- Sort rows in place (preserves references)
+    table.sort(res.rows, function(a, b)
+      local va = a[col]
+      local vb = b[col]
+
+      -- Handle NULLs: always at the end
+      local a_nil = (va == nil or va == vim.NIL)
+      local b_nil = (vb == nil or vb == vim.NIL)
+      if a_nil and b_nil then return false end
+      if a_nil then return false end
+      if b_nil then return true end
+
+      -- Compare by type
+      local ta = type(va)
+      local tb = type(vb)
+
+      -- Numbers: numeric comparison
+      if ta == "number" and tb == "number" then
+        if ascending then
+          return va < vb
+        else
+          return va > vb
+        end
+      end
+
+      -- Booleans
+      if ta == "boolean" and tb == "boolean" then
+        if ascending then
+          return not va and vb  -- false < true
+        else
+          return va and not vb  -- true > false
+        end
+      end
+
+      -- Fallback: string comparison
+      local sa = tostring(va)
+      local sb = tostring(vb)
+      if ascending then
+        return sa < sb
+      else
+        return sa > sb
+      end
+    end)
+  end
+
+  -- Re-render (set is_sorting to preserve sort state)
+  is_sorting = true
+  local new_data = vim.deepcopy(data)
+  local lines, meta = sql_format.format_resultset(new_data)
+  M.render_dataset(lines, meta)
+  is_sorting = false
+
+  -- Keep cursor at the same (row, col) position
+  -- The data in this cell may have changed, but the position stays the same
+  M.move_cell(0, 0)
+end
+
+---------------------------------------------------------------------------
 -- Render / Close
 ---------------------------------------------------------------------------
 
@@ -411,6 +525,12 @@ function M.render_dataset(lines, meta)
   local buf = get_dataset_buffer()
   current_meta = meta
   current_lines = lines
+
+  -- Reset sort state when loading a new dataset (not from sort re-render)
+  if not is_sorting then
+    original_rows = nil
+    sort_state = nil
+  end
 
   -- Store dataset JSON in state for cell access
   if meta and meta.type == "resultset" then
@@ -428,14 +548,66 @@ function M.render_dataset(lines, meta)
       clean[#clean + 1] = seg
     end
   end
+
+  -- Sticky header: extract header line for winbar, remove top border + header + separator from buffer.
+  -- This keeps column names visible at the top while data rows scroll.
+  local removed_lines = 0
+  local winbar_text = nil
+  if meta and meta.type == "resultset" and meta.header_line then
+    local header_line = clean[meta.header_line]
+    if header_line then
+      -- Build winbar with sort indicators
+      -- Split header by │, add ↑/↓ to sorted column, keep space in others
+      local parts = vim.split(header_line, "│", { plain = true })
+      local indicator = ""
+      if sort_state and sort_state.col then
+        indicator = sort_state.ascending and "↑" or "↓"
+      end
+      local winbar_parts = {}
+      for i, part in ipairs(parts) do
+        if part == "" then
+          -- First/last empty parts (before first │ and after last │)
+          winbar_parts[i] = part
+        else
+          -- Escape % in original column name for winbar
+          local escaped_part = part:gsub("%%", "%%%%")
+          -- Data cell: check if this is the sorted column
+          -- parts[1] is empty, parts[2] is column 1, parts[3] is column 2, etc.
+          local col_idx = i - 1
+          if sort_state and sort_state.col == col_idx and indicator ~= "" then
+            -- Replace last space with indicator using different highlight group.
+            -- In Lua gsub replacement, % is a special char (backreference),
+            -- so use string concatenation instead of gsub for the marker.
+            local trimmed = escaped_part:gsub(" $", "")
+            winbar_parts[i] = trimmed .. "%#PosteSqlSortIndicator#" .. indicator .. "%#PosteSqlHeader#"
+          else
+            winbar_parts[i] = escaped_part
+          end
+        end
+      end
+      winbar_text = "%#PosteSqlHeader#" .. table.concat(winbar_parts, "│")
+
+      -- Remove lines: top border (header_line - 1), header (header_line), separator (header_line + 1)
+      table.remove(clean, meta.header_line + 1)  -- separator first (highest index)
+      table.remove(clean, meta.header_line)       -- header
+      table.remove(clean, meta.header_line - 1)   -- top border
+      removed_lines = 3
+      -- Adjust meta line numbers
+      meta.header_line = nil  -- header is no longer in buffer
+      meta.data_start_line = meta.data_start_line - removed_lines
+      meta.data_end_line = meta.data_end_line - removed_lines
+      if meta.meta_line then
+        meta.meta_line = meta.meta_line - removed_lines
+      end
+    end
+  end
+
   vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, clean)
   vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
 
-  vim.api.nvim_set_option_value("conceallevel", 0, { win = dataset_window })
-
   -- Apply highlights
-  sql_highlights.apply_dataset_highlights(buf, lines, meta)
+  sql_highlights.apply_dataset_highlights(buf, clean, meta)
 
   -- Open bottom horizontal split
   if not dataset_window or not vim.api.nvim_win_is_valid(dataset_window) then
@@ -456,19 +628,38 @@ function M.render_dataset(lines, meta)
   vim.api.nvim_set_option_value("sidescrolloff", 5, { win = dataset_window })
   vim.api.nvim_set_option_value("cursorline", false, { win = dataset_window })
   vim.api.nvim_set_option_value("cursorcolumn", false, { win = dataset_window })
+  vim.api.nvim_set_option_value("conceallevel", 0, { win = dataset_window })
+  vim.api.nvim_set_option_value("number", false, { win = dataset_window })
+  vim.api.nvim_set_option_value("relativenumber", false, { win = dataset_window })
+  vim.api.nvim_set_option_value("signcolumn", "no", { win = dataset_window })
+
+  -- Set sticky header via winbar (Neovim 0.8+)
+  if winbar_text then
+    local ok, _ = pcall(vim.api.nvim_set_option_value, "winbar", winbar_text, { win = dataset_window })
+    if not ok then
+      -- Fallback: winbar not supported, header already removed from buffer — put it back
+      -- This shouldn't happen on modern Neovim but just in case
+      vim.api.nvim_set_option_value("winbar", "", { win = dataset_window })
+    end
+  else
+    pcall(vim.api.nvim_set_option_value, "winbar", "", { win = dataset_window })
+  end
 
   -- NOTE: Cell text color is handled by syntax group PosteDatasetCellText
   -- in syntax/poste_dataset.vim, NOT by extmarks. Extmarks always override
   -- syntax highlighting's fg, regardless of priority or hl_mode.
 
-  -- Position cursor at first data cell
-  if meta and meta.type == "resultset" and meta.row_count > 0 then
-    state.sql.cell.row = 1
-    state.sql.cell.col = 1
-    M.position_cursor(1, 1)
-    sql_highlights.highlight_cell(buf, 1, 1, meta)
-  else
-    pcall(vim.api.nvim_win_set_cursor, dataset_window, { 1, 0 })
+  -- Position cursor: only reset to (1,1) on fresh dataset load,
+  -- not during sort re-render (sort handles its own cursor position)
+  if not is_sorting then
+    if meta and meta.type == "resultset" and meta.row_count > 0 then
+      state.sql.cell.row = 1
+      state.sql.cell.col = 1
+      M.position_cursor(1, 1)
+      sql_highlights.highlight_cell(buf, 1, 1, meta)
+    else
+      pcall(vim.api.nvim_win_set_cursor, dataset_window, { 1, 0 })
+    end
   end
 
   -- Keep focus in the SQL file buffer (do NOT switch to dataset window)

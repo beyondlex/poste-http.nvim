@@ -78,6 +78,11 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteSqlBool", {
     fg = dark and 0xd19a66 or 0x6f42c1,
   })
+  -- Sort indicator (↑/↓): cyan for dark, red for light - stands out from header
+  vim.api.nvim_set_hl(0, "PosteSqlSortIndicator", {
+    fg = dark and 0x56b6c2 or 0xcf222e,
+    bold = true,
+  })
 
   -- Cell selection: bright bg with contrasting fg
   vim.api.nvim_set_hl(0, "PosteSqlCellSelected", {

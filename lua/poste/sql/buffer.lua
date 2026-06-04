@@ -13,6 +13,13 @@ local dataset_window = nil
 local current_meta = nil
 local current_lines = nil
 
+--- Winbar scroll sync state
+local winbar_sort_col = nil     -- data column index that's sorted (or nil)
+local winbar_sort_asc = nil     -- true = ascending, false = descending
+local winbar_plain_header = nil -- full plain header line for byte alignment
+local scroll_autocmd_id = nil   -- WinScrolled autocmd handle
+local is_updating_winbar = false -- prevent recursive WinScrolled
+
 ---------------------------------------------------------------------------
 -- Buffer creation
 ---------------------------------------------------------------------------
@@ -93,6 +100,7 @@ function M.move_cell(drow, dcol)
 
   M.position_cursor(row, col)
   sql_highlights.highlight_cell(dataset_buffer, row, col, current_meta)
+  M.update_winbar()
 end
 
 --- Jump to first column.
@@ -212,6 +220,78 @@ function M.position_cursor(row, col)
       end)
     end
   end
+end
+
+--- Build winbar text from a (possibly sliced) plain header string.
+--- Slices the plain header at leftcol byte offset, then applies highlight markers
+--- so the visible columns align with the scrolled data rows.
+--- @param leftcol number Byte offset of the first visible column (0 = no scroll)
+--- @return string|nil winbar text with highlight markers
+local function build_winbar_text(leftcol)
+  if not winbar_plain_header then return nil end
+
+  local plain = winbar_plain_header
+
+  -- Slice at leftcol byte offset when scrolled
+  if leftcol > 0 then
+    plain = plain:sub(leftcol + 1)
+    -- Ensure plain starts with │ separator (advance past padding if needed)
+    if plain:sub(1, 1) == " " then
+      local sep = plain:find("│", 1, true)
+      if sep then
+        plain = plain:sub(sep)
+      end
+    end
+  end
+
+  -- Now rebuild with highlight markers from the (possibly sliced) plain text
+  local parts = vim.split(plain, "│", { plain = true })
+  local indicator = ""
+  if winbar_sort_col then
+    indicator = winbar_sort_asc and "↑" or "↓"
+  end
+
+  local winbar_cells = {}
+  for i, part in ipairs(parts) do
+    if part == "" then
+      winbar_cells[i] = part
+    else
+      local escaped = part:gsub("%%", "%%%%")
+      -- parts[1] is empty, parts[2] is row number col (or first data col if sliced), etc.
+      -- Determine data column index: if sliced, we need to account for the offset.
+      -- For simplicity, check all parts against winbar_sort_col by reconstructing the index.
+      -- This is approximate but works for the common case where sort column is visible.
+      local col_idx = i - 2  -- assume standard layout (row num + data cols)
+      if winbar_sort_col and winbar_sort_col == col_idx and indicator ~= "" then
+        local trimmed = escaped:gsub(" $", "")
+        -- Append %#PosteSqlHeader# after indicator to reset highlight for next cell
+        winbar_cells[i] = trimmed .. "%#PosteSqlSortIndicator#" .. indicator .. "%#PosteSqlHeader#"
+      else
+        winbar_cells[i] = escaped
+      end
+    end
+  end
+
+  return "%#PosteSqlHeader#" .. table.concat(winbar_cells, "│")
+end
+
+--- Update winbar to match horizontal scroll position.
+--- Uses leftcol (byte offset) to slice the plain header at the correct position,
+--- then rebuilds the winbar with highlight markers so it aligns with data rows.
+function M.update_winbar()
+  if is_updating_winbar then return end
+  if not winbar_plain_header or not dataset_window then return end
+  if not vim.api.nvim_win_is_valid(dataset_window) then return end
+
+  local leftcol = vim.api.nvim_win_call(dataset_window, function()
+    return vim.fn.winsaveview().leftcol
+  end)
+
+  local text = build_winbar_text(leftcol)
+
+  is_updating_winbar = true
+  pcall(vim.api.nvim_set_option_value, "winbar", text, { win = dataset_window })
+  is_updating_winbar = false
 end
 
 ---------------------------------------------------------------------------
@@ -558,6 +638,9 @@ function M.render_dataset(lines, meta)
   if meta and meta.type == "resultset" and meta.header_line then
     local header_line = clean[meta.header_line]
     if header_line then
+      -- Save plain header for scroll sync (before any modification)
+      winbar_plain_header = header_line
+
       -- Build winbar with sort indicators
       -- Split header by │, add ↑/↓ to sorted column, keep space in others
       local parts = vim.split(header_line, "│", { plain = true })
@@ -637,15 +720,35 @@ function M.render_dataset(lines, meta)
   vim.api.nvim_set_option_value("signcolumn", "no", { win = dataset_window })
 
   -- Set sticky header via winbar (Neovim 0.8+)
+  -- Store sort info for scroll sync (winbar_plain_header already saved above)
+  winbar_sort_col = sort_state and sort_state.col or nil
+  winbar_sort_asc = sort_state and sort_state.ascending or nil
   if winbar_text then
     local ok, _ = pcall(vim.api.nvim_set_option_value, "winbar", winbar_text, { win = dataset_window })
     if not ok then
       -- Fallback: winbar not supported, header already removed from buffer — put it back
       -- This shouldn't happen on modern Neovim but just in case
       vim.api.nvim_set_option_value("winbar", "", { win = dataset_window })
+      winbar_plain_header = nil
     end
   else
     pcall(vim.api.nvim_set_option_value, "winbar", "", { win = dataset_window })
+    winbar_plain_header = nil
+  end
+
+  -- Register WinScrolled autocmd for horizontal scroll sync.
+  -- Clear previous autocmd to avoid duplicates on re-render.
+  if scroll_autocmd_id then
+    pcall(vim.api.nvim_del_autocmd, scroll_autocmd_id)
+    scroll_autocmd_id = nil
+  end
+  if winbar_plain_header and dataset_buffer then
+    scroll_autocmd_id = vim.api.nvim_create_autocmd("WinScrolled", {
+      buffer = dataset_buffer,
+      callback = function()
+        M.update_winbar()
+      end,
+    })
   end
 
   -- NOTE: Cell text color is handled by syntax group PosteDatasetCellText
@@ -665,11 +768,18 @@ function M.render_dataset(lines, meta)
     end
   end
 
+  -- Sync winbar after cursor positioning (may have triggered scroll)
+  M.update_winbar()
+
   -- Keep focus in the SQL file buffer (do NOT switch to dataset window)
 end
 
 --- Close the dataset split.
 function M.close()
+  if scroll_autocmd_id then
+    pcall(vim.api.nvim_del_autocmd, scroll_autocmd_id)
+    scroll_autocmd_id = nil
+  end
   if dataset_window and vim.api.nvim_win_is_valid(dataset_window) then
     vim.api.nvim_win_close(dataset_window, true)
     dataset_window = nil

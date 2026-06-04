@@ -22,6 +22,7 @@ local winbar_sort_col = nil     -- data column index that's sorted (or nil)
 local winbar_sort_asc = nil     -- true = ascending, false = descending
 local winbar_plain_header = nil -- full plain header line for byte alignment
 local winbar_plain_border = nil -- top border line (┌─┬─┐) for winbar
+local winbar_plain_sep = nil    -- separator line (├─┼─┤) for winbar bottom border
 local scroll_autocmd_id = nil   -- WinScrolled autocmd handle
 local is_updating_winbar = false -- prevent recursive WinScrolled
 
@@ -323,13 +324,22 @@ local function build_winbar_text(leftcol, win_width)
 
   if #visible_header == 0 then return nil end
 
+  -- Build separator line (├─┼─┤) as bottom border
+  local sep_text = ""
+  if border and winbar_plain_sep and #winbar_plain_sep > 0 then
+    local visible_sep = extract_visible(winbar_plain_sep, "%#PosteSqlWinbarBorder#", "%#PosteSqlWinbarBorder#")
+    if #visible_sep > 0 then
+      sep_text = "\n" .. PADDING_SPACES .. visible_sep
+    end
+  end
+
   -- Append sort indicator after the trailing │ (does not affect column alignment)
   local indicator = ""
   if winbar_sort_col then
     indicator = "%#PosteSqlSortIndicator#" .. (winbar_sort_asc and " ↑" or " ↓") .. "%#PosteSqlHeader#"
   end
 
-  return border_text .. "%#PosteSqlHeader#" .. PADDING_SPACES .. visible_header .. indicator
+  return border_text .. "%#PosteSqlHeader#" .. PADDING_SPACES .. visible_header .. indicator .. sep_text
 end
 
 --- Update winbar to match horizontal scroll position.
@@ -701,10 +711,12 @@ function M.render_dataset(lines, meta)
   if meta and meta.type == "resultset" and meta.header_line then
     local header_line = clean[meta.header_line]
     local border_line = clean[meta.header_line - 1]  -- top border (┌─┬─┐)
+    local sep_line = clean[meta.header_line + 1]     -- separator (├─┼─┤)
     if header_line then
-      -- Save plain header and border for scroll sync (update_winbar uses these)
+      -- Save plain header, top border, and separator for scroll sync
       winbar_plain_header = header_line
       winbar_plain_border = border_line
+      winbar_plain_sep = sep_line
       winbar_sort_col = sort_state and sort_state.col or nil
       winbar_sort_asc = sort_state and sort_state.ascending or nil
 

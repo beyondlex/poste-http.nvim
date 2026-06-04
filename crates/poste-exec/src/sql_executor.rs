@@ -293,7 +293,14 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
 
 /// Convert a MySQL row column value to serde_json::Value.
 fn mysql_value_to_json(row: &sqlx::mysql::MySqlRow, idx: usize) -> Value {
-    use sqlx::{Column, Row, TypeInfo};
+    use sqlx::{Column, Row, TypeInfo, ValueRef};
+
+    // Check for NULL first — avoids false negatives from type-specific decoders
+    if let Ok(raw) = row.try_get_raw(idx) {
+        if raw.is_null() {
+            return Value::Null;
+        }
+    }
 
     let type_name = row.column(idx).type_info().name();
 
@@ -329,10 +336,23 @@ fn mysql_value_to_json(row: &sqlx::mysql::MySqlRow, idx: usize) -> Value {
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or(Value::Null)
         }
-        _ => {
-            // Fall back to string representation
+        // Explicit string types — covers VARCHAR, VAR_STRING, TEXT, CHAR, ENUM, etc.
+        // SHOW TABLES returns VAR_STRING which must be matched here.
+        "VARCHAR" | "VAR_STRING" | "STRING" | "CHAR" |
+        "TEXT" | "TINYTEXT" | "MEDIUMTEXT" | "LONGTEXT" |
+        "ENUM" | "SET" => {
             row.try_get::<Option<String>, _>(idx)
                 .ok().flatten().map(|v| json!(v)).unwrap_or(Value::Null)
+        }
+        _ => {
+            // Last resort: try String, then bytes, then null
+            if let Ok(Some(s)) = row.try_get::<Option<String>, _>(idx) {
+                json!(s)
+            } else if let Ok(Some(b)) = row.try_get::<Option<Vec<u8>>, _>(idx) {
+                json!(String::from_utf8_lossy(&b).to_string())
+            } else {
+                Value::Null
+            }
         }
     }
 }

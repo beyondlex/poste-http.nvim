@@ -280,14 +280,19 @@ function M.render_dataset(lines, meta)
     end
   end
 
-  -- Write lines
+  -- Write lines (sanitize: nvim_buf_set_lines rejects items containing \n)
+  local clean = {}
+  for i, line in ipairs(lines) do
+    if type(line) ~= "string" then line = tostring(line or "") end
+    for seg in (line .. "\n"):gmatch("(.-)\n") do
+      clean[#clean + 1] = seg
+    end
+  end
   vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, clean)
   vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
 
-  -- Conceal │ separators for clean grid look
-  vim.wo.conceallevel = 2
-  vim.wo.concealcursor = "nc"
+  vim.wo.conceallevel = 0
 
   -- Apply highlights
   sql_highlights.apply_dataset_highlights(buf, lines, meta)

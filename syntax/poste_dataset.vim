@@ -6,9 +6,9 @@ if exists("b:current_syntax")
   finish
 endif
 
-" ─── Table borders (concealed) ──────────────────────
-" The │ separator is hidden via conceallevel=2 to create a clean grid look.
-syn match PosteDatasetSep '│' conceal
+" ─── Table borders ───────────────────────────────────
+" │ separator is shown with subtle highlighting (conceal breaks alignment).
+syn match PosteDatasetSep '│'
 
 " Box-drawing characters for borders
 syn match PosteDatasetBorder '[┌┐└┘├┤┬┴┼─╞╡╤╧╪═║╔╗╚╝╠╣╦╩╬]'
@@ -34,7 +34,7 @@ syn match PosteDatasetMeta '^Context switched.*$'
 syn match PosteDatasetMeta '^\d\+ row.*affected.*$'
 
 " ─── Highlight group links ──────────────────────────
-hi def link PosteDatasetSep     Conceal
+hi def link PosteDatasetSep     NonText
 hi def link PosteDatasetBorder  Delimiter
 hi def link PosteDatasetHeader  Title
 hi def link PosteDatasetNull    Comment

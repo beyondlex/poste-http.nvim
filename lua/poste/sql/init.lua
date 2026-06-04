@@ -61,6 +61,12 @@ function M.run_sql_request()
     vim.fn.shellescape(state.current_env)
   )
 
+  -- Pass database context from USE statement (tracked across executions)
+  local db = state.sql.context.database
+  if db and db ~= vim.NIL and db ~= "" then
+    cmd = cmd .. " --database " .. vim.fn.shellescape(db)
+  end
+
   state.log("INFO", string.format("SQL cmd: %s", cmd))
 
   local stderr_buf = {}

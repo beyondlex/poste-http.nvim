@@ -15,27 +15,10 @@ local function split_lines(s)
 end
 
 --- Calculate display width of a string (handles wide CJK characters).
+--- Uses Neovim's built-in strdisplaywidth() which correctly handles CJK, emoji, etc.
 local function displaywidth(s)
   if not s then return 0 end
-  local w = 0
-  for _, code in utf8.codes(s) do
-    if code >= 0x1100 and
-       (code <= 0x115f or code == 0x2329 or code == 0x232a or
-        (code >= 0x2e80 and code <= 0xa4cf and code ~= 0x303f) or
-        (code >= 0xac00 and code <= 0xd7a3) or
-        (code >= 0xf900 and code <= 0xfaff) or
-        (code >= 0xfe10 and code <= 0xfe19) or
-        (code >= 0xfe30 and code <= 0xfe6f) or
-        (code >= 0xff01 and code <= 0xff60) or
-        (code >= 0xffe0 and code <= 0xffe6) or
-        (code >= 0x20000 and code <= 0x2fffd) or
-        (code >= 0x30000 and code <= 0x3fffd)) then
-      w = w + 2
-    else
-      w = w + 1
-    end
-  end
-  return w
+  return vim.fn.strdisplaywidth(s)
 end
 
 --- Pad a string to a given display width (right-pad with spaces).
@@ -53,6 +36,7 @@ local function pad_left(s, width)
 end
 
 --- Convert a cell value to display string.
+--- Newlines are replaced with ⏎ to keep table layout intact.
 local function cell_to_string(val)
   if val == vim.NIL or val == nil then
     return "(NULL)"
@@ -67,13 +51,17 @@ local function cell_to_string(val)
     end
     return tostring(val)
   end
+  local s
   if type(val) == "table" then
     -- JSON/JSONB values — compact encode
     local ok, encoded = pcall(vim.json.encode, val)
-    if ok then return encoded end
-    return vim.inspect(val)
+    s = ok and encoded or vim.inspect(val)
+  else
+    s = tostring(val)
   end
-  return tostring(val)
+  -- Replace newlines with a visual indicator so nvim_buf_set_lines doesn't break
+  s = s:gsub("\r\n", "⏎"):gsub("\n", "⏎"):gsub("\r", "⏎")
+  return s
 end
 
 --- Check if a column contains only numeric values (for right-alignment).
@@ -332,8 +320,11 @@ function M.format_resultset(data)
   local total_rows = data.total_rows or #rows
   local total_ms = data.total_execution_time_ms or 0
   local conn = data.connection or ""
+  if conn == vim.NIL then conn = "" end
   local db = data.database
+  if db == vim.NIL then db = nil end
   local dialect = data.dialect or ""
+  if dialect == vim.NIL then dialect = "" end
 
   line_num = line_num + 1
   local meta_line = string.format("%d row%s returned · %dms · %s%s (%s)",

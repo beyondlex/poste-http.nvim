@@ -2,6 +2,7 @@
 local M = {}
 
 local ns = vim.api.nvim_create_namespace("poste_sql_dataset")
+local ns_cell = vim.api.nvim_create_namespace("poste_sql_dataset_cell")
 
 --- Resolve highlight group links fully (follow chains of `link`).
 local function resolve_hl(name)
@@ -119,9 +120,7 @@ end
 --- @param meta table Dataset metadata
 function M.highlight_cell(buf, row, col, meta)
   -- Clear previous cell highlight
-  vim.api.nvim_buf_clear_namespace(buf, ns .. "_cell", 0, -1)
-  -- Note: using a separate namespace for cell selection to avoid
-  -- clearing all dataset highlights on cursor move.
+  vim.api.nvim_buf_clear_namespace(buf, ns_cell, 0, -1)
 
   if not meta or meta.type ~= "resultset" then return end
   if not meta.data_start_line or not meta.data_end_line then return end
@@ -140,7 +139,7 @@ function M.highlight_cell(buf, row, col, meta)
   if col_start > #line then return end
   col_end = math.min(col_end, #line)
 
-  vim.api.nvim_buf_set_extmark(buf, ns .. "_cell", line_idx - 1, col_start - 1, {
+  vim.api.nvim_buf_set_extmark(buf, ns_cell, line_idx - 1, col_start - 1, {
     end_row = line_idx - 1,
     end_col = col_end - 1,
     hl_group = "PosteSqlCellSelected",
@@ -150,7 +149,7 @@ end
 
 --- Clear cell selection highlight.
 function M.clear_cell_highlight(buf)
-  vim.api.nvim_buf_clear_namespace(buf, ns .. "_cell", 0, -1)
+  vim.api.nvim_buf_clear_namespace(buf, ns_cell, 0, -1)
 end
 
 return M

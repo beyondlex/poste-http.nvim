@@ -3,6 +3,12 @@
 ###
 USE blog;
 
+###
+show tables;
+
+###
+select * from posts;
+
 ### All posts with author and category
 SELECT p.title,
        a.username AS author,

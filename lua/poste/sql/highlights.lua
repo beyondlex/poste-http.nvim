@@ -113,6 +113,35 @@ function M.apply_dataset_highlights(buf, lines, meta)
   end
 end
 
+--- Find the byte range and cursor column for a cell in a rendered dataset line.
+--- Reads the actual line content to locate │ separators, so it works
+--- regardless of CJK widths, truncation, or multi-byte characters.
+--- @param line string The rendered line (from buffer or format output)
+--- @param col number 1-based column index
+--- @return table|nil { ext_start, ext_end, cursor_col } or nil if not found
+function M.find_cell_range(line, col)
+  if not line or line == "" then return nil end
+  local sep = "│"
+  local sep_len = #sep  -- 3 bytes in UTF-8
+  local scan = 1
+  for i = 1, col do
+    local next_sep = line:find(sep, scan, true)
+    if not next_sep then return nil end
+    local close_sep = line:find(sep, next_sep + sep_len, true)
+    if not close_sep then return nil end
+    if i == col then
+      -- extmark range: include leading+trailing spaces
+      local ext_start = next_sep + sep_len - 1  -- 0-based, the leading space
+      local ext_end = close_sep - 1             -- 0-based exclusive, up to trailing space
+      -- cursor column: display width from line start to content start
+      local cursor_col = vim.fn.strdisplaywidth(line:sub(1, next_sep + sep_len - 1))
+      return { ext_start = ext_start, ext_end = ext_end, cursor_col = cursor_col }
+    end
+    scan = close_sep + sep_len
+  end
+  return nil
+end
+
 --- Highlight the currently selected cell in the dataset.
 --- @param buf number Buffer handle
 --- @param row number 1-based row in data
@@ -129,26 +158,16 @@ function M.highlight_cell(buf, row, col, meta)
   if line_idx > meta.data_end_line then return end
 
   local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
-  if not meta.col_positions or not meta.col_widths then return end
-
-  local col_start = meta.col_positions[col]
-  if not col_start then return end
-  -- col_positions stores 0-based byte offset of first content byte.
-  -- Highlight from leading space through trailing space:
-  --   start = content_start - 1 (the leading space byte)
-  --   end   = content_start + byte_len + 1 (past the trailing space)
-  local byte_len = meta.col_byte_lens and meta.col_byte_lens[col] or (meta.col_widths[col] or 0)
-  local ext_start = col_start - 1
-  local ext_end = col_start + byte_len + 1
+  local range = M.find_cell_range(line, col)
+  if not range then return end
 
   -- Clamp to line byte length
-  if ext_start < 0 then ext_start = 0 end
-  if ext_start > #line then return end
-  ext_end = math.min(ext_end, #line)
+  if range.ext_start > #line then return end
+  range.ext_end = math.min(range.ext_end, #line)
 
-  vim.api.nvim_buf_set_extmark(buf, ns_cell, line_idx - 1, ext_start, {
+  vim.api.nvim_buf_set_extmark(buf, ns_cell, line_idx - 1, range.ext_start, {
     end_row = line_idx - 1,
-    end_col = ext_end,
+    end_col = range.ext_end,
     hl_group = "PosteSqlCellSelected",
     priority = 200,
   })

@@ -142,9 +142,15 @@ function M.position_cursor(row, col)
   if not vim.api.nvim_win_is_valid(dataset_window) then return end
 
   local line_idx = (current_meta.data_start_line or 1) + row - 1
-  local col_pos = current_meta.col_positions and current_meta.col_positions[col] or 0
 
-  pcall(vim.api.nvim_win_set_cursor, dataset_window, { line_idx, col_pos })
+  -- Compute cursor column from the actual buffer line (handles CJK, truncation)
+  local line = vim.api.nvim_buf_get_lines(
+    vim.api.nvim_win_get_buf(dataset_window), line_idx - 1, line_idx, false
+  )[1] or ""
+  local range = sql_highlights.find_cell_range(line, col)
+  local cursor_col = range and range.cursor_col or 0
+
+  pcall(vim.api.nvim_win_set_cursor, dataset_window, { line_idx, cursor_col })
 
   -- Scroll horizontally to make the cell visible
   pcall(vim.api.nvim_win_call, dataset_window, function()

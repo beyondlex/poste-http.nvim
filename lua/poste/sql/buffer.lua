@@ -163,19 +163,25 @@ function M.position_cursor(row, col)
   local range = sql_highlights.find_cell_range(line, col + 1)
   local target_col = range and range.cursor_col or 0
 
+  -- Convert byte offset to display column position.
+  -- find_cell_range returns byte offsets, but leftcol and win_width are in
+  -- display columns. Each │ separator is 3 bytes but 1 display column, so
+  -- byte offsets grow faster than display positions in lines with many │.
+  local target_disp = vim.fn.strdisplaywidth(line:sub(1, target_col))
+
   -- Read current view state BEFORE touching cursor/scroll
   local saved_leftcol = vim.api.nvim_win_call(dataset_window, function()
     return vim.fn.winsaveview().leftcol
   end)
   local win_width = vim.api.nvim_win_get_width(dataset_window)
 
-  -- Check if target byte offset is within the currently visible range.
+  -- Check if target display position is within the currently visible range.
   -- A right margin triggers scrolling slightly before the cursor leaves
   -- the window, giving a smoother experience.
   local left_margin = 2
   local right_margin = 3
-  local target_on_screen = target_col >= math.max(0, saved_leftcol - left_margin)
-    and target_col < saved_leftcol + win_width - right_margin
+  local target_on_screen = target_disp >= math.max(0, saved_leftcol - left_margin)
+    and target_disp < saved_leftcol + win_width - right_margin
 
   -- Check if the last column is fully visible in the CURRENT view.
   -- If so, there's no more data to the right — scrolling is pointless.
@@ -185,9 +191,9 @@ function M.position_cursor(row, col)
   if last_col > 0 then
     local last_range = sql_highlights.find_cell_range(line, last_col + 1)
     if last_range then
-      -- Screen position of the last column's right edge
-      local last_right_screen = last_range.ext_end - saved_leftcol
-      last_col_fits = last_right_screen <= win_width
+      -- Display position of the last column's right edge (past closing │)
+      local last_right_disp = vim.fn.strdisplaywidth(line:sub(1, last_range.ext_end + 3))
+      last_col_fits = last_right_disp <= saved_leftcol + win_width
     end
   end
 
@@ -225,59 +231,91 @@ function M.position_cursor(row, col)
 end
 
 --- Build winbar text showing only columns visible within the window.
---- Uses find_cell_range on the full plain header to locate each column's byte range,
---- then includes only columns whose display position falls within [leftcol, leftcol+win_width].
---- This ensures the winbar never exceeds the window width and always aligns with visible data.
---- @param leftcol number Byte offset of the first visible column (0 = no scroll)
+--- Takes a display-width-aligned slice of the plain header string so that
+--- the winbar characters line up exactly with the scrolled data columns.
+--- This handles partial cells at the left edge (when sidescrolloff causes
+--- leftcol to land mid-cell) and correctly accounts for multi-byte │ (3 bytes
+--- but 1 display column).
+--- @param leftcol number Screen column offset of the leftmost visible column
 --- @param win_width number Window width in screen columns
 --- @return string|nil winbar text with highlight markers
 local function build_winbar_text(leftcol, win_width)
   if not winbar_plain_header then return nil end
 
   local header = winbar_plain_header
-  local indicator = ""
-  if winbar_sort_col then
-    indicator = winbar_sort_asc and "↑" or "↓"
-  end
+  local sep = "│"
+  local sep_len = #sep  -- 3 bytes in UTF-8
 
-  -- Find byte ranges for all visual columns (row number + data columns)
-  -- Visual col 1 = row number, visual col 2 = data col 1, etc.
-  local visible_cells = {}
-  for vis_col = 1, 200 do
-    local range = sql_highlights.find_cell_range(header, vis_col)
-    if not range then break end
+  -- Walk the header byte-by-byte, tracking display width.
+  -- Include bytes whose display position falls in [leftcol, leftcol + win_width).
+  -- This produces a substring that is character-for-character aligned with the
+  -- visible portion of the data rows.
+  local result_bytes = {}
+  local disp_pos = 0
+  local byte_idx = 1
 
-    -- ext_end is 0-based byte of the trailing space (before closing │).
-    -- The closing │ is 3 bytes (UTF-8), so the cell's right edge in the
-    -- rendered winbar is at 1-based byte (ext_end + 4).
-    -- This is the display width of the winbar if this is the last included column.
-    local winbar_right = range.ext_end + 4 - leftcol
+  while byte_idx <= #header do
+    -- Detect multi-byte │ separator by comparing the full sequence
+    local maybe_sep = header:sub(byte_idx, byte_idx + sep_len - 1)
+    local char_bytes, char_width
 
-    -- Skip if column's closing │ is entirely to the left of the visible area
-    if winbar_right <= 0 then goto continue end
-
-    -- Stop if including this column would make the winbar wider than the window.
-    -- This prevents Neovim from truncating the winbar with "<" on the left,
-    -- which causes misalignment between header and data columns.
-    if winbar_right > win_width then break end
-
-    -- This column fits within the window — extract cell content
-    local cell_bytes = header:sub(range.ext_start + 1, range.ext_end)
-    local escaped = cell_bytes:gsub("%%", "%%%%")
-    -- Data column index: vis_col 1 = row number, vis_col 2 = data col 1
-    local data_col_idx = vis_col - 1
-    if winbar_sort_col and winbar_sort_col == data_col_idx and indicator ~= "" then
-      local trimmed = escaped:gsub(" $", "")
-      visible_cells[#visible_cells + 1] = trimmed .. "%#PosteSqlSortIndicator#" .. indicator .. "%#PosteSqlHeader#"
+    if maybe_sep == sep then
+      char_bytes = sep_len
+      char_width = 1
     else
-      visible_cells[#visible_cells + 1] = escaped
+      -- Advance by full UTF-8 character to handle CJK, emoji, etc.
+      local b = header:byte(byte_idx)
+      if b < 0x80 then char_bytes = 1
+      elseif b < 0xE0 then char_bytes = 2
+      elseif b < 0xF0 then char_bytes = 3
+      else char_bytes = 4
+      end
+      if byte_idx + char_bytes - 1 > #header then
+        char_bytes = #header - byte_idx + 1
+      end
+      char_width = vim.fn.strdisplaywidth(header:sub(byte_idx, byte_idx + char_bytes - 1))
+      if char_width == 0 then char_width = 1 end
     end
 
-    ::continue::
+    -- Check if this character's display range [disp_pos, disp_pos+char_width)
+    -- overlaps with the viewport [leftcol, leftcol+win_width).
+    local char_start = disp_pos
+    local char_end = disp_pos + char_width
+
+    if char_end > leftcol and char_start < leftcol + win_width then
+      if char_start < leftcol then
+        -- Character starts before viewport (mid-cell or mid-double-width-char).
+        -- Neovim pads the hidden portion with spaces, so we must too.
+        local visible_width = math.min(char_end, leftcol + win_width) - leftcol
+        result_bytes[#result_bytes + 1] = string.rep(" ", visible_width)
+      elseif char_end > leftcol + win_width then
+        -- Character extends past the right edge — pad the visible portion.
+        local visible_width = leftcol + win_width - char_start
+        result_bytes[#result_bytes + 1] = string.rep(" ", visible_width)
+      else
+        -- Character fully within viewport
+        result_bytes[#result_bytes + 1] = header:sub(byte_idx, byte_idx + char_bytes - 1)
+      end
+    end
+
+    disp_pos = char_end
+    byte_idx = byte_idx + char_bytes
   end
 
-  if #visible_cells == 0 then return nil end
-  return "%#PosteSqlHeader#" .. "│" .. table.concat(visible_cells, "│") .. "│"
+  if #result_bytes == 0 then return nil end
+
+  local visible_text = table.concat(result_bytes)
+
+  -- Escape % for Neovim's statusline/winbar format syntax
+  local escaped = visible_text:gsub("%%", "%%%%")
+
+  -- Append sort indicator after the trailing │ (does not affect column alignment)
+  local indicator = ""
+  if winbar_sort_col then
+    indicator = "%#PosteSqlSortIndicator#" .. (winbar_sort_asc and " ↑" or " ↓") .. "%#PosteSqlHeader#"
+  end
+
+  return "%#PosteSqlHeader#" .. escaped .. indicator
 end
 
 --- Update winbar to match horizontal scroll position.
@@ -707,6 +745,13 @@ function M.render_dataset(lines, meta)
   vim.api.nvim_set_option_value("number", false, { win = dataset_window })
   vim.api.nvim_set_option_value("relativenumber", false, { win = dataset_window })
   vim.api.nvim_set_option_value("signcolumn", "no", { win = dataset_window })
+  -- Reset options that add a left-side column offset. Without these,
+  -- a global statuscolumn/foldcolumn shifts the data area right while
+  -- the winbar stays at screen column 0, breaking separator alignment
+  -- when leftcol > 0.
+  pcall(vim.api.nvim_set_option_value, "statuscolumn", "", { win = dataset_window })
+  vim.api.nvim_set_option_value("foldcolumn", "0", { win = dataset_window })
+  vim.api.nvim_set_option_value("foldenable", false, { win = dataset_window })
 
   -- Set initial winbar to empty — update_winbar() populates it below
   -- after cursor positioning (with leftcol and win_width from the window).

@@ -1148,6 +1148,37 @@ function M.open()
     vim.keymap.set("n", "q", function()
       M.close()
     end, opts)
+
+    -- Table operations (ma/mr/md/mt)
+    local table_ops = require("poste.sql.table_ops")
+    table_ops.register_keymaps(browser_buf, function()
+      local buf_line = vim.fn.line(".")
+      local idx = buf_line - HEADER_LINES
+      -- Find table node at or above cursor
+      local node = nil
+      for i = idx, 1, -1 do
+        local n = line_to_node[i]
+        if n and n.node_type == "table" then
+          node = n
+          break
+        end
+        if n and (n.node_type == "database" or n.node_type == "schema" or n.node_type == "connection") then
+          break
+        end
+      end
+      if not node then
+        vim.notify("Move cursor to a table node for table operations", vim.log.levels.WARN)
+        return nil
+      end
+      local dialect = "postgres"
+      for _, root in ipairs(root_nodes) do
+        if root.name == (node.meta and node.meta.connection) then
+          dialect = root.meta and root.meta.dialect or dialect
+          break
+        end
+      end
+      return { table_name = node.name, dialect = dialect, source_buf = source_buf }
+    end)
   end
 
   -- Open left vertical split (40 cols)

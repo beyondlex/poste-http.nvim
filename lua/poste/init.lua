@@ -706,6 +706,39 @@ function M.setup(opts)
   -- Register nvim-cmp source (if available)
   completion.register()
 
+  -- Register SQL completion source (blink.cmp or nvim-cmp)
+  local sql_comp = require("poste.sql.completion")
+  local function register_sql_completion()
+    -- Try blink.cmp first
+    local blink_ok, blink = pcall(require, "blink.cmp")
+    if blink_ok and blink.add_source_provider then
+      blink.add_source_provider("poste_sql", {
+        module = "poste.sql.completion",
+        name = "PosteSQL",
+        score_offset = 100,
+      })
+      blink.add_filetype_source("poste_sql", "poste_sql")
+      blink.add_filetype_source("poste_sqlite", "poste_sql")
+      return true
+    end
+    -- Fall back to nvim-cmp
+    local cmp_ok = pcall(sql_comp.register)
+    return cmp_ok
+  end
+
+  if not pcall(register_sql_completion) then
+    -- Neither loaded yet — defer to InsertEnter
+    local group = vim.api.nvim_create_augroup("PosteSQLCmpRegister", { clear = true })
+    vim.api.nvim_create_autocmd("InsertEnter", {
+      group = group,
+      once = true,
+      callback = function()
+        pcall(register_sql_completion)
+        vim.api.nvim_del_augroup_by_name("PosteSQLCmpRegister")
+      end,
+    })
+  end
+
   local function setup_buffer_keymaps(buf)
     local keymap_opts = { buffer = buf, noremap = true, silent = true }
     vim.keymap.set("n", "<leader>rr", M.run_request, keymap_opts)

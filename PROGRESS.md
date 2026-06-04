@@ -14,11 +14,11 @@
 | 1C | MySQL/SQLite 执行器 | 13-14 | ✅ |
 | 2 | 连接与上下文管理 | 15-19 | ✅ |
 | 3 | 数据库结构浏览 | 20-23 | ✅ |
-| 4 | 表操作 + DDL + 补全 | 24-27 | ⏳ |
+| 4 | 表操作 + DDL + 补全 | 24-27 | ✅ |
 | 5 | 导入/导出 + 分页 | 28-31 | ⏳ |
 | 6 | 高级特性 | 32-38 | ⏳ |
 
-**Tests: 63 passed** · 23/38 steps done
+**Tests: 78 passed** · 27/38 steps done
 
 ---
 
@@ -154,22 +154,22 @@
 
 ## Phase 4 — 表操作 + DDL + 补全
 
-[ ] **Step 24: sql_ddl.rs — DDL 生成器**
+[x] **Step 24: sql_ddl.rs — DDL 生成器**
 - 前置: Step 3
 - 新建: `crates/poste-exec/src/sql_ddl.rs`
 - 功能: DdlGenerator trait + 三个 dialect 实现
 
-[ ] **Step 25: sql/table_ops.lua — 表修改 UI**
+[x] **Step 25: sql/table_ops.lua — 表修改 UI**
 - 前置: Step 22, 24
 - 新建: `lua/poste/sql/table_ops.lua`
 - 键位: ma(添加列)/mr(重命名)/md(删除)/mt(改类型) → 生成 DDL
 
-[ ] **Step 26: sql/completion.lua — SQL 补全**
+[x] **Step 26: sql/completion.lua — SQL 补全**
 - 前置: Step 7, 20
 - 新建: `lua/poste/sql/completion.lua`
 - 补全: SQL 关键字、连接名称、表名、列名、数据类型
 
-[ ] **Step 27: Phase 4 集成测试**
+[x] **Step 27: Phase 4 集成测试**
 - 前置: Step 24, 25, 26
 
 ---
@@ -269,7 +269,7 @@ Phase 6:   11→32→33,34,35,36    5→37    12→38
 
 ## 已完成的文件清单
 
-### 新建 — Rust (5)
+### 新建 — Rust (6)
 | 文件 | Step |
 |------|------|
 | `crates/poste-core/src/sql_parser.rs` | 4 |
@@ -277,8 +277,9 @@ Phase 6:   11→32→33,34,35,36    5→37    12→38
 | `crates/poste-exec/src/sql_executor.rs` | 5,13,14 |
 | `crates/poste-exec/src/sql_connection.rs` | 15 |
 | `crates/poste-exec/src/sql_introspect.rs` | 20 |
+| `crates/poste-exec/src/sql_ddl.rs` | 24 |
 
-### 新建 — Lua (7)
+### 新建 — Lua (9)
 | 文件 | Step |
 |------|------|
 | `lua/poste/sql/init.lua` | 12 |
@@ -288,6 +289,8 @@ Phase 6:   11→32→33,34,35,36    5→37    12→38
 | `lua/poste/sql/connections.lua` | 18 |
 | `lua/poste/sql/context.lua` | 19 |
 | `lua/poste/sql/db_browser.lua` | 22,23 |
+| `lua/poste/sql/table_ops.lua` | 25 |
+| `lua/poste/sql/completion.lua` | 26 |
 
 ### 新建 — VimScript (3)
 | 文件 | Step |

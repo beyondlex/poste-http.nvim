@@ -13,3 +13,6 @@ setlocal commentstring=--\ %s
 setlocal shiftwidth=2
 setlocal tabstop=2
 setlocal expandtab
+
+" Register SQL completion source
+lua pcall(function() require("poste.sql.completion").register() end)

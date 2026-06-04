@@ -301,15 +301,26 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
     use sqlx::mysql::{MySqlPoolOptions, MySqlRow};
     use sqlx::{Column, Row, TypeInfo};
 
+    // Check for USE statements and modify connection URL accordingly
+    // (MySQL's USE doesn't work with prepared statement protocol)
+    let mut connection_url = parsed.connection.clone();
+    for stmt in &parsed.statements {
+        if let Some(db_name) = sql_parser::detect_use_statement(stmt) {
+            connection_url = replace_database_in_url(&connection_url, &db_name);
+            break;
+        }
+    }
+
     let pool = MySqlPoolOptions::new()
         .max_connections(2)
-        .connect(&parsed.connection)
+        .connect(&connection_url)
         .await?;
 
     let mut results = Vec::new();
     let total_start = Instant::now();
 
     for stmt in &parsed.statements {
+        // Skip USE statements (already handled by modifying connection URL)
         if sql_parser::detect_use_statement(stmt).is_some() {
             continue;
         }
@@ -701,6 +712,24 @@ fn build_response(
     };
 
     Ok(make_response(protocol, connection, body, status_text))
+}
+
+/// Replace the database name in a connection URL.
+/// Used to handle USE statements by reconnecting to the target database.
+fn replace_database_in_url(url: &str, new_db: &str) -> String {
+    // Find the scheme separator
+    if let Some(scheme_end) = url.find("://") {
+        let after_scheme = &url[scheme_end + 3..];
+        // Find the last '/' which separates host:port from database
+        if let Some(last_slash) = after_scheme.rfind('/') {
+            let base = &url[..scheme_end + 3 + last_slash + 1];
+            return format!("{}{}", base, new_db);
+        }
+        // No database part yet — append /newdb
+        return format!("{}/{}", url, new_db);
+    }
+    // Not a standard URL — return as-is
+    url.to_string()
 }
 
 #[cfg(test)]

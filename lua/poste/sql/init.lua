@@ -61,8 +61,13 @@ function M.run_sql_request()
     vim.fn.shellescape(state.current_env)
   )
 
-  -- Pass database context from USE statement (tracked across executions)
-  local db = state.sql.context.database
+  -- Resolve context from buffer at cursor position (block-level @connection,
+  -- @database, and preceding USE statements take priority over global state)
+  local sql_context = require("poste.sql.context")
+  local ctx = sql_context.resolve_context(src_buf)
+
+  -- Pass database context: prefer block-resolved, fall back to global state
+  local db = ctx.database or state.sql.context.database
   if db and db ~= vim.NIL and db ~= "" then
     cmd = cmd .. " --database " .. vim.fn.shellescape(db)
   end

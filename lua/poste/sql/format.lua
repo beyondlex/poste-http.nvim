@@ -255,13 +255,20 @@ function M.format_resultset(data)
     return { "", "  (empty result set)", "" }, { type = "empty" }
   end
 
+  -- Row number column width (based on total row count for consistent width)
+  local total_rows = data.total_rows or #rows
+  local row_num_width = math.max(1, math.floor(math.log10(math.max(1, total_rows))) + 1)
+
   -- Calculate column widths (cap at 200 total width for readability)
   local col_widths = calc_column_widths(columns, rows, 200)
 
+  -- Prepend row number column (always right-aligned)
+  table.insert(col_widths, 1, row_num_width)
+
   -- Determine which columns are numeric (for right-alignment)
-  local numeric_cols = {}
+  local numeric_cols = { true }  -- row number column
   for i = 1, #columns do
-    numeric_cols[i] = is_numeric_column(rows, i)
+    numeric_cols[i + 1] = is_numeric_column(rows, i)
   end
 
   -- Build lines
@@ -274,9 +281,9 @@ function M.format_resultset(data)
 
   -- Header row
   line_num = line_num + 1
-  local header_cells = {}
+  local header_cells = { "" }  -- empty header for row number column
   for i, col in ipairs(columns) do
-    header_cells[i] = col.name
+    header_cells[i + 1] = col.name
   end
   lines[line_num] = data_row(header_cells, col_widths, {})
 
@@ -288,11 +295,11 @@ function M.format_resultset(data)
 
   -- Data rows
   local data_start = line_num + 1
-  for _, row in ipairs(rows) do
+  for row_idx, row in ipairs(rows) do
     line_num = line_num + 1
-    local cells = {}
+    local cells = { tostring(row_idx) }  -- row number
     for i = 1, #columns do
-      cells[i] = cell_to_string(row[i])
+      cells[i + 1] = cell_to_string(row[i])
     end
     lines[line_num] = data_row(cells, col_widths, numeric_cols)
   end
@@ -307,7 +314,6 @@ function M.format_resultset(data)
   lines[line_num] = ""
 
   -- Meta footer
-  local total_rows = data.total_rows or #rows
   local total_ms = data.total_execution_time_ms or 0
   local conn = data.connection or ""
   if conn == vim.NIL then conn = "" end

@@ -83,6 +83,10 @@ function M.setup()
     fg = dark and 0x56b6c2 or 0xcf222e,
     bold = true,
   })
+  -- Row number column: muted/subtle color
+  vim.api.nvim_set_hl(0, "PosteSqlRowNum", {
+    fg = dark and 0x5c6370 or 0x999999,
+  })
 
   -- Cell selection: bright bg with contrasting fg
   vim.api.nvim_set_hl(0, "PosteSqlCellSelected", {
@@ -141,10 +145,22 @@ function M.apply_dataset_highlights(buf, lines, meta)
     end
   end
 
-  -- Data rows: highlight NULL cells and numbers
+  -- Data rows: highlight NULL cells, numbers, and row number column
   if meta.data_start_line and meta.data_end_line then
     for row_idx = meta.data_start_line, meta.data_end_line do
       local line = lines[row_idx] or ""
+
+      -- Row number column (visual column 1)
+      local row_range = M.find_cell_range(line, 1)
+      if row_range and row_range.ext_start <= #line then
+        vim.api.nvim_buf_set_extmark(buf, ns, row_idx - 1, row_range.ext_start, {
+          end_row = row_idx - 1,
+          end_col = math.min(row_range.ext_end, #line),
+          hl_group = "PosteSqlRowNum",
+          priority = 100,
+        })
+      end
+
       -- Find NULL occurrences
       local col = 0
       while true do
@@ -228,8 +244,9 @@ function M.highlight_cell(buf, row, col, meta)
   local line_idx = meta.data_start_line + row - 1
   if line_idx > meta.data_end_line then return end
 
+  -- +1 offset: visual column 1 is the row number column
   local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
-  local range = M.find_cell_range(line, col)
+  local range = M.find_cell_range(line, col + 1)
   if not range then return end
 
   -- Clamp to line byte length

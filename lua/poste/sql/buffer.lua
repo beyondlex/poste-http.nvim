@@ -148,8 +148,9 @@ function M.position_cursor(row, col)
   local buf = vim.api.nvim_win_get_buf(dataset_window)
 
   -- Compute target byte offset from the actual buffer line
+  -- +1 offset: visual column 1 is the row number column
   local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
-  local range = sql_highlights.find_cell_range(line, col)
+  local range = sql_highlights.find_cell_range(line, col + 1)
   local target_col = range and range.cursor_col or 0
 
   -- Read current view state BEFORE touching cursor/scroll
@@ -168,10 +169,11 @@ function M.position_cursor(row, col)
 
   -- Check if the last column is fully visible in the CURRENT view.
   -- If so, there's no more data to the right — scrolling is pointless.
+  -- +1 offset: visual column includes row number column
   local last_col = current_meta.col_count or 0
   local last_col_fits = true
   if last_col > 0 then
-    local last_range = sql_highlights.find_cell_range(line, last_col)
+    local last_range = sql_highlights.find_cell_range(line, last_col + 1)
     if last_range then
       -- Screen position of the last column's right edge
       local last_right_screen = last_range.ext_end - saved_leftcol
@@ -572,8 +574,9 @@ function M.render_dataset(lines, meta)
           -- Escape % in original column name for winbar
           local escaped_part = part:gsub("%%", "%%%%")
           -- Data cell: check if this is the sorted column
-          -- parts[1] is empty, parts[2] is column 1, parts[3] is column 2, etc.
-          local col_idx = i - 1
+          -- parts[1] is empty, parts[2] is row number col, parts[3] is data col 1, etc.
+          -- col_idx maps to data column index (1-based), row number col gets 0
+          local col_idx = i - 2
           if sort_state and sort_state.col == col_idx and indicator ~= "" then
             -- Replace last space with indicator using different highlight group.
             -- In Lua gsub replacement, % is a special char (backreference),

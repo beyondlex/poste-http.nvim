@@ -9,6 +9,10 @@ local M = {}
 local dataset_buffer = nil
 local dataset_window = nil
 
+--- Left padding for dataset display
+local LEFT_PADDING = 2
+local PADDING_SPACES = string.rep(" ", LEFT_PADDING)
+
 --- Current dataset state
 local current_meta = nil
 local current_lines = nil
@@ -246,6 +250,9 @@ local function build_winbar_text(leftcol, win_width)
   local sep = "│"
   local sep_len = #sep  -- 3 bytes in UTF-8
 
+  -- Adjust win_width to account for left padding
+  win_width = win_width - LEFT_PADDING
+
   -- Walk the header byte-by-byte, tracking display width.
   -- Include bytes whose display position falls in [leftcol, leftcol + win_width).
   -- This produces a substring that is character-for-character aligned with the
@@ -315,7 +322,7 @@ local function build_winbar_text(leftcol, win_width)
     indicator = "%#PosteSqlSortIndicator#" .. (winbar_sort_asc and " ↑" or " ↓") .. "%#PosteSqlHeader#"
   end
 
-  return "%#PosteSqlHeader#" .. escaped .. indicator
+  return "%#PosteSqlHeader#" .. PADDING_SPACES .. escaped .. indicator
 end
 
 --- Update winbar to match horizontal scroll position.
@@ -707,12 +714,22 @@ function M.render_dataset(lines, meta)
     end
   end
 
+  -- Apply left padding to all lines
+  local padded = {}
+  for _, line in ipairs(clean) do
+    if line == "" then
+      padded[#padded + 1] = ""
+    else
+      padded[#padded + 1] = PADDING_SPACES .. line
+    end
+  end
+
   vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, clean)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded)
   vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
 
-  -- Apply highlights
-  sql_highlights.apply_dataset_highlights(buf, clean, meta)
+  -- Apply highlights (use padded lines since that's what's in the buffer)
+  sql_highlights.apply_dataset_highlights(buf, padded, meta)
 
   -- Open bottom horizontal split
   if not dataset_window or not vim.api.nvim_win_is_valid(dataset_window) then

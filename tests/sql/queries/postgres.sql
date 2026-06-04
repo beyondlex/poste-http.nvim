@@ -15,6 +15,9 @@ FROM users
 WHERE status = 'active'
 ORDER BY created_at DESC;
 
+###
+select * from products;
+
 ### Revenue by product
 SELECT p.name AS product,
        SUM(oi.quantity * oi.unit_price) AS revenue,

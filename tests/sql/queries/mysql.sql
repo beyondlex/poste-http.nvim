@@ -9,6 +9,8 @@ show tables;
 ###
 select * from posts;
 ###
+desc posts;
+###
 select body from posts;
 
 ###

@@ -144,8 +144,8 @@ function M.find_cell_range(line, col)
   local ext_start = next_sep + sep_len - 1  -- 0-based, the leading space
   local ext_end = close_sep - 1             -- 0-based exclusive, up to trailing space
 
-  -- cursor column: display width from line start to content start (after │ and space)
-  local cursor_col = vim.fn.strdisplaywidth(line:sub(1, next_sep + sep_len))
+  -- cursor column: 0-based byte offset of content start (same as ext_start)
+  local cursor_col = next_sep + sep_len - 1
 
   return { ext_start = ext_start, ext_end = ext_end, cursor_col = cursor_col }
 end

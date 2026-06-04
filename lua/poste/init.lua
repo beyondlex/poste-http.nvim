@@ -771,6 +771,11 @@ function M.setup(opts)
     require("poste.sql.connections").show_menu()
   end, { desc = "Manage SQL connections" })
 
+  -- DB Browser (Phase 3)
+  vim.api.nvim_create_user_command("PosteDBBrowser", function()
+    require("poste.sql.db_browser").toggle()
+  end, { desc = "Toggle database structure browser sidebar" })
+
   -- SQL context switching
   vim.api.nvim_create_user_command("PosteSQLContext", function(args)
     local context = require("poste.sql.context")
@@ -798,7 +803,7 @@ function M.setup(opts)
     end,
   })
 
-  -- SQL files: set up keymaps (same keymaps as HTTP)
+  -- SQL files: set up keymaps (same keymaps as HTTP) + DB browser keymap
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.sql", "*.sqlite" },
     callback = function()
@@ -809,6 +814,9 @@ function M.setup(opts)
         vim.bo.filetype = "poste_sql"
       end
       setup_buffer_keymaps(0)
+      vim.keymap.set("n", "<leader>db", function()
+        require("poste.sql.db_browser").toggle()
+      end, { buffer = 0, noremap = true, silent = true, desc = "Toggle DB Browser" })
     end,
   })
 
@@ -824,9 +832,15 @@ function M.setup(opts)
     elseif name:match("%.sqlite$") then
       vim.api.nvim_buf_set_option(buf, "filetype", "poste_sqlite")
       setup_buffer_keymaps(buf)
+      vim.keymap.set("n", "<leader>db", function()
+        require("poste.sql.db_browser").toggle()
+      end, { buffer = buf, noremap = true, silent = true, desc = "Toggle DB Browser" })
     elseif name:match("%.sql$") then
       vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
       setup_buffer_keymaps(buf)
+      vim.keymap.set("n", "<leader>db", function()
+        require("poste.sql.db_browser").toggle()
+      end, { buffer = buf, noremap = true, silent = true, desc = "Toggle DB Browser" })
     end
   end
 

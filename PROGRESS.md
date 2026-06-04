@@ -13,12 +13,12 @@
 | 1B | Lua Dataset 面板 | 6-12 | ✅ |
 | 1C | MySQL/SQLite 执行器 | 13-14 | ✅ |
 | 2 | 连接与上下文管理 | 15-19 | ✅ |
-| 3 | 数据库结构浏览 | 20-23 | ⏳ |
+| 3 | 数据库结构浏览 | 20-23 | ✅ |
 | 4 | 表操作 + DDL + 补全 | 24-27 | ⏳ |
 | 5 | 导入/导出 + 分页 | 28-31 | ⏳ |
 | 6 | 高级特性 | 32-38 | ⏳ |
 
-**Tests: 54 passed** · 19/38 steps done
+**Tests: 63 passed** · 23/38 steps done
 
 ---
 
@@ -129,26 +129,26 @@
 
 ## Phase 3 — 数据库结构浏览
 
-[ ] **Step 20: sql_introspect.rs — 内省查询**
+[x] **Step 20: sql_introspect.rs — 内省查询**
 - 前置: Step 3, 5
 - 新建: `crates/poste-exec/src/sql_introspect.rs`
 - 功能: list_databases/schemas/tables/columns/indexes
 
-[ ] **Step 21: CLI introspect 子命令**
+[x] **Step 21: CLI introspect 子命令**
 - 前置: Step 20
 - 改: `main.rs` — `poste introspect <conn> --type tables --json`
 
-[ ] **Step 22: sql/db_browser.lua — 树形浏览器**
+[x] **Step 22: sql/db_browser.lua — 树形浏览器**
 - 前置: Step 21
 - 新建: `lua/poste/sql/db_browser.lua`
 - 命令: `:PosteDBBrowser` — 侧边栏 40 列，懒加载，缓存，r 刷新
 - 键位: CR 展开/折叠, / 搜索, s 生成 SELECT, d 生成 DESCRIBE, q 关闭
 
-[ ] **Step 23: 快速查询生成**
+[x] **Step 23: 快速查询生成**
 - 前置: Step 22
 - 功能: 浏览器中 `s` → 在当前 SQL 文件插入查询
 
-**★ Phase 3 里程碑:** DB Browser 树形浏览 → 生成查询 → 执行 → Dataset 显示
+**★ Phase 3 里程碑:** ✅ DB Browser 树形浏览 → 生成查询 → 执行 → Dataset 显示
 
 ---
 
@@ -269,15 +269,16 @@ Phase 6:   11→32→33,34,35,36    5→37    12→38
 
 ## 已完成的文件清单
 
-### 新建 — Rust (4)
+### 新建 — Rust (5)
 | 文件 | Step |
 |------|------|
 | `crates/poste-core/src/sql_parser.rs` | 4 |
 | `crates/poste-exec/src/sql_dialect.rs` | 3 |
 | `crates/poste-exec/src/sql_executor.rs` | 5,13,14 |
 | `crates/poste-exec/src/sql_connection.rs` | 15 |
+| `crates/poste-exec/src/sql_introspect.rs` | 20 |
 
-### 新建 — Lua (6)
+### 新建 — Lua (7)
 | 文件 | Step |
 |------|------|
 | `lua/poste/sql/init.lua` | 12 |
@@ -286,6 +287,7 @@ Phase 6:   11→32→33,34,35,36    5→37    12→38
 | `lua/poste/sql/highlights.lua` | 10 |
 | `lua/poste/sql/connections.lua` | 18 |
 | `lua/poste/sql/context.lua` | 19 |
+| `lua/poste/sql/db_browser.lua` | 22,23 |
 
 ### 新建 — VimScript (3)
 | 文件 | Step |
@@ -294,7 +296,7 @@ Phase 6:   11→32→33,34,35,36    5→37    12→38
 | `syntax/poste_dataset.vim` | 8 |
 | `ftplugin/poste_sql.vim` | 8 |
 
-### 修改 (14)
+### 修改 (15)
 | 文件 | Step | 改动 |
 |------|------|------|
 | `Cargo.toml` | 1 | 添加 sqlx |
@@ -304,10 +306,11 @@ Phase 6:   11→32→33,34,35,36    5→37    12→38
 | `crates/poste-core/src/parser.rs` | 2 | sqlite 检测 |
 | `crates/poste-core/src/lib.rs` | 4 | pub mod sql_parser |
 | `crates/poste-exec/src/executor.rs` | 5 | SQL 委托 |
-| `crates/poste-exec/src/lib.rs` | 3,5,15 | 模块导出 |
-| `crates/poste-cli/src/main.rs` | 16,17 | connection 子命令 + 名称解析 |
-| `lua/poste/state.lua` | 6 | M.sql 命名空间 |
-| `lua/poste/init.lua` | 12,18,19 | filetype 分流 + 命令注册 |
+| `crates/poste-exec/src/sql_executor.rs` | 20 | normalize_sqlite_connection pub(crate) |
+| `crates/poste-exec/src/lib.rs` | 3,5,15,20 | 模块导出 |
+| `crates/poste-cli/src/main.rs` | 16,17,21 | connection 子命令 + introspect 子命令 |
+| `lua/poste/state.lua` | 6,22 | M.sql 命名空间 + db_browser |
+| `lua/poste/init.lua` | 12,18,19,22 | filetype 分流 + 命令注册 + DB Browser |
 | `lua/poste/highlights.lua` | 10 | SQL 高亮组 |
 | `ftdetect/poste.vim` | 7 | *.sql/*.sqlite |
 | `after/ftdetect/poste.vim` | 7 | 覆盖内置检测 |

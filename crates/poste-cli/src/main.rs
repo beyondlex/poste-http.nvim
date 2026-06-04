@@ -38,6 +38,29 @@ enum Commands {
         #[command(subcommand)]
         action: ConnectionAction,
     },
+    /// Introspect database structure (list databases, schemas, tables, columns, indexes)
+    Introspect {
+        /// Connection name (from connections.json)
+        name: String,
+        /// Introspection type: databases, schemas, tables, columns, indexes
+        #[arg(long)]
+        r#type: String,
+        /// Schema name (for PG tables/columns/indexes)
+        #[arg(long)]
+        schema: Option<String>,
+        /// Table name (for columns/indexes)
+        #[arg(long)]
+        table: Option<String>,
+        /// Database name (overrides connection's default database)
+        #[arg(long)]
+        database: Option<String>,
+        /// Directory to search for connections.json
+        #[arg(long)]
+        path: Option<String>,
+        /// Environment name (for variable substitution)
+        #[arg(short, long, default_value = "dev")]
+        env: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -74,6 +97,9 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Connection { action } => {
             handle_connection_command(action).await?;
+        }
+        Commands::Introspect { name, r#type, schema, table, database, path, env } => {
+            handle_introspect_command(name, r#type, schema, table, database, path, env).await?;
         }
         Commands::Run { file, line, env, json, stdin, database } => {
             let file_path = std::path::PathBuf::from(&file);
@@ -393,4 +419,59 @@ fn substitute_vars_cli(input: &str, vars: &std::collections::HashMap<String, Str
             .unwrap_or_else(|| caps[0].to_string())
     })
     .to_string()
+}
+
+async fn handle_introspect_command(
+    conn_name: String,
+    introspect_type: String,
+    schema: Option<String>,
+    table: Option<String>,
+    database: Option<String>,
+    path: Option<String>,
+    env: String,
+) -> Result<()> {
+    use poste_exec::sql_connection::ConnectionStore;
+    use poste_exec::sql_introspect::{self, IntrospectParams, IntrospectType};
+
+    let search_dir = match path {
+        Some(p) => std::path::PathBuf::from(p),
+        None => std::env::current_dir()?,
+    };
+
+    // Load and resolve connection
+    let store = ConnectionStore::load(&search_dir)?;
+    let env_vars = load_env_vars(&search_dir, &env);
+
+    let config = store
+        .get(&conn_name)
+        .ok_or_else(|| anyhow::anyhow!("Connection '{}' not found", conn_name))?;
+
+    // Resolve variables and build URL
+    let mut resolved = config.clone();
+    resolved.host = resolved.host.map(|s| substitute_vars_cli(&s, &env_vars));
+    resolved.password = resolved.password.map(|s| substitute_vars_cli(&s, &env_vars));
+    resolved.user = resolved.user.map(|s| substitute_vars_cli(&s, &env_vars));
+    resolved.database = resolved.database.map(|s| substitute_vars_cli(&s, &env_vars));
+    resolved.path = resolved.path.map(|s| substitute_vars_cli(&s, &env_vars));
+
+    let mut connection_url = resolved.to_url();
+    let dialect_name = resolved.dialect.clone();
+
+    // Override database if --database flag is provided
+    if let Some(ref db) = database {
+        connection_url = replace_database_in_url(&connection_url, db);
+    }
+
+    let params = IntrospectParams {
+        connection_url,
+        dialect_name,
+        introspect_type: IntrospectType::from_str(&introspect_type)?,
+        schema,
+        table,
+    };
+
+    let result = sql_introspect::introspect(&params).await?;
+    println!("{}", serde_json::to_string(&result)?);
+
+    Ok(())
 }

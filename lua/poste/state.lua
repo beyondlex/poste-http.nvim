@@ -40,6 +40,9 @@ M.sql = {
     row = 1,
     col = 1,
   },
+  db_browser = {        -- Phase 3: database structure browser
+    connection = nil,   -- current connection name being browsed
+  },
 }
 
 ---------------------------------------------------------------------------

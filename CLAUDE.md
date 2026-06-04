@@ -87,7 +87,7 @@ poste/
 ```bash
 # Rust
 cargo build                          # 构建所有 crate
-cargo test                           # 运行 Rust 单元测试 (54 tests)
+cargo test                           # 运行 Rust 单元测试 (63 tests)
 cargo clippy -- -D warnings          # lint 检查
 cargo run -- run examples/api.http --line 2 --env dev   # CLI 执行
 
@@ -291,16 +291,16 @@ Docker Compose 会在首次启动时自动执行这些脚本。修改后需 `doc
 
 ## 当前开发重点
 
-SQL 功能处于 **Phase 3 — 数据库结构浏览**（19/38 步已完成）。
+SQL 功能处于 **Phase 4 — 表操作 + DDL + 补全**（23/38 步已完成）。
 
 接下来要做的 Step（详见 `PROGRESS.md`）：
 
 | Step | 内容 | 关键文件 |
 |------|------|----------|
-| 20 | `sql_introspect.rs` — 内省查询 | 新建，参考 `sql_dialect.rs` |
-| 21 | CLI `introspect` 子命令 | 改 `main.rs` |
-| 22 | `db_browser.lua` — 树形浏览器 | 新建 |
-| 23 | 快速查询生成 | db_browser 中 `s` 键插入查询 |
+| 24 | `sql_ddl.rs` — DDL 生成器 | 新建 |
+| 25 | `sql/table_ops.lua` — 表修改 UI | 新建 |
+| 26 | `sql/completion.lua` — SQL 补全 | 新建 |
+| 27 | Phase 4 集成测试 | — |
 
 **开发流程**: 读 `PROGRESS.md` 找第一个 `[ ]` Step → 读 `docs/sql-design.md` 了解设计约束 → 实现 → `cargo test` → `[ ]` → `[x]`。
 

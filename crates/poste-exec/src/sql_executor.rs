@@ -583,7 +583,7 @@ async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> Result<Response>
 ///   - "sqlite://./relative.db" → "sqlite:./relative.db"
 ///   - "sqlite::memory:" → "sqlite::memory:"
 ///   - "/path/to/db.sqlite" → "sqlite:/path/to/db.sqlite"
-fn normalize_sqlite_connection(conn: &str) -> Result<String> {
+pub(crate) fn normalize_sqlite_connection(conn: &str) -> Result<String> {
     let conn = conn.trim();
 
     // Already in sqlx format

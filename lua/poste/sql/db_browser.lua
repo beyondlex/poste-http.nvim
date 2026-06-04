@@ -568,25 +568,33 @@ local function apply_highlights(buf, line_count, count_ranges)
 
     local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
 
-    -- Calculate icon byte position: indent + marker
-    local indent_bytes = 0
+    -- Calculate icon byte position
+    -- Find first non-space byte (1-indexed)
+    local first_content = 0
     for ci = 1, #text do
-      if text:sub(ci, ci) == " " then
-        indent_bytes = indent_bytes + 1
-      else
+      if text:byte(ci) ~= 0x20 then
+        first_content = ci
         break
       end
     end
 
-    -- Marker is either "" / "" (3 bytes) or "  " (2 bytes for leaf)
-    local after_indent = text:sub(indent_bytes + 1)
-    local marker_len = 2  -- default: leaf "  "
-    if after_indent:sub(1, 3) == "" or after_indent:sub(1, 3) == "" then
-      marker_len = 3
-    end
+    if first_content == 0 then goto continue end
 
-    -- Icon starts at indent_bytes + marker_len + 1 (1-indexed)
-    local icon_byte_start = indent_bytes + marker_len  -- 0-indexed
+    -- Check if first 3 bytes match a MARKER character
+    -- MARKER_EXPANDED = "\239\132\135" (0xEF 0x84 0x87)
+    -- MARKER_COLLAPSED = "\239\132\133" (0xEF 0x84 0x85)
+    -- MARKER_LOADING = "\226\128\166" (0xE2 0x80 0xA6)
+    local first_3 = text:sub(first_content, first_content + 2)
+    local icon_byte_start  -- 0-indexed
+    if first_3 == MARKER_EXPANDED
+      or first_3 == MARKER_COLLAPSED
+      or first_3 == MARKER_LOADING then
+      -- Skip marker (3 bytes) + space (1 byte)
+      icon_byte_start = first_content + 3  -- 0-indexed
+    else
+      -- First non-space IS the icon (leaf node)
+      icon_byte_start = first_content - 1  -- 0-indexed
+    end
     local icon_hl_group = icon_hl[node.node_type]
 
     -- Override for PK/FK columns

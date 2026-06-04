@@ -169,7 +169,8 @@ end
 --- @class DatasetMeta
 --- @field columns table[] Column metadata from the response
 --- @field col_widths number[] Display width of each column
---- @field col_positions number[] Byte offset of each column's content start
+--- @field col_positions number[] 0-based byte offset of each column's content start (excl. leading space)
+--- @field col_byte_lens number[] Byte length of each column's content string (may differ from display width for CJK)
 --- @field header_line number Line number of the header row
 --- @field data_start_line number First line of data rows
 --- @field data_end_line number Last line of data rows
@@ -265,14 +266,9 @@ function M.format_resultset(data)
     numeric_cols[i] = is_numeric_column(rows, i)
   end
 
-  -- Calculate column byte positions (for cell navigation)
-  -- Each cell: │ + space + content(width) + space = 1 + 1 + width + 1 = width + 3
-  local col_positions = {}
-  local pos = 0 -- 0-based byte offset
-  for i, w in ipairs(col_widths) do
-    col_positions[i] = pos + 1 -- skip the │ separator
-    pos = pos + 1 + 1 + w + 1  -- │ + space + content + space
-  end
+  -- col_positions and col_byte_lens will be computed from the actual rendered
+  -- header line below, for accurate byte offsets (display width ≠ byte length
+  -- for CJK characters and multi-byte box-drawing chars like │).
 
   -- Build lines
   local lines = {}
@@ -289,6 +285,33 @@ function M.format_resultset(data)
     header_cells[i] = col.name
   end
   lines[line_num] = data_row(header_cells, col_widths, {})
+
+  -- Compute col_positions and col_byte_lens from the actual rendered header.
+  -- │ is 3 bytes in UTF-8, display width ≠ byte length for CJK content.
+  -- Each cell in the rendered line: │<space><content><space>
+  -- col_positions[i] = 0-based byte offset of the first byte of cell content
+  -- col_byte_lens[i] = byte length of the cell content (padded to col_width)
+  local header_line_str = lines[line_num]
+  local col_positions = {}
+  local col_byte_lens = {}
+  local sep = "│"  -- 3 bytes
+  local sep_len = #sep
+  local scan = 1   -- 1-based scan position
+  for i = 1, #columns do
+    -- Find the next │ separator (or end of line for last cell's trailing │)
+    local next_sep = header_line_str:find(sep, scan, true)
+    if not next_sep then break end
+    -- Content starts after │ + space
+    local content_start = next_sep + sep_len + 1
+    -- Find the closing │
+    local close_sep = header_line_str:find(sep, content_start, true)
+    if not close_sep then break end
+    -- Content ends before the closing │ - space
+    local content_end = close_sep - 2  -- -1 for space, -1 for inclusive→exclusive
+    col_positions[i] = content_start - 1  -- 0-based byte offset
+    col_byte_lens[i] = content_end - content_start + 2  -- inclusive byte length
+    scan = close_sep + sep_len
+  end
 
   local header_line = line_num
 
@@ -342,6 +365,7 @@ function M.format_resultset(data)
     columns = columns,
     col_widths = col_widths,
     col_positions = col_positions,
+    col_byte_lens = col_byte_lens,
     numeric_cols = numeric_cols,
     header_line = header_line,
     data_start_line = data_start,

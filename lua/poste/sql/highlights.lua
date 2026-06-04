@@ -133,15 +133,22 @@ function M.highlight_cell(buf, row, col, meta)
 
   local col_start = meta.col_positions[col]
   if not col_start then return end
-  local col_end = col_start + (meta.col_widths[col] or 0) + 1
+  -- col_positions stores 0-based byte offset of first content byte.
+  -- Highlight from leading space through trailing space:
+  --   start = content_start - 1 (the leading space byte)
+  --   end   = content_start + byte_len + 1 (past the trailing space)
+  local byte_len = meta.col_byte_lens and meta.col_byte_lens[col] or (meta.col_widths[col] or 0)
+  local ext_start = col_start - 1
+  local ext_end = col_start + byte_len + 1
 
-  -- Clamp to line length
-  if col_start > #line then return end
-  col_end = math.min(col_end, #line)
+  -- Clamp to line byte length
+  if ext_start < 0 then ext_start = 0 end
+  if ext_start > #line then return end
+  ext_end = math.min(ext_end, #line)
 
-  vim.api.nvim_buf_set_extmark(buf, ns_cell, line_idx - 1, col_start - 1, {
+  vim.api.nvim_buf_set_extmark(buf, ns_cell, line_idx - 1, ext_start, {
     end_row = line_idx - 1,
-    end_col = col_end - 1,
+    end_col = ext_end,
     hl_group = "PosteSqlCellSelected",
     priority = 200,
   })

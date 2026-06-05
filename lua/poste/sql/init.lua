@@ -117,9 +117,19 @@ function M.run_sql_request()
     line = new_line
   end
 
-  -- Show spinner (fall back to original cursor line when no ### block)
-  local req_line = indicators.find_request_line(src_buf, orig_line)
-  if not req_line then req_line = orig_line - 1 end  -- 0-indexed fallback
+  -- Show spinner at the actual statement start line (not the ### block's first line)
+  -- find_stmt_start_line: walk backward from cursor to find the first line of this statement
+  local function find_stmt_start(cursor)
+    for i = cursor - 1, 1, -1 do
+      local l = buf_lines[i] or ""
+      if l:match(";%s*$") or l:match(";%s*%-%-") or l:match("^%s*###") then
+        return i + 1
+      end
+    end
+    return 1
+  end
+  local stmt_start_line = find_stmt_start(orig_line)
+  local req_line = stmt_start_line - 1  -- 0-indexed for extmark
   indicators.set_indicator(src_buf, req_line, "running")
 
   local cmd = string.format("%s run %s --line %d --env %s --json --stdin",

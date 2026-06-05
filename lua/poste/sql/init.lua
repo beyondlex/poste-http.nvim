@@ -26,13 +26,11 @@ local function find_poste_binary()
   return nil
 end
 
---- Given buffer lines and a 1-based cursor line, return the content to send
---- to the CLI when there are no ### separators around the cursor.
---- Extracts file-level directives (@connection, @database, -- @...) plus
---- the SQL statement under the cursor (delimited by semicolons or blank lines).
+--- Extract the SQL statement under the cursor, delimited purely by semicolons.
+--- Collects file-level directives and wraps the statement in a synthetic ### block.
 --- Returns (content_string, adjusted_line_number).
 local function extract_stmt_at_cursor(buf_lines, cursor_line)
-  -- Collect file-level directive lines (before any non-directive content)
+  -- Collect file-level directive lines (comment lines at top of file)
   local directives = {}
   for _, l in ipairs(buf_lines) do
     if l:match("^%s*%-%-") or l:match("^%s*$") then
@@ -42,45 +40,40 @@ local function extract_stmt_at_cursor(buf_lines, cursor_line)
     end
   end
 
-  -- Find the statement containing cursor_line using ; as delimiter.
-  -- Walk backward to find start (previous ; or ### or start of file).
+  -- Find statement start: walk backward from cursor-1, stop at a line containing ';'
   local stmt_start = 1
   for i = cursor_line - 1, 1, -1 do
-    local l = buf_lines[i] or ""
-    if l:match(";") or l:match("^%s*###") then
+    if (buf_lines[i] or ""):match(";") then
       stmt_start = i + 1
       break
     end
   end
   -- Skip leading blank lines
-  while stmt_start < cursor_line and (buf_lines[stmt_start] or ""):match("^%s*$") do
+  while stmt_start <= cursor_line and (buf_lines[stmt_start] or ""):match("^%s*$") do
     stmt_start = stmt_start + 1
   end
 
-  -- Walk forward to find end (next ; or end of file), stop at ###
+  -- Find statement end: walk forward from cursor, stop at line containing ';'
   local stmt_end = #buf_lines
   for i = cursor_line, #buf_lines do
-    local l = buf_lines[i] or ""
-    if l:match("^%s*###") then stmt_end = i - 1; break end
-    if l:match(";") then stmt_end = i; break end
+    if (buf_lines[i] or ""):match(";") then
+      stmt_end = i
+      break
+    end
   end
 
-  -- Extract the statement lines
   local stmt_lines = {}
   for i = stmt_start, stmt_end do
     table.insert(stmt_lines, buf_lines[i] or "")
   end
 
-  -- Build content: directives + ### + statement
   local parts = {}
   for _, l in ipairs(directives) do table.insert(parts, l) end
   table.insert(parts, "###")
   for _, l in ipairs(stmt_lines) do table.insert(parts, l) end
 
-  local content = table.concat(parts, "\n")
-  -- The cursor line in the new content: directives + 1 (for ###) + offset within stmt
   local adjusted_line = #directives + 1 + (cursor_line - stmt_start + 1)
-  return content, adjusted_line
+  return table.concat(parts, "\n"), adjusted_line, stmt_start
 end
 
 --- Execute the SQL request at the cursor position.
@@ -101,35 +94,14 @@ function M.run_sql_request()
   end
 
   local buf_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
-  local buf_content = table.concat(buf_lines, "\n")
 
-  -- If the cursor is not inside a ### block, extract the statement at cursor
-  -- delimited by semicolons and wrap it in a synthetic ### block.
-  local in_hash_block = false
-  for i = line, 1, -1 do
-    if (buf_lines[i] or ""):match("^%s*###") then
-      in_hash_block = true
-      break
-    end
-  end
-  local orig_line = line  -- keep for indicator fallback
-  if not in_hash_block then
-    local new_content, new_line = extract_stmt_at_cursor(buf_lines, line)
-    buf_content = new_content
-    line = new_line
-  end
+  -- Always extract the statement under the cursor using semicolons as delimiters.
+  -- ### in the file is treated as a comment/label, not an execution boundary.
+  local buf_content, adjusted_line, stmt_start = extract_stmt_at_cursor(buf_lines, line)
+  line = adjusted_line
 
-  -- Show spinner at the actual statement start line (first non-blank line of current statement)
-  local function find_stmt_start(cursor)
-    local start = cursor
-    for i = cursor - 1, 1, -1 do
-      local l = buf_lines[i] or ""
-      if l:match(";") or l:match("^%s*###") then break end
-      if l:match("%S") then start = i end
-    end
-    return start
-  end
-  local req_line = find_stmt_start(orig_line) - 1  -- 0-indexed for extmark
+  -- Indicator at the first non-blank line of the current statement
+  local req_line = (stmt_start or 1) - 1  -- 0-indexed for extmark
   indicators.set_indicator(src_buf, req_line, "running")
 
   local cmd = string.format("%s run %s --line %d --env %s --json --stdin",

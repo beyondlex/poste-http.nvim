@@ -294,19 +294,25 @@ local function detect_context(line_before)
     return "dot_column", dot_tbl
   end
 
-  -- Strip the partial word the user is currently typing (may be empty)
-  -- then find the last complete token before it.
-  -- Use gsub with a function to replace only the trailing partial word.
-  local before = line_before:gsub("[%w_]+$", ""):gsub("%s+$", "")
-  -- If line ends with space (no partial word), before == line with trailing spaces stripped
-  -- If line ends with a word, before == everything up to (not including) that word
-
-  -- last token: word or operator
-  local last = before:match("(%S+)%s*$") or ""
-  local lower = last:lower()
-
-  if TABLE_CTX[lower] then return "table", nil end
-  if COLUMN_CTX[lower] then return "column", nil end
+  -- Find the last SQL keyword before cursor
+  -- This handles both "WHERE " and "WHERE" and "WHERE id"
+  local words = {}
+  for word in line_before:gmatch("[%w_]+") do
+    table.insert(words, word)
+  end
+  
+  -- Check last 2 words to handle cases like "ORDER BY" 
+  if #words >= 2 then
+    local last_two = words[#words-1]:lower() .. " " .. words[#words]:lower()
+    -- Check compound keywords first (though not in our current lists)
+  end
+  
+  -- Check last word
+  if #words >= 1 then
+    local last_word = words[#words]:lower()
+    if TABLE_CTX[last_word] then return "table", nil end
+    if COLUMN_CTX[last_word] then return "column", nil end
+  end
 
   return "keyword", nil
 end

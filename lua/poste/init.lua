@@ -835,12 +835,13 @@ function M.setup(opts)
     -- Test context detection at cursor
     local cursor = vim.api.nvim_win_get_cursor(0)
     local line = vim.api.nvim_get_current_line()
-    local col = cursor[2]
-    local line_before = line:sub(1, col)
+    local col = cursor[2]  -- 0-based column
+    local line_before = line:sub(1, col)  -- up to but not including cursor position
     
-    table.insert(status, "\nAt cursor position:")
+    table.insert(status, "\nAt cursor position (col=" .. col .. "):")
     table.insert(status, "  Line: " .. line)
     table.insert(status, "  Before cursor: '" .. line_before .. "'")
+    table.insert(status, "  After cursor: '" .. line:sub(col + 1) .. "'")
     
     -- Call the test interface if available
     if sql_comp._test then

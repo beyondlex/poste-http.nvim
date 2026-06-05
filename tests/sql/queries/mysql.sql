@@ -1,4 +1,6 @@
 -- @connection my-blog
+-- @database blog
+
 
 ###
 USE blog;

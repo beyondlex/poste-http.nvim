@@ -579,6 +579,8 @@ end
 --- ctx.line  = full line text
 --- ctx.cursor = {row, col}  (col is byte-index into line, 1-based in some versions)
 function M:get_completions(ctx, callback)
+  vim.notify("DEBUG: get_completions CALLED by blink.cmp!", vim.log.levels.ERROR)
+  
   -- blink ctx.cursor[2] is 0-based col in newer versions; ctx.line is the full line
   local line = ctx.line or ""
   local col = ctx.cursor and ctx.cursor[2] or #line
@@ -596,6 +598,8 @@ function M:get_completions(ctx, callback)
     if vim.g.poste_sql_debug then
       state.log("INFO", string.format("SQL completion: returning %d items", #items))
     end
+    
+    vim.notify(string.format("DEBUG: returning %d items to blink", #items), vim.log.levels.ERROR)
     
     -- Mark as incomplete to keep completion menu open even with empty prefix
     callback({ is_incomplete_forward = true, is_incomplete_backward = false, items = items })

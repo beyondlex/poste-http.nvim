@@ -961,6 +961,16 @@ function M.setup(opts)
         require("poste.sql.db_browser").toggle()
       end, { buffer = 0, noremap = true, silent = true, desc = "Toggle DB Browser" })
       
+      -- Manual completion trigger for testing
+      vim.keymap.set("i", "<C-Space>", function()
+        local blink_ok, blink = pcall(require, "blink.cmp")
+        if blink_ok and blink.show then
+          blink.show()
+        else
+          vim.notify("blink.cmp not available", vim.log.levels.WARN)
+        end
+      end, { buffer = 0, noremap = true, silent = true, desc = "Trigger completion" })
+      
       -- Configure blink.cmp to show completions immediately for SQL
       vim.defer_fn(function()
         local blink_ok, blink = pcall(require, "blink.cmp")

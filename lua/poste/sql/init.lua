@@ -52,8 +52,8 @@ local function show_float(lines, title, ft)
   vim.wo[win].cursorline = true
 
   local sopts = { buffer = float_buf, noremap = true, silent = true }
-  vim.keymap.set("n", "j", "<C-e>", sopts)
-  vim.keymap.set("n", "k", "<C-y>", sopts)
+  vim.keymap.set("n", "j", "j", sopts)
+  vim.keymap.set("n", "k", "k", sopts)
   vim.keymap.set("n", "d", "<C-d>", sopts)
   vim.keymap.set("n", "u", "<C-u>", sopts)
   vim.keymap.set("n", "g", "gg", sopts)

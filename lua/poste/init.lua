@@ -715,8 +715,9 @@ function M.setup(opts)
       blink.add_source_provider("poste_sql", {
         module = "poste.sql.completion",
         name = "PosteSQL",
-        score_offset = 100,
+        score_offset = 1000,  -- Higher priority
         min_keyword_length = 0,  -- Show completions without typing
+        should_show_items = true,  -- Always try to show
       })
       blink.add_filetype_source("poste_sql", "poste_sql")
       blink.add_filetype_source("poste_sqlite", "poste_sql")
@@ -854,6 +855,29 @@ function M.setup(opts)
     
     vim.notify(table.concat(status, "\n"), vim.log.levels.INFO)
   end, { desc = "Check SQL completion status" })
+
+  vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
+    -- Reload the completion module
+    package.loaded["poste.sql.completion"] = nil
+    local sql_comp = require("poste.sql.completion")
+    
+    -- Re-register with blink.cmp
+    local blink_ok, blink = pcall(require, "blink.cmp")
+    if blink_ok and blink.add_source_provider then
+      blink.add_source_provider("poste_sql", {
+        module = "poste.sql.completion",
+        name = "PosteSQL",
+        score_offset = 1000,
+        min_keyword_length = 0,
+        should_show_items = true,
+      })
+      blink.add_filetype_source("poste_sql", "poste_sql")
+      blink.add_filetype_source("poste_sqlite", "poste_sql")
+      vim.notify("SQL completion reloaded and re-registered with blink.cmp", vim.log.levels.INFO)
+    else
+      vim.notify("blink.cmp not available", vim.log.levels.ERROR)
+    end
+  end, { desc = "Reload SQL completion provider" })
 
   vim.api.nvim_create_user_command("PosteSQLCmpTest", function()
     local sql_comp = require("poste.sql.completion")

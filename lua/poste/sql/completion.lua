@@ -523,8 +523,14 @@ local function get_items(bufnr, line_before, cursor_line, callback)
         end
         
         for _, col in ipairs(cols) do
-          table.insert(all, { label = col, kind = 5, insertText = col,
-            documentation = "col: " .. tbl .. "." .. col })
+          table.insert(all, { 
+            label = col, 
+            kind = 5, 
+            insertText = col,
+            filterText = col,  -- Explicit for blink.cmp
+            sortText = col,
+            documentation = "col: " .. tbl .. "." .. col 
+          })
         end
         pending = pending - 1
         

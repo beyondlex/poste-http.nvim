@@ -1,4 +1,5 @@
 --- Highlight groups and extmark application for SQL dataset buffer.
+local state = require("poste.state")
 local M = {}
 
 local ns = vim.api.nvim_create_namespace("poste_sql_dataset")
@@ -118,6 +119,7 @@ vim.api.nvim_create_autocmd("VimEnter", { callback = M.setup, once = true })
 --- @param meta table Dataset metadata from format.lua
 function M.apply_dataset_highlights(buf, lines, meta)
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+  M.invalidate_sep_cache()
 
   if not meta or meta.type ~= "resultset" then
     -- For non-resultset types, just highlight meta lines
@@ -203,18 +205,15 @@ end
 -- Extmarks always override syntax highlighting's fg attribute regardless
 -- of priority or hl_mode setting.
 
---- Find the byte range and cursor column for a cell in a rendered dataset line.
---- Reads the actual line content to locate │ separators, so it works
---- regardless of CJK widths, truncation, or multi-byte characters.
---- @param line string The rendered line (from buffer or format output)
---- @param col number 1-based column index
---- @return table|nil { ext_start, ext_end, cursor_col } or nil if not found
-function M.find_cell_range(line, col)
-  if not line or line == "" then return nil end
+-- One-entry cache for separator positions: most keystrokes only touch one
+-- line (the current cursor row), and both position_cursor and highlight_cell
+-- query the same line repeatedly per keystroke.
+local _cache_line = nil
+local _cache_seps = nil
+
+local function compute_seps(line)
   local sep = "│"
   local sep_len = #sep  -- 3 bytes in UTF-8
-
-  -- Find all separator positions
   local seps = {}
   local pos = 1
   while true do
@@ -222,6 +221,32 @@ function M.find_cell_range(line, col)
     if not pos then break end
     seps[#seps + 1] = pos
     pos = pos + sep_len
+  end
+  return seps
+end
+
+--- Find the byte range and cursor column for a cell in a rendered dataset line.
+--- Calls compute_seps on first access; subsequent calls for the same line use
+--- cached separator positions (O(n_cols) → O(1) after first per-line scan).
+--- Reads the actual line content to locate │ separators, so it works
+--- regardless of CJK widths, truncation, or multi-byte characters.
+--- @param line string The rendered line (from buffer or format output)
+--- @param col number 1-based column index
+--- @return table|nil { ext_start, ext_end, cursor_col } or nil if not found
+function M.find_cell_range(line, col)
+  if not line or line == "" then return nil end
+  local sep_len = 3
+
+  -- Use cached seps on repeated calls for the same line string
+  -- (Lua string equality is by content, so this works across
+  --  separate nvim_buf_get_lines results for the same line)
+  local seps
+  if _cache_line == line then
+    seps = _cache_seps
+  else
+    seps = compute_seps(line)
+    _cache_line = line
+    _cache_seps = seps
   end
 
   -- Cell col is between seps[col] and seps[col+1]
@@ -240,14 +265,22 @@ function M.find_cell_range(line, col)
   return { ext_start = ext_start, ext_end = ext_end, cursor_col = cursor_col }
 end
 
+--- Invalidate the one-entry seps cache (called on new dataset render).
+function M.invalidate_sep_cache()
+  _cache_line = nil
+  _cache_seps = nil
+end
+
 --- Highlight the currently selected cell in the dataset.
 --- @param buf number Buffer handle
 --- @param row number 1-based row in data
 --- @param col number 1-based column index
 --- @param meta table Dataset metadata
-function M.highlight_cell(buf, row, col, meta)
+--- @param line string|nil Pre-fetched buffer line (avoids extra nvim_buf_get_lines call)
+function M.highlight_cell(buf, row, col, meta, line)
   -- Clear previous cell highlight
   vim.api.nvim_buf_clear_namespace(buf, ns_cell, 0, -1)
+  if not state.sql.highlight_cell then return end
 
   if not meta or meta.type ~= "resultset" then return end
   if not meta.data_start_line or not meta.data_end_line then return end
@@ -256,7 +289,7 @@ function M.highlight_cell(buf, row, col, meta)
   if line_idx > meta.data_end_line then return end
 
   -- +1 offset: visual column 1 is the row number column
-  local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
+  line = line or vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
   local range = M.find_cell_range(line, col + 1)
   if not range then return end
 

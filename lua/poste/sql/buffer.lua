@@ -75,6 +75,9 @@ local function get_dataset_buffer()
   -- ─── Sort by current column ────────────────────
   vim.keymap.set("n", "s", function() M.sort_by_current_col() end, opts)
 
+  -- ─── Toggle cell highlight ─────────────────────
+  vim.keymap.set("n", "zh", function() M.toggle_cell_highlight() end, opts)
+
   -- ─── Refresh ───────────────────────────────────
   vim.keymap.set("n", "R", function()
     -- Re-run the last SQL query
@@ -107,17 +110,20 @@ function M.move_cell(drow, dcol)
   state.sql.cell.row = row
   state.sql.cell.col = col
 
-  M.position_cursor(row, col)
-  sql_highlights.highlight_cell(dataset_buffer, row, col, current_meta)
-  M.update_winbar()
+  local line = M.position_cursor(row, col)
+  sql_highlights.highlight_cell(dataset_buffer, row, col, current_meta, line)
+  -- Skip winbar rebuild on vertical moves: leftcol never changes from j/k
+  if dcol ~= 0 then
+    M.update_winbar()
+  end
 end
 
 --- Jump to first column.
 function M.goto_first_col()
   if not current_meta then return end
   state.sql.cell.col = 1
-  M.position_cursor(state.sql.cell.row, 1)
-  sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, 1, current_meta)
+  local line = M.position_cursor(state.sql.cell.row, 1)
+  sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, 1, current_meta, line)
   M.update_winbar()
 end
 
@@ -126,8 +132,8 @@ function M.goto_last_col()
   if not current_meta then return end
   local last = current_meta.col_count or 1
   state.sql.cell.col = last
-  M.position_cursor(state.sql.cell.row, last)
-  sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, last, current_meta)
+  local line = M.position_cursor(state.sql.cell.row, last)
+  sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, last, current_meta, line)
   M.update_winbar()
 end
 
@@ -141,8 +147,8 @@ end
 function M.goto_first_row()
   if not current_meta then return end
   state.sql.cell.row = 1
-  M.position_cursor(1, state.sql.cell.col)
-  sql_highlights.highlight_cell(dataset_buffer, 1, state.sql.cell.col, current_meta)
+  local line = M.position_cursor(1, state.sql.cell.col)
+  sql_highlights.highlight_cell(dataset_buffer, 1, state.sql.cell.col, current_meta, line)
 end
 
 --- Jump to last data row.
@@ -150,8 +156,8 @@ function M.goto_last_row()
   if not current_meta then return end
   local last = current_meta.row_count or 1
   state.sql.cell.row = last
-  M.position_cursor(last, state.sql.cell.col)
-  sql_highlights.highlight_cell(dataset_buffer, last, state.sql.cell.col, current_meta)
+  local line = M.position_cursor(last, state.sql.cell.col)
+  sql_highlights.highlight_cell(dataset_buffer, last, state.sql.cell.col, current_meta, line)
 end
 
 --- Position the cursor at the given data row and column.
@@ -159,9 +165,10 @@ end
 --- the window edge, and stops scrolling when the last column is fully visible.
 --- @param row number 1-based data row index
 --- @param col number 1-based column index
+--- @return string The buffer line at the cursor (for highlight_cell reuse)
 function M.position_cursor(row, col)
-  if not current_meta or not dataset_window then return end
-  if not vim.api.nvim_win_is_valid(dataset_window) then return end
+  if not current_meta or not dataset_window then return "" end
+  if not vim.api.nvim_win_is_valid(dataset_window) then return "" end
 
   local line_idx = (current_meta.data_start_line or 1) + row - 1
   local buf = vim.api.nvim_win_get_buf(dataset_window)
@@ -206,25 +213,29 @@ function M.position_cursor(row, col)
     end
   end
 
-  -- Set cursor (may trigger Neovim auto-scroll if target is off-screen)
-  pcall(vim.api.nvim_win_set_cursor, dataset_window, { line_idx, target_col })
-
-  -- Decide whether to adjust horizontal scroll
+  -- Decide scroll strategy before touching cursor.
+  -- For on-screen targets (j/k), disable sidescrolloff first so that
+  -- nvim_win_set_cursor doesn't trigger unwanted horizontal auto-scroll,
+  -- which would cause a visible "flash" (scroll right, then pull back).
+  -- For off-screen targets (h/l near edges), let sidescrolloff handle it.
   if target_on_screen then
-    -- Target cell was already visible — restore original scroll position.
-    -- This prevents the "jump to left edge" behavior on every l press.
-    -- Temporarily disable sidescrolloff to prevent it from re-scrolling
-    -- after we restore the view.
     local saved_sso = vim.api.nvim_get_option_value("sidescrolloff", { win = dataset_window })
-    vim.api.nvim_set_option_value("sidescrolloff", 0, { win = dataset_window })
+    if saved_sso > 0 then
+      vim.api.nvim_set_option_value("sidescrolloff", 0, { win = dataset_window })
+    end
+    pcall(vim.api.nvim_win_set_cursor, dataset_window, { line_idx, target_col })
+    -- Restore original horizontal scroll position
     pcall(vim.api.nvim_win_call, dataset_window, function()
       local v = vim.fn.winsaveview()
       v.leftcol = saved_leftcol
       vim.fn.winrestview(v)
     end)
-    vim.api.nvim_set_option_value("sidescrolloff", saved_sso, { win = dataset_window })
+    if saved_sso > 0 then
+      vim.api.nvim_set_option_value("sidescrolloff", saved_sso, { win = dataset_window })
+    end
   else
     -- Target is off-screen, need to scroll
+    pcall(vim.api.nvim_win_set_cursor, dataset_window, { line_idx, target_col })
     if last_col_fits then
       -- Last column is fully visible: no more data to reveal.
       -- Keep Neovim's auto-scroll (minimal shift to show the cell).
@@ -237,6 +248,8 @@ function M.position_cursor(row, col)
       end)
     end
   end
+
+  return line
 end
 
 --- Build winbar text showing only columns visible within the window.
@@ -739,6 +752,9 @@ function M.render_dataset(lines, meta)
   current_meta = meta
   current_lines = lines
 
+  -- Invalidate separator cache — new dataset, old cache entries are stale
+  sql_highlights.invalidate_sep_cache()
+
   -- Reset sort state when loading a new dataset (not from sort re-render)
   if not is_sorting then
     original_rows = nil
@@ -902,6 +918,20 @@ function M.render_dataset(lines, meta)
   end
 
   -- Keep focus in the SQL file buffer (do NOT switch to dataset window)
+end
+
+--- Toggle cell highlight on/off.
+--- When turned off, clears current highlight and skips future extmark sets.
+--- When turned on, re-highlights the current cell.
+function M.toggle_cell_highlight()
+  state.sql.highlight_cell = not state.sql.highlight_cell
+  if state.sql.highlight_cell then
+    sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, state.sql.cell.col, current_meta)
+  else
+    sql_highlights.clear_cell_highlight(dataset_buffer)
+  end
+  vim.notify(string.format("Cell highlight: %s", state.sql.highlight_cell and "ON" or "OFF"),
+    vim.log.levels.INFO, { title = "Poste SQL" })
 end
 
 --- Close the dataset split.

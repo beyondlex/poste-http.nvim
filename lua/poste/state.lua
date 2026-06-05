@@ -40,6 +40,7 @@ M.sql = {
     row = 1,
     col = 1,
   },
+  highlight_cell = true, -- toggle: extmark on current cell
   db_browser = {        -- Phase 3: database structure browser
     connection = nil,   -- current connection name being browsed
   },

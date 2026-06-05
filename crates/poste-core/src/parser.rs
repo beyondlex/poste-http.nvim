@@ -342,16 +342,27 @@ impl Parser {
 
     fn substitute_vars(&self, input: &str, file_vars: &HashMap<String, String>, request_vars: &HashMap<String, String>) -> String {
         let re = Regex::new(r"\{\{([^}]+)\}\}").unwrap();
-        re.replace_all(input, |caps: &regex::Captures| {
-            let var_name = &caps[1];
-            // Priority: request_vars > file_vars > env
-            request_vars
-                .get(var_name)
-                .or_else(|| file_vars.get(var_name))
-                .or_else(|| self.env.get(var_name))
-                .cloned()
-                .unwrap_or_else(|| caps[0].to_string())
-        }).to_string()
+        let mut result = input.to_string();
+        // Iteratively resolve: if {{token}} → {{admin_token}}, do another pass
+        // so {{admin_token}} also gets resolved.  Cap at 20 to prevent infinite loops
+        // from circular references like @a = {{b}} @b = {{a}}.
+        for _ in 0..20 {
+            let next = re.replace_all(&result, |caps: &regex::Captures| {
+                let var_name = &caps[1];
+                // Priority: request_vars > file_vars > env
+                request_vars
+                    .get(var_name)
+                    .or_else(|| file_vars.get(var_name))
+                    .or_else(|| self.env.get(var_name))
+                    .cloned()
+                    .unwrap_or_else(|| caps[0].to_string())
+            }).to_string();
+            if next == result {
+                break;
+            }
+            result = next;
+        }
+        result
     }
 }
 
@@ -607,9 +618,9 @@ POST /api/data
     }
 
     #[test]
-    fn test_multiline_file_var_forward_ref_unchanged() {
+    fn test_multiline_file_var_forward_ref_resolved() {
         let parser = Parser::new(HashMap::new());
-        // @page references @pageNum which is defined AFTER — stays unresolved
+        // Iterative substitution resolves even forward references
         let content = r#"@page = id={{pageNum}}
 @pageNum = 99
 
@@ -617,7 +628,8 @@ POST /api/data
 GET /{{page}}
 "#;
         let req = parser.parse_at_line(content, 4, "http").unwrap();
-        assert!(req.body.contains("GET /id={{pageNum}}"));
+        assert!(req.body.contains("GET /id=99"));
+        assert!(!req.body.contains("{{pageNum}}"));
     }
 
     #[test]
@@ -649,5 +661,67 @@ POST /api/data
         assert!(req.body.contains("POST /api/data"));
         assert!(req.body.contains("Authorization: secret"));
         assert!(req.body.contains("Content-Type: application/json"));
+    }
+
+    #[test]
+    fn test_var_transitive_resolution_file_level() {
+        let parser = Parser::new(HashMap::new());
+        let content = r#"@admin_token = secret
+@token = {{admin_token}}
+
+### Request
+GET /api
+Authorization: {{token}}
+"#;
+        let req = parser.parse_at_line(content, 5, "http").unwrap();
+        assert!(req.body.contains("Authorization: secret"));
+        assert!(!req.body.contains("{{admin_token}}"));
+    }
+
+    #[test]
+    fn test_var_transitive_resolution_forward_ref() {
+        let parser = Parser::new(HashMap::new());
+        // admin_token defined AFTER token at file level.
+        // extract_file_variables can't resolve token at definition time,
+        // but the body-level iterative substitution resolves the full chain.
+        let content = r#"@token = {{admin_token}}
+@admin_token = secret
+
+### Request
+GET /api
+Authorization: {{token}}
+"#;
+        let req = parser.parse_at_line(content, 5, "http").unwrap();
+        assert!(req.body.contains("Authorization: secret"));
+        assert!(!req.body.contains("{{admin_token}}"));
+    }
+
+    #[test]
+    fn test_var_transitive_resolution_request_level() {
+        let parser = Parser::new(HashMap::new());
+        let block = r#"### Request
+@admin_token = secret
+@token = {{admin_token}}
+GET /api
+Authorization: {{token}}
+"#;
+        let req = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        assert!(req.body.contains("Authorization: secret"));
+    }
+
+    #[test]
+    fn test_var_circular_ref_no_infinite_loop() {
+        let parser = Parser::new(HashMap::new());
+        let content = r#"@a = {{b}}
+@b = {{a}}
+
+### Request
+GET /api
+X-Val: {{a}}
+"#;
+        // Should not hang or panic — caps at 20 iterations
+        let req = parser.parse_at_line(content, 5, "http").unwrap();
+        let body = req.body;
+        assert!(body.contains("X-Val: {{b}}") || body.contains("X-Val: {{a}}"));
     }
 }

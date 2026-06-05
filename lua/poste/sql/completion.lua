@@ -242,16 +242,35 @@ local function ensure_columns(tbl, callback)
   vim.fn.jobstart(args, {
     stdout_buffered = true,
     on_stdout = function(_, data)
+      if vim.g.poste_sql_debug then
+        state.log("INFO", string.format("ensure_columns on_stdout: data=%s", vim.inspect(data)))
+      end
+      
       if not data then return end
       while #data > 0 and data[#data] == "" do data[#data] = nil end
       if #data == 0 then return end
       local ok, parsed = pcall(vim.json.decode, table.concat(data, "\n"))
+      
+      if vim.g.poste_sql_debug then
+        state.log("INFO", string.format("ensure_columns parsed: ok=%s, items=%d", 
+          tostring(ok), ok and parsed and parsed.items and #parsed.items or 0))
+      end
+      
       if ok and parsed and parsed.items then
         cache[key] = cache[key] or { tables = {}, columns = {} }
         cache[key].columns[tbl] = vim.tbl_map(function(i) return i.name end, parsed.items)
+        
+        if vim.g.poste_sql_debug then
+          state.log("INFO", string.format("ensure_columns cached %d columns for %s", 
+            #cache[key].columns[tbl], tbl))
+        end
       end
       fetching_cols[fkey] = false
       vim.schedule(function()
+        if vim.g.poste_sql_debug then
+          state.log("INFO", string.format("ensure_columns calling %d callbacks", 
+            #(cols_callbacks[fkey] or {})))
+        end
         for _, cb in ipairs(cols_callbacks[fkey] or {}) do cb() end
         cols_callbacks[fkey] = nil
       end)
@@ -461,11 +480,23 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     for _, tbl in ipairs(from_tbls) do
       ensure_columns(tbl, function()
         local key = conn_key()
-        for _, col in ipairs(cache[key] and cache[key].columns[tbl] or {}) do
+        local cols = cache[key] and cache[key].columns[tbl] or {}
+        
+        if vim.g.poste_sql_debug then
+          state.log("INFO", string.format("ensure_columns callback: tbl=%s, key=%s, cols=%d", 
+            tbl, tostring(key), #cols))
+        end
+        
+        for _, col in ipairs(cols) do
           table.insert(all, { label = col, kind = 5, insertText = col,
             documentation = "col: " .. tbl .. "." .. col })
         end
         pending = pending - 1
+        
+        if vim.g.poste_sql_debug then
+          state.log("INFO", string.format("pending=%d, all=%d items", pending, #all))
+        end
+        
         if pending == 0 then callback(filter(all, prefix)) end
       end)
     end

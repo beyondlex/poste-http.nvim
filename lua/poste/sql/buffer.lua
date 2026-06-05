@@ -255,9 +255,26 @@ local function build_winbar_text(leftcol, win_width)
   -- Adjust win_width to account for left padding
   win_width = win_width - LEFT_PADDING
 
-  -- Helper function to extract visible portion of a line with highlight groups
+  -- Extract the visible portion of `line` between display columns [leftcol, leftcol+win_width).
+  -- Returns a winbar string with the minimum number of %#Hl# markers (only on hl change).
   local function extract_visible(line, highlight_normal, highlight_sep)
-    local result = {}
+    local parts = {}          -- alternating: hl_group, text_chunk, hl_group, text_chunk ...
+    local cur_hl = nil
+    local cur_buf = {}        -- accumulate chars for current hl segment
+
+    local function flush()
+      if #cur_buf > 0 then
+        parts[#parts + 1] = cur_hl
+        parts[#parts + 1] = table.concat(cur_buf)
+        cur_buf = {}
+      end
+    end
+
+    local function append(hl, text)
+      if hl ~= cur_hl then flush(); cur_hl = hl end
+      cur_buf[#cur_buf + 1] = text
+    end
+
     local disp_pos = 0
     local byte_idx = 1
 
@@ -285,20 +302,18 @@ local function build_winbar_text(leftcol, win_width)
       end
 
       local char_start = disp_pos
-      local char_end = disp_pos + char_width
+      local char_end   = disp_pos + char_width
 
       if char_end > leftcol and char_start < leftcol + win_width then
-        local hl_group = (is_sep and highlight_sep) or highlight_normal
-        result[#result + 1] = hl_group
-
+        local hl = is_sep and highlight_sep or highlight_normal
         if char_start < leftcol then
-          local visible_width = math.min(char_end, leftcol + win_width) - leftcol
-          result[#result + 1] = string.rep(" ", visible_width)
+          local w = math.min(char_end, leftcol + win_width) - leftcol
+          append(hl, string.rep(" ", w))
         elseif char_end > leftcol + win_width then
-          local visible_width = leftcol + win_width - char_start
-          result[#result + 1] = string.rep(" ", visible_width)
+          local w = leftcol + win_width - char_start
+          append(hl, string.rep(" ", w))
         else
-          result[#result + 1] = line:sub(byte_idx, byte_idx + char_bytes - 1)
+          append(hl, line:sub(byte_idx, byte_idx + char_bytes - 1))
         end
       end
 
@@ -306,19 +321,11 @@ local function build_winbar_text(leftcol, win_width)
       byte_idx = byte_idx + char_bytes
     end
 
-    return table.concat(result)
+    flush()
+    return table.concat(parts)
   end
 
-  -- Build top border line (if available)
-  local border_text = ""
-  if border and #border > 0 then
-    local visible_border = extract_visible(border, "%#PosteSqlWinbarBorder#", "%#PosteSqlWinbarBorder#")
-    if #visible_border > 0 then
-      border_text = PADDING_SPACES .. visible_border .. "\n"
-    end
-  end
-
-  -- Build header line with invisible │ separators
+  -- Build header line only (border in winbar wastes character budget and misaligns on scroll)
   local visible_header = extract_visible(header, "%#PosteSqlHeader#", "%#PosteSqlWinbarSep#")
 
   if #visible_header == 0 then return nil end
@@ -329,7 +336,7 @@ local function build_winbar_text(leftcol, win_width)
     indicator = "%#PosteSqlSortIndicator#" .. (winbar_sort_asc and " ↑" or " ↓") .. "%#PosteSqlHeader#"
   end
 
-  return border_text .. "%#PosteSqlHeader#" .. PADDING_SPACES .. visible_header .. indicator
+  return "%#PosteSqlHeader#" .. PADDING_SPACES .. visible_header .. indicator
 end
 
 --- Update winbar to match horizontal scroll position.
@@ -851,5 +858,16 @@ end
 function M.is_open()
   return dataset_window and vim.api.nvim_win_is_valid(dataset_window)
 end
+
+-- Test interface: allows tests to set internal state and call build_winbar_text
+M._test = {
+  set_header = function(header, border)
+    winbar_plain_header = header
+    winbar_plain_border = border
+    winbar_sort_col = nil
+    winbar_sort_asc = nil
+  end,
+  build_winbar_text = build_winbar_text,
+}
 
 return M

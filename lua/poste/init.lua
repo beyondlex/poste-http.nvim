@@ -715,9 +715,10 @@ function M.setup(opts)
       blink.add_source_provider("poste_sql", {
         module = "poste.sql.completion",
         name = "PosteSQL",
-        score_offset = 1000,  -- Higher priority
-        min_keyword_length = 0,  -- Show completions without typing
-        should_show_items = true,  -- Always try to show
+        async = true,
+        score_offset = 1000,
+        min_keyword_length = 0,
+        should_show_items = true,
       })
       blink.add_filetype_source("poste_sql", "poste_sql")
       blink.add_filetype_source("poste_sqlite", "poste_sql")

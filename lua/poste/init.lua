@@ -721,6 +721,19 @@ function M.setup(opts)
       })
       blink.add_filetype_source("poste_sql", "poste_sql")
       blink.add_filetype_source("poste_sqlite", "poste_sql")
+
+      -- Allow space as a trigger character in SQL buffers by removing it from the blocked list
+      local blink_config = require("blink.cmp.config")
+      local orig_blocked = blink_config.completion.trigger.show_on_blocked_trigger_characters
+      blink_config.completion.trigger.show_on_blocked_trigger_characters = function()
+        local ft = vim.bo.filetype
+        if ft == "poste_sql" or ft == "poste_sqlite" then
+          local blocked = type(orig_blocked) == "function" and orig_blocked() or orig_blocked
+          return vim.tbl_filter(function(c) return c ~= " " end, blocked)
+        end
+        return type(orig_blocked) == "function" and orig_blocked() or orig_blocked
+      end
+
       return true
     end
     -- Fall back to nvim-cmp
@@ -915,6 +928,34 @@ function M.setup(opts)
     end
   end, { desc = "Reload SQL completion provider" })
 
+  vim.api.nvim_create_user_command("PosteSQLDebugSpace", function()
+    -- Test exactly what happens when Space is pressed after WHERE
+    local buf = vim.api.nvim_get_current_buf()
+    local line = vim.api.nvim_get_current_line()
+    local col = vim.api.nvim_win_get_cursor(0)[2]
+    local before = line:sub(1, col)
+    local last_word = before:match("(%w+)%s*$")
+
+    local blink_ok, blink = pcall(require, "blink.cmp")
+    local menu_open = blink_ok and require("blink.cmp.completion.windows.menu").win:is_open()
+
+    local msg = {
+      "PosteSQLDebugSpace:",
+      "  line_before cursor: '" .. before .. "'",
+      "  last_word: " .. tostring(last_word),
+      "  blink loaded: " .. tostring(blink_ok),
+      "  blink.show exists: " .. tostring(blink_ok and blink.show ~= nil),
+      "  menu currently open: " .. tostring(menu_open),
+    }
+
+    if blink_ok and blink.show then
+      vim.notify(table.concat(msg, "\n") .. "\n  → calling blink.show() now...", vim.log.levels.WARN)
+      blink.show()
+    else
+      vim.notify(table.concat(msg, "\n"), vim.log.levels.ERROR)
+    end
+  end, { desc = "Debug SQL space completion trigger" })
+
   vim.api.nvim_create_user_command("PosteSQLCmpTest", function()
     local sql_comp = require("poste.sql.completion")
     local buf = vim.api.nvim_get_current_buf()
@@ -1031,81 +1072,30 @@ function M.setup(opts)
         end
       end, { buffer = 0, noremap = true, silent = true, desc = "Trigger completion" })
       
-      -- Smart space: trigger completion after SQL keywords
-      vim.keymap.set("i", "<Space>", function()
-        -- Insert space first
-        vim.api.nvim_feedkeys(" ", "n", false)
-        
-        -- Check if we should trigger completion
-        vim.schedule(function()
+      -- Trigger completion after SQL keywords via CursorMovedI
+      -- (Space keymap is intercepted by blink.cmp before buffer-local keymaps fire,
+      --  and TextChangedI may not fire for expr-mapped keys)
+      local sql_keywords = { from=true, join=true, where=true, set=true,
+                              on=true, having=true, by=true, ["and"]=true, ["or"]=true }
+      local group = vim.api.nvim_create_augroup("PosteSQLTrigger_" .. vim.api.nvim_get_current_buf(), { clear = true })
+      vim.api.nvim_create_autocmd("CursorMovedI", {
+        group = group,
+        buffer = 0,
+        callback = function()
           local line = vim.api.nvim_get_current_line()
-          local col = vim.api.nvim_win_get_cursor(0)[2]
-          local before = line:sub(1, col - 1)
-          local last_word = before:match("(%w+)%s*$")
-          
-          if last_word then
-            local lw = last_word:lower()
-            if lw == "from" or lw == "join" or lw == "where" or 
-               lw == "set" or lw == "on" or lw == "having" or
-               lw == "by" or lw == "and" or lw == "or" then
-              local blink_ok, blink = pcall(require, "blink.cmp")
-              if blink_ok and blink.show then
-                blink.show()
-              end
-            end
+          local col  = vim.api.nvim_win_get_cursor(0)[2]  -- 0-based
+          -- Only act when cursor is right after a space: char at col-1 is space (1-indexed = col)
+          if col < 1 or line:sub(col, col) ~= " " then return end
+          local last_word = line:sub(1, col - 1):match("(%w+)%s*$")
+          if last_word and sql_keywords[last_word:lower()] then
+            local ok, t = pcall(require, "blink.cmp.completion.trigger")
+            if ok then t.show({ force = true, trigger_kind = "manual" }) end
           end
-        end)
-      end, { buffer = 0, noremap = true, desc = "Smart space with completion" })
-      
-      -- Configure blink.cmp to show completions immediately for SQL
-      vim.defer_fn(function()
-        local blink_ok, blink = pcall(require, "blink.cmp")
-        if blink_ok and blink.show then
-          -- Set up autocommand to trigger completion after space in SQL
-          local group = vim.api.nvim_create_augroup("PosteSQLAutoComplete", { clear = false })
-          vim.api.nvim_create_autocmd("TextChangedI", {
-            group = group,
-            buffer = 0,
-            callback = function()
-              local line = vim.api.nvim_get_current_line()
-              local col = vim.api.nvim_win_get_cursor(0)[2]
-              
-              if vim.g.poste_sql_debug then
-                vim.notify(string.format("TextChangedI: col=%d, char='%s'", col, line:sub(col, col)), vim.log.levels.INFO)
-              end
-              
-              -- Check if just typed a space after SQL keyword
-              if col > 0 and line:sub(col, col) == " " then
-                local before = line:sub(1, col - 1)
-                local last_word = before:match("(%w+)%s*$")
-                
-                if vim.g.poste_sql_debug then
-                  vim.notify(string.format("Space detected, last_word='%s'", tostring(last_word)), vim.log.levels.WARN)
-                end
-                
-                if last_word then
-                  local lw = last_word:lower()
-                  -- Trigger after context keywords
-                  if lw == "from" or lw == "join" or lw == "where" or 
-                     lw == "set" or lw == "on" or lw == "having" or
-                     lw == "by" or lw == "and" or lw == "or" then
-                    vim.notify("AUTO-TRIGGERING blink.cmp!", vim.log.levels.ERROR)
-                    vim.defer_fn(function()
-                      blink.show()
-                    end, 50)
-                  end
-                end
-              end
-            end
-          })
-          vim.notify("SQL auto-complete autocmd installed", vim.log.levels.INFO)
-        end
-        
-        if blink_ok and blink.config then
-          -- Override buffer-local settings to show on trigger character
-          vim.b.blink_cmp_min_keyword_length = 0
-        end
-      end, 100)
+        end,
+      })
+
+      -- Configure buffer-local blink.cmp settings
+      vim.b.blink_cmp_min_keyword_length = 0
     end,
   })
 

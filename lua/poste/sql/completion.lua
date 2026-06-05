@@ -204,18 +204,44 @@ local cols_callbacks = {}  -- Queue callbacks while fetching
 local function ensure_columns(tbl, callback)
   local key = conn_key()
   local ctx = resolve_current_context()
-  if not key or not ctx or not ctx.connection then callback(); return end
+  
+  if vim.g.poste_sql_debug then
+    vim.notify(string.format("DEBUG: ensure_columns(%s) key=%s, conn=%s", 
+      tbl, tostring(key), tostring(ctx and ctx.connection)), vim.log.levels.INFO)
+  end
+  
+  if not key or not ctx or not ctx.connection then
+    if vim.g.poste_sql_debug then
+      vim.notify("DEBUG: ensure_columns - NO CONNECTION, returning", vim.log.levels.ERROR)
+    end
+    callback()
+    return
+  end
 
   -- Cache hit
-  if cache[key] and cache[key].columns[tbl] then callback(); return end
+  if cache[key] and cache[key].columns[tbl] then 
+    if vim.g.poste_sql_debug then
+      vim.notify(string.format("DEBUG: cache hit for %s, %d columns", 
+        tbl, #cache[key].columns[tbl]), vim.log.levels.INFO)
+    end
+    callback()
+    return
+  end
   
   local fkey = key .. "/" .. tbl
   
   -- Already fetching: queue callback
   if fetching_cols[fkey] then
+    if vim.g.poste_sql_debug then
+      vim.notify(string.format("DEBUG: already fetching %s, queuing callback", tbl), vim.log.levels.WARN)
+    end
     cols_callbacks[fkey] = cols_callbacks[fkey] or {}
     table.insert(cols_callbacks[fkey], callback)
     return
+  end
+  
+  if vim.g.poste_sql_debug then
+    vim.notify(string.format("DEBUG: starting fetch for %s", tbl), vim.log.levels.WARN)
   end
   
   fetching_cols[fkey] = true
@@ -223,6 +249,7 @@ local function ensure_columns(tbl, callback)
 
   local binary = find_binary()
   if not binary then 
+    vim.notify("DEBUG: binary not found!", vim.log.levels.ERROR)
     fetching_cols[fkey] = false
     for _, cb in ipairs(cols_callbacks[fkey] or {}) do cb() end
     cols_callbacks[fkey] = nil
@@ -237,6 +264,10 @@ local function ensure_columns(tbl, callback)
   end
   if ctx.schema and ctx.schema ~= "" then
     vim.list_extend(args, { "--schema", ctx.schema })
+  end
+
+  if vim.g.poste_sql_debug then
+    vim.notify("DEBUG: jobstart: " .. table.concat(args, " "), vim.log.levels.INFO)
   end
 
   vim.fn.jobstart(args, {
@@ -467,8 +498,8 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     local from_tbls = extract_from_tables(bufnr, cursor_line or vim.fn.line("."))
     
     if vim.g.poste_sql_debug then
-      state.log("INFO", string.format("column context: found %d tables: %s", 
-        #from_tbls, vim.inspect(from_tbls)))
+      vim.notify(string.format("DEBUG: column context, %d tables: %s", 
+        #from_tbls, vim.inspect(from_tbls)), vim.log.levels.INFO)
     end
     
     if #from_tbls == 0 then
@@ -478,13 +509,17 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     local pending = #from_tbls
     local all = {}
     for _, tbl in ipairs(from_tbls) do
+      if vim.g.poste_sql_debug then
+        vim.notify(string.format("DEBUG: calling ensure_columns for %s", tbl), vim.log.levels.INFO)
+      end
+      
       ensure_columns(tbl, function()
         local key = conn_key()
         local cols = cache[key] and cache[key].columns[tbl] or {}
         
         if vim.g.poste_sql_debug then
-          state.log("INFO", string.format("ensure_columns callback: tbl=%s, key=%s, cols=%d", 
-            tbl, tostring(key), #cols))
+          vim.notify(string.format("DEBUG: callback fired! tbl=%s, cols=%d, pending=%d->%d", 
+            tbl, #cols, pending, pending - 1), vim.log.levels.WARN)
         end
         
         for _, col in ipairs(cols) do
@@ -493,11 +528,12 @@ local function get_items(bufnr, line_before, cursor_line, callback)
         end
         pending = pending - 1
         
-        if vim.g.poste_sql_debug then
-          state.log("INFO", string.format("pending=%d, all=%d items", pending, #all))
+        if pending == 0 then 
+          if vim.g.poste_sql_debug then
+            vim.notify(string.format("DEBUG: calling final callback with %d items", #all), vim.log.levels.WARN)
+          end
+          callback(filter(all, prefix))
         end
-        
-        if pending == 0 then callback(filter(all, prefix)) end
       end)
     end
     return

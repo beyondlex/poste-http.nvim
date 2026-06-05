@@ -856,6 +856,42 @@ function M.setup(opts)
     vim.notify(table.concat(status, "\n"), vim.log.levels.INFO)
   end, { desc = "Check SQL completion status" })
 
+  vim.api.nvim_create_user_command("PosteSQLAutoTrigger", function()
+    local blink_ok, blink = pcall(require, "blink.cmp")
+    if not blink_ok or not blink.show then
+      vim.notify("blink.cmp not available", vim.log.levels.ERROR)
+      return
+    end
+    
+    local group = vim.api.nvim_create_augroup("PosteSQLAutoComplete", { clear = true })
+    vim.api.nvim_create_autocmd("TextChangedI", {
+      group = group,
+      buffer = 0,
+      callback = function()
+        local line = vim.api.nvim_get_current_line()
+        local col = vim.api.nvim_win_get_cursor(0)[2]
+        
+        -- Check if just typed a space after SQL keyword
+        if col > 0 and line:sub(col, col) == " " then
+          local before = line:sub(1, col - 1)
+          local last_word = before:match("(%w+)%s*$")
+          
+          if last_word then
+            local lw = last_word:lower()
+            if lw == "from" or lw == "join" or lw == "where" or 
+               lw == "set" or lw == "on" or lw == "having" or
+               lw == "by" or lw == "and" or lw == "or" then
+              vim.schedule(function()
+                blink.show()
+              end)
+            end
+          end
+        end
+      end
+    })
+    vim.notify("SQL auto-trigger installed for current buffer", vim.log.levels.INFO)
+  end, { desc = "Install SQL auto-trigger for completion" })
+
   vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     -- Reload the completion module
     package.loaded["poste.sql.completion"] = nil

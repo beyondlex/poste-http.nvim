@@ -716,6 +716,7 @@ function M.setup(opts)
         module = "poste.sql.completion",
         name = "PosteSQL",
         score_offset = 100,
+        min_keyword_length = 0,  -- Show completions without typing
       })
       blink.add_filetype_source("poste_sql", "poste_sql")
       blink.add_filetype_source("poste_sqlite", "poste_sql")

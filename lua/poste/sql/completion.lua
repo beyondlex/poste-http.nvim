@@ -441,6 +441,11 @@ function M:get_trigger_characters()
   return { ".", " ", "@" }
 end
 
+--- Tell blink.cmp the minimum keyword length (0 = show immediately after trigger)
+function M:get_keyword_length()
+  return 0
+end
+
 --- blink.cmp calls this with (ctx, callback)
 --- ctx.line  = full line text
 --- ctx.cursor = {row, col}  (col is byte-index into line, 1-based in some versions)
@@ -453,7 +458,8 @@ function M:get_completions(ctx, callback)
   local cursor_line = ctx.cursor and ctx.cursor[1] or vim.fn.line(".")
 
   get_items(bufnr, line_before, cursor_line, function(items)
-    callback({ is_incomplete_forward = false, is_incomplete_backward = false, items = items })
+    -- Mark as incomplete to keep completion menu open even with empty prefix
+    callback({ is_incomplete_forward = true, is_incomplete_backward = false, items = items })
   end)
 end
 

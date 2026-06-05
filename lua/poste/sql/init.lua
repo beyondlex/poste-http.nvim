@@ -7,6 +7,66 @@ local sql_buffer = require("poste.sql.buffer")
 
 local M = {}
 
+--- Show or open a float window with text content.
+local function show_float(lines, title, ft)
+  if not lines or #lines == 0 then
+    vim.notify("No content to display", vim.log.levels.WARN, { title = "Poste SQL" })
+    return
+  end
+
+  local max_width = math.min(math.floor(vim.o.columns * 0.7), 100)
+  local width = 0
+  for _, l in ipairs(lines) do
+    width = math.max(width, vim.fn.strdisplaywidth(l))
+  end
+  width = math.min(width + 4, max_width)
+
+  local max_height = math.floor(vim.o.lines * 0.5)
+  local height = math.max(3, math.min(#lines + 2, max_height))
+
+  local float_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
+  vim.bo[float_buf].filetype = ft or "sql"
+  vim.bo[float_buf].modifiable = false
+
+  local win_opts = {
+    relative = "editor",
+    row = math.floor((vim.o.lines - height) / 2),
+    col = math.floor((vim.o.columns - width) / 2),
+    width = width,
+    height = height,
+    style = "minimal",
+    border = "rounded",
+    title = title,
+    title_pos = "left",
+  }
+  local ok, win = pcall(vim.api.nvim_open_win, float_buf, true, win_opts)
+  if not ok then
+    win_opts.title = nil
+    win = vim.api.nvim_open_win(float_buf, true, win_opts)
+  end
+
+  vim.wo[win].wrap = true
+  vim.wo[win].linebreak = true
+  vim.wo[win].scrolloff = 1
+  vim.wo[win].cursorline = true
+
+  local sopts = { buffer = float_buf, noremap = true, silent = true }
+  vim.keymap.set("n", "j", "<C-e>", sopts)
+  vim.keymap.set("n", "k", "<C-y>", sopts)
+  vim.keymap.set("n", "d", "<C-d>", sopts)
+  vim.keymap.set("n", "u", "<C-u>", sopts)
+  vim.keymap.set("n", "g", "gg", sopts)
+  vim.keymap.set("n", "G", "G", sopts)
+  local close_fn = function()
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+  end
+  vim.keymap.set("n", "q", close_fn, sopts)
+  vim.keymap.set("n", "<Esc>", close_fn, sopts)
+end
+
 ---------------------------------------------------------------------------
 -- Binary discovery (reuse from main init)
 ---------------------------------------------------------------------------
@@ -198,5 +258,120 @@ function M.run_sql_request()
 end
 
 M._test = { extract_stmt_at_cursor = extract_stmt_at_cursor }
+
+--- Show DDL for the table under the cursor in a floating window.
+--- Resolves the connection context and runs `poste introspect --type ddl`.
+function M.show_table_ddl()
+  local binary = find_poste_binary()
+  if not binary then
+    vim.notify("Poste binary not found.", vim.log.levels.ERROR, { title = "Poste SQL" })
+    return
+  end
+
+  -- Get the word under cursor
+  local table_name = vim.fn.expand("<cword>")
+  if not table_name or table_name == "" then
+    vim.notify("No word under cursor", vim.log.levels.WARN, { title = "Poste SQL" })
+    return
+  end
+  -- Skip SQL keywords
+  local keywords = { select=true, from=true, where=true, join=true, on=true,
+                     and=true, or=true, set=true, insert=true, into=true,
+                     values=true, update=true, delete=true, create=true,
+                     table=true, index=true, drop=true, alter=true, add=true,
+                     column=true, primary=true, key=true, foreign=true,
+                     references=true, not=true, null=true, default=true,
+                     unique=true, check=true, constraint=true, as=true,
+                     left=true, right=true, inner=true, outer=true, cross=true,
+                     full=true, order=true, by=true, group=true, having=true,
+                     limit=true, offset=true, union=true, all=true, distinct=true,
+                     exists=true, in=true, like=true, between=true, case=true,
+                     when=true, then=true, else=true, end=true, count=true,
+                     sum=true, avg=true, min=true, max=true, true=true, false=true }
+  if keywords[table_name:lower()] then
+    vim.notify("'" .. table_name .. "' is a SQL keyword", vim.log.levels.INFO, { title = "Poste SQL" })
+    return
+  end
+
+  -- Resolve connection context
+  local sql_context = require("poste.sql.context")
+  local ctx = sql_context.resolve_context(vim.api.nvim_get_current_buf())
+  local conn = ctx.connection or state.sql.context.connection
+  if not conn or conn == "" then
+    vim.notify("No SQL connection context. Add -- @connection <name> to the file header.", vim.log.levels.ERROR, { title = "Poste SQL" })
+    return
+  end
+
+  -- Get the file path for connections.json discovery
+  local file = vim.api.nvim_buf_get_name(vim.api.nvim_get_current_buf())
+  if file == "" then
+    file = vim.fn.getcwd() .. "/query.sql"
+  end
+
+  local db = state.sql.context.database
+  local cmd = string.format("%s introspect %s --type ddl --table %s --env %s",
+    vim.fn.shellescape(binary),
+    vim.fn.shellescape(conn),
+    vim.fn.shellescape(table_name),
+    vim.fn.shellescape(state.current_env)
+  )
+  if file and file ~= "" then
+    cmd = cmd .. " --path " .. vim.fn.shellescape(vim.fn.fnamemodify(file, ":h"))
+  end
+  if db and db ~= vim.NIL and db ~= "" then
+    cmd = cmd .. " --database " .. vim.fn.shellescape(db)
+  end
+
+  state.log("INFO", "DDL cmd: " .. cmd)
+
+  vim.fn.jobstart(cmd, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      if not data then return end
+      while #data > 0 and data[#data] == "" do
+        data[#data] = nil
+      end
+      if #data == 0 then return end
+
+      local output = table.concat(data, "\n")
+      vim.schedule(function()
+        local ok, parsed = pcall(vim.json.decode, output)
+        if not ok or type(parsed) ~= "table" then
+          vim.notify("Failed to parse DDL response", vim.log.levels.ERROR, { title = "Poste SQL" })
+          return
+        end
+
+        local items = parsed.items
+        if not items or #items == 0 then
+          vim.notify("No DDL found for table '" .. table_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
+          return
+        end
+
+        local ddl_text = items[1].ddl
+        if not ddl_text or ddl_text == "" then
+          vim.notify("No DDL found for table '" .. table_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
+          return
+        end
+
+        local lines = vim.split(ddl_text, "\n", { plain = true })
+        show_float(lines, "DDL: " .. table_name, "sql")
+      end)
+    end,
+    on_stderr = function(_, data)
+      if not data then return end
+      for _, l in ipairs(data) do
+        if l ~= "" then state.log("ERROR", "DDL stderr: " .. l) end
+      end
+    end,
+    on_exit = function(_, code)
+      if code ~= 0 then
+        vim.schedule(function()
+          vim.notify("DDL introspection exited with code " .. code, vim.log.levels.ERROR, { title = "Poste SQL" })
+        end)
+      end
+    end,
+  })
+end
 
 return M

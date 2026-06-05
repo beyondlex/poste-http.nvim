@@ -347,6 +347,13 @@ function M.jump_prev()
 end
 
 function M.goto_definition()
+  local ft = vim.bo.filetype
+  -- SQL filetypes: delegate to DDL viewer
+  if ft == "poste_sql" or ft == "poste_sqlite" then
+    require("poste.sql.init").show_table_ddl()
+    return
+  end
+
   local buf = vim.api.nvim_get_current_buf()
   local cursor = vim.api.nvim_win_get_cursor(0)
   local line_num = cursor[1]

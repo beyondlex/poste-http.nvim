@@ -18,6 +18,7 @@ pub enum IntrospectType {
     Tables,
     Columns,
     Indexes,
+    Ddl,
 }
 
 impl IntrospectType {
@@ -29,8 +30,9 @@ impl IntrospectType {
             "tables" => Ok(Self::Tables),
             "columns" => Ok(Self::Columns),
             "indexes" => Ok(Self::Indexes),
+            "ddl" => Ok(Self::Ddl),
             _ => anyhow::bail!(
-                "Unknown introspect type: '{}'. Expected: databases, schemas, tables, columns, indexes",
+                "Unknown introspect type: '{}'. Expected: databases, schemas, tables, columns, indexes, ddl",
                 s
             ),
         }
@@ -44,6 +46,7 @@ impl IntrospectType {
             Self::Tables => "tables",
             Self::Columns => "columns",
             Self::Indexes => "indexes",
+            Self::Ddl => "ddl",
         }
     }
 }
@@ -160,6 +163,19 @@ async fn introspect_postgres(params: &IntrospectParams) -> Result<Value> {
                     })
                 })
                 .collect()
+        }
+        IntrospectType::Ddl => {
+            let schema = params.schema.as_deref().unwrap_or("public");
+            let table = params
+                .table
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("table parameter required for ddl introspection"))?;
+            build_create_table_from_introspect_postgres(
+                &pool,
+                schema,
+                table,
+            )
+            .await?
         }
     };
 
@@ -279,6 +295,13 @@ async fn introspect_mysql(params: &IntrospectParams) -> Result<Value> {
                 })
                 .collect()
         }
+        IntrospectType::Ddl => {
+            build_create_table_from_introspect_mysql(
+                &params.connection_url,
+                params.table.as_deref(),
+            )
+            .await?
+        }
     };
 
     pool.close().await;
@@ -378,6 +401,17 @@ async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value> {
                 })
                 .collect()
         }
+        IntrospectType::Ddl => {
+            let table = params
+                .table
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("table parameter required for ddl introspection"))?;
+            build_create_table_from_introspect_sqlite(
+                &conn_str,
+                table,
+            )
+            .await?
+        }
     };
 
     pool.close().await;
@@ -389,6 +423,177 @@ async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value> {
         "table": params.table,
         "dialect": "sqlite",
     }))
+}
+
+// ---------------------------------------------------------------------------
+// DDL generation helpers
+// ---------------------------------------------------------------------------
+
+use crate::sql_ddl::{self, ColumnDef, TableSchema};
+
+async fn build_create_table_from_introspect_postgres(
+    pool: &sqlx::PgPool,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<serde_json::Value>> {
+    use crate::sql_dialect::Dialect;
+    use sqlx::Row;
+
+    let dialect = PostgresDialect;
+
+    // 1. Introspect columns
+    let col_sql = dialect.list_columns();
+    let col_rows = sqlx::query(col_sql)
+        .bind(schema)
+        .bind(table)
+        .fetch_all(pool)
+        .await?;
+
+    let mut pk_cols: Vec<String> = Vec::new();
+    let mut columns: Vec<ColumnDef> = Vec::new();
+
+    for row in &col_rows {
+        let name: String = row.get("column_name");
+        let data_type: String = row.get("data_type");
+        let is_nullable: String = row.get("is_nullable");
+        let default: Option<String> = row.get("column_default");
+
+        columns.push(ColumnDef {
+            name,
+            col_type: data_type,
+            nullable: is_nullable == "YES",
+            default,
+        });
+    }
+
+    // 2. Introspect primary key
+    let pk_sql = format!(
+        r#"SELECT kc.column_name
+           FROM information_schema.table_constraints tc
+           JOIN information_schema.key_column_usage kc
+             ON kc.constraint_name = tc.constraint_name
+            AND kc.table_schema = tc.table_schema
+           WHERE tc.constraint_type = 'PRIMARY KEY'
+             AND tc.table_schema = $1
+             AND tc.table_name = $2
+           ORDER BY kc.ordinal_position"#
+    );
+    let pk_rows = sqlx::query(&pk_sql)
+        .bind(schema)
+        .bind(table)
+        .fetch_all(pool)
+        .await?;
+    for row in &pk_rows {
+        pk_cols.push(row.get::<String, _>("column_name"));
+    }
+
+    let schema_def = TableSchema {
+        name: table.to_string(),
+        columns,
+        primary_key: if pk_cols.is_empty() { None } else { Some(pk_cols) },
+    };
+
+    if let Some(ddl_generator) = sql_ddl::ddl_for("postgres") {
+        let ddl = ddl_generator.create_table(&schema_def);
+        return Ok(vec![json!({"ddl": ddl, "type": "ddl", "table": table, "dialect": "postgres"})]);
+    }
+
+    Ok(vec![json!({"ddl": format!("-- Could not create DDL for table '{}'", table)})])
+}
+
+async fn build_create_table_from_introspect_mysql(
+    connection_url: &str,
+    table: Option<&str>,
+) -> Result<Vec<serde_json::Value>> {
+    use sqlx::mysql::MySqlPoolOptions;
+    use sqlx::Row;
+
+    let table = table.ok_or_else(|| anyhow::anyhow!("table parameter required for ddl introspection"))?;
+
+    let pool = MySqlPoolOptions::new()
+        .max_connections(2)
+        .connect(connection_url)
+        .await?;
+
+    fn col(row: &sqlx::mysql::MySqlRow, name: &str) -> String {
+        let bytes: Vec<u8> = row.get(name);
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+    fn col_opt(row: &sqlx::mysql::MySqlRow, name: &str) -> Option<String> {
+        let bytes: Option<Vec<u8>> = row.get(name);
+        bytes.map(|b| String::from_utf8_lossy(&b).into_owned())
+    }
+
+    // 1. Introspect columns (SHOW FULL COLUMNS)
+    let col_sql = format!("SHOW FULL COLUMNS FROM `{}`", table);
+    let col_rows = sqlx::query(&col_sql).fetch_all(&pool).await?;
+
+    let mut pk_cols: Vec<String> = Vec::new();
+    let mut columns: Vec<ColumnDef> = Vec::new();
+
+    for row in &col_rows {
+        let name = col(row, "Field");
+        let col_type = col(row, "Type");
+        let nullable = col(row, "Null") == "YES";
+        let default = col_opt(row, "Default");
+        let key = col(row, "Key");
+
+        if key == "PRI" {
+            pk_cols.push(name.clone());
+        }
+
+        columns.push(ColumnDef {
+            name,
+            col_type,
+            nullable,
+            default,
+        });
+    }
+
+    let schema_def = TableSchema {
+        name: table.to_string(),
+        columns,
+        primary_key: if pk_cols.is_empty() { None } else { Some(pk_cols) },
+    };
+
+    pool.close().await;
+
+    if let Some(ddl_generator) = sql_ddl::ddl_for("mysql") {
+        let ddl = ddl_generator.create_table(&schema_def);
+        return Ok(vec![json!({"ddl": ddl, "type": "ddl", "table": table, "dialect": "mysql"})]);
+    }
+
+    Ok(vec![json!({"ddl": format!("-- Could not create DDL for table '{}'", table)})])
+}
+
+async fn build_create_table_from_introspect_sqlite(
+    conn_str: &str,
+    table: &str,
+) -> Result<Vec<serde_json::Value>> {
+    use sqlx::sqlite::SqlitePoolOptions;
+    use sqlx::Row;
+
+    // Note: conn_str is already normalized by normalize_sqlite_connection
+    let pool = SqlitePoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect(conn_str)
+        .await?;
+
+    // SQLite: query sqlite_master for CREATE TABLE statement directly.
+    let sql = "SELECT sql FROM sqlite_master WHERE type='table' AND name=?1";
+    let rows = sqlx::query(sql).bind(table).fetch_all(&pool).await?;
+
+    pool.close().await;
+
+    if let Some(row) = rows.first() {
+        let create_sql: Option<String> = row.get("sql");
+        if let Some(ddl) = create_sql {
+            return Ok(vec![json!({"ddl": ddl, "type": "ddl", "table": table, "dialect": "sqlite"})]);
+        }
+    }
+
+    Ok(vec![json!({"ddl": format!("-- Table '{}' not found", table)})])
 }
 
 // ---------------------------------------------------------------------------
@@ -432,6 +637,19 @@ mod tests {
         assert_eq!(IntrospectType::Tables.as_str(), "tables");
         assert_eq!(IntrospectType::Columns.as_str(), "columns");
         assert_eq!(IntrospectType::Indexes.as_str(), "indexes");
+        assert_eq!(IntrospectType::Ddl.as_str(), "ddl");
+    }
+
+    #[test]
+    fn test_introspect_type_ddl_from_str() {
+        assert_eq!(
+            IntrospectType::from_str("ddl").unwrap(),
+            IntrospectType::Ddl
+        );
+        assert_eq!(
+            IntrospectType::from_str("DDL").unwrap(),
+            IntrospectType::Ddl
+        );
     }
 
     #[tokio::test]

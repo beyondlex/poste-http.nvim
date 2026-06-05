@@ -152,6 +152,21 @@ function M.run_request()
         end
       end
 
+      -- Inject client.global vars as @var lines so {{var}} works across HTTP files
+      if block_start and state.global_vars and next(state.global_vars) then
+        local glines = vim.split(buf_content, "\n", { plain = true })
+        local result = {}
+        for i, line in ipairs(glines) do
+          table.insert(result, line)
+          if i == block_start then
+            for name, value in pairs(state.global_vars) do
+              table.insert(result, string.format("@%s = %s", name, value))
+            end
+          end
+        end
+        buf_content = table.concat(result, "\n")
+      end
+
       -- Process form data magic variables and file inclusions
       buf_content = request_vars.process_form_data(src_buf, line, buf_content)
 

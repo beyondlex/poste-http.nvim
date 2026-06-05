@@ -998,6 +998,35 @@ function M.setup(opts)
       -- Configure blink.cmp to show completions immediately for SQL
       vim.defer_fn(function()
         local blink_ok, blink = pcall(require, "blink.cmp")
+        if blink_ok and blink.show then
+          -- Set up autocommand to trigger completion after space in SQL
+          local group = vim.api.nvim_create_augroup("PosteSQLAutoComplete", { clear = false })
+          vim.api.nvim_create_autocmd("TextChangedI", {
+            group = group,
+            buffer = 0,
+            callback = function()
+              local line = vim.api.nvim_get_current_line()
+              local col = vim.api.nvim_win_get_cursor(0)[2]
+              -- Check if just typed a space after SQL keyword
+              if col > 0 and line:sub(col, col) == " " then
+                local before = line:sub(1, col - 1)
+                local last_word = before:match("(%w+)%s*$")
+                if last_word then
+                  local lw = last_word:lower()
+                  -- Trigger after context keywords
+                  if lw == "from" or lw == "join" or lw == "where" or 
+                     lw == "set" or lw == "on" or lw == "having" or
+                     lw == "by" or lw == "and" or lw == "or" then
+                    vim.defer_fn(function()
+                      blink.show()
+                    end, 50)
+                  end
+                end
+              end
+            end
+          })
+        end
+        
         if blink_ok and blink.config then
           -- Override buffer-local settings to show on trigger character
           vim.b.blink_cmp_min_keyword_length = 0

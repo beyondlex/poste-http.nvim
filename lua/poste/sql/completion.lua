@@ -419,8 +419,13 @@ local function extract_from_tables(bufnr, cursor_lnum)
   for i = #lines, 1, -1 do
     if lines[i]:match("^###") then block_start = i; break end
   end
-  local text = table.concat(lines, " ", block_start, #lines)
-        :gsub("%-%-[^\n]*", " ")   -- strip -- comments
+  -- Strip -- comments per line BEFORE joining (joining loses \n so [^\n]* would eat everything)
+  local stripped = {}
+  for i = block_start, #lines do
+    local l = (lines[i] or ""):gsub("%-%-.*", " ")
+    stripped[#stripped + 1] = l
+  end
+  local text = table.concat(stripped, " ")
 
   -- alias_map: alias (or table name) → real table name
   local alias_map = {}

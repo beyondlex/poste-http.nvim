@@ -127,22 +127,36 @@ end
 ---------------------------------------------------------------------------
 
 local fetching_tables = {}
+local tables_callbacks = {}  -- Queue callbacks while fetching
 
 local function ensure_tables(callback)
   local key = conn_key()
   local ctx = resolve_current_context()
   if not key or not ctx or not ctx.connection then
-    -- No connection: provide a hint item if in table context
     callback()
     return
   end
 
+  -- Cache hit
   if cache[key] and #cache[key].tables > 0 then callback(); return end
-  if fetching_tables[key] then callback(); return end
+  
+  -- Already fetching: queue callback
+  if fetching_tables[key] then
+    tables_callbacks[key] = tables_callbacks[key] or {}
+    table.insert(tables_callbacks[key], callback)
+    return
+  end
+  
   fetching_tables[key] = true
+  tables_callbacks[key] = { callback }
 
   local binary = find_binary()
-  if not binary then callback(); return end
+  if not binary then 
+    fetching_tables[key] = false
+    for _, cb in ipairs(tables_callbacks[key] or {}) do cb() end
+    tables_callbacks[key] = nil
+    return
+  end
 
   local args = { binary, "introspect", ctx.connection,
     "--type", "tables", "--path", search_dir(),
@@ -163,11 +177,19 @@ local function ensure_tables(callback)
         cache[key].tables = vim.tbl_map(function(i) return i.name end, parsed.items)
       end
       fetching_tables[key] = false
-      vim.schedule(callback)
+      vim.schedule(function()
+        for _, cb in ipairs(tables_callbacks[key] or {}) do cb() end
+        tables_callbacks[key] = nil
+      end)
     end,
     on_exit = function(_, code)
       fetching_tables[key] = false
-      if code ~= 0 then vim.schedule(callback) end
+      if code ~= 0 then 
+        vim.schedule(function()
+          for _, cb in ipairs(tables_callbacks[key] or {}) do cb() end
+          tables_callbacks[key] = nil
+        end)
+      end
     end,
   })
 end
@@ -177,19 +199,35 @@ end
 ---------------------------------------------------------------------------
 
 local fetching_cols = {}
+local cols_callbacks = {}  -- Queue callbacks while fetching
 
 local function ensure_columns(tbl, callback)
   local key = conn_key()
   local ctx = resolve_current_context()
   if not key or not ctx or not ctx.connection then callback(); return end
 
+  -- Cache hit
   if cache[key] and cache[key].columns[tbl] then callback(); return end
+  
   local fkey = key .. "/" .. tbl
-  if fetching_cols[fkey] then callback(); return end
+  
+  -- Already fetching: queue callback
+  if fetching_cols[fkey] then
+    cols_callbacks[fkey] = cols_callbacks[fkey] or {}
+    table.insert(cols_callbacks[fkey], callback)
+    return
+  end
+  
   fetching_cols[fkey] = true
+  cols_callbacks[fkey] = { callback }
 
   local binary = find_binary()
-  if not binary then callback(); return end
+  if not binary then 
+    fetching_cols[fkey] = false
+    for _, cb in ipairs(cols_callbacks[fkey] or {}) do cb() end
+    cols_callbacks[fkey] = nil
+    return
+  end
 
   local args = { binary, "introspect", ctx.connection,
     "--type", "columns", "--table", tbl,
@@ -213,11 +251,19 @@ local function ensure_columns(tbl, callback)
         cache[key].columns[tbl] = vim.tbl_map(function(i) return i.name end, parsed.items)
       end
       fetching_cols[fkey] = false
-      vim.schedule(callback)
+      vim.schedule(function()
+        for _, cb in ipairs(cols_callbacks[fkey] or {}) do cb() end
+        cols_callbacks[fkey] = nil
+      end)
     end,
     on_exit = function(_, code)
       fetching_cols[fkey] = false
-      if code ~= 0 then vim.schedule(callback) end
+      if code ~= 0 then 
+        vim.schedule(function()
+          for _, cb in ipairs(cols_callbacks[fkey] or {}) do cb() end
+          cols_callbacks[fkey] = nil
+        end)
+      end
     end,
   })
 end

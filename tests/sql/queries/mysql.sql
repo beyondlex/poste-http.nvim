@@ -1,6 +1,9 @@
 -- @connection my-blog
 -- @database blog
 
+update posts SET title = CONCAT(title, '.') WHERE id = 1;
+
+select * from posts;
 
 SELECT s.*, p.title FROM authors s LEFT JOIN posts p on p.author_id = s.id;
 
@@ -10,10 +13,7 @@ SELECT * FROM categories;
 ###
 SELECT s.*, p.title FROM authors s LEFT JOIN posts p on p.author_id = s.id;
 
-###
 USE blog;
-
-###
 show tables;
 
 select * from posts;
@@ -34,7 +34,6 @@ JOIN authors a    ON a.id = p.author_id
 JOIN categories c ON c.id = p.category_id
 ORDER BY p.created_at DESC;
 
-### Posts with tags
 SELECT p.title,
        GROUP_CONCAT(t.name SEPARATOR ', ') AS tags
 FROM posts p
@@ -42,7 +41,6 @@ JOIN post_tags pt ON pt.post_id = p.id
 JOIN tags t       ON t.id = pt.tag_id
 GROUP BY p.id, p.title;
 
-### Comment stats per post
 SELECT p.title,
        COUNT(c.id) AS total_comments,
        SUM(c.approved) AS approved,
@@ -63,7 +61,6 @@ LEFT JOIN stock s ON s.warehouse_id = w.id
 GROUP BY w.id, w.name, w.city
 ORDER BY total_units DESC;
 
-### Low stock items (quantity < 100)
 SELECT i.sku,
        i.name,
        s.quantity,

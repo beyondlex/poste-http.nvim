@@ -1,6 +1,8 @@
 -- @connection my-blog
 -- @database blog
 
+###
+SELECT * FROM authors WHERE 
 
 ###
 USE blog;

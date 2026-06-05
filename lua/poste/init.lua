@@ -864,22 +864,44 @@ function M.setup(opts)
     local line_before = line:sub(1, col)
     local cursor_line = cursor[1]
     
-    -- Call get_items directly (via test interface)
+    local status = {
+      "SQL Completion Test:",
+      "  line_before: '" .. line_before .. "'",
+      "  cursor_line: " .. cursor_line,
+    }
+    
+    -- Test context detection
+    if sql_comp._test then
+      local ctx_type, ctx_data = sql_comp._test.detect_context(line_before)
+      table.insert(status, "  Context: " .. tostring(ctx_type))
+      
+      -- If column context, test extract_from_tables
+      if ctx_type == "column" and sql_comp._test.extract_from_tables then
+        local tbls = sql_comp._test.extract_from_tables(buf, cursor_line)
+        table.insert(status, "  Tables found: " .. #tbls .. " - " .. vim.inspect(tbls))
+      end
+      
+      -- Test connection
+      local conn = sql_comp._test.conn_key and sql_comp._test.conn_key()
+      table.insert(status, "  Connection key: " .. tostring(conn))
+    end
+    
+    -- Call get_items directly
     if sql_comp._test and sql_comp._test.get_items then
       sql_comp._test.get_items(buf, line_before, cursor_line, function(items)
-        local msg = string.format("Would return %d items:\n", #items)
+        table.insert(status, "\nReturned " .. #items .. " items:")
         for i, item in ipairs(items) do
           if i <= 10 then
-            msg = msg .. string.format("  %s (%s)\n", item.label, item.documentation or "")
+            table.insert(status, "  " .. item.label .. " (" .. (item.documentation or "") .. ")")
           end
         end
         if #items > 10 then
-          msg = msg .. string.format("  ... and %d more", #items - 10)
+          table.insert(status, "  ... and " .. (#items - 10) .. " more")
         end
-        vim.notify(msg, vim.log.levels.INFO)
+        vim.notify(table.concat(status, "\n"), vim.log.levels.INFO)
       end)
     else
-      vim.notify("Test interface not available", vim.log.levels.ERROR)
+      vim.notify(table.concat(status, "\n"), vim.log.levels.INFO)
     end
   end, { desc = "Test SQL completion at cursor" })
 

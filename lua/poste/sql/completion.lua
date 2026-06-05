@@ -362,6 +362,10 @@ local function get_items(bufnr, line_before, cursor_line, callback)
   local prefix = line_before:match("[%w_]*$") or ""
   local ctx_type, ctx_data = detect_context(line_before)
 
+  if vim.g.poste_sql_debug then
+    state.log("INFO", string.format("get_items: ctx_type=%s, prefix='%s'", ctx_type, prefix))
+  end
+
   if ctx_type == "connection" then
     local cp = line_before:match("@connection%s+(%S*)$") or ""
     ensure_conn_names(function(names)
@@ -396,6 +400,12 @@ local function get_items(bufnr, line_before, cursor_line, callback)
 
   if ctx_type == "column" then
     local from_tbls = extract_from_tables(bufnr, cursor_line or vim.fn.line("."))
+    
+    if vim.g.poste_sql_debug then
+      state.log("INFO", string.format("column context: found %d tables: %s", 
+        #from_tbls, vim.inspect(from_tbls)))
+    end
+    
     if #from_tbls == 0 then
       callback(kw_items(prefix))
       return
@@ -527,6 +537,7 @@ M._test = {
   resolve_current_context = resolve_current_context,
   conn_key = conn_key,
   get_items = get_items,
+  extract_from_tables = extract_from_tables,
 }
 
 return M

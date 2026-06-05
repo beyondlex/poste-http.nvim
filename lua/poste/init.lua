@@ -855,6 +855,34 @@ function M.setup(opts)
     vim.notify(table.concat(status, "\n"), vim.log.levels.INFO)
   end, { desc = "Check SQL completion status" })
 
+  vim.api.nvim_create_user_command("PosteSQLCmpTest", function()
+    local sql_comp = require("poste.sql.completion")
+    local buf = vim.api.nvim_get_current_buf()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local line = vim.api.nvim_get_current_line()
+    local col = cursor[2]
+    local line_before = line:sub(1, col)
+    local cursor_line = cursor[1]
+    
+    -- Call get_items directly (via test interface)
+    if sql_comp._test and sql_comp._test.get_items then
+      sql_comp._test.get_items(buf, line_before, cursor_line, function(items)
+        local msg = string.format("Would return %d items:\n", #items)
+        for i, item in ipairs(items) do
+          if i <= 10 then
+            msg = msg .. string.format("  %s (%s)\n", item.label, item.documentation or "")
+          end
+        end
+        if #items > 10 then
+          msg = msg .. string.format("  ... and %d more", #items - 10)
+        end
+        vim.notify(msg, vim.log.levels.INFO)
+      end)
+    else
+      vim.notify("Test interface not available", vim.log.levels.ERROR)
+    end
+  end, { desc = "Test SQL completion at cursor" })
+
   vim.api.nvim_create_user_command("PosteSymbols", function()
     symbols.show_symbols()
   end, { desc = "Show symbol outline (all HTTP requests)" })
@@ -910,6 +938,15 @@ function M.setup(opts)
       vim.keymap.set("n", "<leader>db", function()
         require("poste.sql.db_browser").toggle()
       end, { buffer = 0, noremap = true, silent = true, desc = "Toggle DB Browser" })
+      
+      -- Configure blink.cmp to show completions immediately for SQL
+      vim.defer_fn(function()
+        local blink_ok, blink = pcall(require, "blink.cmp")
+        if blink_ok and blink.config then
+          -- Override buffer-local settings to show on trigger character
+          vim.b.blink_cmp_min_keyword_length = 0
+        end
+      end, 100)
     end,
   })
 

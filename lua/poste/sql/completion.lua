@@ -463,7 +463,17 @@ function M:get_completions(ctx, callback)
   local bufnr = vim.api.nvim_get_current_buf()
   local cursor_line = ctx.cursor and ctx.cursor[1] or vim.fn.line(".")
 
+  -- Debug logging
+  if vim.g.poste_sql_debug then
+    state.log("INFO", string.format("SQL completion triggered: line_before='%s'", line_before))
+  end
+
   get_items(bufnr, line_before, cursor_line, function(items)
+    -- Debug logging
+    if vim.g.poste_sql_debug then
+      state.log("INFO", string.format("SQL completion: returning %d items", #items))
+    end
+    
     -- Mark as incomplete to keep completion menu open even with empty prefix
     callback({ is_incomplete_forward = true, is_incomplete_backward = false, items = items })
   end)
@@ -516,6 +526,7 @@ M._test = {
   detect_context = detect_context,
   resolve_current_context = resolve_current_context,
   conn_key = conn_key,
+  get_items = get_items,
 }
 
 return M

@@ -156,6 +156,14 @@ local function calc_column_widths(columns, rows, max_width)
       for i = 1, #widths do
         widths[i] = math.max(4, math.floor(widths[i] * scale))
       end
+      -- Ensure column names are never truncated: each column must be at
+      -- least as wide as its header name, even if that exceeds the cap.
+      for i, col in ipairs(columns) do
+        local name_w = displaywidth(col.name or "")
+        if name_w > widths[i] then
+          widths[i] = name_w
+        end
+      end
     end
   end
 

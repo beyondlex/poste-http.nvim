@@ -701,14 +701,16 @@ fn build_response(
         "total_affected": total_affected,
         "total_execution_time_ms": total_ms,
         "connection": connection,
-        "database": database,
+        "database": database.clone().unwrap_or_default(),
         "dialect": dialect,
     }))?;
 
     let status_text = if has_rows {
         format!("{} row{} returned in {}ms", total_rows, if total_rows == 1 { "" } else { "s" }, total_ms)
-    } else {
+    } else if total_affected > 0 {
         format!("{} row{} affected in {}ms", total_affected, if total_affected == 1 { "" } else { "s" }, total_ms)
+    } else {
+        format!("Query OK in {}ms", total_ms)
     };
 
     Ok(make_response(protocol, connection, body, status_text))

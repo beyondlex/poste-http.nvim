@@ -11,6 +11,9 @@ CREATE TABLE users (
     status      VARCHAR(20)  NOT NULL DEFAULT 'active',
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+COMMENT ON TABLE users IS 'Application users with account status';
+COMMENT ON COLUMN users.email IS 'Verified email address (unique)';
+COMMENT ON COLUMN users.status IS 'active, inactive, or suspended';
 
 CREATE TABLE products (
     id          SERIAL PRIMARY KEY,
@@ -20,6 +23,9 @@ CREATE TABLE products (
     category    VARCHAR(100),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+COMMENT ON TABLE products IS 'Product catalog with pricing';
+COMMENT ON COLUMN products.price IS 'Current selling price';
+COMMENT ON COLUMN products.stock IS 'Available inventory count';
 
 CREATE TABLE orders (
     id          SERIAL PRIMARY KEY,

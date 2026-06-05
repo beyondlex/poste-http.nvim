@@ -255,16 +255,22 @@ function M.format_dataset(r)
     for i, res in ipairs(results) do
       local affected = res.affected_rows or 0
       local ms = res.execution_time_ms or 0
+      local msg
       if #results > 1 then
-        table.insert(lines, string.format("  Statement %d: %d row(s) affected · %dms", i, affected, ms))
+        msg = string.format("  Statement %d: %s · %dms", i,
+          affected > 0 and string.format("%d row(s) affected", affected) or "Query OK", ms)
       else
-        table.insert(lines, string.format("  %d row(s) affected · %dms", affected, ms))
+        msg = string.format("  %s · %dms",
+          affected > 0 and string.format("%d row(s) affected", affected) or "Query OK", ms)
       end
+      table.insert(lines, msg)
     end
     table.insert(lines, "")
+    local db = data.database
+    if type(db) ~= "string" then db = nil end
     table.insert(lines, string.format("  Connection: %s%s",
       data.connection or "",
-      data.database and (" / " .. data.database) or ""
+      db and (" / " .. db) or ""
     ))
     table.insert(lines, "")
     return lines, { type = "affected" }

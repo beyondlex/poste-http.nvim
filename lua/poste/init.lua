@@ -801,6 +801,17 @@ function M.setup(opts)
     vim.keymap.set("n", "gs", function()
       symbols.show_symbols()
     end, keymap_opts)
+
+    -- Clear indicators when buffer content changes (dd, x, etc.)
+    local indicator_ns = vim.api.nvim_create_namespace("poste_indicator")
+    local group = vim.api.nvim_create_augroup("PosteClearIndicators_" .. buf, { clear = true })
+    vim.api.nvim_create_autocmd("TextChanged", {
+      group = group,
+      buffer = buf,
+      callback = function()
+        vim.api.nvim_buf_clear_namespace(buf, indicator_ns, 0, -1)
+      end,
+    })
   end
 
   -- Commands
@@ -968,12 +979,25 @@ function M.setup(opts)
     local tbls, alias_map = sql_comp._test.extract_from_tables(buf, cursor_lnum)
     local conn = sql_comp._test.conn_key()
 
+    -- Check what blink sources are active for this filetype
+    local blink_src_ok, blink_src = pcall(require, "blink.cmp.sources.lib")
+    local active_providers = blink_src_ok and blink_src.get_enabled_provider_ids("insert") or {}
+    local per_ft = "(unavailable)"
+    local blink_config_ok, blink_config = pcall(require, "blink.cmp.config")
+    if blink_config_ok then
+      per_ft = vim.inspect(blink_config.sources and blink_config.sources.per_filetype and blink_config.sources.per_filetype["poste_sql"])
+    end
+    local runtime_ft = blink_src_ok and vim.inspect(blink_src.per_filetype_provider_ids) or "(unavailable)"
+
     local msg = {
       "line_before: '" .. line_before .. "'",
       "ctx: " .. tostring(ctx_type),
       "conn_key: " .. tostring(conn),
       "cursor_lnum: " .. cursor_lnum,
-      "buf lines 1.." .. cursor_lnum .. ":",
+      "ft: " .. vim.bo.filetype,
+      "active blink providers: " .. vim.inspect(active_providers),
+      "static per_filetype[poste_sql]: " .. per_ft,
+      "runtime per_filetype_provider_ids: " .. runtime_ft,
     }
     local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, cursor_lnum, false)
     for i, l in ipairs(buf_lines) do

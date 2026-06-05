@@ -312,3 +312,112 @@ describe("get_items dot_column resolves alias", function()
     assert.is_nil(labels["id"])
   end)
 end)
+
+-- ── 7. Dedup in get_completions (blink path) ─────────────────────────────────
+
+describe("get_completions dedup", function()
+  before_each(function()
+    local state = require("poste.state")
+    state.sql = { context = { connection = "test-conn", database = "blog" } }
+    sql_comp.cache_tables({ { name = "authors" }, { name = "posts" } })
+    sql_comp.cache_columns("authors", {
+      { name = "id" }, { name = "username" }, { name = "email" }, { name = "bio" },
+    })
+    sql_comp.cache_columns("posts", {
+      { name = "id" }, { name = "title" }, { name = "author_id" },
+    })
+  end)
+
+  it("deduplicates by label when tables share column names", function()
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "###", "SELECT * FROM authors a JOIN posts p ON a.id = p.id WHERE ",
+    })
+    vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
+    vim.api.nvim_set_current_buf(buf)
+
+    -- Simulate blink context: cursor at end of line after WHERE<space>
+    local line = "SELECT * FROM authors a JOIN posts p ON a.id = p.id WHERE "
+    local items = nil
+    sql_comp.new():get_completions(
+      { line = line, cursor = { 2, #line } },
+      function(r) items = r end
+    )
+    assert.is_not_nil(items)
+    assert.is_not_nil(items.items)
+
+    -- Check for duplicate labels
+    local seen = {}
+    for _, item in ipairs(items.items) do
+      assert.is_nil(seen[item.label],
+        string.format("duplicate label in get_completions: %s", item.label))
+      seen[item.label] = true
+    end
+  end)
+
+  it("dedup removes duplicate when get_items returns same label", function()
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "###", "SELECT * FROM authors WHERE ",
+    })
+    vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
+    vim.api.nvim_set_current_buf(buf)
+
+    local line = "SELECT * FROM authors WHERE "
+    local items = nil
+    sql_comp.new():get_completions(
+      { line = line, cursor = { 2, #line } },
+      function(r) items = r end
+    )
+    assert.is_not_nil(items)
+    assert.is_not_nil(items.items)
+    assert.is_true(#items.items > 0, "expected at least one item")
+
+    -- Count occurrences of each label
+    local counts = {}
+    for _, item in ipairs(items.items) do
+      counts[item.label] = (counts[item.label] or 0) + 1
+    end
+    for label, count in pairs(counts) do
+      assert.equals(1, count, string.format("label '%s' appears %d times", label, count))
+    end
+  end)
+end)
+
+-- ── 8. Dedup in nvim-cmp complete path ─────────────────────────────────────
+
+describe("complete dedup (nvim-cmp path)", function()
+  before_each(function()
+    local state = require("poste.state")
+    state.sql = { context = { connection = "test-conn", database = "blog" } }
+    sql_comp.cache_tables({ { name = "authors" } })
+    sql_comp.cache_columns("authors", {
+      { name = "id" }, { name = "username" }, { name = "email" }, { name = "bio" },
+    })
+  end)
+
+  it("deduplicates items by label", function()
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "###", "SELECT * FROM authors WHERE ",
+    })
+    vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
+    vim.api.nvim_set_current_buf(buf)
+
+    local source = sql_comp.source.new()
+    local items = nil
+    source:complete(
+      { context = { cursor_before_line = "SELECT * FROM authors WHERE " } },
+      function(r) items = r end
+    )
+    assert.is_not_nil(items)
+    assert.is_not_nil(items.items)
+
+    local seen = {}
+    for _, item in ipairs(items.items) do
+      assert.is_nil(seen[item.label],
+        string.format("duplicate label in complete: %s", item.label))
+      seen[item.label] = true
+    end
+  end)
+end)

@@ -1051,7 +1051,7 @@ function M:get_completions(ctx, callback)
 
   callback({
     items = items,
-    is_incomplete_forward = true,
+    is_incomplete_forward = false,
     is_incomplete_backward = false,
   })
 end

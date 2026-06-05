@@ -25,15 +25,15 @@ CREATE TABLE suppliers (
 ) ENGINE=InnoDB;
 
 CREATE TABLE items (
-    id            INT AUTO_INCREMENT PRIMARY KEY,
-    sku           VARCHAR(50)  NOT NULL UNIQUE,
-    name          VARCHAR(200) NOT NULL,
-    unit_price    DECIMAL(10,2) NOT NULL,
-    weight_kg     DECIMAL(8,3),
-    supplier_id   INT,
-    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id            INT AUTO_INCREMENT PRIMARY KEY COMMENT 'Primary key',
+    sku           VARCHAR(50)  NOT NULL UNIQUE COMMENT 'Stock keeping unit code',
+    name          VARCHAR(200) NOT NULL COMMENT 'Display name',
+    unit_price    DECIMAL(10,2) NOT NULL COMMENT 'Price per unit in CNY',
+    weight_kg     DECIMAL(8,3) COMMENT 'Weight in kilograms',
+    supplier_id   INT COMMENT 'References suppliers.id',
+    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation timestamp',
     FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Product inventory items';
 
 CREATE TABLE stock (
     id            INT AUTO_INCREMENT PRIMARY KEY,

@@ -11,6 +11,10 @@ CREATE TABLE events (
     payload     JSONB,
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+COMMENT ON TABLE events IS 'User activity events for analytics';
+COMMENT ON COLUMN events.event_type IS 'page_view, add_cart, purchase, login, signup';
+COMMENT ON COLUMN events.payload IS 'Event-specific JSON payload';
+COMMENT ON COLUMN events.user_id IS 'References ecommerce.users.id';
 
 CREATE TABLE sessions (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),

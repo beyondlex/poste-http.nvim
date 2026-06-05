@@ -23,7 +23,7 @@ local KEYWORDS = {
   "FULL JOIN", "CROSS JOIN", "ON", "GROUP BY", "ORDER BY", "HAVING",
   "LIMIT", "OFFSET", "DISTINCT", "ALL", "UNION", "UNION ALL", "AS", "WITH",
   "INSERT INTO", "VALUES", "UPDATE", "SET", "DELETE FROM",
-  "CREATE TABLE", "ALTER TABLE", "DROP TABLE", "ADD COLUMN", "DROP COLUMN",
+  "CREATE TABLE", "ALTER TABLE", "DROP TABLE", "TRUNCATE TABLE", "ADD COLUMN", "DROP COLUMN",
   "RENAME COLUMN", "MODIFY COLUMN",
   "AND", "OR", "NOT", "IN", "NOT IN", "EXISTS", "IS NULL", "IS NOT NULL",
   "LIKE", "ILIKE", "BETWEEN",
@@ -490,20 +490,30 @@ local function detect_context(line_before)
     return "dot_column", dot_tbl
   end
 
-  -- Extract all words, but check the SECOND-TO-LAST word for context
-  -- The last word is the user's typing prefix (for filtering)
+  -- Extract all words
   local words = {}
   for word in line_before:gmatch("[%w_]+") do
     table.insert(words, word)
   end
-  
-  -- Check if line ends with a partial word (for context, we want the word BEFORE it)
+
+  -- After a comma: scan backward for the nearest clause keyword
+  if line_before:match(",%s*$") or line_before:match(",%s*[%w_]*$") then
+    for i = #words, 1, -1 do
+      local w = words[i]:lower()
+      if COLUMN_CTX[w] then return "column", nil end
+      if TABLE_CTX[w] then return "table", nil end
+    end
+    return "column", nil  -- default after comma: suggest columns
+  end
+
+  -- Check the SECOND-TO-LAST word for context
+  -- The last word is the user's typing prefix (for filtering)
   local check_word_idx = #words
   if line_before:match("[%w_]+$") then
     -- Ends with alphanumeric: last word is user's prefix, check second-to-last
     check_word_idx = #words - 1
   end
-  
+
   if check_word_idx >= 1 then
     local keyword = words[check_word_idx]:lower()
     if TABLE_CTX[keyword] then return "table", nil end
@@ -626,6 +636,13 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     end
     local pending = #real_tbls
     local all = {}
+    local seen_keys = {}
+    local done = false
+    local function flush()
+      if done then return end
+      done = true
+      callback(filter(all, prefix))
+    end
     for _, tbl in ipairs(real_tbls) do
       if vim.g.poste_sql_debug then
         vim.notify(string.format("DEBUG: calling ensure_columns for %s", tbl), vim.log.levels.INFO)
@@ -641,23 +658,21 @@ local function get_items(bufnr, line_before, cursor_line, callback)
         end
         
         for _, col in ipairs(cols) do
-          table.insert(all, { 
-            label = col, 
-            kind = 5, 
-            insertText = col,
-            filterText = col,  -- Explicit for blink.cmp
-            sortText = col,
-            documentation = "col: " .. tbl .. "." .. col 
-          })
+          local uniq = tbl .. "." .. col
+          if not seen_keys[uniq] then
+            seen_keys[uniq] = true
+            table.insert(all, { 
+              label = col, 
+              kind = 5, 
+              insertText = col,
+              filterText = col,  -- Explicit for blink.cmp
+              sortText = col,
+              documentation = "col: " .. uniq 
+            })
+          end
         end
         pending = pending - 1
-        
-        if pending == 0 then 
-          if vim.g.poste_sql_debug then
-            vim.notify(string.format("DEBUG: calling final callback with %d items", #all), vim.log.levels.WARN)
-          end
-          callback(filter(all, prefix))
-        end
+        if pending <= 0 then flush() end
       end)
     end
     return
@@ -702,7 +717,12 @@ end
 --- blink.cmp calls this with (ctx, callback)
 --- ctx.line  = full line text
 --- ctx.cursor = {row, col}  (col is byte-index into line, 1-based in some versions)
+local completion_gen = 0
+
 function M:get_completions(ctx, callback)
+  completion_gen = completion_gen + 1
+  local my_gen = completion_gen
+
   -- Use real-time cursor state (blink ctx snapshot may lag by one character
   -- when triggered by a trigger character like space)
   local bufnr = vim.api.nvim_get_current_buf()
@@ -717,10 +737,20 @@ function M:get_completions(ctx, callback)
   end
 
   get_items(bufnr, line_before, cursor_line, function(items)
-    if vim.g.poste_sql_debug then
-      state.log("INFO", string.format("SQL completion: returning %d items", #items))
+    if my_gen ~= completion_gen then return end  -- stale async callback
+    -- Deduplicate by label: other sources (buffer, LSP) may send same items
+    local seen = {}
+    local deduped = {}
+    for _, item in ipairs(items) do
+      if not seen[item.label] then
+        seen[item.label] = true
+        table.insert(deduped, item)
+      end
     end
-    callback({ is_incomplete_forward = true, is_incomplete_backward = false, items = items })
+    if vim.g.poste_sql_debug then
+      state.log("INFO", string.format("SQL completion: %d items (deduped from %d)", #deduped, #items))
+    end
+    callback({ is_incomplete_forward = false, is_incomplete_backward = false, items = deduped })
   end)
 end
 
@@ -746,7 +776,19 @@ function M.source:complete(params, callback)
   local bufnr = vim.api.nvim_get_current_buf()
   local cursor_line = vim.fn.line(".")
   get_items(bufnr, line_before, cursor_line, function(items)
-    callback({ items = items, isIncomplete = false })
+    -- Deduplicate by label (other nvim-cmp sources may provide same items)
+    if #items > 1 then
+      vim.notify("poste_sql complete: " .. #items .. " items (deduping)", vim.log.levels.WARN)
+    end
+    local seen = {}
+    local deduped = {}
+    for _, item in ipairs(items) do
+      if not seen[item.label] then
+        seen[item.label] = true
+        table.insert(deduped, item)
+      end
+    end
+    callback({ items = deduped, isIncomplete = false })
   end)
 end
 
@@ -754,13 +796,28 @@ end
 -- Registration
 ---------------------------------------------------------------------------
 
+local did_register_cmp = false
+
 --- Called from ftplugin for nvim-cmp registration.
 function M.register()
+  if did_register_cmp then return end
+  did_register_cmp = true
   local ok, cmp = pcall(require, "cmp")
-  if not ok then return end
+  if not ok then
+    did_register_cmp = false
+    -- cmp not loaded yet — defer to CmpReady
+    vim.api.nvim_create_autocmd("User", {
+      pattern = "CmpReady",
+      once = true,
+      callback = function()
+        M.register()
+      end,
+    })
+    return
+  end
   cmp.register_source("poste_sql", M.source.new())
   cmp.setup.filetype({ "poste_sql", "poste_sqlite" }, {
-    sources = cmp.config.sources({ { name = "poste_sql" } }, { { name = "buffer" } }),
+    sources = cmp.config.sources({ { name = "poste_sql" } }),
   })
 end
 

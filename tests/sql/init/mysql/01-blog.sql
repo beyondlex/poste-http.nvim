@@ -25,17 +25,17 @@ CREATE TABLE authors (
 
 CREATE TABLE posts (
     id          INT AUTO_INCREMENT PRIMARY KEY,
-    author_id   INT NOT NULL,
-    category_id INT NOT NULL,
-    title       VARCHAR(300) NOT NULL,
-    slug        VARCHAR(300) NOT NULL UNIQUE,
-    body        TEXT NOT NULL,
-    status      ENUM('draft','published','archived') NOT NULL DEFAULT 'draft',
-    published_at TIMESTAMP NULL,
-    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    author_id   INT NOT NULL COMMENT 'References authors.id',
+    category_id INT NOT NULL COMMENT 'References categories.id',
+    title       VARCHAR(300) NOT NULL COMMENT 'Post title (SEO)',
+    slug        VARCHAR(300) NOT NULL UNIQUE COMMENT 'URL-friendly identifier',
+    body        TEXT NOT NULL COMMENT 'Post content in Markdown',
+    status      ENUM('draft','published','archived') NOT NULL DEFAULT 'draft' COMMENT 'Publication status',
+    published_at TIMESTAMP NULL COMMENT 'When the post was published',
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation timestamp',
     FOREIGN KEY (author_id)   REFERENCES authors(id),
     FOREIGN KEY (category_id) REFERENCES categories(id)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Blog posts with SEO metadata';
 
 CREATE TABLE tags (
     id   INT AUTO_INCREMENT PRIMARY KEY,

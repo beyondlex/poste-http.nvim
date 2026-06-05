@@ -9,6 +9,7 @@ pub struct ColumnDef {
     pub col_type: String,
     pub nullable: bool,
     pub default: Option<String>,
+    pub comment: Option<String>,
 }
 
 /// Table schema used when generating CREATE TABLE.
@@ -17,6 +18,7 @@ pub struct TableSchema {
     pub name: String,
     pub columns: Vec<ColumnDef>,
     pub primary_key: Option<Vec<String>>,
+    pub comment: Option<String>,
 }
 
 /// Trait for generating dialect-specific DDL statements.
@@ -68,11 +70,36 @@ impl DdlGenerator for PostgresDdl {
             cols.push(format!("  PRIMARY KEY ({})", pk_cols.join(", ")));
         }
 
-        format!(
+        let mut result = format!(
             "CREATE TABLE {} (\n{}\n);",
             q(&schema.name),
             cols.join(",\n")
-        )
+        );
+
+        if let Some(ref comment) = schema.comment {
+            if !comment.is_empty() {
+                result.push_str(&format!(
+                    "\n\nCOMMENT ON TABLE {} IS '{}';",
+                    q(&schema.name),
+                    comment.replace('\'', "''")
+                ));
+            }
+        }
+
+        for col in &schema.columns {
+            if let Some(ref comment) = col.comment {
+                if !comment.is_empty() {
+                    result.push_str(&format!(
+                        "\nCOMMENT ON COLUMN {}.{} IS '{}';",
+                        q(&schema.name),
+                        q(&col.name),
+                        comment.replace('\'', "''")
+                    ));
+                }
+            }
+        }
+
+        result
     }
 
     fn add_column(&self, table: &str, column: &ColumnDef) -> String {
@@ -157,7 +184,15 @@ impl DdlGenerator for MysqlDdl {
         let mut cols: Vec<String> = schema
             .columns
             .iter()
-            .map(|c| format!("  {}", column_def_sql(c, &q)))
+            .map(|c| {
+                let mut s = format!("  {}", column_def_sql(c, &q));
+                if let Some(ref comment) = c.comment {
+                    if !comment.is_empty() {
+                        s.push_str(&format!(" COMMENT '{}'", comment.replace('\'', "''")));
+                    }
+                }
+                s
+            })
             .collect();
 
         if let Some(ref pk) = schema.primary_key {
@@ -165,11 +200,20 @@ impl DdlGenerator for MysqlDdl {
             cols.push(format!("  PRIMARY KEY ({})", pk_cols.join(", ")));
         }
 
-        format!(
-            "CREATE TABLE {} (\n{}\n);",
+        let mut result = format!(
+            "CREATE TABLE {} (\n{}\n)",
             q(&schema.name),
             cols.join(",\n")
-        )
+        );
+
+        if let Some(ref comment) = schema.comment {
+            if !comment.is_empty() {
+                result.push_str(&format!(" COMMENT='{}'", comment.replace('\'', "''")));
+            }
+        }
+
+        result.push(';');
+        result
     }
 
     fn add_column(&self, table: &str, column: &ColumnDef) -> String {
@@ -378,15 +422,18 @@ mod tests {
                     col_type: "SERIAL".to_string(),
                     nullable: false,
                     default: None,
+                    comment: None,
                 },
                 ColumnDef {
                     name: "name".to_string(),
                     col_type: "VARCHAR(255)".to_string(),
                     nullable: false,
                     default: None,
+                    comment: None,
                 },
             ],
             primary_key: Some(vec!["id".to_string()]),
+            comment: None,
         };
         let sql = ddl.create_table(&schema);
         assert!(sql.contains("CREATE TABLE \"users\""));
@@ -403,6 +450,7 @@ mod tests {
             col_type: "TEXT".to_string(),
             nullable: true,
             default: None,
+            comment: None,
         };
         let sql = ddl.add_column("users", &col);
         assert_eq!(sql, "ALTER TABLE \"users\" ADD COLUMN \"email\" TEXT;");
@@ -463,8 +511,10 @@ mod tests {
                 col_type: "INT AUTO_INCREMENT".to_string(),
                 nullable: false,
                 default: None,
+                comment: None,
             }],
             primary_key: Some(vec!["id".to_string()]),
+            comment: None,
         };
         let sql = ddl.create_table(&schema);
         assert!(sql.contains("CREATE TABLE `orders`"));
@@ -480,6 +530,7 @@ mod tests {
             col_type: "VARCHAR(50)".to_string(),
             nullable: false,
             default: Some("'active'".to_string()),
+            comment: None,
         };
         let sql = ddl.add_column("orders", &col);
         assert!(sql.contains("ALTER TABLE `orders` ADD COLUMN"));
@@ -513,6 +564,7 @@ mod tests {
             col_type: "REAL".to_string(),
             nullable: true,
             default: Some("0.0".to_string()),
+            comment: None,
         };
         let sql = ddl.add_column("players", &col);
         assert!(sql.contains("ALTER TABLE \"players\" ADD COLUMN"));

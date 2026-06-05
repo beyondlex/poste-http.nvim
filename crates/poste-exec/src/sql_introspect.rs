@@ -463,6 +463,7 @@ async fn build_create_table_from_introspect_postgres(
             col_type: data_type,
             nullable: is_nullable == "YES",
             default,
+            comment: None,
         });
     }
 
@@ -487,10 +488,54 @@ async fn build_create_table_from_introspect_postgres(
         pk_cols.push(row.get::<String, _>("column_name"));
     }
 
+    // 3. Fetch column comments from pg_description
+    let comment_sql = r#"SELECT a.attname AS column_name, pgd.description
+FROM pg_catalog.pg_class pc
+JOIN pg_catalog.pg_attribute a ON a.attrelid = pc.oid
+LEFT JOIN pg_catalog.pg_description pgd ON pgd.objoid = pc.oid AND pgd.objsubid = a.attnum
+WHERE pc.relname = $1
+  AND pc.relnamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = $2)
+  AND a.attnum > 0
+  AND NOT a.attisdropped"#;
+    let comment_rows = sqlx::query(comment_sql)
+        .bind(table)
+        .bind(schema)
+        .fetch_all(pool)
+        .await?;
+    let col_comments: std::collections::HashMap<String, String> = comment_rows
+        .iter()
+        .filter_map(|row| {
+            let col_name: String = row.get("column_name");
+            let desc: Option<String> = row.get("description");
+            desc.filter(|d| !d.is_empty()).map(|d| (col_name, d))
+        })
+        .collect();
+
+    for col in &mut columns {
+        if let Some(comment) = col_comments.get(&col.name) {
+            col.comment = Some(comment.clone());
+        }
+    }
+
+    // 4. Fetch table comment
+    let table_comment_sql = r#"SELECT pgd.description
+FROM pg_catalog.pg_class pc
+LEFT JOIN pg_catalog.pg_description pgd ON pgd.objoid = pc.oid AND pgd.objsubid = 0
+WHERE pc.relname = $1
+  AND pc.relnamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = $2)"#;
+    let table_comment: Option<String> = sqlx::query(table_comment_sql)
+        .bind(table)
+        .bind(schema)
+        .fetch_optional(pool)
+        .await?
+        .and_then(|row| row.get("description"))
+        .filter(|s: &String| !s.is_empty());
+
     let schema_def = TableSchema {
         name: table.to_string(),
         columns,
         primary_key: if pk_cols.is_empty() { None } else { Some(pk_cols) },
+        comment: table_comment,
     };
 
     if let Some(ddl_generator) = sql_ddl::ddl_for("postgres") {
@@ -531,12 +576,33 @@ async fn build_create_table_from_introspect_mysql(
     let mut pk_cols: Vec<String> = Vec::new();
     let mut columns: Vec<ColumnDef> = Vec::new();
 
+    fn mysql_default_needs_quoting(col_type: &str) -> bool {
+        let lower = col_type.to_lowercase();
+        lower.starts_with("char")
+            || lower.starts_with("varchar")
+            || lower.starts_with("text")
+            || lower.starts_with("tinytext")
+            || lower.starts_with("mediumtext")
+            || lower.starts_with("longtext")
+            || lower.starts_with("enum")
+            || lower.starts_with("set")
+    }
+
     for row in &col_rows {
         let name = col(row, "Field");
         let col_type = col(row, "Type");
         let nullable = col(row, "Null") == "YES";
-        let default = col_opt(row, "Default");
+        let mut default = col_opt(row, "Default");
         let key = col(row, "Key");
+        let comment = col_opt(row, "Comment");
+
+        // MySQL SHOW FULL COLUMNS returns default values for string types
+        // without quotes. Re-add them when reconstructing DDL.
+        if let Some(ref d) = default {
+            if mysql_default_needs_quoting(&col_type) && !d.starts_with('\'') {
+                default = Some(format!("'{}'", d.replace('\'', "''")));
+            }
+        }
 
         if key == "PRI" {
             pk_cols.push(name.clone());
@@ -547,13 +613,26 @@ async fn build_create_table_from_introspect_mysql(
             col_type,
             nullable,
             default,
+            comment,
         });
     }
+
+    // Fetch table comment
+    let table_comment_sql = format!(
+        "SELECT TABLE_COMMENT FROM information_schema.TABLES \
+         WHERE TABLE_NAME = '{}' AND TABLE_SCHEMA = DATABASE()",
+        table.replace('\'', "''")
+    );
+    let table_comment: Option<String> = sqlx::query_scalar(&table_comment_sql)
+        .fetch_optional(&pool)
+        .await?
+        .filter(|s: &String| !s.is_empty());
 
     let schema_def = TableSchema {
         name: table.to_string(),
         columns,
         primary_key: if pk_cols.is_empty() { None } else { Some(pk_cols) },
+        comment: table_comment,
     };
 
     pool.close().await;

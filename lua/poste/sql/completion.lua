@@ -390,24 +390,24 @@ local function detect_context(line_before)
     return "dot_column", dot_tbl
   end
 
-  -- Find the last SQL keyword before cursor
-  -- This handles both "WHERE " and "WHERE" and "WHERE id"
+  -- Extract all words, but check the SECOND-TO-LAST word for context
+  -- The last word is the user's typing prefix (for filtering)
   local words = {}
   for word in line_before:gmatch("[%w_]+") do
     table.insert(words, word)
   end
   
-  -- Check last 2 words to handle cases like "ORDER BY" 
-  if #words >= 2 then
-    local last_two = words[#words-1]:lower() .. " " .. words[#words]:lower()
-    -- Check compound keywords first (though not in our current lists)
+  -- Check if line ends with a partial word (for context, we want the word BEFORE it)
+  local check_word_idx = #words
+  if line_before:match("[%w_]+$") then
+    -- Ends with alphanumeric: last word is user's prefix, check second-to-last
+    check_word_idx = #words - 1
   end
   
-  -- Check last word
-  if #words >= 1 then
-    local last_word = words[#words]:lower()
-    if TABLE_CTX[last_word] then return "table", nil end
-    if COLUMN_CTX[last_word] then return "column", nil end
+  if check_word_idx >= 1 then
+    local keyword = words[check_word_idx]:lower()
+    if TABLE_CTX[keyword] then return "table", nil end
+    if COLUMN_CTX[keyword] then return "column", nil end
   end
 
   return "keyword", nil

@@ -22,6 +22,7 @@ local winbar_sort_col = nil     -- data column index that's sorted (or nil)
 local winbar_sort_asc = nil     -- true = ascending, false = descending
 local winbar_plain_header = nil -- full plain header line for byte alignment
 local winbar_plain_border = nil -- top border line (┌─┬─┐) for winbar
+local winbar_header_index = nil -- precomputed char position table for fast slicing
 local scroll_autocmd_id = nil   -- WinScrolled autocmd handle
 local is_updating_winbar = false -- prevent recursive WinScrolled
 
@@ -247,99 +248,93 @@ end
 --- @param leftcol number Screen column offset of the leftmost visible column
 --- @param win_width number Window width in screen columns
 --- @return string|nil winbar text with highlight markers
+--- Build character position index for a header line (called once on new dataset).
+--- Each entry: { bs=byte_start, be=byte_end, ds=disp_start, de=disp_end, sep=bool }
+local function build_header_index(line)
+  local sep = "│"
+  local sep_len = #sep
+  local index = {}
+  local disp_pos = 0
+  local byte_idx = 1
+  while byte_idx <= #line do
+    local char_bytes, char_width, is_sep
+    if line:sub(byte_idx, byte_idx + sep_len - 1) == sep then
+      char_bytes, char_width, is_sep = sep_len, 1, true
+    else
+      local b = line:byte(byte_idx)
+      if b < 0x80 then char_bytes = 1
+      elseif b < 0xE0 then char_bytes = 2
+      elseif b < 0xF0 then char_bytes = 3
+      else char_bytes = 4
+      end
+      if byte_idx + char_bytes - 1 > #line then char_bytes = #line - byte_idx + 1 end
+      -- ASCII is always width 1; only call strdisplaywidth for multi-byte chars
+      char_width = char_bytes == 1 and 1
+        or vim.fn.strdisplaywidth(line:sub(byte_idx, byte_idx + char_bytes - 1))
+      if char_width == 0 then char_width = 1 end
+      is_sep = false
+    end
+    index[#index + 1] = { bs=byte_idx, be=byte_idx+char_bytes-1,
+                          ds=disp_pos, de=disp_pos+char_width, sep=is_sep }
+    disp_pos = disp_pos + char_width
+    byte_idx = byte_idx + char_bytes
+  end
+  return index
+end
+
 local function build_winbar_text(leftcol, win_width)
-  if not winbar_plain_header then return nil end
+  if not winbar_plain_header or not winbar_header_index then return nil end
 
   local header = winbar_plain_header
-  local border = winbar_plain_border
-  local sep = "│"
-  local sep_len = #sep  -- 3 bytes in UTF-8
-
-  -- Adjust win_width to account for left padding
+  local index  = winbar_header_index
   win_width = win_width - LEFT_PADDING
+  local right_edge = leftcol + win_width
 
-  -- Extract the visible portion of `line` between display columns [leftcol, leftcol+win_width).
-  -- Returns a winbar string with the minimum number of %#Hl# markers (only on hl change).
-  local function extract_visible(line, highlight_normal, highlight_sep)
-    local parts = {}          -- alternating: hl_group, text_chunk, hl_group, text_chunk ...
-    local cur_hl = nil
-    local cur_buf = {}        -- accumulate chars for current hl segment
+  local HN = "%#PosteSqlHeader#"
+  local HS = "%#PosteSqlWinbarSep#"
 
-    local function flush()
-      if #cur_buf > 0 then
-        parts[#parts + 1] = cur_hl
-        parts[#parts + 1] = table.concat(cur_buf)
-        cur_buf = {}
-      end
+  local parts = {}
+  local cur_hl = nil
+  local cur_buf = {}
+
+  local function flush()
+    if #cur_buf > 0 then
+      parts[#parts+1] = cur_hl
+      parts[#parts+1] = table.concat(cur_buf)
+      cur_buf = {}
     end
-
-    local function append(hl, text)
-      if hl ~= cur_hl then flush(); cur_hl = hl end
-      cur_buf[#cur_buf + 1] = text
-    end
-
-    local disp_pos = 0
-    local byte_idx = 1
-
-    while byte_idx <= #line do
-      local maybe_sep = line:sub(byte_idx, byte_idx + sep_len - 1)
-      local char_bytes, char_width, is_sep
-
-      if maybe_sep == sep then
-        char_bytes = sep_len
-        char_width = 1
-        is_sep = true
-      else
-        local b = line:byte(byte_idx)
-        if b < 0x80 then char_bytes = 1
-        elseif b < 0xE0 then char_bytes = 2
-        elseif b < 0xF0 then char_bytes = 3
-        else char_bytes = 4
-        end
-        if byte_idx + char_bytes - 1 > #line then
-          char_bytes = #line - byte_idx + 1
-        end
-        char_width = vim.fn.strdisplaywidth(line:sub(byte_idx, byte_idx + char_bytes - 1))
-        if char_width == 0 then char_width = 1 end
-        is_sep = false
-      end
-
-      local char_start = disp_pos
-      local char_end   = disp_pos + char_width
-
-      if char_end > leftcol and char_start < leftcol + win_width then
-        local hl = is_sep and highlight_sep or highlight_normal
-        if char_start < leftcol then
-          local w = math.min(char_end, leftcol + win_width) - leftcol
-          append(hl, string.rep(" ", w))
-        elseif char_end > leftcol + win_width then
-          local w = leftcol + win_width - char_start
-          append(hl, string.rep(" ", w))
-        else
-          append(hl, line:sub(byte_idx, byte_idx + char_bytes - 1))
-        end
-      end
-
-      disp_pos = char_end
-      byte_idx = byte_idx + char_bytes
-    end
-
-    flush()
-    return table.concat(parts)
   end
 
-  -- Build header line only (border in winbar wastes character budget and misaligns on scroll)
-  local visible_header = extract_visible(header, "%#PosteSqlHeader#", "%#PosteSqlWinbarSep#")
+  for _, c in ipairs(index) do
+    if c.de <= leftcol then goto continue end   -- before visible area
+    if c.ds >= right_edge then break end        -- past visible area
 
-  if #visible_header == 0 then return nil end
+    local hl = c.sep and HS or HN
+    local text
+    if c.ds < leftcol then
+      -- partially visible on left edge
+      text = string.rep(" ", math.min(c.de, right_edge) - leftcol)
+    elseif c.de > right_edge then
+      -- partially visible on right edge
+      text = string.rep(" ", right_edge - c.ds)
+    else
+      text = header:sub(c.bs, c.be)
+    end
 
-  -- Append sort indicator after the trailing │ (does not affect column alignment)
-  local indicator = ""
-  if winbar_sort_col then
-    indicator = "%#PosteSqlSortIndicator#" .. (winbar_sort_asc and " ↑" or " ↓") .. "%#PosteSqlHeader#"
+    if hl ~= cur_hl then flush(); cur_hl = hl end
+    cur_buf[#cur_buf+1] = text
+
+    ::continue::
   end
+  flush()
 
-  return "%#PosteSqlHeader#" .. PADDING_SPACES .. visible_header .. indicator
+  if #parts == 0 then return nil end
+
+  local indicator = winbar_sort_col
+    and ("%#PosteSqlSortIndicator#" .. (winbar_sort_asc and " ↑" or " ↓") .. HN)
+    or ""
+
+  return HN .. PADDING_SPACES .. table.concat(parts) .. indicator
 end
 
 --- Update winbar to match horizontal scroll position.
@@ -779,6 +774,7 @@ function M.render_dataset(lines, meta)
       -- Save plain header and border for scroll sync (update_winbar uses these)
       winbar_plain_header = header_line
       winbar_plain_border = border_line
+      winbar_header_index = build_header_index(header_line)
       winbar_sort_col = sort_state and sort_state.col or nil
       winbar_sort_asc = sort_state and sort_state.ascending or nil
 

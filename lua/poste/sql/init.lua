@@ -274,20 +274,22 @@ function M.show_table_ddl()
     vim.notify("No word under cursor", vim.log.levels.WARN, { title = "Poste SQL" })
     return
   end
-  -- Skip SQL keywords
-  local keywords = { select=true, from=true, where=true, join=true, on=true,
-                     and=true, or=true, set=true, insert=true, into=true,
-                     values=true, update=true, delete=true, create=true,
-                     table=true, index=true, drop=true, alter=true, add=true,
-                     column=true, primary=true, key=true, foreign=true,
-                     references=true, not=true, null=true, default=true,
-                     unique=true, check=true, constraint=true, as=true,
-                     left=true, right=true, inner=true, outer=true, cross=true,
-                     full=true, order=true, by=true, group=true, having=true,
-                     limit=true, offset=true, union=true, all=true, distinct=true,
-                     exists=true, in=true, like=true, between=true, case=true,
-                     when=true, then=true, else=true, end=true, count=true,
-                     sum=true, avg=true, min=true, max=true, true=true, false=true }
+  -- Skip SQL keywords (use ["key"] form for Lua reserved words)
+  local keywords = {}
+  local kw_list = { "select","from","where","join","on",
+                     "and","or","set","insert","into",
+                     "values","update","delete","create",
+                     "table","index","drop","alter","add",
+                     "column","primary","key","foreign",
+                     "references","not","null","default",
+                     "unique","check","constraint","as",
+                     "left","right","inner","outer","cross",
+                     "full","order","by","group","having",
+                     "limit","offset","union","all","distinct",
+                     "exists","in","like","between","case",
+                     "when","then","else","end","count",
+                     "sum","avg","min","max","true","false" }
+  for _, kw in ipairs(kw_list) do keywords[kw] = true end
   if keywords[table_name:lower()] then
     vim.notify("'" .. table_name .. "' is a SQL keyword", vim.log.levels.INFO, { title = "Poste SQL" })
     return

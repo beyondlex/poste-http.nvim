@@ -68,6 +68,9 @@ local function get_dataset_buffer()
   -- ─── Yank cell value ───────────────────────────
   vim.keymap.set("n", "yy", function() M.yank_cell() end, opts)
 
+  -- ─── Yank column (all rows, comma-separated) ───
+  vim.keymap.set("n", "yc", function() M.yank_column() end, opts)
+
   -- ─── Sort by current column ────────────────────
   vim.keymap.set("n", "s", function() M.sort_by_current_col() end, opts)
 
@@ -584,6 +587,36 @@ function M.yank_cell()
   vim.fn.setreg('"', val)
   vim.fn.setreg('+', val)
   vim.notify(string.format('Yanked to clipboard: %s', val:sub(1, 50)), vim.log.levels.INFO, { title = "Poste SQL" })
+end
+
+--- Yank all values in the current column as a comma-separated string.
+function M.yank_column()
+  if not current_meta or current_meta.type ~= "resultset" then return end
+  local data = state.sql.last_dataset
+  if not data or not data.results or #data.results == 0 then return end
+
+  local res = data.results[1]
+  local col = state.sql.cell.col
+  if not res.rows or #res.rows == 0 then return end
+
+  local values = {}
+  for _, row in ipairs(res.rows) do
+    local v = row[col]
+    if v == nil or v == vim.NIL then
+      values[#values + 1] = "NULL"
+    elseif type(v) == "table" then
+      local ok, encoded = pcall(vim.json.encode, v)
+      values[#values + 1] = ok and encoded or vim.inspect(v)
+    else
+      values[#values + 1] = tostring(v)
+    end
+  end
+
+  local result = table.concat(values, ", ")
+  vim.fn.setreg('"', result)
+  vim.fn.setreg('+', result)
+  local col_name = res.columns and res.columns[col] and res.columns[col].name or tostring(col)
+  vim.notify(string.format('Yanked %d values from "%s"', #values, col_name), vim.log.levels.INFO, { title = "Poste SQL" })
 end
 
 ---------------------------------------------------------------------------

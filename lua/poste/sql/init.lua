@@ -43,24 +43,26 @@ local function extract_stmt_at_cursor(buf_lines, cursor_line)
   end
 
   -- Find the statement containing cursor_line using ; as delimiter.
-  -- Walk backward to find start (previous ; or start of file).
+  -- Walk backward to find start (previous ; or ### or start of file).
   local stmt_start = 1
   for i = cursor_line - 1, 1, -1 do
     local l = buf_lines[i] or ""
-    if l:match(";%s*$") or l:match(";%s*%-%-") then
+    if l:match(";") or l:match("^%s*###") then
       stmt_start = i + 1
       break
     end
   end
+  -- Skip leading blank lines
+  while stmt_start < cursor_line and (buf_lines[stmt_start] or ""):match("^%s*$") do
+    stmt_start = stmt_start + 1
+  end
 
-  -- Walk forward to find end (next ; or end of file).
+  -- Walk forward to find end (next ; or end of file), stop at ###
   local stmt_end = #buf_lines
   for i = cursor_line, #buf_lines do
     local l = buf_lines[i] or ""
-    if l:match(";") then
-      stmt_end = i
-      break
-    end
+    if l:match("^%s*###") then stmt_end = i - 1; break end
+    if l:match(";") then stmt_end = i; break end
   end
 
   -- Extract the statement lines

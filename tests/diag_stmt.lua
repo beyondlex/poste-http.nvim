@@ -58,6 +58,21 @@ do -- multi-line statement
   check("multi-line: has ###",         content:find("###") ~= nil, true)
 end
 
+do -- cursor ON the semicolon line (e.g., USE inventory;)
+  local lines = {
+    "-- @connection my-blog",
+    "-- @database blog",
+    "",
+    "### Switch",
+    "USE inventory;",
+    "",
+    "SELECT * FROM warehouses;",
+  }
+  local content, _ = t.extract_stmt_at_cursor(lines, 5)  -- cursor on USE line
+  check("cursor on USE: extracts USE", content:find("USE inventory") ~= nil, true)
+  check("cursor on USE: no SELECT",    content:find("SELECT") == nil, true)
+end
+
 log(string.format("\n=== RESULT: %d passed, %d failed ===", pass, fail))
 vim.fn.writefile(out, "/tmp/poste_stmt_diag.txt")
 vim.cmd("qa!")

@@ -16,20 +16,14 @@ USE blog;
 ###
 show tables;
 
-###
 select * from posts;
-###
 desc posts;
-###
 select body from posts;
 
-###
 select s.*, c.* from posts s left join comments c on c.post_id = c.id;
 
-###
 select * from comments;
 
-### All posts with author and category
 SELECT p.title,
        a.username AS author,
        c.name AS category,
@@ -58,10 +52,8 @@ LEFT JOIN comments c ON c.post_id = p.id
 GROUP BY p.id, p.title
 HAVING total_comments > 0;
 
-### Switch to inventory database
-USE inventory;
+use inventory;
 
-### Stock overview by warehouse
 SELECT w.name AS warehouse,
        w.city,
        COUNT(s.item_id) AS item_types,

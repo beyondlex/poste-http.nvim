@@ -459,7 +459,8 @@ local function get_items(bufnr, line_before, cursor_line, callback)
   local ctx_type, ctx_data = detect_context(line_before)
 
   if vim.g.poste_sql_debug then
-    state.log("INFO", string.format("get_items: ctx_type=%s, prefix='%s'", ctx_type, prefix))
+    vim.notify(string.format("DEBUG get_items: ctx=%s, prefix='%s', line='%s'", 
+      ctx_type, prefix, line_before), vim.log.levels.WARN)
   end
 
   if ctx_type == "connection" then
@@ -605,7 +606,8 @@ function M:get_completions(ctx, callback)
       state.log("INFO", string.format("SQL completion: returning %d items", #items))
     end
     
-    vim.notify(string.format("DEBUG: returning %d items to blink", #items), vim.log.levels.ERROR)
+    vim.notify(string.format("DEBUG: returning %d items to blink: %s", 
+      #items, vim.inspect(items[1] or {})), vim.log.levels.ERROR)
     
     -- Mark as incomplete to keep completion menu open even with empty prefix
     callback({ is_incomplete_forward = true, is_incomplete_backward = false, items = items })

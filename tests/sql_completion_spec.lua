@@ -240,3 +240,75 @@ describe("get_completions line_before", function()
     assert.is_not_nil(items)
   end)
 end)
+
+-- ── 6. Alias resolution ───────────────────────────────────────────────────────
+
+describe("extract_from_tables with aliases", function()
+  local function make_buf(lines)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    return buf
+  end
+
+  it("captures alias → real table mapping", function()
+    local buf = make_buf({ "###", "SELECT * FROM authors s LEFT JOIN posts p ON p." })
+    local tbls, alias_map = extract_from_tables(buf, 2)
+    assert.equals("authors", alias_map["s"])
+    assert.equals("posts",   alias_map["p"])
+  end)
+
+  it("table name maps to itself when no alias", function()
+    local buf = make_buf({ "###", "SELECT * FROM authors WHERE " })
+    local _, alias_map = extract_from_tables(buf, 2)
+    assert.equals("authors", alias_map["authors"])
+  end)
+
+  it("real tables list is deduplicated when alias equals table name", function()
+    local buf = make_buf({ "###", "SELECT * FROM posts p JOIN posts ON p.id = posts.id WHERE " })
+    local tbls, _ = extract_from_tables(buf, 2)
+    local count = 0
+    for _, t in ipairs(tbls) do if t == "posts" then count = count + 1 end end
+    assert.equals(1, count)
+  end)
+end)
+
+describe("get_items dot_column resolves alias", function()
+  local function make_buf(lines)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
+    return buf
+  end
+
+  before_each(function()
+    local state = require("poste.state")
+    state.sql = { context = { connection = "test-conn", database = "blog" } }
+    sql_comp.cache_tables({ { name = "authors" }, { name = "posts" } })
+    sql_comp.cache_columns("posts", {
+      { name = "id" }, { name = "title" }, { name = "author_id" },
+    })
+  end)
+
+  it("p. after JOIN posts p returns posts columns", function()
+    local buf = make_buf({ "###", "SELECT * FROM authors s LEFT JOIN posts p ON p." })
+    local items = nil
+    get_items(buf, "SELECT * FROM authors s LEFT JOIN posts p ON p.", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items) do labels[item.label] = true end
+    assert.is_true(labels["id"])
+    assert.is_true(labels["title"])
+    assert.is_true(labels["author_id"])
+  end)
+
+  it("p.ti prefix filters correctly", function()
+    local buf = make_buf({ "###", "SELECT * FROM authors s LEFT JOIN posts p ON p.ti" })
+    local items = nil
+    get_items(buf, "SELECT * FROM authors s LEFT JOIN posts p ON p.ti", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items) do labels[item.label] = true end
+    assert.is_true(labels["title"])
+    assert.is_nil(labels["id"])
+  end)
+end)

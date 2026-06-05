@@ -360,7 +360,33 @@ local function extract_from_tables(bufnr, cursor_lnum)
   local text = table.concat(lines, " ", block_start, #lines)
         :gsub("%-%-[^\n]*", " ")   -- strip -- comments
 
+  -- alias_map: alias (or table name) → real table name
+  local alias_map = {}
   local seen, tbls = {}, {}
+
+  local function add(tbl, alias)
+    -- real table name
+    if not seen[tbl] then seen[tbl] = true; table.insert(tbls, tbl) end
+    -- alias → real table (also map table name to itself for dot-notation without alias)
+    alias_map[tbl] = tbl
+    if alias and alias ~= tbl then alias_map[alias] = tbl end
+  end
+
+  for _, pat in ipairs({
+    -- table_name optional_alias  (alias = bare word after table name, not a keyword)
+    "[Ff][Rr][Oo][Mm]%s+([%w_]+)%s+([%w_]+)",
+    "[Jj][Oo][Ii][Nn]%s+([%w_]+)%s+([%w_]+)",
+    "[Uu][Pp][Dd][Aa][Tt][Ee]%s+([%w_]+)%s+([%w_]+)",
+  }) do
+    for tbl, alias in text:gmatch(pat) do
+      -- Skip if alias is a SQL keyword (ON, SET, WHERE, etc.)
+      local kw = { on=true, set=true, where=true, left=true, right=true,
+                   inner=true, outer=true, cross=true, full=true, join=true,
+                   ["as"]=true, using=true }
+      add(tbl, kw[alias:lower()] and nil or alias)
+    end
+  end
+  -- Also match without alias
   for _, pat in ipairs({
     "[Ff][Rr][Oo][Mm]%s+([%w_]+)",
     "[Jj][Oo][Ii][Nn]%s+([%w_]+)",
@@ -368,9 +394,11 @@ local function extract_from_tables(bufnr, cursor_lnum)
   }) do
     for t in text:gmatch(pat) do
       if not seen[t] then seen[t] = true; table.insert(tbls, t) end
+      alias_map[t] = alias_map[t] or t
     end
   end
-  return tbls
+
+  return tbls, alias_map
 end
 
 ---------------------------------------------------------------------------
@@ -473,9 +501,12 @@ local function get_items(bufnr, line_before, cursor_line, callback)
 
   if ctx_type == "dot_column" then
     local col_prefix = line_before:match("[%w_]+%.([%w_]*)$") or ""
-    ensure_columns(ctx_data, function()
+    -- Resolve alias to real table name using current block's alias map
+    local _, alias_map = extract_from_tables(bufnr, cursor_line or vim.fn.line("."))
+    local real_tbl = alias_map[ctx_data] or ctx_data
+    ensure_columns(real_tbl, function()
       local key = conn_key()
-      local cols = cache[key] and cache[key].columns[ctx_data] or {}
+      local cols = cache[key] and cache[key].columns[real_tbl] or {}
       callback(filter(make_items(cols, 5, "col: "), col_prefix))
     end)
     return
@@ -496,20 +527,26 @@ local function get_items(bufnr, line_before, cursor_line, callback)
   end
 
   if ctx_type == "column" then
-    local from_tbls = extract_from_tables(bufnr, cursor_line or vim.fn.line("."))
-    
-    if vim.g.poste_sql_debug then
-      vim.notify(string.format("DEBUG: column context, %d tables: %s", 
-        #from_tbls, vim.inspect(from_tbls)), vim.log.levels.INFO)
+    local from_tbls, alias_map = extract_from_tables(bufnr, cursor_line or vim.fn.line("."))
+    -- Resolve aliases to real table names (deduplicated)
+    local real_tbls, seen_real = {}, {}
+    for _, t in ipairs(from_tbls) do
+      local real = alias_map[t] or t
+      if not seen_real[real] then seen_real[real] = true; table.insert(real_tbls, real) end
     end
     
-    if #from_tbls == 0 then
+    if vim.g.poste_sql_debug then
+      vim.notify(string.format("DEBUG: column context, %d tables: %s",
+        #real_tbls, vim.inspect(real_tbls)), vim.log.levels.INFO)
+    end
+
+    if #real_tbls == 0 then
       callback(kw_items(prefix))
       return
     end
-    local pending = #from_tbls
+    local pending = #real_tbls
     local all = {}
-    for _, tbl in ipairs(from_tbls) do
+    for _, tbl in ipairs(real_tbls) do
       if vim.g.poste_sql_debug then
         vim.notify(string.format("DEBUG: calling ensure_columns for %s", tbl), vim.log.levels.INFO)
       end

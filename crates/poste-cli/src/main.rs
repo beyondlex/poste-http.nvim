@@ -139,26 +139,20 @@ async fn main() -> Result<()> {
                 (dir, ext)
             };
 
-            // Find env.json: look in search_dir, then walk up
+            // Find env.json: optional (SQL files with direct connection names don't need it)
             let mut dir = search_dir.as_path();
-            let env_path = loop {
+            let env_vars = loop {
                 let candidate = dir.join("env.json");
                 if candidate.exists() {
-                    break candidate;
+                    let env_file = poste_core::Environment::load(candidate.to_str().unwrap())?;
+                    let vars = env_file.envs.get(&env).cloned().unwrap_or_default();
+                    break vars;
                 }
                 match dir.parent() {
                     Some(parent) => dir = parent,
-                    None => anyhow::bail!(
-                        "env.json not found. Searched from {} to filesystem root",
-                        search_dir.display()
-                    ),
+                    None => break std::collections::HashMap::new(),
                 }
             };
-            let env_file = poste_core::Environment::load(env_path.to_str().unwrap())?;
-
-            let env_vars = env_file.envs.get(&env)
-                .ok_or_else(|| anyhow::anyhow!("Environment '{}' not found", env))?
-                .clone();
 
             // Read request content
             let content = if stdin {

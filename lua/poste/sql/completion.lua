@@ -62,10 +62,29 @@ local COLUMN_CTX = {
 
 local cache = {}
 
+local function resolve_current_context()
+  -- Resolve context live from the current buffer (mirrors what run_sql_request does)
+  local ok, sql_context = pcall(require, "poste.sql.context")
+  if not ok then return state.sql and state.sql.context end
+  local ctx = sql_context.resolve_context(vim.api.nvim_get_current_buf())
+  -- Fall back to global state for fields not found in buffer
+  if not ctx.connection then
+    ctx.connection = state.sql and state.sql.context and state.sql.context.connection
+  end
+  if not ctx.database then
+    ctx.database = state.sql and state.sql.context and state.sql.context.database
+  end
+  return ctx
+end
+
 local function conn_key()
-  local ctx = state.sql and state.sql.context
+  local ctx = resolve_current_context()
   if ctx and ctx.connection then
     return ctx.connection .. "/" .. (ctx.database or "")
+  end
+  -- Debug: log when connection is missing
+  if vim.g.poste_sql_debug then
+    state.log("WARN", "SQL completion: no connection context found")
   end
   return nil
 end
@@ -111,8 +130,12 @@ local fetching_tables = {}
 
 local function ensure_tables(callback)
   local key = conn_key()
-  local ctx = state.sql and state.sql.context
-  if not key or not ctx or not ctx.connection then callback(); return end
+  local ctx = resolve_current_context()
+  if not key or not ctx or not ctx.connection then
+    -- No connection: provide a hint item if in table context
+    callback()
+    return
+  end
 
   if cache[key] and #cache[key].tables > 0 then callback(); return end
   if fetching_tables[key] then callback(); return end
@@ -157,7 +180,7 @@ local fetching_cols = {}
 
 local function ensure_columns(tbl, callback)
   local key = conn_key()
-  local ctx = state.sql and state.sql.context
+  local ctx = resolve_current_context()
   if not key or not ctx or not ctx.connection then callback(); return end
 
   if cache[key] and cache[key].columns[tbl] then callback(); return end
@@ -329,7 +352,7 @@ end
 -- Main entry
 ---------------------------------------------------------------------------
 
-local function get_items(bufnr, line_before, callback)
+local function get_items(bufnr, line_before, cursor_line, callback)
   local prefix = line_before:match("[%w_]*$") or ""
   local ctx_type, ctx_data = detect_context(line_before)
 
@@ -355,13 +378,18 @@ local function get_items(bufnr, line_before, callback)
     ensure_tables(function()
       local key = conn_key()
       local tbls = cache[key] and cache[key].tables or {}
-      callback(filter(make_items(tbls, 7, "table: "), prefix))
+      local items = make_items(tbls, 7, "table: ")
+      -- If no tables available (no connection or empty DB), still show keywords
+      if #items == 0 then
+        items = kw_items(prefix)
+      end
+      callback(filter(items, prefix))
     end)
     return
   end
 
   if ctx_type == "column" then
-    local from_tbls = extract_from_tables(bufnr, vim.fn.line("."))
+    local from_tbls = extract_from_tables(bufnr, cursor_line or vim.fn.line("."))
     if #from_tbls == 0 then
       callback(kw_items(prefix))
       return
@@ -422,8 +450,9 @@ function M:get_completions(ctx, callback)
   local col = ctx.cursor and ctx.cursor[2] or #line
   local line_before = line:sub(1, col)
   local bufnr = vim.api.nvim_get_current_buf()
+  local cursor_line = ctx.cursor and ctx.cursor[1] or vim.fn.line(".")
 
-  get_items(bufnr, line_before, function(items)
+  get_items(bufnr, line_before, cursor_line, function(items)
     callback({ is_incomplete_forward = false, is_incomplete_backward = false, items = items })
   end)
 end
@@ -448,7 +477,8 @@ function M.source:get_trigger_characters() return { ".", " ", "@" } end
 function M.source:complete(params, callback)
   local line_before = params.context.cursor_before_line or ""
   local bufnr = vim.api.nvim_get_current_buf()
-  get_items(bufnr, line_before, function(items)
+  local cursor_line = vim.fn.line(".")
+  get_items(bufnr, line_before, cursor_line, function(items)
     callback({ items = items, isIncomplete = false })
   end)
 end
@@ -466,5 +496,14 @@ function M.register()
     sources = cmp.config.sources({ { name = "poste_sql" } }, { { name = "buffer" } }),
   })
 end
+
+---------------------------------------------------------------------------
+-- Test interface
+---------------------------------------------------------------------------
+M._test = {
+  detect_context = detect_context,
+  resolve_current_context = resolve_current_context,
+  conn_key = conn_key,
+}
 
 return M

@@ -19,37 +19,69 @@ function M.resolve_context(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local cursor_line = vim.fn.line(".")
 
-  local connection = nil
-  local database = nil
+  -- Phase 1: Scan file header (before first ###) for global defaults
+  local global_connection = nil
+  local global_database = nil
+  local first_block_line = nil
 
   for i, line in ipairs(lines) do
-    -- Stop scanning after cursor position for USE statements
-    -- But continue scanning @directives in file header (before first ###)
+    if line:match("^%s*###") then
+      first_block_line = i
+      break
+    end
+    
+    local conn_match = line:match("^%s*--%s*@connection%s+(.+)")
+    if conn_match then
+      global_connection = vim.trim(conn_match)
+    end
+    
+    local db_match = line:match("^%s*--%s*@database%s+(.+)")
+    if db_match then
+      global_database = vim.trim(db_match)
+    end
+  end
 
-    -- @connection directive
+  -- Phase 2: Find current request block and scan for block-level overrides
+  local block_start = first_block_line or 1
+  local block_end = #lines
+  
+  -- Find the current block boundaries
+  for i = cursor_line, 1, -1 do
+    if lines[i] and lines[i]:match("^%s*###") then
+      block_start = i
+      break
+    end
+  end
+  
+  for i = cursor_line + 1, #lines do
+    if lines[i] and lines[i]:match("^%s*###") then
+      block_end = i - 1
+      break
+    end
+  end
+
+  -- Scan current block for overrides
+  local connection = global_connection
+  local database = global_database
+
+  for i = block_start, math.min(block_end, cursor_line) do
+    local line = lines[i]
+    if not line then break end
+    
     local conn_match = line:match("^%s*--%s*@connection%s+(.+)")
     if conn_match then
       connection = vim.trim(conn_match)
     end
-
-    -- @database directive
+    
     local db_match = line:match("^%s*--%s*@database%s+(.+)")
     if db_match then
       database = vim.trim(db_match)
     end
-
-    -- USE statement before cursor
-    if i <= cursor_line then
-      local use_match = line:match("^%s*[Uu][Ss][Ee]%s+(%S+)")
-      if use_match then
-        -- Strip trailing semicolon and quotes
-        database = use_match:gsub(";$", ""):gsub("^['\"`]", ""):gsub("['\"`]$", "")
-      end
-    end
-
-    -- Stop scanning @directives after first ### (but continue USE up to cursor)
-    if line:match("^%s*###") and i > cursor_line then
-      break
+    
+    -- USE statement
+    local use_match = line:match("^%s*[Uu][Ss][Ee]%s+(%S+)")
+    if use_match then
+      database = use_match:gsub(";$", ""):gsub("^['\"`]", ""):gsub("['\"`]$", "")
     end
   end
 

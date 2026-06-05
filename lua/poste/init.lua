@@ -795,6 +795,64 @@ function M.setup(opts)
     completion.profile()
   end, { desc = "Profile poste completion performance" })
 
+  vim.api.nvim_create_user_command("PosteSQLCmpStatus", function()
+    local sql_comp = require("poste.sql.completion")
+    local ft = vim.bo.filetype
+    local buf = vim.api.nvim_get_current_buf()
+    
+    local status = {
+      "SQL Completion Status:",
+      "  Current filetype: " .. ft,
+      "  Buffer: " .. buf,
+    }
+    
+    -- Test if source is enabled
+    local instance = sql_comp.new()
+    table.insert(status, "  Enabled: " .. tostring(instance:enabled()))
+    
+    -- Check blink.cmp registration
+    local blink_ok, blink = pcall(require, "blink.cmp")
+    if blink_ok then
+      local config_ok, config = pcall(require, "blink.cmp.config")
+      if config_ok then
+        table.insert(status, "  blink.cmp loaded: true")
+        if config.sources and config.sources.providers then
+          local has_sql = config.sources.providers.poste_sql ~= nil
+          table.insert(status, "  poste_sql provider registered: " .. tostring(has_sql))
+        end
+      end
+    else
+      table.insert(status, "  blink.cmp loaded: false")
+    end
+    
+    -- Check connection
+    local ctx_mod = require("poste.sql.context")
+    local ctx = ctx_mod.resolve_context(buf)
+    table.insert(status, "  Connection: " .. (ctx.connection or "none"))
+    table.insert(status, "  Database: " .. (ctx.database or "none"))
+    
+    -- Test context detection at cursor
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local line = vim.api.nvim_get_current_line()
+    local col = cursor[2]
+    local line_before = line:sub(1, col)
+    
+    table.insert(status, "\nAt cursor position:")
+    table.insert(status, "  Line: " .. line)
+    table.insert(status, "  Before cursor: '" .. line_before .. "'")
+    
+    -- Call the test interface if available
+    if sql_comp._test then
+      local ctx_type, ctx_data = sql_comp._test.detect_context(line_before)
+      table.insert(status, "  Detected context: " .. tostring(ctx_type))
+      if ctx_data then
+        table.insert(status, "  Context data: " .. tostring(ctx_data))
+      end
+    end
+    
+    vim.notify(table.concat(status, "\n"), vim.log.levels.INFO)
+  end, { desc = "Check SQL completion status" })
+
   vim.api.nvim_create_user_command("PosteSymbols", function()
     symbols.show_symbols()
   end, { desc = "Show symbol outline (all HTTP requests)" })

@@ -65,7 +65,7 @@ impl Parser {
     }
 
     fn parse_block(&self, block: &str, protocol: Protocol, file_vars: &HashMap<String, String>) -> Result<Request> {
-        let lines = block.lines();
+        let lines: Vec<&str> = block.lines().collect();
 
         // First line should be ### Request Name
         let mut name = None;
@@ -75,8 +75,12 @@ impl Parser {
 
         let mut in_assertion_block = false;
         let mut in_prescript_block = false;
-        for line in lines {
+
+        let mut i = 0;
+        while i < lines.len() {
+            let line = lines[i];
             let trimmed = line.trim();
+            i += 1;
 
             // Check for pre-request script block start: < {%
             if trimmed.starts_with("<") && trimmed.contains("{%") && !trimmed.contains("%}") {
@@ -131,9 +135,31 @@ impl Parser {
                 // Extract name after ###
                 name = Some(trimmed.trim_start_matches("###").trim().to_string());
             } else if !found_request_line {
+                // Multi-line request-level var: @name=>>> ... <<<
+                if let Some(var_name) = self.parse_multiline_var_start(line) {
+                    let mut value_lines = Vec::new();
+                    loop {
+                        if i >= lines.len() {
+                            break;
+                        }
+                        let next = lines[i];
+                        i += 1;
+                        if next.trim() == "<<<" {
+                            break;
+                        }
+                        value_lines.push(next);
+                    }
+                    let raw_value = value_lines.join("\n");
+                    let resolved = self.substitute_vars(&raw_value, file_vars, &request_vars);
+                    request_vars.insert(var_name, resolved);
+                    continue;
+                }
+
                 // Check if this is a variable definition before the request line
                 if let Some((key, value)) = self.parse_variable_line(line) {
-                    request_vars.insert(key, value);
+                    // Resolve {{var}} references using file-level and earlier request-level vars
+                    let resolved = self.substitute_vars(&value, file_vars, &request_vars);
+                    request_vars.insert(key, resolved);
                 } else if !trimmed.is_empty() && !trimmed.starts_with('#') && !trimmed.starts_with('>') {
                     // This is the actual request line, mark it and add to request_lines
                     found_request_line = true;
@@ -193,7 +219,8 @@ impl Parser {
         // Try format: @name = value
         if let Some((name, value)) = content.split_once('=') {
             let name = name.trim().to_string();
-            let value = value.trim().to_string();
+            let mut value = value.trim().to_string();
+            Self::strip_quotes(&mut value);
             if !name.is_empty() {
                 return Some((name, value));
             }
@@ -202,7 +229,8 @@ impl Parser {
         // Try format: @name value
         if let Some((name, value)) = content.split_once(char::is_whitespace) {
             let name = name.trim().to_string();
-            let value = value.trim().to_string();
+            let mut value = value.trim().to_string();
+            Self::strip_quotes(&mut value);
             if !name.is_empty() {
                 return Some((name, value));
             }
@@ -211,17 +239,95 @@ impl Parser {
         None
     }
 
-    /// Extract file-level variables from content (before first ###)
+    /// Strip surrounding double or single quotes from a string value.
+    fn strip_quotes(value: &mut String) {
+        if (value.starts_with('"') && value.ends_with('"'))
+            || (value.starts_with('\'') && value.ends_with('\''))
+        {
+            *value = value[1..value.len() - 1].to_string();
+        }
+    }
+
+    /// Check if a line starts a multi-line variable definition (@name=>>> or @name >>>).
+    /// Returns the variable name if a multi-line block starts here, None otherwise.
+    fn parse_multiline_var_start(&self, line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if !trimmed.starts_with('@') {
+            return None;
+        }
+
+        let content = &trimmed[1..]; // Remove @
+
+        // Format: @name=>>>  or  @name = >>>
+        if let Some((name, marker)) = content.split_once('=') {
+            if marker.trim() == ">>>" {
+                let name = name.trim().to_string();
+                if !name.is_empty() {
+                    return Some(name);
+                }
+            }
+        }
+
+        // Format: @name >>>  (without equals sign)
+        if let Some((name, marker)) = content.split_once(char::is_whitespace) {
+            if marker.trim() == ">>>" {
+                let name = name.trim().to_string();
+                if !name.is_empty() {
+                    return Some(name);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Extract file-level variables from content (before first ###).
+    /// Supports:
+    ///   - @name = value           — single-line, quoted values stripped
+    ///   - @name value             — space-delimited
+    ///   - @name=>>> ... <<<       — multi-line block value
+    ///   - {{var}} references in values are resolved using earlier-defined vars.
     fn extract_file_variables(&self, content: &str) -> HashMap<String, String> {
         let mut vars = HashMap::new();
+        let lines: Vec<&str> = content.lines().collect();
+        let mut i = 0;
 
-        for line in content.lines() {
+        while i < lines.len() {
+            let line = lines[i];
             if line.trim().starts_with("###") {
                 break; // Stop at first request
             }
 
+            i += 1;
+
+            // Multi-line var: @name=>>> ... <<<
+            if let Some(name) = self.parse_multiline_var_start(line) {
+                let mut value_lines = Vec::new();
+                loop {
+                    if i >= lines.len() {
+                        break;
+                    }
+                    let next = lines[i];
+                    i += 1;
+                    if next.trim() == "<<<" {
+                        break;
+                    }
+                    if next.trim().starts_with("###") {
+                        i -= 1; // back up so outer loop sees ###
+                        break;
+                    }
+                    value_lines.push(next);
+                }
+                let raw_value = value_lines.join("\n");
+                let resolved = self.substitute_vars(&raw_value, &vars, &HashMap::new());
+                vars.insert(name, resolved);
+                continue;
+            }
+
             if let Some((key, value)) = self.parse_variable_line(line) {
-                vars.insert(key, value);
+                // Resolve {{var}} references within the value using already-extracted vars
+                let resolved = self.substitute_vars(&value, &vars, &HashMap::new());
+                vars.insert(key, resolved);
             }
 
             // Also parse @connection directives in comments (# @connection ... or -- @connection ...)
@@ -442,5 +548,106 @@ GET http://{{host}}:{{port}}/{{timeout}}
         let block = "### Request 1\n@auth_token = injected-value\nGET /api?token={{auth_token}}\n";
         let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
         assert!(request.body.contains("GET /api?token=injected-value"));
+    }
+
+    // ---- @var enhancements: quote stripping, {{var}} in values, multi-line blocks ----
+
+    #[test]
+    fn test_parse_variable_line_quotes_stripped() {
+        let parser = Parser::new(HashMap::new());
+        let r = parser.parse_variable_line("@host = \"https://example.com\"");
+        assert_eq!(r, Some(("host".to_string(), "https://example.com".to_string())));
+    }
+
+    #[test]
+    fn test_parse_variable_line_single_quotes_stripped() {
+        let parser = Parser::new(HashMap::new());
+        let r = parser.parse_variable_line("@host 'http://localhost'");
+        assert_eq!(r, Some(("host".to_string(), "http://localhost".to_string())));
+    }
+
+    #[test]
+    fn test_file_var_references_other_file_var() {
+        let parser = Parser::new(HashMap::new());
+        let content = r#"@pageNum = 1
+@pageSize = 10
+@page = pageNum={{pageNum}}&pageSize={{pageSize}}
+
+### Request
+GET /api?{{page}}
+"#;
+        let vars = parser.extract_file_variables(content);
+        assert_eq!(vars.get("pageNum"), Some(&"1".to_string()));
+        assert_eq!(vars.get("pageSize"), Some(&"10".to_string()));
+        assert_eq!(vars.get("page"), Some(&"pageNum=1&pageSize=10".to_string()));
+
+        let req = parser.parse_at_line(content, 5, "http").unwrap();
+        assert!(req.body.contains("GET /api?pageNum=1&pageSize=10"));
+    }
+
+    #[test]
+    fn test_multiline_file_var() {
+        let parser = Parser::new(HashMap::new());
+        let content = r#"@token = abc123
+@headers=>>>
+Authorization: {{token}}
+X-Custom: yes
+<<<
+
+### Request
+POST /api/data
+{{headers}}
+
+{"key": "value"}
+"#;
+        let req = parser.parse_at_line(content, 8, "http").unwrap();
+        assert!(req.body.contains("Authorization: abc123"));
+        assert!(req.body.contains("X-Custom: yes"));
+        assert!(req.body.contains("{\"key\": \"value\"}"));
+    }
+
+    #[test]
+    fn test_multiline_file_var_forward_ref_unchanged() {
+        let parser = Parser::new(HashMap::new());
+        // @page references @pageNum which is defined AFTER — stays unresolved
+        let content = r#"@page = id={{pageNum}}
+@pageNum = 99
+
+### Request
+GET /{{page}}
+"#;
+        let req = parser.parse_at_line(content, 4, "http").unwrap();
+        assert!(req.body.contains("GET /id={{pageNum}}"));
+    }
+
+    #[test]
+    fn test_request_var_refers_to_file_var() {
+        let parser = Parser::new(HashMap::new());
+        let content = r#"@base = /api/v1
+
+### Request
+@path = {{base}}/users
+GET {{path}}
+"#;
+        let req = parser.parse_at_line(content, 5, "http").unwrap();
+        assert!(req.body.contains("GET /api/v1/users"));
+    }
+
+    #[test]
+    fn test_multiline_request_var() {
+        let parser = Parser::new(HashMap::new());
+        let block = r#"### Request
+@token = secret
+@headers=>>>
+Authorization: {{token}}
+Content-Type: application/json
+<<<
+POST /api/data
+{{headers}}
+"#;
+        let req = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        assert!(req.body.contains("POST /api/data"));
+        assert!(req.body.contains("Authorization: secret"));
+        assert!(req.body.contains("Content-Type: application/json"));
     }
 }

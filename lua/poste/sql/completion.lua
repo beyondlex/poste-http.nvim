@@ -195,6 +195,68 @@ local function ensure_tables(callback)
 end
 
 ---------------------------------------------------------------------------
+-- Lazy fetch databases for current connection
+---------------------------------------------------------------------------
+
+local fetching_dbs = {}
+local dbs_callbacks = {}
+
+local function ensure_databases(callback)
+  local ctx = resolve_current_context()
+  if not ctx or not ctx.connection then callback({}); return end
+
+  local conn_key_str = ctx.connection  -- databases are per-connection, not per-database
+  if fetching_dbs[conn_key_str] then
+    dbs_callbacks[conn_key_str] = dbs_callbacks[conn_key_str] or {}
+    table.insert(dbs_callbacks[conn_key_str], callback)
+    return
+  end
+
+  -- Use cache entry keyed by connection alone
+  local cache_key = conn_key_str .. "/__databases__"
+  if cache[cache_key] then callback(cache[cache_key]); return end
+
+  fetching_dbs[conn_key_str] = true
+  dbs_callbacks[conn_key_str] = { callback }
+
+  local binary = find_binary()
+  if not binary then fetching_dbs[conn_key_str] = false; callback({}); return end
+
+  local args = { binary, "introspect", ctx.connection,
+    "--type", "databases", "--path", search_dir(),
+    "--env", state.current_env or "dev" }
+
+  vim.fn.jobstart(args, {
+    stdout_buffered = true,
+    on_stdout = function(_, data)
+      if not data then return end
+      while #data > 0 and data[#data] == "" do data[#data] = nil end
+      if #data == 0 then return end
+      local ok, parsed = pcall(vim.json.decode, table.concat(data, "\n"))
+      local names = {}
+      if ok and parsed and parsed.items then
+        names = vim.tbl_map(function(i) return i.name end, parsed.items)
+        cache[cache_key] = names
+      end
+      fetching_dbs[conn_key_str] = false
+      vim.schedule(function()
+        for _, cb in ipairs(dbs_callbacks[conn_key_str] or {}) do cb(names) end
+        dbs_callbacks[conn_key_str] = nil
+      end)
+    end,
+    on_exit = function(_, code)
+      fetching_dbs[conn_key_str] = false
+      if code ~= 0 then
+        vim.schedule(function()
+          for _, cb in ipairs(dbs_callbacks[conn_key_str] or {}) do cb({}) end
+          dbs_callbacks[conn_key_str] = nil
+        end)
+      end
+    end,
+  })
+end
+
+---------------------------------------------------------------------------
 -- Lazy fetch columns for a single table
 ---------------------------------------------------------------------------
 
@@ -405,11 +467,16 @@ end
 -- Context detection
 ---------------------------------------------------------------------------
 
---- Returns: ctx_type ("table"|"column"|"dot_column"|"connection"|"keyword"), extra
+--- Returns: ctx_type ("table"|"column"|"dot_column"|"connection"|"database"|"keyword"), extra
 local function detect_context(line_before)
   -- @connection directive (anywhere on the line up to cursor)
   if line_before:match("@connection%s+%S*$") then
     return "connection", nil
+  end
+
+  -- USE statement: USE <db>
+  if line_before:match("^%s*[Uu][Ss][Ee]%s+%S*$") then
+    return "database", nil
   end
 
   -- table.col  (e.g. "users." or "users.na")
@@ -495,6 +562,14 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     local cp = line_before:match("@connection%s+(%S*)$") or ""
     ensure_conn_names(function(names)
       callback(filter(make_items(names, 6, "connection: "), cp))
+    end)
+    return
+  end
+
+  if ctx_type == "database" then
+    local db_prefix = line_before:match("[Uu][Ss][Ee]%s+(%S*)$") or ""
+    ensure_databases(function(names)
+      callback(filter(make_items(names, 1, "database: "), db_prefix))
     end)
     return
   end

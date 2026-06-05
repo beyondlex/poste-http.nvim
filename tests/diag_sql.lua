@@ -36,6 +36,8 @@ check("WHERE<space>partial", detect_context("SELECT * FROM authors WHERE us"),  
 check("FROM<space>",         detect_context("SELECT * FROM "),                         "table")
 check("AND<space>",          detect_context("... WHERE id=1 AND "),                   "column")
 check("bare SEL",            detect_context("SEL"),                                   "keyword")
+check("USE<space>",          detect_context("USE "),                                  "database")
+check("USE<space>partial",   detect_context("USE inv"),                               "database")
 do
   local ctx, extra = detect_context("SELECT authors.")
   check("dot_column ctx",   ctx,   "dot_column")

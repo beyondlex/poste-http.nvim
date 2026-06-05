@@ -1007,16 +1007,27 @@ function M.setup(opts)
             callback = function()
               local line = vim.api.nvim_get_current_line()
               local col = vim.api.nvim_win_get_cursor(0)[2]
+              
+              if vim.g.poste_sql_debug then
+                vim.notify(string.format("TextChangedI: col=%d, char='%s'", col, line:sub(col, col)), vim.log.levels.INFO)
+              end
+              
               -- Check if just typed a space after SQL keyword
               if col > 0 and line:sub(col, col) == " " then
                 local before = line:sub(1, col - 1)
                 local last_word = before:match("(%w+)%s*$")
+                
+                if vim.g.poste_sql_debug then
+                  vim.notify(string.format("Space detected, last_word='%s'", tostring(last_word)), vim.log.levels.WARN)
+                end
+                
                 if last_word then
                   local lw = last_word:lower()
                   -- Trigger after context keywords
                   if lw == "from" or lw == "join" or lw == "where" or 
                      lw == "set" or lw == "on" or lw == "having" or
                      lw == "by" or lw == "and" or lw == "or" then
+                    vim.notify("AUTO-TRIGGERING blink.cmp!", vim.log.levels.ERROR)
                     vim.defer_fn(function()
                       blink.show()
                     end, 50)
@@ -1025,6 +1036,7 @@ function M.setup(opts)
               end
             end
           })
+          vim.notify("SQL auto-complete autocmd installed", vim.log.levels.INFO)
         end
         
         if blink_ok and blink.config then

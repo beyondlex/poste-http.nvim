@@ -1,8 +1,14 @@
 -- @connection my-blog
 -- @database blog
 
+
+SELECT s.*, p.title FROM authors s LEFT JOIN posts p on p.author_id = s.id;
+
 ###
-SELECT * FROM authors WHERE 
+SELECT * FROM categories;
+
+###
+SELECT s.*, p.title FROM authors s LEFT JOIN posts p on p.author_id = s.id;
 
 ###
 USE blog;

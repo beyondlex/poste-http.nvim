@@ -26,9 +26,60 @@ local function find_poste_binary()
   return nil
 end
 
----------------------------------------------------------------------------
--- Run SQL request
----------------------------------------------------------------------------
+--- Given buffer lines and a 1-based cursor line, return the content to send
+--- to the CLI when there are no ### separators around the cursor.
+--- Extracts file-level directives (@connection, @database, -- @...) plus
+--- the SQL statement under the cursor (delimited by semicolons or blank lines).
+--- Returns (content_string, adjusted_line_number).
+local function extract_stmt_at_cursor(buf_lines, cursor_line)
+  -- Collect file-level directive lines (before any non-directive content)
+  local directives = {}
+  for _, l in ipairs(buf_lines) do
+    if l:match("^%s*%-%-") or l:match("^%s*$") then
+      table.insert(directives, l)
+    else
+      break
+    end
+  end
+
+  -- Find the statement containing cursor_line using ; as delimiter.
+  -- Walk backward to find start (previous ; or start of file).
+  local stmt_start = 1
+  for i = cursor_line - 1, 1, -1 do
+    local l = buf_lines[i] or ""
+    if l:match(";%s*$") or l:match(";%s*%-%-") then
+      stmt_start = i + 1
+      break
+    end
+  end
+
+  -- Walk forward to find end (next ; or end of file).
+  local stmt_end = #buf_lines
+  for i = cursor_line, #buf_lines do
+    local l = buf_lines[i] or ""
+    if l:match(";") then
+      stmt_end = i
+      break
+    end
+  end
+
+  -- Extract the statement lines
+  local stmt_lines = {}
+  for i = stmt_start, stmt_end do
+    table.insert(stmt_lines, buf_lines[i] or "")
+  end
+
+  -- Build content: directives + ### + statement
+  local parts = {}
+  for _, l in ipairs(directives) do table.insert(parts, l) end
+  table.insert(parts, "###")
+  for _, l in ipairs(stmt_lines) do table.insert(parts, l) end
+
+  local content = table.concat(parts, "\n")
+  -- The cursor line in the new content: directives + 1 (for ###) + offset within stmt
+  local adjusted_line = #directives + 1 + (cursor_line - stmt_start + 1)
+  return content, adjusted_line
+end
 
 --- Execute the SQL request at the cursor position.
 --- Sends the buffer content to the poste CLI and renders the dataset.
@@ -50,8 +101,25 @@ function M.run_sql_request()
   local buf_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
   local buf_content = table.concat(buf_lines, "\n")
 
-  -- Show spinner
-  local req_line = indicators.find_request_line(src_buf, line)
+  -- If the cursor is not inside a ### block, extract the statement at cursor
+  -- delimited by semicolons and wrap it in a synthetic ### block.
+  local in_hash_block = false
+  for i = line, 1, -1 do
+    if (buf_lines[i] or ""):match("^%s*###") then
+      in_hash_block = true
+      break
+    end
+  end
+  local orig_line = line  -- keep for indicator fallback
+  if not in_hash_block then
+    local new_content, new_line = extract_stmt_at_cursor(buf_lines, line)
+    buf_content = new_content
+    line = new_line
+  end
+
+  -- Show spinner (fall back to original cursor line when no ### block)
+  local req_line = indicators.find_request_line(src_buf, orig_line)
+  if not req_line then req_line = orig_line - 1 end  -- 0-indexed fallback
   indicators.set_indicator(src_buf, req_line, "running")
 
   local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
@@ -146,5 +214,7 @@ function M.run_sql_request()
     vim.notify("Failed to start poste job", vim.log.levels.ERROR, { title = "Poste SQL" })
   end
 end
+
+M._test = { extract_stmt_at_cursor = extract_stmt_at_cursor }
 
 return M

@@ -722,8 +722,12 @@ function M.setup(opts)
       blink.add_filetype_source("poste_sql", "poste_sql")
       blink.add_filetype_source("poste_sqlite", "poste_sql")
 
-      -- Allow space as a trigger character in SQL buffers by removing it from the blocked list
+      -- Only show poste_sql source in SQL buffers (suppress buffer/lsp word noise)
       local blink_config = require("blink.cmp.config")
+      blink_config.sources.per_filetype["poste_sql"]    = { "poste_sql" }
+      blink_config.sources.per_filetype["poste_sqlite"] = { "poste_sql" }
+
+      -- Allow space as a trigger character in SQL buffers by removing it from the blocked list
       local orig_blocked = blink_config.completion.trigger.show_on_blocked_trigger_characters
       blink_config.completion.trigger.show_on_blocked_trigger_characters = function()
         local ft = vim.bo.filetype

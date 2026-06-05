@@ -367,6 +367,41 @@ end
 -- Cell preview (K key)
 ---------------------------------------------------------------------------
 
+--- Pretty-print a Lua table as JSON with indentation.
+local function json_pretty(val, indent)
+  indent = indent or 0
+  local pad = string.rep("  ", indent)
+  local pad1 = string.rep("  ", indent + 1)
+  if type(val) == "table" then
+    -- Detect array vs object
+    local is_array = #val > 0
+    if is_array then
+      local items = {}
+      for _, v in ipairs(val) do
+        items[#items + 1] = pad1 .. json_pretty(v, indent + 1)
+      end
+      return "[\n" .. table.concat(items, ",\n") .. "\n" .. pad .. "]"
+    else
+      local items = {}
+      for k, v in pairs(val) do
+        items[#items + 1] = pad1 .. '"' .. tostring(k) .. '": ' .. json_pretty(v, indent + 1)
+      end
+      table.sort(items)
+      return "{\n" .. table.concat(items, ",\n") .. "\n" .. pad .. "}"
+    end
+  elseif val == vim.NIL or val == nil then
+    return "null"
+  elseif type(val) == "boolean" then
+    return tostring(val)
+  elseif type(val) == "number" then
+    return tostring(val)
+  else
+    -- String: escape and quote
+    local ok, encoded = pcall(vim.json.encode, val)
+    return ok and encoded or ('"' .. tostring(val) .. '"')
+  end
+end
+
 --- Try to decode a string as JSON and pretty-print it.
 --- Handles double-encoded JSON (string inside string).
 --- @param s string
@@ -374,13 +409,13 @@ end
 local function try_pretty_json(s)
   local ok, decoded = pcall(vim.json.decode, s)
   if ok and type(decoded) == "table" then
-    return vim.inspect(decoded)
+    return json_pretty(decoded)
   end
   -- Handle double-encoded JSON: decoded result is itself a JSON string
   if ok and type(decoded) == "string" then
     local ok2, decoded2 = pcall(vim.json.decode, decoded)
     if ok2 and type(decoded2) == "table" then
-      return vim.inspect(decoded2)
+      return json_pretty(decoded2)
     end
   end
   return nil
@@ -399,7 +434,7 @@ local function pretty_print(val)
 
   -- Lua table (JSON/JSONB column decoded as nested object)
   if type(val) == "table" then
-    return vim.inspect(val), "lua"
+    return json_pretty(val), "json"
   end
 
   local s = tostring(val)
@@ -409,14 +444,13 @@ local function pretty_print(val)
   if type(val) == "string" then
     local pretty = try_pretty_json(s)
     if pretty then
-      return pretty, "lua"
+      return pretty, "json"
     end
-    -- Try after stripping leading whitespace
     local trimmed = s:match("^%s*(.*)")
     if trimmed ~= s then
       pretty = try_pretty_json(trimmed)
       if pretty then
-        return pretty, "lua"
+        return pretty, "json"
       end
     end
   end

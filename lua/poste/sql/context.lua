@@ -10,8 +10,9 @@ local M = {}
 ---------------------------------------------------------------------------
 
 --- Resolve the SQL execution context from the current buffer.
---- Scans file header for @connection/@database directives and
---- cursor-preceding USE statements.
+--- Scans file header for @connection/@database directives, then scans
+--- ALL lines from file start up to the cursor for USE statements.
+--- The last USE statement before the cursor wins (JetBrains behavior).
 --- @param buf number Buffer handle (default: current buffer)
 --- @return table context { connection = string|nil, database = string|nil }
 function M.resolve_context(buf)
@@ -20,75 +21,37 @@ function M.resolve_context(buf)
   local cursor_line = vim.fn.line(".")
 
   -- Phase 1: Scan file header (before first ###) for global defaults
-  local global_connection = nil
-  local global_database = nil
-  local first_block_line = nil
+  local connection = nil
+  local database = nil
 
   for i, line in ipairs(lines) do
-    if line:match("^%s*###") then
-      first_block_line = i
-      break
-    end
-    
+    if line:match("^%s*###") then break end
     local conn_match = line:match("^%s*--%s*@connection%s+(.+)")
-    if conn_match then
-      global_connection = vim.trim(conn_match)
-    end
-    
+    if conn_match then connection = vim.trim(conn_match) end
     local db_match = line:match("^%s*--%s*@database%s+(.+)")
-    if db_match then
-      global_database = vim.trim(db_match)
-    end
+    if db_match then database = vim.trim(db_match) end
   end
 
-  -- Phase 2: Find current request block and scan for block-level overrides
-  local block_start = first_block_line or 1
-  local block_end = #lines
-  
-  -- Find the current block boundaries
-  for i = cursor_line, 1, -1 do
-    if lines[i] and lines[i]:match("^%s*###") then
-      block_start = i
-      break
-    end
-  end
-  
-  for i = cursor_line + 1, #lines do
-    if lines[i] and lines[i]:match("^%s*###") then
-      block_end = i - 1
-      break
-    end
-  end
-
-  -- Scan current block for overrides
-  local connection = global_connection
-  local database = global_database
-
-  for i = block_start, math.min(block_end, cursor_line) do
+  -- Phase 2: Scan ALL lines from top to cursor for USE statements and
+  -- block-level @connection/@database overrides. Last one wins.
+  for i = 1, cursor_line do
     local line = lines[i]
     if not line then break end
-    
+
+    -- Block-level directive override
     local conn_match = line:match("^%s*--%s*@connection%s+(.+)")
-    if conn_match then
-      connection = vim.trim(conn_match)
-    end
-    
+    if conn_match then connection = vim.trim(conn_match) end
     local db_match = line:match("^%s*--%s*@database%s+(.+)")
-    if db_match then
-      database = vim.trim(db_match)
-    end
-    
-    -- USE statement
+    if db_match then database = vim.trim(db_match) end
+
+    -- USE statement: last one before cursor wins
     local use_match = line:match("^%s*[Uu][Ss][Ee]%s+(%S+)")
     if use_match then
       database = use_match:gsub(";$", ""):gsub("^['\"`]", ""):gsub("['\"`]$", "")
     end
   end
 
-  return {
-    connection = connection,
-    database = database,
-  }
+  return { connection = connection, database = database }
 end
 
 --- Update context from a SQL response (e.g., USE statement).

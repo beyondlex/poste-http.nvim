@@ -933,6 +933,39 @@ function M.setup(opts)
     end
   end, { desc = "Reload SQL completion provider" })
 
+  vim.api.nvim_create_user_command("PosteSQLDiag", function()
+    local sql_comp = require("poste.sql.completion")
+    local buf = vim.api.nvim_get_current_buf()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local line = vim.api.nvim_get_current_line()
+    local col = cursor[2]
+    local line_before = line:sub(1, col)
+    local cursor_lnum = cursor[1]
+
+    local ctx_type, ctx_data = sql_comp._test.detect_context(line_before)
+    local tbls, alias_map = sql_comp._test.extract_from_tables(buf, cursor_lnum)
+    local conn = sql_comp._test.conn_key()
+
+    local msg = {
+      "line_before: '" .. line_before .. "'",
+      "ctx: " .. tostring(ctx_type),
+      "conn_key: " .. tostring(conn),
+      "cursor_lnum: " .. cursor_lnum,
+      "buf lines 1.." .. cursor_lnum .. ":",
+    }
+    local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, cursor_lnum, false)
+    for i, l in ipairs(buf_lines) do
+      table.insert(msg, "  " .. i .. ": " .. l)
+    end
+    table.insert(msg, "tables: " .. vim.inspect(tbls))
+    table.insert(msg, "alias_map: " .. vim.inspect(alias_map))
+
+    sql_comp._test.get_items(buf, line_before, cursor_lnum, function(items)
+      table.insert(msg, "items(" .. #items .. "): " .. vim.inspect(vim.list_slice(items, 1, 3)))
+      vim.notify(table.concat(msg, "\n"), vim.log.levels.WARN)
+    end)
+  end, { desc = "Diagnose SQL completion at cursor" })
+
   vim.api.nvim_create_user_command("PosteSQLDebugSpace", function()
     -- Test exactly what happens when Space is pressed after WHERE
     local buf = vim.api.nvim_get_current_buf()

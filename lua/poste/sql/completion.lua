@@ -698,12 +698,13 @@ end
 --- ctx.line  = full line text
 --- ctx.cursor = {row, col}  (col is byte-index into line, 1-based in some versions)
 function M:get_completions(ctx, callback)
-  -- blink ctx.cursor[2] is 0-based col in newer versions; ctx.line is the full line
-  local line = ctx.line or ""
-  local col = ctx.cursor and ctx.cursor[2] or #line
-  local line_before = line:sub(1, col)
+  -- Use real-time cursor state (blink ctx snapshot may lag by one character
+  -- when triggered by a trigger character like space)
   local bufnr = vim.api.nvim_get_current_buf()
-  local cursor_line = ctx.cursor and ctx.cursor[1] or vim.fn.line(".")
+  local cursor_line = vim.fn.line(".")
+  local cursor_col  = vim.fn.col(".")   -- 1-based byte offset of cursor
+  local line = vim.api.nvim_get_current_line()
+  local line_before = line:sub(1, cursor_col - 1)
 
   -- Debug logging
   if vim.g.poste_sql_debug then

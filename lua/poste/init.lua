@@ -1031,6 +1031,32 @@ function M.setup(opts)
         end
       end, { buffer = 0, noremap = true, silent = true, desc = "Trigger completion" })
       
+      -- Smart space: trigger completion after SQL keywords
+      vim.keymap.set("i", "<Space>", function()
+        -- Insert space first
+        vim.api.nvim_feedkeys(" ", "n", false)
+        
+        -- Check if we should trigger completion
+        vim.schedule(function()
+          local line = vim.api.nvim_get_current_line()
+          local col = vim.api.nvim_win_get_cursor(0)[2]
+          local before = line:sub(1, col - 1)
+          local last_word = before:match("(%w+)%s*$")
+          
+          if last_word then
+            local lw = last_word:lower()
+            if lw == "from" or lw == "join" or lw == "where" or 
+               lw == "set" or lw == "on" or lw == "having" or
+               lw == "by" or lw == "and" or lw == "or" then
+              local blink_ok, blink = pcall(require, "blink.cmp")
+              if blink_ok and blink.show then
+                blink.show()
+              end
+            end
+          end
+        end)
+      end, { buffer = 0, noremap = true, desc = "Smart space with completion" })
+      
       -- Configure blink.cmp to show completions immediately for SQL
       vim.defer_fn(function()
         local blink_ok, blink = pcall(require, "blink.cmp")

@@ -103,9 +103,14 @@ local function extract_stmt_at_cursor(buf_lines, cursor_line)
     end
   end
 
-  local stmt_start = 1
+  local stmt_start = cursor_line
   for i = cursor_line - 1, 1, -1 do
-    if (buf_lines[i] or ""):match(";") then
+    local txt = buf_lines[i] or ""
+    if txt:match(";") then
+      stmt_start = i + 1
+      break
+    end
+    if txt:match("^%s*###") or txt:match("^%s*%-%-%s*@") then
       stmt_start = i + 1
       break
     end

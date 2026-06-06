@@ -4,7 +4,7 @@ local uv = vim.uv or vim.loop
 local M = {}
 
 local indicator_ns = vim.api.nvim_create_namespace("poste_indicator")
-local indicator_mark = nil
+local indicator_marks = {}  -- buf -> { line_0 -> mark_id }
 local spinner_timer = nil
 local spinner_gen = 0  -- generation counter to invalidate stale spinner callbacks
 
@@ -167,21 +167,31 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
     spinner_timer = nil
   end
 
-  -- Clear all extmarks in this namespace on this buffer (clean slate)
-  vim.api.nvim_buf_clear_namespace(buf, indicator_ns, 0, -1)
-  indicator_mark = nil
+  -- Clear only the extmark for this specific line
+  if not indicator_marks[buf] then indicator_marks[buf] = {} end
+  local old_mark = indicator_marks[buf][line_0]
+  if old_mark then
+    pcall(vim.api.nvim_buf_del_extmark, buf, indicator_ns, old_mark)
+    indicator_marks[buf][line_0] = nil
+  end
 
   if status == "running" then
     local frame = 1
     local function update_spinner()
       if my_gen ~= spinner_gen then return end  -- stale callback
       if not vim.api.nvim_buf_is_valid(buf) then return end
-      vim.api.nvim_buf_clear_namespace(buf, indicator_ns, 0, -1)
-      indicator_mark = vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
+      -- Delete old spinner extmark before setting new one
+      local old = indicator_marks[buf] and indicator_marks[buf][line_0]
+      if old then
+        pcall(vim.api.nvim_buf_del_extmark, buf, indicator_ns, old)
+      end
+      local mark = vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
         virt_text = { { " " .. spinner_frames[frame] .. " ", "PosteSpinner" } },
         virt_text_pos = "eol",
         hl_mode = "combine",
       })
+      if not indicator_marks[buf] then indicator_marks[buf] = {} end
+      indicator_marks[buf][line_0] = mark
       frame = (frame % #spinner_frames) + 1
     end
     update_spinner()
@@ -199,7 +209,6 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
       end
       table.insert(virt_text, { latency_text, "PosteLatency" })
     end
-    -- Add assertion results if present
     if assertion_results and assertion_results.total > 0 then
       if assertion_results.failed > 0 then
         table.insert(virt_text, {
@@ -213,18 +222,22 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
         })
       end
     end
-    indicator_mark = vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
+    local mark = vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
       virt_text = virt_text,
       virt_text_pos = "eol",
       hl_mode = "combine",
     })
+    if not indicator_marks[buf] then indicator_marks[buf] = {} end
+    indicator_marks[buf][line_0] = mark
 
   elseif status == "error" then
-    indicator_mark = vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
+    local mark = vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
       virt_text = { { " ✘ ", "PosteError" } },
       virt_text_pos = "eol",
       hl_mode = "combine",
     })
+    if not indicator_marks[buf] then indicator_marks[buf] = {} end
+    indicator_marks[buf][line_0] = mark
   end
 end
 

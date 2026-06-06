@@ -298,14 +298,21 @@ function M.run_sql_request()
     stmt_lines = { stmt_start or 1 }
   end
 
-  -- Set indicator on first statement line
+  -- Set running indicators
   local first_line = stmt_lines[1]
   if not first_line then
     first_line = (is_visual and math.max(_vis_start or 0, _vis_end or 0) > 0)
       and math.min(_vis_start, _vis_end) or 1
   end
   first_line = math.max(1, math.min(first_line, #buf_lines))
-  indicators.set_indicator(src_buf, first_line - 1, "running")
+
+  if #stmt_lines > 0 then
+    for _, ln in ipairs(stmt_lines) do
+      indicators.set_indicator(src_buf, ln - 1, "running")
+    end
+  else
+    indicators.set_indicator(src_buf, first_line - 1, "running")
+  end
 
   local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
     vim.fn.shellescape(binary),

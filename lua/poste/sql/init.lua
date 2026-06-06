@@ -243,6 +243,7 @@ local function extract_table_name(sql)
     local tname = upper:match(pat)
     if tname then
       tname = tname:gsub("^[`\"'\\[]+", ""):gsub("[`\"'\\]]+$", "")
+      tname = tname:gsub("[%p%s]+$", "")
       local dot = tname:find("%.")
       if dot then tname = tname:sub(dot + 1) end
       if tname ~= "" then return tname:lower() end
@@ -252,10 +253,15 @@ local function extract_table_name(sql)
 end
 
 --- Get SQL text for the i-th statement (1-indexed) from buf_lines using stmt_lines.
-local function get_stmt_sql(buf_lines, stmt_lines, idx)
+--- @param buf_lines string[]
+--- @param stmt_lines number[]
+--- @param idx number 1-indexed statement index
+--- @param max_end number|nil max line to read (e.g. visual selection end)
+--- @return string
+local function get_stmt_sql(buf_lines, stmt_lines, idx, max_end)
   local start = stmt_lines[idx]
   if not start then return "" end
-  local stop = stmt_lines[idx + 1] and (stmt_lines[idx + 1] - 1) or #buf_lines
+  local stop = stmt_lines[idx + 1] and (stmt_lines[idx + 1] - 1) or max_end or start
   local lines = {}
   for i = start, stop do
     local ln = buf_lines[i]
@@ -314,12 +320,14 @@ function M.run_sql_request()
   local buf_content
   local adjusted_line
   local stmt_lines = {}  -- buffer line numbers for indicators
+  local visual_sel_end
 
   if is_visual then
     local sel_start = math.min(_vis_start, _vis_end)
     local sel_end = math.max(_vis_start, _vis_end)
     sel_start = math.max(1, sel_start)
     sel_end = math.min(#buf_lines, sel_end)
+    visual_sel_end = sel_end
     local directive_count
     buf_content, stmt_lines, directive_count = extract_visual_block(buf_lines, sel_start, sel_end)
 
@@ -415,7 +423,7 @@ function M.run_sql_request()
                 break
               end
 
-              local sql_text = get_stmt_sql(buf_lines, stmt_lines, i)
+              local sql_text = get_stmt_sql(buf_lines, stmt_lines, i, visual_sel_end)
               local table_name = extract_table_name(sql_text)
               local single_data = {
                 type = "resultset",

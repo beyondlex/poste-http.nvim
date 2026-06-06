@@ -160,12 +160,6 @@ local function build_status_winbar(meta)
 
   local left = string.format("  %d row%s · %dms", rows, rows == 1 and "" or "s", ms)
 
-  -- Tab indicator
-  if #tabs > 1 then
-    local label = meta.table_name or ("result " .. active_tab_idx)
-    left = left .. string.format(" [%d/%d: %s]", active_tab_idx, #tabs, label)
-  end
-
   -- Sort state
   local tab = T()
   if tab and tab.sort then
@@ -176,8 +170,13 @@ local function build_status_winbar(meta)
     end
   end
 
-  -- Right: connection info
-  local right = format_conn_short(meta.connection) or ""
+  -- Right: tab indicator + connection info
+  local right = ""
+  if #tabs > 1 then
+    local label = meta.table_name or ("result " .. active_tab_idx)
+    right = string.format("[%d/%d: %s] ", active_tab_idx, #tabs, label)
+  end
+  right = right .. (format_conn_short(meta.connection) or "")
 
   local text = left .. "%=" .. right
   return "%#PosteSqlMeta#" .. text

@@ -1,6 +1,6 @@
 --- SQL Dataset buffer — bottom horizontal split with cell-based navigation.
 --- Column header rendered as a floating window anchored to the dataset window top.
---- Winbar shows static status info (row count, connection, sort state).
+--- Winbar shows static status info (row count, timing, connection, tab indicator).
 local state = require("poste.state")
 local sql_format = require("poste.sql.format")
 local sql_highlights = require("poste.sql.highlights")
@@ -10,29 +10,61 @@ local M = {}
 local dataset_buffer = nil
 local dataset_window = nil
 
---- Left padding for dataset display
 local LEFT_PADDING = 2
 local PADDING_SPACES = string.rep(" ", LEFT_PADDING)
 
---- Current dataset state
-local current_meta = nil
-local current_lines = nil
+--------------------------------------------------------------------------------
+-- Tab system
+--------------------------------------------------------------------------------
 
---- Float header state
-local float_header_text = nil   -- plain header with sort indicator baked in
-local float_header_index = nil  -- char position index for fast slicing
-local float_buf = nil           -- float buffer
-local float_win = nil           -- float window
-local scroll_autocmd_id = nil   -- WinScrolled autocmd handle
+--- Each tab stores isolated state for one result set.
+--- @class DatasetTab
+--- @field meta table|nil
+--- @field lines string[]|nil  raw lines from format.lua
+--- @field padded string[]|nil rendered lines in buffer
+--- @field header_text string|nil  plain header with sort indicator baked in
+--- @field header_index table|nil  build_header_index result
+--- @field sort table|nil { col = number, ascending = boolean }
+--- @field original_rows table|nil  deep copy for sort reset
+--- @field is_sorting boolean
+--- @field data table|nil  decoded response body
+--- @field cursor table { row, col }
+--- @field leftcol number  horizontal scroll position
 
---- Sort state
-local sort_state = nil
-local original_rows = nil
-local is_sorting = false
+local tabs = {}
+local active_tab_idx = 0
 
-----------------------------------------------------------------------------
+local function tab_count()
+  return #tabs
+end
+
+function M.tab_count()
+  return #tabs
+end
+
+--- Get active tab or nil.
+local function T()
+  return tabs[active_tab_idx]
+end
+
+--- Ensure tab at idx exists, return it.
+local function alloc_tab(idx)
+  if not tabs[idx] then
+    tabs[idx] = {
+      meta = nil, lines = nil, padded = nil,
+      header_text = nil, header_index = nil,
+      sort = nil, original_rows = nil, is_sorting = false,
+      data = nil,
+      cursor = { row = 1, col = 1 },
+      leftcol = 0,
+    }
+  end
+  return tabs[idx]
+end
+
+--------------------------------------------------------------------------------
 -- Buffer creation
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 local function get_dataset_buffer()
   if dataset_buffer and vim.api.nvim_buf_is_valid(dataset_buffer) then
@@ -64,6 +96,8 @@ local function get_dataset_buffer()
   vim.keymap.set("n", "yc", function() M.yank_column() end, opts)
   vim.keymap.set("n", "s", function() M.sort_by_current_col() end, opts)
   vim.keymap.set("n", "zh", function() M.toggle_cell_highlight() end, opts)
+  vim.keymap.set("n", "<Tab>", function() M.next_tab() end, opts)
+  vim.keymap.set("n", "<S-Tab>", function() M.prev_tab() end, opts)
   vim.keymap.set("n", "R", function()
     vim.schedule(function()
       require("poste.sql.init").run_sql_request()
@@ -73,43 +107,128 @@ local function get_dataset_buffer()
   return dataset_buffer
 end
 
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Tab switching
+--------------------------------------------------------------------------------
+
+--- Save active tab's transient state (scroll, cursor) before switching away.
+local function save_active_tab_state()
+  local tab = T()
+  if not tab then return end
+  tab.cursor = { row = state.sql.cell.row, col = state.sql.cell.col }
+  if dataset_window and vim.api.nvim_win_is_valid(dataset_window) then
+    tab.leftcol = vim.api.nvim_win_call(dataset_window, function()
+      return vim.fn.winsaveview().leftcol
+    end)
+  end
+end
+
+local function apply_tab_state(tab)
+  state.sql.cell.row = tab.cursor.row
+  state.sql.cell.col = tab.cursor.col
+  if tab.data then
+    state.sql.last_dataset = tab.data
+  end
+end
+
+--- Switch to a given tab index. Called after tab creation or on user switch.
+local function switch_tab(idx)
+  if not tabs[idx] then return end
+  save_active_tab_state()
+  close_header_float()
+  active_tab_idx = idx
+  local tab = tabs[idx]
+  apply_tab_state(tab)
+
+  if not dataset_window or not vim.api.nvim_win_is_valid(dataset_window) then return end
+
+  -- Swap buffer content
+  if tab.padded then
+    vim.api.nvim_set_option_value("modifiable", true, { buf = dataset_buffer })
+    vim.api.nvim_buf_set_lines(dataset_buffer, 0, -1, false, tab.padded)
+    vim.api.nvim_set_option_value("modifiable", false, { buf = dataset_buffer })
+    sql_highlights.apply_dataset_highlights(dataset_buffer, tab.padded, tab.meta)
+  end
+
+  vim.api.nvim_win_set_buf(dataset_window, dataset_buffer)
+
+  -- Restore scroll
+  pcall(vim.api.nvim_win_call, dataset_window, function()
+    vim.fn.winrestview({ leftcol = tab.leftcol or 0 })
+  end)
+
+  -- Restore cursor
+  local meta = tab.meta
+  if meta and meta.type == "resultset" and meta.row_count > 0 then
+    local line_idx = (meta.data_start_line or 1) + tab.cursor.row - 1
+    pcall(vim.api.nvim_win_set_cursor, dataset_window, { line_idx, 0 })
+    sql_highlights.highlight_cell(dataset_buffer, tab.cursor.row, tab.cursor.col, meta)
+  end
+
+  -- Recreate header float if there's header data
+  if tab.header_text then
+    M.update_header_float()
+  end
+
+  -- Update winbar
+  local winbar_text = build_status_winbar(meta)
+  pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = dataset_window })
+end
+
+function M.next_tab()
+  if #tabs < 2 then return end
+  local idx = active_tab_idx + 1
+  if idx > #tabs then idx = 1 end
+  switch_tab(idx)
+end
+
+function M.prev_tab()
+  if #tabs < 2 then return end
+  local idx = active_tab_idx - 1
+  if idx < 1 then idx = #tabs end
+  switch_tab(idx)
+end
+
+--------------------------------------------------------------------------------
 -- Cell navigation
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 function M.move_cell(drow, dcol)
-  if not current_meta or current_meta.type ~= "resultset" then return end
+  local tab = T()
+  if not tab or not tab.meta or tab.meta.type ~= "resultset" then return end
 
   local row = state.sql.cell.row + drow
   local col = state.sql.cell.col + dcol
 
-  row = math.max(1, math.min(row, current_meta.row_count or 0))
-  col = math.max(1, math.min(col, current_meta.col_count or 0))
+  row = math.max(1, math.min(row, tab.meta.row_count or 0))
+  col = math.max(1, math.min(col, tab.meta.col_count or 0))
 
   state.sql.cell.row = row
   state.sql.cell.col = col
 
   local line = M.position_cursor(row, col)
-  sql_highlights.highlight_cell(dataset_buffer, row, col, current_meta, line)
+  sql_highlights.highlight_cell(dataset_buffer, row, col, tab.meta, line)
   if dcol ~= 0 then
     M.update_header_float()
   end
 end
 
 function M.goto_first_col()
-  if not current_meta then return end
+  local tab = T()
+  if not tab or not tab.meta then return end
   state.sql.cell.col = 1
   local line = M.position_cursor(state.sql.cell.row, 1)
-  sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, 1, current_meta, line)
+  sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, 1, tab.meta, line)
   M.update_header_float()
 end
 
 function M.goto_last_col()
-  if not current_meta then return end
-  local last = current_meta.col_count or 1
+  local tab = T()
+  if not tab or not tab.meta then return end
+  local last = tab.meta.col_count or 1
   state.sql.cell.col = last
   local line = M.position_cursor(state.sql.cell.row, last)
-  sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, last, current_meta, line)
+  sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, last, tab.meta, line)
   M.update_header_float()
 end
 
@@ -118,25 +237,28 @@ function M.goto_header()
 end
 
 function M.goto_first_row()
-  if not current_meta then return end
+  local tab = T()
+  if not tab or not tab.meta then return end
   state.sql.cell.row = 1
   local line = M.position_cursor(1, state.sql.cell.col)
-  sql_highlights.highlight_cell(dataset_buffer, 1, state.sql.cell.col, current_meta, line)
+  sql_highlights.highlight_cell(dataset_buffer, 1, state.sql.cell.col, tab.meta, line)
 end
 
 function M.goto_last_row()
-  if not current_meta then return end
-  local last = current_meta.row_count or 1
+  local tab = T()
+  if not tab or not tab.meta then return end
+  local last = tab.meta.row_count or 1
   state.sql.cell.row = last
   local line = M.position_cursor(last, state.sql.cell.col)
-  sql_highlights.highlight_cell(dataset_buffer, last, state.sql.cell.col, current_meta, line)
+  sql_highlights.highlight_cell(dataset_buffer, last, state.sql.cell.col, tab.meta, line)
 end
 
 function M.position_cursor(row, col)
-  if not current_meta or not dataset_window then return "" end
+  local tab = T()
+  if not tab or not tab.meta or not dataset_window then return "" end
   if not vim.api.nvim_win_is_valid(dataset_window) then return "" end
 
-  local line_idx = (current_meta.data_start_line or 1) + row - 1
+  local line_idx = (tab.meta.data_start_line or 1) + row - 1
   local buf = vim.api.nvim_win_get_buf(dataset_window)
 
   local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
@@ -154,7 +276,7 @@ function M.position_cursor(row, col)
   local target_on_screen = target_disp >= math.max(0, saved_leftcol - left_margin)
     and target_disp < saved_leftcol + win_width - right_margin
 
-  local last_col = current_meta.col_count or 0
+  local last_col = tab.meta.col_count or 0
   local last_col_fits = true
   if last_col > 0 then
     local last_range = sql_highlights.find_cell_range(line, last_col + 1)
@@ -190,12 +312,10 @@ function M.position_cursor(row, col)
   return line
 end
 
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Float header management
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
---- Build character position index for a header line.
---- Each entry: { bs, be, ds, de, sep }
 local function build_header_index(line)
   local sep = "│"
   local sep_len = #sep
@@ -227,9 +347,6 @@ local function build_header_index(line)
   return index
 end
 
---- Slice the padded header to show only columns visible within the window.
---- The padded_header starts with LEFT_PADDING spaces, matching the data buffer
---- lines. leftcol from the window maps directly.
 local function slice_header_to_win(leftcol, win_width, padded_header, index)
   if not padded_header or not index then return PADDING_SPACES end
   local right_edge = leftcol + win_width
@@ -256,6 +373,10 @@ local function slice_header_to_win(leftcol, win_width, padded_header, index)
   return table.concat(parts)
 end
 
+local float_buf = nil
+local float_win = nil
+local scroll_autocmd_id = nil
+
 local function close_header_float()
   if float_win and vim.api.nvim_win_is_valid(float_win) then
     pcall(vim.api.nvim_win_close, float_win, true)
@@ -267,9 +388,9 @@ local function close_header_float()
   float_buf = nil
 end
 
---- Create or update the header float window.
 function M.update_header_float()
-  if not float_header_text or not dataset_window then return end
+  local tab = T()
+  if not tab or not tab.header_text or not dataset_window then return end
   if not vim.api.nvim_win_is_valid(dataset_window) then return end
 
   local win_width = vim.api.nvim_win_get_width(dataset_window)
@@ -279,8 +400,8 @@ function M.update_header_float()
     return vim.fn.winsaveview().leftcol
   end)
 
-  local padded = "  " .. float_header_text
-  local index = float_header_index or build_header_index(padded)
+  local padded = "  " .. tab.header_text
+  local index = tab.header_index or build_header_index(padded)
   local text = slice_header_to_win(leftcol, win_width, padded, index)
 
   if float_win and vim.api.nvim_win_is_valid(float_win) then
@@ -309,9 +430,9 @@ function M.update_header_float()
   end
 end
 
-----------------------------------------------------------------------------
--- Static winbar (status info, no alignment needed)
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Winbar (status info)
+--------------------------------------------------------------------------------
 
 local function format_conn_short(conn)
   if not conn or conn == "" then return nil end
@@ -326,28 +447,33 @@ local function build_status_winbar(meta)
   local rows = meta.total_rows or meta.row_count or 0
   local ms = meta.total_execution_time_ms or 0
 
-  -- Left: row count + timing
   local left = string.format("  %d row%s · %dms", rows, rows == 1 and "" or "s", ms)
 
+  -- Tab indicator
+  if #tabs > 1 then
+    left = left .. string.format(" [%d/%d]", active_tab_idx, #tabs)
+  end
+
   -- Sort state
-  if sort_state then
-    local col_name = meta.columns and meta.columns[sort_state.col] and meta.columns[sort_state.col].name
+  local tab = T()
+  if tab and tab.sort then
+    local col_name = meta.columns and meta.columns[tab.sort.col] and meta.columns[tab.sort.col].name
     if col_name then
-      local arrow = sort_state.ascending and " ↑" or " ↓"
+      local arrow = tab.sort.ascending and " ↑" or " ↓"
       left = left .. "    │    " .. col_name .. arrow
     end
   end
 
-  -- Right: connection info (right-aligned via %=)
+  -- Right: connection info
   local right = format_conn_short(meta.connection) or ""
 
   local text = left .. "%=" .. right
   return "%#PosteSqlMeta#" .. text
 end
 
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Cell preview (K key)
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 local function json_pretty(val, indent)
   indent = indent or 0
@@ -416,8 +542,9 @@ local function pretty_print(val)
 end
 
 function M.preview_cell()
-  if not current_meta or current_meta.type ~= "resultset" then return end
-  local data = state.sql.last_dataset
+  local tab = T()
+  if not tab or not tab.data or not tab.meta or tab.meta.type ~= "resultset" then return end
+  local data = tab.data
   if not data or not data.results or #data.results == 0 then return end
 
   local res = data.results[1]
@@ -485,13 +612,14 @@ function M.preview_cell()
   vim.keymap.set("n", "<Esc>", close_fn, sopts)
 end
 
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Yank
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 function M.yank_cell()
-  if not current_meta or current_meta.type ~= "resultset" then return end
-  local data = state.sql.last_dataset
+  local tab = T()
+  if not tab or not tab.data or not tab.meta or tab.meta.type ~= "resultset" then return end
+  local data = tab.data
   if not data or not data.results or #data.results == 0 then return end
 
   local res = data.results[1]
@@ -514,8 +642,9 @@ function M.yank_cell()
 end
 
 function M.yank_column()
-  if not current_meta or current_meta.type ~= "resultset" then return end
-  local data = state.sql.last_dataset
+  local tab = T()
+  if not tab or not tab.data or not tab.meta or tab.meta.type ~= "resultset" then return end
+  local data = tab.data
   if not data or not data.results or #data.results == 0 then return end
 
   local res = data.results[1]
@@ -542,13 +671,14 @@ function M.yank_column()
   vim.notify(string.format('Yanked %d values from "%s"', #values, col_name), vim.log.levels.INFO, { title = "Poste SQL" })
 end
 
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Sort
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 function M.sort_by_current_col()
-  if not current_meta or current_meta.type ~= "resultset" then return end
-  local data = state.sql.last_dataset
+  local tab = T()
+  if not tab or not tab.data or not tab.meta or tab.meta.type ~= "resultset" then return end
+  local data = tab.data
   if not data or not data.results or #data.results == 0 then return end
 
   local res = data.results[1]
@@ -556,25 +686,24 @@ function M.sort_by_current_col()
 
   local col = state.sql.cell.col
   local ascending, is_reset
-  if not sort_state or sort_state.col ~= col then
+  if not tab.sort or tab.sort.col ~= col then
     ascending = true; is_reset = false
-  elseif sort_state.ascending then
+  elseif tab.sort.ascending then
     ascending = false; is_reset = false
   else
     is_reset = true
   end
 
   if is_reset then
-    res.rows = original_rows; sort_state = nil
+    res.rows = tab.original_rows; tab.sort = nil
   else
-    sort_state = { col = col, ascending = ascending }
-    if not original_rows then
-      original_rows = {}
-      for i, row in ipairs(res.rows) do original_rows[i] = row end
+    tab.sort = { col = col, ascending = ascending }
+    if not tab.original_rows then
+      tab.original_rows = {}
+      for i, row in ipairs(res.rows) do tab.original_rows[i] = row end
     end
     table.sort(res.rows, function(a, b)
       local va, vb = a[col], b[col]
-      -- Lua nil / vim.NIL → always to the end
       if va == nil or va == vim.NIL then return false end
       if vb == nil or vb == vim.NIL then return true end
       local ta, tb = type(va), type(vb)
@@ -584,39 +713,50 @@ function M.sort_by_current_col()
       if ta == "boolean" and tb == "boolean" then
         if ascending then return not va and vb else return va and not vb end
       end
-      -- Mixed types: convert both to string
       local sa, sb = tostring(va), tostring(vb)
       if ascending then return sa < sb else return sa > sb end
     end)
   end
 
-  is_sorting = true
+  tab.is_sorting = true
   local new_data = vim.deepcopy(data)
   local lines, meta = sql_format.format_resultset(new_data)
   M.render_dataset(lines, meta)
-  is_sorting = false
+  tab.is_sorting = false
   M.move_cell(0, 0)
 end
 
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Render / Close
-----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-function M.render_dataset(lines, meta)
+function M.render_dataset(lines, meta, opts)
+  opts = opts or {}
+  local tab_idx = opts.tab_index or 1
+  local tab = alloc_tab(tab_idx)
+
   local buf = get_dataset_buffer()
-  current_meta = meta
-  current_lines = lines
 
   sql_highlights.invalidate_sep_cache()
 
-  if not is_sorting then
-    original_rows = nil
-    sort_state = nil
+  if tab.is_sorting then
+    -- keep sort state during sorting
+  else
+    tab.sort = nil
+    tab.original_rows = nil
   end
 
   if meta and meta.type == "resultset" then
     local ok, data = pcall(vim.json.decode, state.last_response and state.last_response.body or "{}")
-    if ok then state.sql.last_dataset = data end
+    if ok then
+      tab.data = data
+      state.sql.last_dataset = data
+    end
+  end
+
+  -- Reset cursor when not sorting
+  if not tab.is_sorting then
+    tab.cursor = { row = 1, col = 1 }
   end
 
   local clean = {}
@@ -633,26 +773,26 @@ function M.render_dataset(lines, meta)
   if has_header then
     local header_line = clean[meta.header_line]
     if header_line then
-      float_header_text = header_line
+      tab.header_text = header_line
       -- Bake sort indicator
-      if sort_state then
-        local range = sql_highlights.find_cell_range(float_header_text, sort_state.col + 1)
+      if tab.sort then
+        local range = sql_highlights.find_cell_range(tab.header_text, tab.sort.col + 1)
         if range then
           local text_end = range.ext_end
           while text_end > range.ext_start + 1 do
-            if float_header_text:byte(text_end) ~= 0x20 then break end
+            if tab.header_text:byte(text_end) ~= 0x20 then break end
             text_end = text_end - 1
           end
           if text_end > range.ext_start then
-            local indicator = (sort_state.ascending and " ↑" or " ↓")
-            local before = float_header_text:sub(1, text_end)
-            local after = float_header_text:sub(text_end + 3)
-            float_header_text = before .. indicator .. after
+            local indicator = (tab.sort.ascending and " ↑" or " ↓")
+            local before = tab.header_text:sub(1, text_end)
+            local after = tab.header_text:sub(text_end + 3)
+            tab.header_text = before .. indicator .. after
           end
         end
       end
-      local padded = "  " .. float_header_text
-      float_header_index = build_header_index(padded)
+      local padded = "  " .. tab.header_text
+      tab.header_index = build_header_index(padded)
 
       table.remove(clean, meta.header_line + 1)
       table.remove(clean, meta.header_line)
@@ -678,6 +818,9 @@ function M.render_dataset(lines, meta)
     meta.data_start_line = meta.data_start_line + 1
     meta.data_end_line = meta.data_end_line + 1
   end
+  tab.padded = padded
+  tab.meta = meta
+  tab.lines = lines
 
   vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded)
@@ -711,13 +854,16 @@ function M.render_dataset(lines, meta)
   vim.api.nvim_set_option_value("foldcolumn", "0", { win = dataset_window })
   vim.api.nvim_set_option_value("foldenable", false, { win = dataset_window })
 
-  -- Set static winbar (status info, no alignment needed)
+  -- Switch to this tab
+  active_tab_idx = tab_idx
+
+  -- Set static winbar
   local winbar_text = build_status_winbar(meta)
   pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = dataset_window })
 
   -- Close previous float, create header float
   close_header_float()
-  if float_header_text then
+  if tab.header_text then
     M.update_header_float()
   end
 
@@ -736,7 +882,7 @@ function M.render_dataset(lines, meta)
   end
 
   -- Position cursor
-  if not is_sorting then
+  if not tab.is_sorting then
     if meta and meta.type == "resultset" and meta.row_count > 0 then
       state.sql.cell.row = 1
       state.sql.cell.col = 1
@@ -751,9 +897,10 @@ function M.render_dataset(lines, meta)
 end
 
 function M.toggle_cell_highlight()
+  local tab = T()
   state.sql.highlight_cell = not state.sql.highlight_cell
   if state.sql.highlight_cell then
-    sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, state.sql.cell.col, current_meta)
+    sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, state.sql.cell.col, tab and tab.meta)
   else
     sql_highlights.clear_cell_highlight(dataset_buffer)
   end
@@ -772,6 +919,8 @@ function M.close()
     dataset_window = nil
   end
   sql_highlights.clear_cell_highlight(dataset_buffer)
+  tabs = {}
+  active_tab_idx = 0
 end
 
 function M.is_open()
@@ -780,8 +929,9 @@ end
 
 M._test = {
   set_header = function(header)
-    float_header_text = header
-    float_header_index = header and build_header_index("  " .. header) or nil
+    local tab = alloc_tab(1)
+    tab.header_text = header
+    tab.header_index = header and build_header_index("  " .. header) or nil
   end,
   slice_header_to_win = slice_header_to_win,
 }

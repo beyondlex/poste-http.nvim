@@ -299,7 +299,10 @@ local function ensure_sql_keymaps(buf)
     _vis_start = vim.fn.line("v")
     _vis_end = vim.fn.line(".")
     _vis_active = true
-    vim.cmd("normal! \\<Esc>")
+    vim.api.nvim_feedkeys(
+      vim.api.nvim_replace_termcodes("<Esc>", true, false, true),
+      "n", false
+    )
     M.run_sql_request()
   end, keymap_opts)
 end

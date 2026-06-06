@@ -736,6 +736,13 @@ end
 function M.render_dataset(lines, meta, opts)
   opts = opts or {}
   local tab_idx = opts.tab_index or 1
+
+  -- Clear old tabs at start of new execution batch
+  if tab_idx == 1 then
+    tabs = {}
+    active_tab_idx = 0
+  end
+
   local tab = alloc_tab(tab_idx)
 
   local buf = get_dataset_buffer()
@@ -972,11 +979,6 @@ M._test = {
     local old = active_tab_idx
     active_tab_idx = idx
     return old
-  end,
-
-  clear_tabs = function()
-    tabs = {}
-    active_tab_idx = 0
   end,
 }
 

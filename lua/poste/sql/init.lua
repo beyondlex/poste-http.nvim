@@ -103,20 +103,29 @@ local function extract_stmt_at_cursor(buf_lines, cursor_line)
     end
   end
 
-  local stmt_start = cursor_line
-  for i = cursor_line - 1, 1, -1 do
-    local txt = buf_lines[i] or ""
-    if txt:match(";") then
-      stmt_start = i + 1
-      break
+  local stmt_start
+  if (buf_lines[cursor_line] or ""):match("^%s*$") then
+    -- Cursor on empty line: search forward for next statement
+    stmt_start = cursor_line
+    while stmt_start <= #buf_lines and (buf_lines[stmt_start] or ""):match("^%s*$") do
+      stmt_start = stmt_start + 1
     end
-    if txt:match("^%s*###") or txt:match("^%s*%-%-%s*@") then
-      stmt_start = i + 1
-      break
+  else
+    stmt_start = cursor_line
+    for i = cursor_line - 1, 1, -1 do
+      local txt = buf_lines[i] or ""
+      if txt:match(";") then
+        stmt_start = i + 1
+        break
+      end
+      if txt:match("^%s*###") or txt:match("^%s*%-%-%s*@") then
+        stmt_start = i + 1
+        break
+      end
     end
-  end
-  while stmt_start <= cursor_line and (buf_lines[stmt_start] or ""):match("^%s*$") do
-    stmt_start = stmt_start + 1
+    while stmt_start <= cursor_line and (buf_lines[stmt_start] or ""):match("^%s*$") do
+      stmt_start = stmt_start + 1
+    end
   end
 
   local stmt_end = #buf_lines
@@ -137,7 +146,7 @@ local function extract_stmt_at_cursor(buf_lines, cursor_line)
   table.insert(parts, "###")
   for _, l in ipairs(stmt_lines) do table.insert(parts, l) end
 
-  local adjusted_line = #directives + 1 + (cursor_line - stmt_start + 1)
+  local adjusted_line = #directives + 1 + ((cursor_line >= stmt_start and cursor_line or stmt_start) - stmt_start + 1)
   return table.concat(parts, "\n"), adjusted_line, stmt_start
 end
 

@@ -167,6 +167,12 @@ local function calc_column_widths(columns, rows, max_width)
     end
   end
 
+  -- Reserve 2 display columns per data column for sort indicator
+  -- This prevents header jitter when indicator appears/disappears
+  for i = 1, #widths do
+    widths[i] = widths[i] + 2
+  end
+
   return widths
 end
 

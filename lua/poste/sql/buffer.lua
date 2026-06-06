@@ -343,11 +343,7 @@ local function build_winbar_text(leftcol, win_width)
 
   if #parts == 0 then return nil end
 
-  local indicator = winbar_sort_col
-    and ("%#PosteSqlSortIndicator#" .. (winbar_sort_asc and " ↑" or " ↓") .. HN)
-    or ""
-
-  return HN .. PADDING_SPACES .. table.concat(parts) .. indicator
+  return HN .. PADDING_SPACES .. table.concat(parts)
 end
 
 --- Update winbar to match horizontal scroll position.
@@ -790,9 +786,27 @@ function M.render_dataset(lines, meta)
       -- Save plain header and border for scroll sync (update_winbar uses these)
       winbar_plain_header = header_line
       winbar_plain_border = border_line
-      winbar_header_index = build_header_index(header_line)
       winbar_sort_col = sort_state and sort_state.col or nil
       winbar_sort_asc = sort_state and sort_state.ascending or nil
+
+      -- Bake sort indicator into winbar header text right after column name
+      if winbar_sort_col then
+        local range = sql_highlights.find_cell_range(winbar_plain_header, winbar_sort_col + 1)
+        if range then
+          local text_end = range.ext_end
+          while text_end > range.ext_start + 1 do
+            if winbar_plain_header:byte(text_end) ~= 0x20 then break end
+            text_end = text_end - 1
+          end
+          if text_end > range.ext_start then
+            local indicator = (winbar_sort_asc and " ↑" or " ↓")
+            local before = winbar_plain_header:sub(1, text_end)
+            local after = winbar_plain_header:sub(text_end + 3)
+            winbar_plain_header = before .. indicator .. after
+          end
+        end
+      end
+      winbar_header_index = build_header_index(winbar_plain_header)
 
       -- Remove lines: top border (header_line - 1), header (header_line), separator (header_line + 1)
       table.remove(clean, meta.header_line + 1)  -- separator first (highest index)

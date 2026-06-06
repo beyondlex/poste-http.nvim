@@ -1,17 +1,42 @@
 -- @connection my-blog
 -- @database blog
 
+
+SELECT * FROM categories;
+use inventory;
+select * from warehouses;
+
+
+
+
+
+
+
+
+
+
+show tables;
+
 SELECT * from web_vitals;
 select * from posts;
-SELECT * FROM categories;
 
-update posts SET title = CONCAT(title, '.') WHERE id = 1;
 
-###
+
+
+SELECT w.name AS warehouse,
+       w.city,
+       COUNT(s.item_id) AS item_types,
+       SUM(s.quantity) AS total_units
+FROM warehouses w
+LEFT JOIN stock s ON s.warehouse_id = w.id
+GROUP BY w.id, w.name, w.city
+ORDER BY total_units DESC;
+
 
 SELECT s.*, p.title FROM authors s LEFT JOIN posts p on p.author_id = s.id;
 
-###
+update posts SET title = CONCAT(title, '.') WHERE id = 1;
+
 
 ###
 SELECT s.*, p.title FROM authors s LEFT JOIN posts p on p.author_id = s.id;

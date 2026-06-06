@@ -1161,7 +1161,8 @@ function M.setup(opts)
       -- (Space keymap is intercepted by blink.cmp before buffer-local keymaps fire,
       --  and TextChangedI may not fire for expr-mapped keys)
       local sql_keywords = { from=true, join=true, where=true, set=true,
-                              on=true, having=true, by=true, ["and"]=true, ["or"]=true }
+                              on=true, having=true, by=true, ["and"]=true, ["or"]=true,
+                              use=true }
       local group = vim.api.nvim_create_augroup("PosteSQLTrigger_" .. vim.api.nvim_get_current_buf(), { clear = true })
       vim.api.nvim_create_autocmd("CursorMovedI", {
         group = group,

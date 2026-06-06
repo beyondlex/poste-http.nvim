@@ -304,13 +304,15 @@ end
 --------------------------------------------------------------------------------
 
 function M.run_sql_request()
+  local src_buf = vim.api.nvim_get_current_buf()
+  indicators.clear_all(src_buf)
+
   local binary = find_poste_binary()
   if not binary then
     vim.notify("Poste binary not found.", vim.log.levels.ERROR)
     return
   end
 
-  local src_buf = vim.api.nvim_get_current_buf()
   ensure_sql_keymaps(src_buf)
 
   local buf_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)

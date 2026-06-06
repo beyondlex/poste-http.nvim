@@ -149,6 +149,23 @@ end
 -- Status indicator (virtual text on the request line)
 ---------------------------------------------------------------------------
 
+--- Clear all indicators for a buffer (called before each execution).
+function M.clear_all(buf)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+  if indicator_marks[buf] then
+    for line_0, mark_id in pairs(indicator_marks[buf]) do
+      pcall(vim.api.nvim_buf_del_extmark, buf, indicator_ns, mark_id)
+    end
+    indicator_marks[buf] = {}
+  end
+  vim.api.nvim_buf_clear_namespace(buf, indicator_ns, 0, -1)
+  if spinner_timer then
+    pcall(function() spinner_timer:stop() end)
+    spinner_timer:close()
+    spinner_timer = nil
+  end
+end
+
 --- Place or update a virtual-text indicator on the request line.
 --- status: "running" | "success" | "error"
 --- latency_ms: optional, shown after ✓ on success

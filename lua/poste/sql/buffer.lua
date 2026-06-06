@@ -131,6 +131,57 @@ local function apply_tab_state(tab)
   end
 end
 
+--- Close the header float window and buffer.
+local function close_header_float()
+  if float_win and vim.api.nvim_win_is_valid(float_win) then
+    pcall(vim.api.nvim_win_close, float_win, true)
+  end
+  if float_buf and vim.api.nvim_buf_is_valid(float_buf) then
+    pcall(vim.api.nvim_buf_delete, float_buf, { force = true })
+  end
+  float_win = nil
+  float_buf = nil
+end
+
+--- Format connection string to short display form.
+local function format_conn_short(conn)
+  if not conn or conn == "" then return nil end
+  local host, port, db = conn:match("^%w+://[^@]*@([^:]+):(%d+)/([^?]+)")
+  if host then return string.format("%s:%s/%s", host, port, db) end
+  return conn:match("/([^/]+)$") or conn
+end
+
+--- Build winbar status text for the dataset window.
+local function build_status_winbar(meta)
+  if not meta or meta.type ~= "resultset" then return nil end
+
+  local rows = meta.total_rows or meta.row_count or 0
+  local ms = meta.total_execution_time_ms or 0
+
+  local left = string.format("  %d row%s · %dms", rows, rows == 1 and "" or "s", ms)
+
+  -- Tab indicator
+  if #tabs > 1 then
+    left = left .. string.format(" [%d/%d]", active_tab_idx, #tabs)
+  end
+
+  -- Sort state
+  local tab = T()
+  if tab and tab.sort then
+    local col_name = meta.columns and meta.columns[tab.sort.col] and meta.columns[tab.sort.col].name
+    if col_name then
+      local arrow = tab.sort.ascending and " ↑" or " ↓"
+      left = left .. "    │    " .. col_name .. arrow
+    end
+  end
+
+  -- Right: connection info
+  local right = format_conn_short(meta.connection) or ""
+
+  local text = left .. "%=" .. right
+  return "%#PosteSqlMeta#" .. text
+end
+
 --- Switch to a given tab index. Called after tab creation or on user switch.
 local function switch_tab(idx)
   if not tabs[idx] then return end
@@ -377,17 +428,6 @@ local float_buf = nil
 local float_win = nil
 local scroll_autocmd_id = nil
 
-local function close_header_float()
-  if float_win and vim.api.nvim_win_is_valid(float_win) then
-    pcall(vim.api.nvim_win_close, float_win, true)
-  end
-  if float_buf and vim.api.nvim_buf_is_valid(float_buf) then
-    pcall(vim.api.nvim_buf_delete, float_buf, { force = true })
-  end
-  float_win = nil
-  float_buf = nil
-end
-
 function M.update_header_float()
   local tab = T()
   if not tab or not tab.header_text or not dataset_window then return end
@@ -433,43 +473,6 @@ end
 --------------------------------------------------------------------------------
 -- Winbar (status info)
 --------------------------------------------------------------------------------
-
-local function format_conn_short(conn)
-  if not conn or conn == "" then return nil end
-  local host, port, db = conn:match("^%w+://[^@]*@([^:]+):(%d+)/([^?]+)")
-  if host then return string.format("%s:%s/%s", host, port, db) end
-  return conn:match("/([^/]+)$") or conn
-end
-
-local function build_status_winbar(meta)
-  if not meta or meta.type ~= "resultset" then return nil end
-
-  local rows = meta.total_rows or meta.row_count or 0
-  local ms = meta.total_execution_time_ms or 0
-
-  local left = string.format("  %d row%s · %dms", rows, rows == 1 and "" or "s", ms)
-
-  -- Tab indicator
-  if #tabs > 1 then
-    left = left .. string.format(" [%d/%d]", active_tab_idx, #tabs)
-  end
-
-  -- Sort state
-  local tab = T()
-  if tab and tab.sort then
-    local col_name = meta.columns and meta.columns[tab.sort.col] and meta.columns[tab.sort.col].name
-    if col_name then
-      local arrow = tab.sort.ascending and " ↑" or " ↓"
-      left = left .. "    │    " .. col_name .. arrow
-    end
-  end
-
-  -- Right: connection info
-  local right = format_conn_short(meta.connection) or ""
-
-  local text = left .. "%=" .. right
-  return "%#PosteSqlMeta#" .. text
-end
 
 --------------------------------------------------------------------------------
 -- Cell preview (K key)

@@ -1,11 +1,17 @@
---- SQL execution entry point.
---- Mirrors the HTTP flow in init.lua but dispatches to the dataset buffer.
+--- SQL execution entry point — supports single-statement (normal mode)
+--- and multi-statement (visual selection) execution.
+--- Each statement result goes into its own dataset tab.
 local state = require("poste.state")
 local indicators = require("poste.indicators")
 local sql_format = require("poste.sql.format")
 local sql_buffer = require("poste.sql.buffer")
 
 local M = {}
+
+-- Visual selection state (set by <leader>rr in visual mode)
+local _vis_active = false
+local _vis_start = 0
+local _vis_end = 0
 
 --- Show or open a float window with text content.
 local function show_float(lines, title, ft)
@@ -33,16 +39,12 @@ local function show_float(lines, title, ft)
     relative = "editor",
     row = math.floor((vim.o.lines - height) / 2),
     col = math.floor((vim.o.columns - width) / 2),
-    width = width,
-    height = height,
-    style = "minimal",
-    border = "rounded",
-    title = title,
-    title_pos = "left",
+    width = width, height = height, style = "minimal",
+    border = "rounded", title = title, title_pos = "left",
   }
   local ok, win = pcall(vim.api.nvim_open_win, float_buf, true, win_opts)
   if not ok then
-    win_opts.title = nil
+    win_opts.title = nil; win_opts.title_pos = nil
     win = vim.api.nvim_open_win(float_buf, true, win_opts)
   end
 
@@ -59,17 +61,16 @@ local function show_float(lines, title, ft)
   vim.keymap.set("n", "g", "gg", sopts)
   vim.keymap.set("n", "G", "G", sopts)
   local close_fn = function()
-    if vim.api.nvim_win_is_valid(win) then
-      vim.api.nvim_win_close(win, true)
-    end
+    if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
   end
   vim.keymap.set("n", "q", close_fn, sopts)
   vim.keymap.set("n", "<Esc>", close_fn, sopts)
 end
 
----------------------------------------------------------------------------
--- Binary discovery (reuse from main init)
----------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Binary discovery
+--------------------------------------------------------------------------------
+
 local function find_poste_binary()
   if state.config.poste_binary ~= "" then
     return state.config.poste_binary
@@ -86,11 +87,13 @@ local function find_poste_binary()
   return nil
 end
 
---- Extract the SQL statement under the cursor, delimited purely by semicolons.
---- Collects file-level directives and wraps the statement in a synthetic ### block.
---- Returns (content_string, adjusted_line_number).
+--------------------------------------------------------------------------------
+-- Statement extraction
+--------------------------------------------------------------------------------
+
+--- Extract a single SQL statement at the cursor position.
+--- Delimited purely by semicolons, wrapped in a synthetic ### block.
 local function extract_stmt_at_cursor(buf_lines, cursor_line)
-  -- Collect file-level directive lines (comment lines at top of file)
   local directives = {}
   for _, l in ipairs(buf_lines) do
     if l:match("^%s*%-%-") or l:match("^%s*$") then
@@ -100,7 +103,6 @@ local function extract_stmt_at_cursor(buf_lines, cursor_line)
     end
   end
 
-  -- Find statement start: walk backward from cursor-1, stop at a line containing ';'
   local stmt_start = 1
   for i = cursor_line - 1, 1, -1 do
     if (buf_lines[i] or ""):match(";") then
@@ -108,12 +110,10 @@ local function extract_stmt_at_cursor(buf_lines, cursor_line)
       break
     end
   end
-  -- Skip leading blank lines
   while stmt_start <= cursor_line and (buf_lines[stmt_start] or ""):match("^%s*$") do
     stmt_start = stmt_start + 1
   end
 
-  -- Find statement end: walk forward from cursor, stop at line containing ';'
   local stmt_end = #buf_lines
   for i = cursor_line, #buf_lines do
     if (buf_lines[i] or ""):match(";") then
@@ -136,47 +136,159 @@ local function extract_stmt_at_cursor(buf_lines, cursor_line)
   return table.concat(parts, "\n"), adjusted_line, stmt_start
 end
 
---- Execute the SQL request at the cursor position.
---- Sends the buffer content to the poste CLI and renders the dataset.
+--- Find buffer line numbers for each SQL statement within a line range.
+--- Scans for non-blank, non-comment lines as statement starts. A line
+--- containing `;` marks the end of the current statement. The start of
+--- the next statement is the next non-blank, non-comment line.
+--- @param buf_lines string[]
+--- @param start_line number  1-indexed start of range
+--- @param end_line   number  1-indexed end of range
+--- @return number[]  buffer line numbers of each statement's first content line
+local function find_stmt_lines(buf_lines, start_line, end_line)
+  local stmt_lines = {}
+  local current_stmt = nil
+
+  for i = start_line, end_line do
+    local line = buf_lines[i] or ""
+    local trimmed = line:match("^%s*(.*)$")
+
+    -- Skip blank lines and directive comments
+    if trimmed == "" then
+      -- end of a statement can be here if the previous line ended with ;
+      goto continue
+    end
+    if trimmed:match("^%-%-%s*@") then
+      goto continue
+    end
+
+    -- Skip ### block separators
+    if trimmed:match("^%s*###") then
+      goto continue
+    end
+
+    -- Comment line: skip unless we're inside a statement
+    if trimmed:match("^%-%-") then
+      goto continue
+    end
+
+    -- Content line
+    if current_stmt == nil then
+      current_stmt = i
+    end
+
+    -- Statement ends at a line containing ;
+    if line:match(";") then
+      table.insert(stmt_lines, current_stmt)
+      current_stmt = nil
+    end
+
+    ::continue::
+  end
+
+  -- Last statement without trailing semicolon
+  if current_stmt then
+    table.insert(stmt_lines, current_stmt)
+  end
+
+  return stmt_lines
+end
+
+--- Extract a visual selection as a synthetic ### block for the CLI.
+--- @param buf_lines string[]
+--- @param start_line number
+--- @param end_line   number
+--- @return string block_content  full content with directives + ### + selected lines
+--- @return number[] stmt_lines   buffer line numbers of each statement
+--- @return number   directive_count  number of file-level directive lines
+local function extract_visual_block(buf_lines, start_line, end_line)
+  local directives = {}
+  for _, l in ipairs(buf_lines) do
+    if l:match("^%s*%-%-") or l:match("^%s*$") then
+      table.insert(directives, l)
+    else
+      break
+    end
+  end
+
+  local parts = {}
+  for _, l in ipairs(directives) do table.insert(parts, l) end
+  table.insert(parts, "###")
+  for i = start_line, end_line do
+    table.insert(parts, buf_lines[i] or "")
+  end
+
+  local stmt_lines = find_stmt_lines(buf_lines, start_line, end_line)
+  return table.concat(parts, "\n"), stmt_lines, #directives
+end
+
+--- Install visual-mode keymap for this buffer (one-time setup).
+local function ensure_visual_keymap(buf)
+  if vim.b[buf].poste_sql_vis_map then return end
+  vim.b[buf].poste_sql_vis_map = true
+  vim.keymap.set("x", "<leader>rr", function()
+    _vis_start = vim.fn.line("'<")
+    _vis_end = vim.fn.line("'>")
+    _vis_active = true
+    vim.cmd("normal! \\<Esc>")
+    M.run_sql_request()
+  end, { buffer = buf, noremap = true, silent = true })
+end
+
+--------------------------------------------------------------------------------
+-- Main entry point
+--------------------------------------------------------------------------------
+
 function M.run_sql_request()
   local binary = find_poste_binary()
   if not binary then
-    vim.notify("Poste binary not found. Make sure it's in PATH or built locally.", vim.log.levels.ERROR)
+    vim.notify("Poste binary not found.", vim.log.levels.ERROR)
     return
   end
 
   local src_buf = vim.api.nvim_get_current_buf()
-  local line = vim.fn.line(".")
+  ensure_visual_keymap(src_buf)
 
+  local buf_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
   local file = vim.api.nvim_buf_get_name(src_buf)
   if file == "" then
     file = vim.fn.getcwd() .. "/untitled.sql"
   end
 
-  local buf_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
+  local is_visual = _vis_active
+  _vis_active = false
 
-  -- Always extract the statement under the cursor using semicolons as delimiters.
-  -- ### in the file is treated as a comment/label, not an execution boundary.
-  local buf_content, adjusted_line, stmt_start = extract_stmt_at_cursor(buf_lines, line)
-  line = adjusted_line
+  local buf_content
+  local adjusted_line
+  local stmt_lines = {}  -- buffer line numbers for indicators
 
-  -- Indicator at the first non-blank line of the current statement
-  local req_line = (stmt_start or 1) - 1  -- 0-indexed for extmark
-  indicators.set_indicator(src_buf, req_line, "running")
+  if is_visual then
+    local sel_start = math.min(_vis_start, _vis_end)
+    local sel_end = math.max(_vis_start, _vis_end)
+    sel_start = math.max(1, sel_start)
+    sel_end = math.min(#buf_lines, sel_end)
+    local directive_count
+    buf_content, stmt_lines, directive_count = extract_visual_block(buf_lines, sel_start, sel_end)
+    -- adjusted_line points to the first content line after ###
+    adjusted_line = directive_count + 2
+  else
+    local line = vim.fn.line(".")
+    buf_content, adjusted_line, stmt_start = extract_stmt_at_cursor(buf_lines, line)
+    stmt_lines = { stmt_start or 1 }
+  end
+
+  -- Set indicator on first statement line
+  local first_line = stmt_lines[1] or 1
+  indicators.set_indicator(src_buf, first_line - 1, "running")
 
   local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
     vim.fn.shellescape(binary),
     vim.fn.shellescape(file),
-    line,
+    adjusted_line,
     vim.fn.shellescape(state.current_env)
   )
 
-  -- Resolve context from buffer at cursor position (block-level @connection,
-  -- @database, and preceding USE statements take priority over global state)
   local sql_context = require("poste.sql.context")
   local ctx = sql_context.resolve_context(src_buf)
-
-  -- Pass database context: prefer block-resolved, fall back to global state
   local db = ctx.database or state.sql.context.database
   if db and db ~= vim.NIL and db ~= "" then
     cmd = cmd .. " --database " .. vim.fn.shellescape(db)
@@ -205,18 +317,56 @@ function M.run_sql_request()
         if ok and parsed and type(parsed) == "table" then
           state.last_response = parsed
 
-          -- Handle USE statement: update context
-          local sql_context = require("poste.sql.context")
           sql_context.handle_use_statement(parsed)
 
-          -- Format and render the dataset
-          local lines, meta = sql_format.format_dataset(parsed)
-          sql_buffer.render_dataset(lines, meta)
+          -- Decode body to get actual SQL results
+          local ok_body, data = pcall(vim.json.decode, parsed.body)
+          if not ok_body or type(data) ~= "table" then
+            data = nil
+          end
 
-          indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms)
+            local results = data and data.results or {}
+            local is_multi = #results > 1
+
+          if is_multi then
+            for i, result in ipairs(results) do
+              if result.error then
+                local err_line = stmt_lines[i] or first_line
+                indicators.set_indicator(src_buf, err_line - 1, "error")
+                break
+              end
+
+              local single_data = {
+                type = "resultset",
+                results = { result },
+                total_rows = result.row_count or 0,
+                total_affected = result.affected_rows or 0,
+                total_execution_time_ms = result.execution_time_ms or 0,
+                connection = data.connection,
+                database = data.database,
+                dialect = data.dialect,
+              }
+              local lines, meta = sql_format.format_resultset(single_data)
+              sql_buffer.render_dataset(lines, meta, { tab_index = i })
+
+              local line_nr = stmt_lines[i] or first_line
+              indicators.set_indicator(src_buf, line_nr - 1, "success", result.execution_time_ms)
+            end
+          else
+            -- Single result (existing behavior)
+            local lines, meta = sql_format.format_dataset(parsed)
+            sql_buffer.render_dataset(lines, meta)
+
+            local has_err = results[1] and results[1].error
+            if has_err then
+              indicators.set_indicator(src_buf, first_line - 1, "error")
+            else
+              indicators.set_indicator(src_buf, first_line - 1, "success", parsed.latency_ms)
+            end
+          end
         else
           state.log("WARN", "SQL JSON parse failed, showing raw output")
-          indicators.set_indicator(src_buf, req_line, "error")
+          indicators.set_indicator(src_buf, first_line - 1, "error")
           local lines = sql_format.format_error("JSON parse failed\n\n" .. output, "")
           sql_buffer.render_dataset(lines, { type = "error" })
         end
@@ -224,19 +374,15 @@ function M.run_sql_request()
     end,
     on_stderr = function(_, data)
       if not data then return end
-      while #data > 0 and data[#data] == "" do
-        data[#data] = nil
-      end
-      if #data == 0 then return end
       for _, l in ipairs(data) do
-        table.insert(stderr_buf, l)
+        if l ~= "" then table.insert(stderr_buf, l) end
       end
     end,
     on_exit = function(_, code)
       if code ~= 0 then
-        state.log("ERROR", string.format("SQL exit code %d (line %d)", code, line))
+        state.log("ERROR", string.format("SQL exit code %d", code))
         vim.schedule(function()
-          indicators.set_indicator(src_buf, req_line, "error")
+          indicators.set_indicator(src_buf, first_line - 1, "error")
           local stderr_text = table.concat(stderr_buf, "\n")
           local lines = sql_format.format_error(
             stderr_text ~= "" and stderr_text or "Query failed with exit code " .. code,
@@ -252,15 +398,18 @@ function M.run_sql_request()
     vim.fn.chansend(job_id, buf_content)
     vim.fn.chanclose(job_id, "stdin")
   else
-    indicators.set_indicator(src_buf, req_line, "error")
+    indicators.set_indicator(src_buf, first_line - 1, "error")
     vim.notify("Failed to start poste job", vim.log.levels.ERROR, { title = "Poste SQL" })
   end
 end
 
-M._test = { extract_stmt_at_cursor = extract_stmt_at_cursor }
+M._test = {
+  extract_stmt_at_cursor = extract_stmt_at_cursor,
+  find_stmt_lines = find_stmt_lines,
+  extract_visual_block = extract_visual_block,
+}
 
 --- Show DDL for the table under the cursor in a floating window.
---- Resolves the connection context and runs `poste introspect --type ddl`.
 function M.show_table_ddl()
   local binary = find_poste_binary()
   if not binary then
@@ -268,13 +417,11 @@ function M.show_table_ddl()
     return
   end
 
-  -- Get the word under cursor
   local table_name = vim.fn.expand("<cword>")
   if not table_name or table_name == "" then
     vim.notify("No word under cursor", vim.log.levels.WARN, { title = "Poste SQL" })
     return
   end
-  -- Skip SQL keywords (use ["key"] form for Lua reserved words)
   local keywords = {}
   local kw_list = { "select","from","where","join","on",
                      "and","or","set","insert","into",
@@ -295,7 +442,6 @@ function M.show_table_ddl()
     return
   end
 
-  -- Resolve connection context
   local sql_context = require("poste.sql.context")
   local ctx = sql_context.resolve_context(vim.api.nvim_get_current_buf())
   local conn = ctx.connection or state.sql.context.connection
@@ -304,7 +450,6 @@ function M.show_table_ddl()
     return
   end
 
-  -- Get the file path for connections.json discovery
   local file = vim.api.nvim_buf_get_name(vim.api.nvim_get_current_buf())
   if file == "" then
     file = vim.fn.getcwd() .. "/query.sql"

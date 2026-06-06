@@ -389,6 +389,7 @@ function M.format_resultset(data)
     connection = conn,
     database = db,
     dialect = dialect,
+    table_name = data.table_name,
   }
 
   return lines, meta

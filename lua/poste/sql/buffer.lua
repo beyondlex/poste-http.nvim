@@ -162,7 +162,8 @@ local function build_status_winbar(meta)
 
   -- Tab indicator
   if #tabs > 1 then
-    left = left .. string.format(" [%d/%d]", active_tab_idx, #tabs)
+    local label = meta.table_name or ("result " .. active_tab_idx)
+    left = left .. string.format(" [%d/%d: %s]", active_tab_idx, #tabs, label)
   end
 
   -- Sort state

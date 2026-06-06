@@ -221,6 +221,51 @@ local function extract_visual_block(buf_lines, start_line, end_line)
   return table.concat(parts, "\n"), stmt_lines, #directives
 end
 
+--- Extract primary table name from a SQL statement.
+--- Returns nil for JOINs with 2+ tables (use "result n" instead).
+local function extract_table_name(sql)
+  if not sql or sql == "" then return nil end
+  local upper = sql:upper()
+  local join_count = 0
+  local idx = 1
+  while true do
+    local pos = upper:find("JOIN", idx, { plain = true })
+    if not pos then break end
+    local before = upper:sub(pos - 1, pos - 1)
+    if before == "" or before == " " or before == "\n" or before == "\t" then
+      join_count = join_count + 1
+    end
+    idx = pos + 4
+  end
+  if join_count >= 2 then return nil end
+  local patterns = { "FROM%s+(%S+)", "UPDATE%s+(%S+)", "INTO%s+(%S+)", "JOIN%s+(%S+)" }
+  for _, pat in ipairs(patterns) do
+    local tname = upper:match(pat)
+    if tname then
+      tname = tname:gsub("^[`\"'\\[]+", ""):gsub("[`\"'\\]]+$", "")
+      local dot = tname:find("%.")
+      if dot then tname = tname:sub(dot + 1) end
+      if tname ~= "" then return tname:lower() end
+    end
+  end
+  return nil
+end
+
+--- Get SQL text for the i-th statement (1-indexed) from buf_lines using stmt_lines.
+local function get_stmt_sql(buf_lines, stmt_lines, idx)
+  local start = stmt_lines[idx]
+  if not start then return "" end
+  local stop = stmt_lines[idx + 1] and (stmt_lines[idx + 1] - 1) or #buf_lines
+  local lines = {}
+  for i = start, stop do
+    local ln = buf_lines[i]
+    if ln and ln ~= "" then
+      lines[#lines + 1] = ln
+    end
+  end
+  return table.concat(lines, " ")
+end
+
 --- Install keymaps for this SQL buffer (one-time setup).
 local function ensure_sql_keymaps(buf)
   if vim.b[buf].poste_sql_keymaps_installed then return end
@@ -370,6 +415,8 @@ function M.run_sql_request()
                 break
               end
 
+              local sql_text = get_stmt_sql(buf_lines, stmt_lines, i)
+              local table_name = extract_table_name(sql_text)
               local single_data = {
                 type = "resultset",
                 results = { result },
@@ -379,6 +426,7 @@ function M.run_sql_request()
                 connection = data.connection,
                 database = data.database,
                 dialect = data.dialect,
+                table_name = table_name,
               }
               local lines, meta = sql_format.format_resultset(single_data)
               sql_buffer.render_dataset(lines, meta, { tab_index = i })

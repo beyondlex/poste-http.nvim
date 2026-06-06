@@ -446,6 +446,8 @@ function M.run_sql_request()
             local results = data and data.results or {}
             local is_multi = #results > 1
 
+          sql_buffer.clear_tabs()
+
           if is_multi then
             for i, result in ipairs(results) do
               if result.error then
@@ -490,6 +492,7 @@ function M.run_sql_request()
         else
           state.log("WARN", "SQL JSON parse failed, showing raw output")
           indicators.set_indicator(src_buf, first_line - 1, "error")
+          sql_buffer.clear_tabs()
           local lines = sql_format.format_error("JSON parse failed\n\n" .. output, "")
           sql_buffer.render_dataset(lines, { type = "error" })
         end

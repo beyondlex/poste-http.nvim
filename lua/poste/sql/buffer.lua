@@ -973,6 +973,11 @@ M._test = {
     active_tab_idx = idx
     return old
   end,
+
+  clear_tabs = function()
+    tabs = {}
+    active_tab_idx = 0
+  end,
 }
 
 return M

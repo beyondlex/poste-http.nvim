@@ -2,8 +2,6 @@
 -- @database blog
 
 SELECT * from web_vitals;
-
-
 select * from posts;
 SELECT * FROM categories;
 

@@ -173,7 +173,6 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
                     error: Some(format!("{:#}", e)),
                     ..Default::default()
                 });
-                break;
             }
         }
     }
@@ -317,26 +316,31 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
     use sqlx::mysql::{MySqlPoolOptions, MySqlRow};
     use sqlx::{Column, Row, TypeInfo};
 
-    // Check for USE statements and modify connection URL accordingly
-    // (MySQL's USE doesn't work with prepared statement protocol)
-    let mut connection_url = parsed.connection.clone();
-    for stmt in &parsed.statements {
-        if let Some(db_name) = sql_parser::detect_use_statement(stmt) {
-            connection_url = replace_database_in_url(&connection_url, &db_name);
-            break;
-        }
-    }
-
-    let pool = MySqlPoolOptions::new()
+    let mut current_url = parsed.connection.clone();
+    let mut pool = MySqlPoolOptions::new()
         .max_connections(2)
-        .connect(&connection_url)
+        .connect(&current_url)
         .await?;
 
     let mut results = Vec::new();
     let total_start = Instant::now();
 
     for stmt in &parsed.statements {
-        if sql_parser::detect_use_statement(stmt).is_some() {
+        if let Some(db_name) = sql_parser::detect_use_statement(stmt) {
+            let stmt_start = Instant::now();
+            pool.close().await;
+            current_url = replace_database_in_url(&current_url, &db_name);
+            pool = MySqlPoolOptions::new()
+                .max_connections(2)
+                .connect(&current_url)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to connect to database '{}': {}", db_name, e))?;
+            let elapsed = stmt_start.elapsed().as_millis() as u64;
+            results.push(StatementResult {
+                affected_rows: Some(0),
+                execution_time_ms: elapsed,
+                ..Default::default()
+            });
             continue;
         }
 
@@ -410,7 +414,6 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
                     error: Some(format!("{:#}", e)),
                     ..Default::default()
                 });
-                break;
             }
         }
     }
@@ -419,8 +422,6 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
     let total_ms = total_start.elapsed().as_millis() as u64;
     build_response(&Protocol::Mysql, &parsed.connection, &parsed.database, results, total_ms)
 }
-
-/// Convert a MySQL row column value to serde_json::Value.
 fn mysql_value_to_json(row: &sqlx::mysql::MySqlRow, idx: usize) -> Value {
     use sqlx::{Column, Row, TypeInfo, ValueRef};
 
@@ -622,7 +623,6 @@ async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> Result<Response>
                     error: Some(format!("{:#}", e)),
                     ..Default::default()
                 });
-                break;
             }
         }
     }

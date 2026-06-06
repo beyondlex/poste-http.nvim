@@ -171,6 +171,11 @@ local function find_stmt_lines(buf_lines, start_line, end_line)
       goto continue
     end
 
+    -- Skip USE statements (handled silently by Rust executor via pool reconnect)
+    if trimmed:upper():match("^USE ") then
+      goto continue
+    end
+
     -- Comment line: skip unless we're inside a statement
     if trimmed:match("^%-%-") then
       goto continue

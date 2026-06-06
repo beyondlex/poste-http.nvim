@@ -15,10 +15,10 @@ local M = {}
 --- The last USE statement before the cursor wins (JetBrains behavior).
 --- @param buf number Buffer handle (default: current buffer)
 --- @return table context { connection = string|nil, database = string|nil }
-function M.resolve_context(buf)
+function M.resolve_context(buf, limit_line)
   buf = buf or vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local cursor_line = vim.fn.line(".")
+  local cursor_line = limit_line or vim.fn.line(".")
 
   -- Phase 1: Scan file header (before first ###) for global defaults
   local connection = nil

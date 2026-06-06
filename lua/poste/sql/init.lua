@@ -400,7 +400,13 @@ function M.run_sql_request()
   )
 
   local sql_context = require("poste.sql.context")
-  local ctx = sql_context.resolve_context(src_buf)
+  local ctx
+  if is_visual then
+    local sel_start = math.min(_vis_start, _vis_end)
+    ctx = sql_context.resolve_context(src_buf, math.max(1, sel_start - 1))
+  else
+    ctx = sql_context.resolve_context(src_buf)
+  end
   local db = ctx.database or state.sql.context.database
   if db and db ~= vim.NIL and db ~= "" then
     cmd = cmd .. " --database " .. vim.fn.shellescape(db)

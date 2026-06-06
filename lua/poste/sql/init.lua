@@ -306,6 +306,7 @@ local function ensure_sql_keymaps(buf)
     M.run_sql_request()
   end, keymap_opts)
 end
+M.ensure_sql_keymaps = ensure_sql_keymaps
 
 --------------------------------------------------------------------------------
 -- Main entry point

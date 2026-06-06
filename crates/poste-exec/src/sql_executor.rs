@@ -335,12 +335,6 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
                 .connect(&current_url)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to connect to database '{}': {}", db_name, e))?;
-            let elapsed = stmt_start.elapsed().as_millis() as u64;
-            results.push(StatementResult {
-                affected_rows: Some(0),
-                execution_time_ms: elapsed,
-                ..Default::default()
-            });
             continue;
         }
 

@@ -297,6 +297,7 @@ function M.run_sql_request()
 
   -- Set indicator on first statement line
   local first_line = stmt_lines[1] or (is_visual and math.min(_vis_start, _vis_end) or 1)
+  first_line = math.max(1, math.min(first_line, #buf_lines))
   indicators.set_indicator(src_buf, first_line - 1, "running")
 
   local cmd = string.format("%s run %s --line %d --env %s --json --stdin",

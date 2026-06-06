@@ -189,15 +189,6 @@ function M.apply_dataset_highlights(buf, lines, meta)
     end
   end
 
-  -- Meta footer line
-  if meta.meta_line then
-    local mline = lines[meta.meta_line] or ""
-    vim.api.nvim_buf_set_extmark(buf, ns, meta.meta_line - 1, 0, {
-      end_row = meta.meta_line - 1,
-      end_col = #mline,
-      hl_group = "PosteSqlMeta",
-    })
-  end
 end
 
 -- NOTE: Cell text color is now handled via syntax highlighting in

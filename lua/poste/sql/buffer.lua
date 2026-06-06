@@ -313,38 +313,35 @@ end
 -- Static winbar (status info, no alignment needed)
 ----------------------------------------------------------------------------
 
+local function format_conn_short(conn)
+  if not conn or conn == "" then return nil end
+  local host, port, db = conn:match("^%w+://[^@]*@([^:]+):(%d+)/([^?]+)")
+  if host then return string.format("%s:%s/%s", host, port, db) end
+  return conn:match("/([^/]+)$") or conn
+end
+
 local function build_status_winbar(meta)
   if not meta or meta.type ~= "resultset" then return nil end
 
-  local parts = {}
-
-  -- Row count
   local rows = meta.total_rows or meta.row_count or 0
-  parts[#parts + 1] = string.format("%d row%s", rows, rows == 1 and "" or "s")
+  local ms = meta.total_execution_time_ms or 0
 
-  -- Connection info
-  local conn = meta.connection or ""
-  if conn ~= "" then
-    local short = conn:match("^%w+://[^@]*@([^:]+):(%d+)/([^?]+)")
-    if short then
-      parts[#parts + 1] = string.format("%s:%s/%s", short, conn:match("^%w+://[^@]*@[^:]+:(%d+)/([^?]+)"))
-    else
-      parts[#parts + 1] = conn:match("/([^/]+)$") or conn
-    end
-  end
-
-  local text = table.concat(parts, " · ")
-  text = "  " .. text
+  -- Left: row count + timing
+  local left = string.format("  %d row%s · %dms", rows, rows == 1 and "" or "s", ms)
 
   -- Sort state
   if sort_state then
     local col_name = meta.columns and meta.columns[sort_state.col] and meta.columns[sort_state.col].name
     if col_name then
       local arrow = sort_state.ascending and " ↑" or " ↓"
-      text = text .. "    │    " .. col_name .. arrow
+      left = left .. "    │    " .. col_name .. arrow
     end
   end
 
+  -- Right: connection info (right-aligned via %=)
+  local right = format_conn_short(meta.connection) or ""
+
+  local text = left .. "%=" .. right
   return "%#PosteSqlMeta#" .. text
 end
 
@@ -664,9 +661,6 @@ function M.render_dataset(lines, meta)
       meta.header_line = nil
       meta.data_start_line = meta.data_start_line - removed_lines
       meta.data_end_line = meta.data_end_line - removed_lines
-      if meta.meta_line then
-        meta.meta_line = meta.meta_line - removed_lines
-      end
     end
   end
 
@@ -683,9 +677,6 @@ function M.render_dataset(lines, meta)
     table.insert(padded, 1, "")
     meta.data_start_line = meta.data_start_line + 1
     meta.data_end_line = meta.data_end_line + 1
-    if meta.meta_line then
-      meta.meta_line = meta.meta_line + 1
-    end
   end
 
   vim.api.nvim_set_option_value("modifiable", true, { buf = buf })

@@ -365,11 +365,7 @@ function M.format_resultset(data)
   line_num = line_num + 1
   lines[line_num] = border_line(col_widths, "└", "┴", "┘", "─")
 
-  -- Blank line before meta
-  line_num = line_num + 1
-  lines[line_num] = ""
-
-  -- Meta footer
+  -- Metadata passed to buffer for winbar display
   local total_ms = data.total_execution_time_ms or 0
   local conn = data.connection or ""
   if conn == vim.NIL then conn = "" end
@@ -377,23 +373,6 @@ function M.format_resultset(data)
   if db == vim.NIL then db = nil end
   local dialect = data.dialect or ""
   if dialect == vim.NIL then dialect = "" end
-
-  line_num = line_num + 1
-  -- Extract short connection format (host:port/database) from full URL
-  local conn_short = parse_connection_short(conn)
-
-  -- Try to get table name from response metadata, fallback to database or dialect
-  local table_name = data.table or db or dialect or "query"
-  if table_name == vim.NIL then table_name = "query" end
-
-  local meta_line = string.format("%d row%s returned · %dms · %s (%s)",
-    total_rows,
-    total_rows == 1 and "" or "s",
-    total_ms,
-    conn_short,
-    table_name
-  )
-  lines[line_num] = meta_line
 
   local meta = {
     type = "resultset",
@@ -403,10 +382,10 @@ function M.format_resultset(data)
     header_line = header_line,
     data_start_line = data_start,
     data_end_line = data_end,
-    meta_line = line_num,
     row_count = #rows,
     col_count = #columns,
     total_rows = total_rows,
+    total_execution_time_ms = total_ms,
     connection = conn,
     database = db,
     dialect = dialect,

@@ -428,9 +428,9 @@ function M.run_sql_request()
               local single_data = {
                 type = "resultset",
                 results = { result },
-                total_rows = result.row_count or 0,
-                total_affected = result.affected_rows or 0,
-                total_execution_time_ms = result.execution_time_ms or 0,
+                total_rows = tonumber(result.row_count) or 0,
+                total_affected = tonumber(result.affected_rows) or 0,
+                total_execution_time_ms = tonumber(result.execution_time_ms) or 0,
                 connection = data.connection,
                 database = data.database,
                 dialect = data.dialect,

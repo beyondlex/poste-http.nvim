@@ -166,7 +166,7 @@ local function build_status_winbar(meta)
     local col_name = meta.columns and meta.columns[tab.sort.col] and meta.columns[tab.sort.col].name
     if col_name then
       local arrow = tab.sort.ascending and " ↑" or " ↓"
-      left = left .. "    │    " .. col_name .. arrow
+      left = left .. "   " .. col_name .. arrow
     end
   end
 

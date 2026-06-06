@@ -259,8 +259,8 @@ function M.format_dataset(r)
     local lines = { "" }
     local results = data.results or {}
     for i, res in ipairs(results) do
-      local affected = res.affected_rows or 0
-      local ms = res.execution_time_ms or 0
+      local affected = tonumber(res.affected_rows) or 0
+      local ms = tonumber(res.execution_time_ms) or 0
       local msg
       if #results > 1 then
         msg = string.format("  Statement %d: %s · %dms", i,
@@ -312,7 +312,7 @@ function M.format_resultset(data)
   end
 
   -- Row number column width (based on total row count for consistent width)
-  local total_rows = data.total_rows or #rows
+  local total_rows = tonumber(data.total_rows) or #rows
   local row_num_width = math.max(1, math.floor(math.log10(math.max(1, total_rows))) + 1)
 
   -- Calculate column widths (cap at 200 total width for readability)

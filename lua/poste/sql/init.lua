@@ -477,21 +477,13 @@ function M.run_sql_request()
             end
           else
             -- Single result (existing behavior)
-            local is_use = false
-            local ok_use, use_body = pcall(vim.json.decode, parsed.body)
-            if ok_use and type(use_body) == "table" and use_body.type == "use" then
-              is_use = true
-              sql_buffer.close()
-            end
-            if not is_use then
-              local lines, meta = sql_format.format_dataset(parsed)
-              sql_buffer.render_dataset(lines, meta)
-            end
+            local lines, meta = sql_format.format_dataset(parsed)
+            sql_buffer.render_dataset(lines, meta)
 
             local has_err = results[1] and results[1].error
             if has_err then
               indicators.set_indicator(src_buf, first_line - 1, "error")
-            elseif not is_use then
+            else
               indicators.set_indicator(src_buf, first_line - 1, "success", parsed.latency_ms)
             end
           end

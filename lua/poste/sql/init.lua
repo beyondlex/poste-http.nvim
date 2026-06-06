@@ -420,27 +420,29 @@ function M.run_sql_request()
               if result.error then
                 local err_line = stmt_lines[i] or first_line
                 indicators.set_indicator(src_buf, err_line - 1, "error")
-                break
+                local err_text = type(result.error) == "string" and result.error or vim.inspect(result.error)
+                local lines = sql_format.format_error(err_text, data.connection or "")
+                sql_buffer.render_dataset(lines, { type = "error" }, { tab_index = i })
+              else
+                local sql_text = get_stmt_sql(buf_lines, stmt_lines, i, visual_sel_end)
+                local table_name = extract_table_name(sql_text)
+                local single_data = {
+                  type = "resultset",
+                  results = { result },
+                  total_rows = tonumber(result.row_count) or 0,
+                  total_affected = tonumber(result.affected_rows) or 0,
+                  total_execution_time_ms = tonumber(result.execution_time_ms) or 0,
+                  connection = data.connection,
+                  database = data.database,
+                  dialect = data.dialect,
+                  table_name = table_name,
+                }
+                local lines, meta = sql_format.format_resultset(single_data)
+                sql_buffer.render_dataset(lines, meta, { tab_index = i })
+
+                local line_nr = stmt_lines[i] or first_line
+                indicators.set_indicator(src_buf, line_nr - 1, "success", result.execution_time_ms)
               end
-
-              local sql_text = get_stmt_sql(buf_lines, stmt_lines, i, visual_sel_end)
-              local table_name = extract_table_name(sql_text)
-              local single_data = {
-                type = "resultset",
-                results = { result },
-                total_rows = tonumber(result.row_count) or 0,
-                total_affected = tonumber(result.affected_rows) or 0,
-                total_execution_time_ms = tonumber(result.execution_time_ms) or 0,
-                connection = data.connection,
-                database = data.database,
-                dialect = data.dialect,
-                table_name = table_name,
-              }
-              local lines, meta = sql_format.format_resultset(single_data)
-              sql_buffer.render_dataset(lines, meta, { tab_index = i })
-
-              local line_nr = stmt_lines[i] or first_line
-              indicators.set_indicator(src_buf, line_nr - 1, "success", result.execution_time_ms)
             end
           else
             -- Single result (existing behavior)

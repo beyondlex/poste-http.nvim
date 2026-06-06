@@ -1,14 +1,19 @@
 -- @connection my-blog
 -- @database blog
 
-update posts SET title = CONCAT(title, '.') WHERE id = 1;
+SELECT * from web_vitals;
+
 
 select * from posts;
+SELECT * FROM categories;
+
+update posts SET title = CONCAT(title, '.') WHERE id = 1;
+
+###
 
 SELECT s.*, p.title FROM authors s LEFT JOIN posts p on p.author_id = s.id;
 
 ###
-SELECT * FROM categories;
 
 ###
 SELECT s.*, p.title FROM authors s LEFT JOIN posts p on p.author_id = s.id;

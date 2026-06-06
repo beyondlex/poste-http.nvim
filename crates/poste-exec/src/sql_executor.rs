@@ -72,13 +72,14 @@ fn make_response(protocol: &Protocol, connection: &str, body: String, status_tex
 }
 
 /// Result of executing a single SQL statement.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct StatementResult {
     columns: Vec<Value>,
     rows: Vec<Vec<Value>>,
     row_count: usize,
     affected_rows: Option<u64>,
     execution_time_ms: u64,
+    error: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -98,71 +99,82 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
     let total_start = Instant::now();
 
     for stmt in &parsed.statements {
-        // Skip USE statements in multi-statement blocks
         if sql_parser::detect_use_statement(stmt).is_some() {
             continue;
         }
 
-        let stmt_start = Instant::now();
-        let upper = stmt.trim().to_uppercase();
+        let stmt_result: anyhow::Result<StatementResult> = async {
+            let stmt_start = Instant::now();
+            let upper = stmt.trim().to_uppercase();
 
-        if upper.starts_with("SELECT")
-            || upper.starts_with("WITH")
-            || upper.starts_with("EXPLAIN")
-            || upper.starts_with("SHOW")
-            || upper.starts_with("TABLE ")
-            || upper.contains("RETURNING")
-        {
-            // Query that returns rows
-            let rows: Vec<PgRow> = sqlx::query(stmt).fetch_all(&pool).await?;
-            let elapsed = stmt_start.elapsed().as_millis() as u64;
+            if upper.starts_with("SELECT")
+                || upper.starts_with("WITH")
+                || upper.starts_with("EXPLAIN")
+                || upper.starts_with("SHOW")
+                || upper.starts_with("TABLE ")
+                || upper.contains("RETURNING")
+            {
+                let rows: Vec<PgRow> = sqlx::query(stmt).fetch_all(&pool).await?;
+                let elapsed = stmt_start.elapsed().as_millis() as u64;
 
-            // Extract column metadata from first row (or empty if no rows)
-            let columns: Vec<Value> = if let Some(first_row) = rows.first() {
-                first_row
-                    .columns()
-                    .iter()
-                    .map(|col| {
-                        json!({
-                            "name": col.name(),
-                            "type": col.type_info().name(),
-                            "nullable": col.type_info().name() != "BOOL", // simplified
+                let columns: Vec<Value> = if let Some(first_row) = rows.first() {
+                    first_row
+                        .columns()
+                        .iter()
+                        .map(|col| {
+                            json!({
+                                "name": col.name(),
+                                "type": col.type_info().name(),
+                                "nullable": col.type_info().name() != "BOOL",
+                            })
                         })
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-
-            let json_rows: Vec<Vec<Value>> = rows
-                .iter()
-                .map(|row| {
-                    (0..row.len())
-                        .map(|i| pg_value_to_json(row, i))
                         .collect()
+                } else {
+                    Vec::new()
+                };
+
+                let json_rows: Vec<Vec<Value>> = rows
+                    .iter()
+                    .map(|row| {
+                        (0..row.len())
+                            .map(|i| pg_value_to_json(row, i))
+                            .collect()
+                    })
+                    .collect();
+                let row_count = json_rows.len();
+
+                Ok(StatementResult {
+                    columns,
+                    rows: json_rows,
+                    row_count,
+                    affected_rows: None,
+                    execution_time_ms: elapsed,
+                    error: None,
                 })
-                .collect();
+            } else {
+                let result = sqlx::query(stmt).execute(&pool).await?;
+                let elapsed = stmt_start.elapsed().as_millis() as u64;
 
-            let row_count = json_rows.len();
-            results.push(StatementResult {
-                columns,
-                rows: json_rows,
-                row_count,
-                affected_rows: None,
-                execution_time_ms: elapsed,
-            });
-        } else {
-            // DML/DDL that affects rows
-            let result = sqlx::query(stmt).execute(&pool).await?;
-            let elapsed = stmt_start.elapsed().as_millis() as u64;
+                Ok(StatementResult {
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    row_count: 0,
+                    affected_rows: Some(result.rows_affected()),
+                    execution_time_ms: elapsed,
+                    error: None,
+                })
+            }
+        }.await;
 
-            results.push(StatementResult {
-                columns: Vec::new(),
-                rows: Vec::new(),
-                row_count: 0,
-                affected_rows: Some(result.rows_affected()),
-                execution_time_ms: elapsed,
-            });
+        match stmt_result {
+            Ok(sr) => results.push(sr),
+            Err(e) => {
+                results.push(StatementResult {
+                    error: Some(format!("{:#}", e)),
+                    ..Default::default()
+                });
+                break;
+            }
         }
     }
 
@@ -170,6 +182,10 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
     let total_ms = total_start.elapsed().as_millis() as u64;
     build_response(&Protocol::Postgres, &parsed.connection, &parsed.database, results, total_ms)
 }
+
+// ---------------------------------------------------------------------------
+// PostgreSQL value conversion
+// ---------------------------------------------------------------------------
 
 /// Convert a PostgreSQL row column value to serde_json::Value.
 fn pg_value_to_json(row: &sqlx::postgres::PgRow, idx: usize) -> Value {
@@ -320,68 +336,82 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
     let total_start = Instant::now();
 
     for stmt in &parsed.statements {
-        // Skip USE statements (already handled by modifying connection URL)
         if sql_parser::detect_use_statement(stmt).is_some() {
             continue;
         }
 
-        let stmt_start = Instant::now();
-        let upper = stmt.trim().to_uppercase();
+        let stmt_result: anyhow::Result<StatementResult> = async {
+            let stmt_start = Instant::now();
+            let upper = stmt.trim().to_uppercase();
 
-        if upper.starts_with("SELECT")
-            || upper.starts_with("WITH")
-            || upper.starts_with("EXPLAIN")
-            || upper.starts_with("SHOW")
-            || upper.starts_with("DESCRIBE")
-            || upper.starts_with("DESC ")
-            || upper.contains("RETURNING")
-        {
-            let rows: Vec<MySqlRow> = sqlx::query(stmt).fetch_all(&pool).await?;
-            let elapsed = stmt_start.elapsed().as_millis() as u64;
+            if upper.starts_with("SELECT")
+                || upper.starts_with("WITH")
+                || upper.starts_with("EXPLAIN")
+                || upper.starts_with("SHOW")
+                || upper.starts_with("DESCRIBE")
+                || upper.starts_with("DESC ")
+                || upper.contains("RETURNING")
+            {
+                let rows: Vec<MySqlRow> = sqlx::query(stmt).fetch_all(&pool).await?;
+                let elapsed = stmt_start.elapsed().as_millis() as u64;
 
-            let columns: Vec<Value> = if let Some(first_row) = rows.first() {
-                first_row
-                    .columns()
-                    .iter()
-                    .map(|col| {
-                        json!({
-                            "name": col.name(),
-                            "type": col.type_info().name(),
+                let columns: Vec<Value> = if let Some(first_row) = rows.first() {
+                    first_row
+                        .columns()
+                        .iter()
+                        .map(|col| {
+                            json!({
+                                "name": col.name(),
+                                "type": col.type_info().name(),
+                            })
                         })
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-
-            let json_rows: Vec<Vec<Value>> = rows
-                .iter()
-                .map(|row| {
-                    (0..row.len())
-                        .map(|i| mysql_value_to_json(row, i))
                         .collect()
+                } else {
+                    Vec::new()
+                };
+
+                let json_rows: Vec<Vec<Value>> = rows
+                    .iter()
+                    .map(|row| {
+                        (0..row.len())
+                            .map(|i| mysql_value_to_json(row, i))
+                            .collect()
+                    })
+                    .collect();
+                let row_count = json_rows.len();
+
+                Ok(StatementResult {
+                    columns,
+                    rows: json_rows,
+                    row_count,
+                    affected_rows: None,
+                    execution_time_ms: elapsed,
+                    error: None,
                 })
-                .collect();
+            } else {
+                let result = sqlx::query(stmt).execute(&pool).await?;
+                let elapsed = stmt_start.elapsed().as_millis() as u64;
 
-            let row_count = json_rows.len();
-            results.push(StatementResult {
-                columns,
-                rows: json_rows,
-                row_count,
-                affected_rows: None,
-                execution_time_ms: elapsed,
-            });
-        } else {
-            let result = sqlx::query(stmt).execute(&pool).await?;
-            let elapsed = stmt_start.elapsed().as_millis() as u64;
+                Ok(StatementResult {
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    row_count: 0,
+                    affected_rows: Some(result.rows_affected()),
+                    execution_time_ms: elapsed,
+                    error: None,
+                })
+            }
+        }.await;
 
-            results.push(StatementResult {
-                columns: Vec::new(),
-                rows: Vec::new(),
-                row_count: 0,
-                affected_rows: Some(result.rows_affected()),
-                execution_time_ms: elapsed,
-            });
+        match stmt_result {
+            Ok(sr) => results.push(sr),
+            Err(e) => {
+                results.push(StatementResult {
+                    error: Some(format!("{:#}", e)),
+                    ..Default::default()
+                });
+                break;
+            }
         }
     }
 
@@ -523,63 +553,77 @@ async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> Result<Response>
             continue;
         }
 
-        let stmt_start = Instant::now();
-        let upper = stmt.trim().to_uppercase();
+        let stmt_result: anyhow::Result<StatementResult> = async {
+            let stmt_start = Instant::now();
+            let upper = stmt.trim().to_uppercase();
 
-        // SQLite: most statements return results (SELECT, PRAGMA, EXPLAIN)
-        if upper.starts_with("SELECT")
-            || upper.starts_with("WITH")
-            || upper.starts_with("EXPLAIN")
-            || upper.starts_with("PRAGMA")
-            || upper.starts_with("VALUES")
-            || upper.contains("RETURNING")
-        {
-            let rows: Vec<SqliteRow> = sqlx::query(stmt).fetch_all(&pool).await?;
-            let elapsed = stmt_start.elapsed().as_millis() as u64;
+            if upper.starts_with("SELECT")
+                || upper.starts_with("WITH")
+                || upper.starts_with("EXPLAIN")
+                || upper.starts_with("PRAGMA")
+                || upper.starts_with("VALUES")
+                || upper.contains("RETURNING")
+            {
+                let rows: Vec<SqliteRow> = sqlx::query(stmt).fetch_all(&pool).await?;
+                let elapsed = stmt_start.elapsed().as_millis() as u64;
 
-            let columns: Vec<Value> = if let Some(first_row) = rows.first() {
-                first_row
-                    .columns()
-                    .iter()
-                    .map(|col| {
-                        json!({
-                            "name": col.name(),
-                            "type": col.type_info().name(),
+                let columns: Vec<Value> = if let Some(first_row) = rows.first() {
+                    first_row
+                        .columns()
+                        .iter()
+                        .map(|col| {
+                            json!({
+                                "name": col.name(),
+                                "type": col.type_info().name(),
+                            })
                         })
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-
-            let json_rows: Vec<Vec<Value>> = rows
-                .iter()
-                .map(|row| {
-                    (0..row.len())
-                        .map(|i| sqlite_value_to_json(row, i))
                         .collect()
+                } else {
+                    Vec::new()
+                };
+
+                let json_rows: Vec<Vec<Value>> = rows
+                    .iter()
+                    .map(|row| {
+                        (0..row.len())
+                            .map(|i| sqlite_value_to_json(row, i))
+                            .collect()
+                    })
+                    .collect();
+                let row_count = json_rows.len();
+
+                Ok(StatementResult {
+                    columns,
+                    rows: json_rows,
+                    row_count,
+                    affected_rows: None,
+                    execution_time_ms: elapsed,
+                    error: None,
                 })
-                .collect();
+            } else {
+                let result = sqlx::query(stmt).execute(&pool).await?;
+                let elapsed = stmt_start.elapsed().as_millis() as u64;
 
-            let row_count = json_rows.len();
-            results.push(StatementResult {
-                columns,
-                rows: json_rows,
-                row_count,
-                affected_rows: None,
-                execution_time_ms: elapsed,
-            });
-        } else {
-            let result = sqlx::query(stmt).execute(&pool).await?;
-            let elapsed = stmt_start.elapsed().as_millis() as u64;
+                Ok(StatementResult {
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    row_count: 0,
+                    affected_rows: Some(result.rows_affected()),
+                    execution_time_ms: elapsed,
+                    error: None,
+                })
+            }
+        }.await;
 
-            results.push(StatementResult {
-                columns: Vec::new(),
-                rows: Vec::new(),
-                row_count: 0,
-                affected_rows: Some(result.rows_affected()),
-                execution_time_ms: elapsed,
-            });
+        match stmt_result {
+            Ok(sr) => results.push(sr),
+            Err(e) => {
+                results.push(StatementResult {
+                    error: Some(format!("{:#}", e)),
+                    ..Default::default()
+                });
+                break;
+            }
         }
     }
 
@@ -670,6 +714,7 @@ fn build_response(
     results: Vec<StatementResult>,
     total_ms: u64,
 ) -> Result<Response> {
+    let has_error = results.iter().any(|r| r.error.is_some());
     let has_rows = results.iter().any(|r| r.row_count > 0);
     let total_rows: usize = results.iter().map(|r| r.row_count).sum();
     let total_affected: u64 = results.iter().filter_map(|r| r.affected_rows).sum();
@@ -683,17 +728,21 @@ fn build_response(
     let json_results: Vec<Value> = results
         .iter()
         .map(|r| {
-            json!({
+            let mut obj = json!({
                 "columns": r.columns,
                 "rows": r.rows,
                 "row_count": r.row_count,
                 "affected_rows": r.affected_rows,
                 "execution_time_ms": r.execution_time_ms,
-            })
+            });
+            if let Some(ref err) = r.error {
+                obj["error"] = json!(err);
+            }
+            obj
         })
         .collect();
 
-    let body = serde_json::to_string(&json!({
+    let mut body_obj = json!({
         "type": response_type,
         "results": json_results,
         "total_results": json_results.len(),
@@ -703,7 +752,12 @@ fn build_response(
         "connection": connection,
         "database": database.clone().unwrap_or_default(),
         "dialect": dialect,
-    }))?;
+    });
+    if has_error {
+        body_obj["has_error"] = json!(true);
+    }
+
+    let body = serde_json::to_string(&body_obj)?;
 
     let status_text = if has_rows {
         format!("{} row{} returned in {}ms", total_rows, if total_rows == 1 { "" } else { "s" }, total_ms)

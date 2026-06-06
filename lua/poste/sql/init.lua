@@ -235,8 +235,8 @@ local function ensure_sql_keymaps(buf)
 
   -- Visual mode: execute selected statements
   vim.keymap.set("x", "<CR>", function()
-    _vis_start = vim.fn.line("'<")
-    _vis_end = vim.fn.line("'>")
+    _vis_start = vim.fn.line("v")
+    _vis_end = vim.fn.line(".")
     _vis_active = true
     vim.cmd("normal! \\<Esc>")
     M.run_sql_request()
@@ -278,17 +278,20 @@ function M.run_sql_request()
     local directive_count
     buf_content, stmt_lines, directive_count = extract_visual_block(buf_lines, sel_start, sel_end)
 
-    -- Skip leading blank/comment lines in selection to find first content line
-    local skip_offset = 0
-    for i = sel_start, sel_end do
-      local line = buf_lines[i] or ""
-      local trimmed = line:match("^%s*(.*)$")
-      if trimmed ~= "" and not trimmed:match("^%-%-") then
+    -- Find adjusted_line: first non-blank/non-comment line after ### in buf_content
+    local content_lines = vim.split(buf_content, "\n")
+    adjusted_line = 0
+    for j, ln in ipairs(content_lines) do
+      local trimmed = ln:match("^%s*(.*)$")
+      if trimmed ~= "" and not trimmed:match("^%-%-") and not trimmed:match("^###") then
+        adjusted_line = j
         break
       end
-      skip_offset = skip_offset + 1
     end
-    adjusted_line = directive_count + 2 + skip_offset
+    if adjusted_line == 0 then
+      adjusted_line = directive_count + 2
+    end
+    adjusted_line = math.max(1, adjusted_line)
   else
     local line = vim.fn.line(".")
     buf_content, adjusted_line, stmt_start = extract_stmt_at_cursor(buf_lines, line)
@@ -296,7 +299,11 @@ function M.run_sql_request()
   end
 
   -- Set indicator on first statement line
-  local first_line = stmt_lines[1] or (is_visual and math.min(_vis_start, _vis_end) or 1)
+  local first_line = stmt_lines[1]
+  if not first_line then
+    first_line = (is_visual and math.max(_vis_start or 0, _vis_end or 0) > 0)
+      and math.min(_vis_start, _vis_end) or 1
+  end
   first_line = math.max(1, math.min(first_line, #buf_lines))
   indicators.set_indicator(src_buf, first_line - 1, "running")
 

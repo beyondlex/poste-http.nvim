@@ -7,3 +7,4 @@
 .env.json
 ignore/
 graphify-out/
+.idea/

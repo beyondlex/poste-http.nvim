@@ -783,7 +783,7 @@ function M.setup(opts)
 
   local function setup_buffer_keymaps(buf)
     local keymap_opts = { buffer = buf, noremap = true, silent = true }
-    vim.keymap.set("n", "<leader>rr", M.run_request, keymap_opts)
+    vim.keymap.set("n", "<CR>", M.run_request, keymap_opts)
     vim.keymap.set("n", "]]", M.jump_next, keymap_opts)
     vim.keymap.set("n", "[[", M.jump_prev, keymap_opts)
     vim.keymap.set("n", "gd", M.goto_definition, keymap_opts)

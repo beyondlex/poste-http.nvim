@@ -221,17 +221,26 @@ local function extract_visual_block(buf_lines, start_line, end_line)
   return table.concat(parts, "\n"), stmt_lines, #directives
 end
 
---- Install visual-mode keymap for this buffer (one-time setup).
-local function ensure_visual_keymap(buf)
-  if vim.b[buf].poste_sql_vis_map then return end
-  vim.b[buf].poste_sql_vis_map = true
-  vim.keymap.set("x", "<leader>rr", function()
+--- Install keymaps for this SQL buffer (one-time setup).
+local function ensure_sql_keymaps(buf)
+  if vim.b[buf].poste_sql_keymaps_installed then return end
+  vim.b[buf].poste_sql_keymaps_installed = true
+
+  local keymap_opts = { buffer = buf, noremap = true, silent = true }
+
+  -- Normal mode: execute statement at cursor
+  vim.keymap.set("n", "<CR>", function()
+    M.run_sql_request()
+  end, keymap_opts)
+
+  -- Visual mode: execute selected statements
+  vim.keymap.set("x", "<CR>", function()
     _vis_start = vim.fn.line("'<")
     _vis_end = vim.fn.line("'>")
     _vis_active = true
     vim.cmd("normal! \\<Esc>")
     M.run_sql_request()
-  end, { buffer = buf, noremap = true, silent = true })
+  end, keymap_opts)
 end
 
 --------------------------------------------------------------------------------
@@ -246,7 +255,7 @@ function M.run_sql_request()
   end
 
   local src_buf = vim.api.nvim_get_current_buf()
-  ensure_visual_keymap(src_buf)
+  ensure_sql_keymaps(src_buf)
 
   local buf_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
   local file = vim.api.nvim_buf_get_name(src_buf)

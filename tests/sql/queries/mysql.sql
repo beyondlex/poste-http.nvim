@@ -2,7 +2,9 @@
 -- @database blog
 
 
+select * from posts;
 SELECT * FROM categories;
+
 use inventory;
 select * from warehouses;
 

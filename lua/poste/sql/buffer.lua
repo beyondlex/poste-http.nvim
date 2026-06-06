@@ -934,6 +934,42 @@ M._test = {
     tab.header_index = header and build_header_index("  " .. header) or nil
   end,
   slice_header_to_win = slice_header_to_win,
+
+  --- Tab system test helpers
+  reset = function()
+    tabs = {}
+    active_tab_idx = 0
+  end,
+  tab_count = function() return #tabs end,
+  active_tab_idx = function() return active_tab_idx end,
+  create_tab = function(idx, overrides)
+    local tab = alloc_tab(idx)
+    if overrides then
+      for k, v in pairs(overrides) do tab[k] = v end
+    end
+    return tab
+  end,
+  get_tab = function(idx)
+    local t = tabs[idx]
+    if not t then return nil end
+    return {
+      meta = t.meta,
+      sort = t.sort,
+      original_rows = t.original_rows,
+      is_sorting = t.is_sorting,
+      data = t.data,
+      cursor = { row = t.cursor.row, col = t.cursor.col },
+      leftcol = t.leftcol,
+      header_text = t.header_text,
+      header_index = t.header_index,
+      has_padded = t.padded ~= nil,
+    }
+  end,
+  set_active = function(idx)
+    local old = active_tab_idx
+    active_tab_idx = idx
+    return old
+  end,
 }
 
 return M

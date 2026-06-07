@@ -314,11 +314,16 @@ function M.render_dataset(lines, meta, opts)
     require("poste.sql.buffer_nav").update_header_float()
   end
 
-  if D.scroll_autocmd_id then
-    pcall(vim.api.nvim_del_autocmd, D.scroll_autocmd_id)
-    D.scroll_autocmd_id = nil
+  if D.resize_autocmd_id then
+    pcall(vim.api.nvim_del_autocmd, D.resize_autocmd_id)
+    D.resize_autocmd_id = nil
   end
   if D.dataset_buffer then
+    D.resize_autocmd_id = vim.api.nvim_create_autocmd("WinResized", {
+      callback = function()
+        require("poste.sql.buffer_nav").update_header_float()
+      end,
+    })
     D.scroll_autocmd_id = vim.api.nvim_create_autocmd("WinScrolled", {
       buffer = D.dataset_buffer,
       callback = function()
@@ -370,6 +375,10 @@ function M.clear_panel(seq)
 end
 
 function M.close()
+  if D.resize_autocmd_id then
+    pcall(vim.api.nvim_del_autocmd, D.resize_autocmd_id)
+    D.resize_autocmd_id = nil
+  end
   if D.scroll_autocmd_id then
     pcall(vim.api.nvim_del_autocmd, D.scroll_autocmd_id)
     D.scroll_autocmd_id = nil

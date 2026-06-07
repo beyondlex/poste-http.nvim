@@ -15,6 +15,7 @@ M.active_tab_idx = 0
 M.float_buf = nil
 M.float_win = nil
 M.scroll_autocmd_id = nil
+M.resize_autocmd_id = nil
 M.search_ns = vim.api.nvim_create_namespace("poste_sql_search")
 
 function M.tab_count()

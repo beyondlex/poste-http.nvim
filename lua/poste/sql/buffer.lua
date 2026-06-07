@@ -57,6 +57,9 @@ local function alloc_tab(idx)
       data = nil,
       cursor = { row = 1, col = 1 },
       leftcol = 0,
+      padded_full = nil, meta_full = nil,
+      page = 1, page_size = 50, num_pages = 1,
+      pagination_enabled = true, visible_rows = nil,
     }
   end
   return tabs[idx]
@@ -83,12 +86,13 @@ local function get_dataset_buffer()
 
   vim.keymap.set("n", "q", function() M.close() end, opts)
   vim.keymap.set("n", "h", function() M.move_cell(0, -1) end, opts)
-  vim.keymap.set("n", "l", function() M.move_cell(0, 1) end, opts)
   vim.keymap.set("n", "j", function() M.move_cell(1, 0) end, opts)
   vim.keymap.set("n", "k", function() M.move_cell(-1, 0) end, opts)
+  vim.keymap.set("n", "l", function() M.move_cell(0, 1) end, opts)
+  vim.keymap.set("n", "H", function() M.prev_page() end, opts)
+  vim.keymap.set("n", "L", function() M.next_page() end, opts)
   vim.keymap.set("n", "0", function() M.goto_first_col() end, opts)
   vim.keymap.set("n", "$", function() M.goto_last_col() end, opts)
-  vim.keymap.set("n", "H", function() M.goto_header() end, opts)
   vim.keymap.set("n", "gg", function() M.goto_first_row() end, opts)
   vim.keymap.set("n", "G", function() M.goto_last_row() end, opts)
   vim.keymap.set("n", "K", function() M.preview_cell() end, opts)
@@ -103,6 +107,9 @@ local function get_dataset_buffer()
       require("poste.sql.init").run_sql_request()
     end)
   end, opts)
+  vim.keymap.set("n", "<leader>hh", function() M.goto_first_page() end, opts)
+  vim.keymap.set("n", "<leader>ll", function() M.goto_last_page() end, opts)
+  vim.keymap.set("n", "<leader>pa", function() M.toggle_pagination() end, opts)
 
   return dataset_buffer
 end
@@ -168,6 +175,16 @@ local function build_status_winbar(meta)
     if col_name then
       local arrow = tab.sort.ascending and " ↑" or " ↓"
       left = left .. "   " .. col_name .. arrow
+    end
+  end
+
+  -- Pagination info
+  if tab and tab.padded_full and tab.num_pages and tab.num_pages > 1 then
+    if tab.pagination_enabled then
+      left = left .. string.format("  %sPage %d/%d%s",
+        "%#PosteSqlMetaDim#", tab.page, tab.num_pages, "%#PosteSqlMeta#")
+    else
+      left = left .. "  %#PosteSqlMetaDim#All%#PosteSqlMeta#"
     end
   end
 
@@ -282,10 +299,6 @@ function M.goto_last_col()
   local line = M.position_cursor(state.sql.cell.row, last)
   sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, last, tab.meta, line)
   M.update_header_float()
-end
-
-function M.goto_header()
-  M.goto_first_row()
 end
 
 function M.goto_first_row()
@@ -863,6 +876,35 @@ function M.render_dataset(lines, meta, opts)
   tab.meta = meta
   tab.lines = lines
 
+  -- Save full padded for pagination slicing, then slice if enabled
+  tab.padded_full = vim.deepcopy(padded)
+  tab.meta_full = vim.deepcopy(meta)
+  if meta and meta.type == "resultset" and meta.row_count then
+    if tab.pagination_enabled and meta.row_count > tab.page_size then
+      local total_rows = meta.row_count
+      tab.num_pages = math.ceil(total_rows / tab.page_size)
+      tab.page = math.min(tab.page or 1, tab.num_pages)
+      local page_rows = math.min(tab.page_size, total_rows - (tab.page - 1) * tab.page_size)
+      tab.visible_rows = page_rows
+      local data_start = meta.data_start_line
+      local page_start_idx = data_start + (tab.page - 1) * tab.page_size + 1 - 1
+      local page_end_idx = page_start_idx + page_rows - 1
+      local sliced = {}
+      for i = 1, data_start - 1 do
+        sliced[#sliced + 1] = padded[i]
+      end
+      for i = page_start_idx, page_end_idx do
+        sliced[#sliced + 1] = padded[i]
+      end
+      padded = sliced
+      meta.row_count = page_rows
+      meta.data_end_line = data_start + page_rows - 1
+      tab.padded = padded
+    else
+      tab.visible_rows = meta.row_count
+    end
+  end
+
   vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded)
   vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
@@ -945,6 +987,109 @@ function M.toggle_cell_highlight()
     sql_highlights.clear_cell_highlight(dataset_buffer)
   end
   vim.notify(string.format("Cell highlight: %s", state.sql.highlight_cell and "ON" or "OFF"),
+    vim.log.levels.INFO, { title = "Poste SQL" })
+end
+
+--------------------------------------------------------------------------------
+-- Pagination
+--------------------------------------------------------------------------------
+
+function M.goto_header()
+  M.goto_first_row()
+end
+
+--- Refresh buffer content and winbar from current tab's padded_full and page state.
+local function refresh_page()
+  local tab = T()
+  if not tab or not tab.padded_full or not dataset_window then return end
+
+  local meta = tab.meta
+  local total_rows = tab.meta_full and tab.meta_full.row_count or meta.row_count or 0
+
+  if tab.pagination_enabled and total_rows > tab.page_size then
+    tab.num_pages = math.ceil(total_rows / tab.page_size)
+    tab.page = math.min(tab.page or 1, tab.num_pages)
+    local page_rows = math.min(tab.page_size, total_rows - (tab.page - 1) * tab.page_size)
+    tab.visible_rows = page_rows
+    local data_start = meta.data_start_line
+    local page_start_idx = data_start + (tab.page - 1) * tab.page_size + 1 - 1
+    local page_end_idx = page_start_idx + page_rows - 1
+    local sliced = {}
+    for i = 1, data_start - 1 do
+      sliced[#sliced + 1] = tab.padded_full[i]
+    end
+    for i = page_start_idx, page_end_idx do
+      sliced[#sliced + 1] = tab.padded_full[i]
+    end
+    tab.padded = sliced
+    meta.row_count = page_rows
+    meta.data_end_line = data_start + page_rows - 1
+
+    -- Clamp cursor to visible rows
+    if state.sql.cell.row > page_rows then
+      state.sql.cell.row = page_rows
+    end
+    if tab.cursor.row > page_rows then
+      tab.cursor.row = page_rows
+    end
+  else
+    tab.padded = tab.padded_full
+    local full = tab.meta_full
+    if full then
+      meta.row_count = full.row_count
+      meta.data_end_line = full.data_end_line
+    end
+    tab.visible_rows = meta.row_count
+  end
+
+  local buf = get_dataset_buffer()
+  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, tab.padded)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+
+  sql_highlights.apply_dataset_highlights(buf, tab.padded, meta)
+
+  local winbar_text = build_status_winbar(meta)
+  pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = dataset_window })
+end
+
+function M.prev_page()
+  local tab = T()
+  if not tab or not tab.padded_full or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  tab.page = tab.page - 1
+  if tab.page < 1 then tab.page = tab.num_pages end
+  refresh_page()
+end
+
+function M.next_page()
+  local tab = T()
+  if not tab or not tab.padded_full or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  tab.page = tab.page + 1
+  if tab.page > tab.num_pages then tab.page = 1 end
+  refresh_page()
+end
+
+function M.goto_first_page()
+  local tab = T()
+  if not tab or not tab.padded_full or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  tab.page = 1
+  refresh_page()
+end
+
+function M.goto_last_page()
+  local tab = T()
+  if not tab or not tab.padded_full or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  tab.page = tab.num_pages
+  refresh_page()
+end
+
+function M.toggle_pagination()
+  local tab = T()
+  if not tab then return end
+  tab.pagination_enabled = not tab.pagination_enabled
+  refresh_page()
+  local status = tab.pagination_enabled and ("Page " .. tab.page .. "/" .. tab.num_pages) or "All"
+  vim.notify(string.format("Pagination: %s", status),
     vim.log.levels.INFO, { title = "Poste SQL" })
 end
 

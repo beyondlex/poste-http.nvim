@@ -77,6 +77,11 @@ function M.setup()
     fg = dark and 0x7f848e or 0x6a737d,
     italic = true,
   })
+  -- Pagination info in winbar: dimmer version of Meta
+  vim.api.nvim_set_hl(0, "PosteSqlMetaDim", {
+    fg = dark and 0x4a4f5a or 0x8b8f96,
+    italic = true,
+  })
   -- NULL values
   vim.api.nvim_set_hl(0, "PosteSqlNull", {
     fg = dark and 0x5c6370 or 0x999999,

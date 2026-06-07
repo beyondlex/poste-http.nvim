@@ -921,12 +921,11 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str) -> Conte
                     return ContextType::Table;
                 }
                 if is_column_keyword(&kw) {
-                    // SELECT is special: when we've already consumed an
-                    // expression (`*`, a column name, etc.), the user is
-                    // done with the column list and needs FROM/JOIN/WHERE,
-                    // not more columns. Only suggest Column when the cursor
-                    // is right after `SELECT ` with no expression yet.
-                    if kw == "select" && !skip_one_ident {
+                    // If we've already consumed a column expression (the
+                    // user's typing prefix), the column has been specified.
+                    // Return Keyword — user needs AND/OR/IN/IS etc.
+                    // Applies to clause-heading keywords: SELECT, WHERE, HAVING.
+                    if !skip_one_ident && (kw == "select" || kw == "where" || kw == "having") {
                         return ContextType::Keyword;
                     }
                     return ContextType::Column;
@@ -1256,6 +1255,20 @@ mod tests {
     fn test_detect_and_column() {
         let result = detect_context("SELECT * FROM users WHERE id = 1 AND ", 37).unwrap();
         assert_eq!(result.context_type, ContextType::Column);
+    }
+
+    #[test]
+    fn test_detect_where_id_completed_keyword() {
+        // After WHERE <column> <space>, user needs AND/OR/IN/IS not more columns.
+        let result = detect_context("SELECT * FROM users WHERE id ", 32).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_having_col_completed_keyword() {
+        // After HAVING <column> <space>, user needs AND/OR/IN/IS not more columns.
+        let result = detect_context("SELECT id, COUNT(*) FROM users GROUP BY id HAVING cnt ", 56).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
     }
 
     #[test]

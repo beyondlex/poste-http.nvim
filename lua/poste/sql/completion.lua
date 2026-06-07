@@ -712,7 +712,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
         for _, c in ipairs(all) do
           if c:lower() ~= "id" then no_id[#no_id + 1] = c end
         end
-        if #no_id > 0 then
+        if #no_id > 0 and #no_id < #all then
           local no_id_csv = table.concat(no_id, ", ")
           result[#result + 1] = {
             label = no_id_csv, kind = 8,
@@ -777,13 +777,18 @@ function M:get_completions(ctx, callback)
   completion_gen = completion_gen + 1
   local my_gen = completion_gen
 
-  -- Use real-time cursor state (blink ctx snapshot may lag by one character
-  -- when triggered by a trigger character like space)
   local bufnr = vim.api.nvim_get_current_buf()
-  local cursor_line = vim.fn.line(".")
-  local cursor_col  = vim.fn.col(".")   -- 1-based byte offset of cursor
-  local line = vim.api.nvim_get_current_line()
-  local line_before = line:sub(1, cursor_col - 1)
+  local cursor_line, cursor_col, line
+  if ctx and ctx.cursor then
+    cursor_line = ctx.cursor[1]
+    cursor_col = ctx.cursor[2]
+    line = ctx.line or ""
+  else
+    cursor_line = vim.fn.line(".")
+    cursor_col = vim.fn.col(".")
+    line = vim.api.nvim_get_current_line()
+  end
+  local line_before = line:sub(1, cursor_col)
 
   -- Debug logging
   if vim.g.poste_sql_debug then

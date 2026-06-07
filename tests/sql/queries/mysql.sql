@@ -2,6 +2,13 @@
 -- @database blog
 
 
+INSERT INTO posts (id, author_id, category_id, title, slug, body, status, published_at, created_at)
+VALUES (1, 2, 3, '',  'body', 'xx')
+
+INSERT INTO posts (slug, body, author_id, created_at) VALUES 
+(di, s, sl, ss);
+
+SELECT * from web_vitals;
 select * from posts;
 SELECT * FROM categories;
 
@@ -19,7 +26,6 @@ select * from warehouses;
 
 show tables;
 
-SELECT * from web_vitals;
 select * from posts;
 
 

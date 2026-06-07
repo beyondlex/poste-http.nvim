@@ -210,6 +210,9 @@ describe("get_completions line_before", function()
     })
     vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
     vim.api.nvim_set_current_buf(buf)
+    local win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_buf(win, buf)
+    vim.api.nvim_win_set_cursor(win, { 1, #("SELECT * FROM authors WHERE ") })
   end)
 
   it("returns columns when cursor col equals line length (after space)", function()
@@ -419,5 +422,240 @@ describe("complete dedup (nvim-cmp path)", function()
         string.format("duplicate label in complete: %s", item.label))
       seen[item.label] = true
     end
+  end)
+end)
+
+-- ── 9. detect_context additions (INSERT INTO, connection, USE) ────────────────
+
+describe("detect_context INSERT INTO / connection / USE", function()
+  it("INSERT INTO tbl ( → insert_column context", function()
+    local ctx, extra = detect_context("INSERT INTO authors (")
+    assert.equals("insert_column", ctx)
+    assert.equals("authors", extra)
+  end)
+
+  it("INSERT INTO tbl (col, → insert_column context", function()
+    local ctx, extra = detect_context("INSERT INTO authors (id, name")
+    assert.equals("insert_column", ctx)
+    assert.equals("authors", extra)
+  end)
+
+  it("lowercase insert into → insert_column context", function()
+    local ctx, extra = detect_context("   insert into posts (title, body")
+    assert.equals("insert_column", ctx)
+    assert.equals("posts", extra)
+  end)
+
+  it("with closing paren → NOT insert_column", function()
+    local ctx = detect_context("INSERT INTO authors (id, name)")
+    assert.is_not_nil(ctx)
+    assert.is_not.equals("insert_column", ctx)
+  end)
+
+  it("@connection → connection context", function()
+    local ctx = detect_context("@connection my-blog")
+    assert.equals("connection", ctx)
+  end)
+
+  it("USE <space> → database context", function()
+    local ctx = detect_context("USE ")
+    assert.equals("database", ctx)
+  end)
+
+  it("USE mydb → database context with prefix", function()
+    local ctx = detect_context("USE mydb")
+    assert.equals("database", ctx)
+  end)
+end)
+
+-- ── 10. get_items insert_column (quick-insert + column completion) ───────────
+
+describe("get_items insert_column", function()
+  local function make_buf(lines)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
+    vim.api.nvim_set_current_buf(buf)
+    return buf
+  end
+
+  before_each(function()
+    local state = require("poste.state")
+    state.sql = state.sql or {}
+    state.sql.context = { connection = "test-conn", database = "blog" }
+    sql_comp.cache_tables({ { name = "authors" } })
+    sql_comp.cache_columns("authors", {
+      { name = "id" }, { name = "username" }, { name = "email" }, { name = "bio" },
+    })
+  end)
+
+  it("returns quick-insert all-columns item first", function()
+    local buf = make_buf({ "###", "INSERT INTO authors (" })
+    local items = nil
+    get_items(buf, "INSERT INTO authors (", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    assert.equals("id, username, email, bio", items[1].label)
+    assert.equals("Insert all columns", items[1].documentation)
+  end)
+
+  it("returns quick-insert no-id item second", function()
+    local buf = make_buf({ "###", "INSERT INTO authors (" })
+    local items = nil
+    get_items(buf, "INSERT INTO authors (", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    assert.equals("username, email, bio", items[2].label)
+    assert.equals("All columns except id", items[2].documentation)
+  end)
+
+  it("returns individual columns after quick-insert items", function()
+    local buf = make_buf({ "###", "INSERT INTO authors (" })
+    local items = nil
+    get_items(buf, "INSERT INTO authors (", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    -- items[1] = all-cols, items[2] = no-id, items[3+] = individual columns
+    assert.equals("id", items[3].label)
+    assert.equals("username", items[4].label)
+    assert.equals("email", items[5].label)
+    assert.equals("bio", items[6].label)
+    assert.equals(6, #items)
+  end)
+
+  it("filters out already-listed columns from individual items", function()
+    local buf = make_buf({ "###", "INSERT INTO authors (id, email, " })
+    local items = nil
+    get_items(buf, "INSERT INTO authors (id, email, ", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    -- Quick-insert always shows (2 items)
+    assert.equals("id, username, email, bio", items[1].label)
+    assert.equals("username, email, bio", items[2].label)
+    -- Individual columns: id and email excluded, username and bio included
+    local labels = {}
+    for i = 3, #items do labels[items[i].label] = true end
+    assert.is_nil(labels["id"], "id should be excluded")
+    assert.is_nil(labels["email"], "email should be excluded")
+    assert.is_true(labels["username"], "username should be included")
+    assert.is_true(labels["bio"], "bio should be included")
+    assert.equals(4, #items)  -- 2 quick-insert + 2 remaining columns
+  end)
+
+  it("quick-insert items always show even with prefix", function()
+    local buf = make_buf({ "###", "INSERT INTO authors (us" })
+    local items = nil
+    get_items(buf, "INSERT INTO authors (us", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    -- Quick-insert always shows
+    assert.equals("id, username, email, bio", items[1].label)
+    assert.equals("username, email, bio", items[2].label)
+    -- Only username matches prefix 'us'
+    assert.equals("username", items[3].label)
+    assert.equals(3, #items)
+  end)
+
+  it("no-id quick-insert hidden when table has no id column", function()
+    local state = require("poste.state")
+    state.sql.context = { connection = "test-conn", database = "blog" }
+    sql_comp.cache_columns("tags", {
+      { name = "name" }, { name = "slug" },
+    })
+    local buf = make_buf({ "###", "INSERT INTO tags (" })
+    local items = nil
+    get_items(buf, "INSERT INTO tags (", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    -- Only all-columns quick-insert
+    assert.equals("name, slug", items[1].label)
+    assert.equals(3, #items)
+  end)
+end)
+
+-- ── 11. get_items table context ───────────────────────────────────────
+
+describe("get_items table context", function()
+  local function make_buf(lines)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
+    return buf
+  end
+
+  before_each(function()
+    local state = require("poste.state")
+    state.sql = state.sql or {}
+    state.sql.context = { connection = "test-conn", database = "blog" }
+    sql_comp.cache_tables({ { name = "authors" }, { name = "posts" } })
+  end)
+
+  it("FROM<space> returns cached tables", function()
+    local buf = make_buf({ "###", "SELECT * FROM " })
+    local items = nil
+    get_items(buf, "SELECT * FROM ", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items) do labels[item.label] = true end
+    assert.is_true(labels["authors"])
+    assert.is_true(labels["posts"])
+  end)
+
+  it("FROM au filters to matching table", function()
+    local buf = make_buf({ "###", "SELECT * FROM au" })
+    local items = nil
+    get_items(buf, "SELECT * FROM au", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    assert.equals("authors", items[1].label)
+    assert.equals(1, #items)
+  end)
+end)
+
+-- ── 12. get_items keyword context (fallback with no connection) ────────
+
+describe("get_items keyword context (no connection)", function()
+  local function make_buf(lines)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
+    return buf
+  end
+
+  it("bare text returns matching SQL keywords", function()
+    local buf = make_buf({ "###", "SEL" })
+    local items = nil
+    get_items(buf, "SEL", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items) do labels[item.label] = true end
+    assert.is_true(labels["SELECT"], "SELECT should match prefix SEL")
+    assert.is_nil(labels["FROM"], "FROM should not match prefix SEL")
+    assert.is_true(#items > 0, "expected at least one keyword")
+  end)
+
+  it("empty prefix returns many keywords", function()
+    local buf = make_buf({ "###", "" })
+    local items = nil
+    get_items(buf, "", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    assert.is_true(#items > 20, "expected > 20 items for empty prefix")
+  end)
+
+  it("prefix 'CRE' matches CREATE TABLE", function()
+    local buf = make_buf({ "###", "CRE" })
+    local items = nil
+    get_items(buf, "CRE", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items) do labels[item.label] = true end
+    assert.is_true(labels["CREATE TABLE"], "CREATE TABLE should match prefix CRE")
+    assert.is_nil(labels["SELECT"], "SELECT should not match prefix CRE")
+  end)
+
+  it("returns data types as well as keywords", function()
+    local buf = make_buf({ "###", "IN" })
+    local items = nil
+    get_items(buf, "IN", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items) do labels[item.label] = true end
+    assert.is_true(labels["INT"], "data type INT should match")
+    assert.is_true(labels["INTEGER"], "data type INTEGER should match")
+    assert.is_true(labels["INSERT INTO"], "keyword INSERT INTO should match prefix IN")
+    assert.is_true(labels["IN"], "keyword IN should match prefix IN")
   end)
 end)

@@ -340,7 +340,9 @@ end
 --- Returns nil for JOINs with 2+ tables (use "result n" instead).
 local function extract_table_name(sql)
   if not sql or sql == "" then return nil end
-  local upper = sql:upper()
+  -- Strip -- line comments and /* */ block comments
+  local clean = sql:gsub("%-%-[^\n]*", ""):gsub("/%*.-%*/", "")
+  local upper = clean:upper()
   local join_count = 0
   local idx = 1
   while true do
@@ -593,8 +595,22 @@ local seq = current_seq
               end
             end
           else
-            -- Single result (existing behavior)
+            -- Single result
+            local table_name
+            if is_visual then
+              local start_ln = math.min(_vis_start, _vis_end)
+              local end_ln = math.max(_vis_start, _vis_end)
+              local vis_lines = {}
+              for i = start_ln, end_ln do
+                local ln = buf_lines[i]
+                if ln then vis_lines[#vis_lines + 1] = ln end
+              end
+              table_name = extract_table_name(table.concat(vis_lines, " "))
+            else
+              table_name = extract_table_name(buf_content)
+            end
             local lines, meta = sql_format.format_dataset(parsed)
+            if table_name then meta.table_name = table_name end
             sql_buffer.render_dataset(lines, meta, { exec_seq = seq })
 
             local has_err = results[1] and results[1].error

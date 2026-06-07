@@ -539,6 +539,8 @@ local function build_status_winbar(meta)
   if #D.tabs > 1 then
     local label = meta.table_name or ("result " .. D.active_tab_idx)
     right = string.format("[%d/%d: %s] ", D.active_tab_idx, #D.tabs, label)
+  elseif meta.table_name then
+    right = string.format("[%s] ", meta.table_name)
   end
   right = right .. (format_conn_short(meta.connection) or "")
 

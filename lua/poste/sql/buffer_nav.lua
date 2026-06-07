@@ -83,6 +83,10 @@ function M.update_header_float()
     vim.bo[D.float_buf].modifiable = true
     pcall(vim.api.nvim_buf_set_lines, D.float_buf, 0, -1, false, { text })
     vim.bo[D.float_buf].modifiable = false
+    pcall(vim.api.nvim_win_set_config, D.float_win, {
+      width = win_width,
+      col = 0,
+    })
   else
     D.close_header_float()
     D.float_buf = vim.api.nvim_create_buf(false, true)

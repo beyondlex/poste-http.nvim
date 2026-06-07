@@ -5,6 +5,43 @@ local select_mod = require("poste.select")
 
 local M = {}
 
+-----------------------------------------------------------------------
+-- Config file discovery
+-----------------------------------------------------------------------
+
+--- Walk up from `search_dir` to find connections.json (matches Rust logic).
+--- @param search_dir string Directory to start from
+--- @return string|nil Path to connections.json
+function M.find_connections_json(search_dir)
+  local dir = search_dir
+  while true do
+    local candidate = dir .. "/connections.json"
+    if vim.fn.filereadable(candidate) == 1 then
+      return candidate
+    end
+    local parent = vim.fn.fnamemodify(dir, ":h")
+    if parent == dir then
+      return nil
+    end
+    dir = parent
+  end
+end
+
+--- Get the config for a named connection by reading connections.json directly.
+--- Returns raw values (before {{var}} substitution — use env-aware call for that).
+--- @param name string Connection name
+--- @return table|nil Connection config or nil
+function M.get_connection_config(name)
+  local search_dir = get_search_dir()
+  local config_path = M.find_connections_json(search_dir)
+  if not config_path then return nil end
+  local ok, data = pcall(vim.fn.readfile, config_path)
+  if not ok or not data then return nil end
+  local ok, parsed = pcall(vim.json.decode, table.concat(data, "\n"))
+  if not ok or type(parsed) ~= "table" then return nil end
+  return parsed[name]
+end
+
 ---------------------------------------------------------------------------
 -- Binary discovery
 ---------------------------------------------------------------------------

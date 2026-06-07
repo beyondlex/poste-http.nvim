@@ -54,6 +54,32 @@ function M.resolve_context(buf, limit_line)
   return { connection = connection, database = database }
 end
 
+--- Resolve the full context chain: buffer scan → runtime state → connections.json default.
+--- Priority: block-level > USE > file-level > runtime state > connections.json default
+--- @param buf number Buffer handle (default: current buffer)
+--- @return table context { connection = string|nil, database = string|nil }
+function M.resolve_full_context(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+
+  -- L1/L2: buffer scan (@connection, @database, USE)
+  local ctx = M.resolve_context(buf)
+
+  -- Fallback to runtime state for connection
+  local conn = ctx.connection or state.sql.context.connection
+
+  -- Fallback chain for database: buffer > runtime state > connections.json default
+  local db = ctx.database or state.sql.context.database
+  if not db and conn then
+    local connections = require("poste.sql.connections")
+    local config = connections.get_connection_config(conn)
+    if config and config.database and config.database ~= "" then
+      db = config.database
+    end
+  end
+
+  return { connection = conn, database = db, raw = ctx }
+end
+
 --- Update context from a SQL response (e.g., USE statement).
 --- @param response table Parsed response object
 function M.handle_use_statement(response)

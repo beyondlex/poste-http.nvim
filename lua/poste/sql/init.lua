@@ -686,8 +686,8 @@ function M.show_table_ddl()
   end
 
   local sql_context = require("poste.sql.context")
-  local ctx = sql_context.resolve_context(vim.api.nvim_get_current_buf())
-  local conn = ctx.connection or state.sql.context.connection
+  local ctx = sql_context.resolve_full_context(vim.api.nvim_get_current_buf())
+  local conn = ctx.connection
   if not conn or conn == "" then
     vim.notify("No SQL connection context. Add -- @connection <name> to the file header.", vim.log.levels.ERROR, { title = "Poste SQL" })
     return
@@ -698,7 +698,7 @@ function M.show_table_ddl()
     file = vim.fn.getcwd() .. "/query.sql"
   end
 
-  local db = state.sql.context.database
+  local db = ctx.database
   local cmd = string.format("%s introspect %s --type ddl --table %s --env %s",
     vim.fn.shellescape(binary),
     vim.fn.shellescape(conn),

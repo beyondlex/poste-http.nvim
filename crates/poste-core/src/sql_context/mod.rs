@@ -413,11 +413,44 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str) -> Conte
                     // If we've already consumed a column expression (the
                     // user's typing prefix), the column has been specified.
                     // Return Keyword — user needs AND/OR/IN/IS etc.
-                    // Applies to clause-heading keywords: SELECT, WHERE, HAVING.
-                    if !skip_one_ident && (kw == "select" || kw == "where" || kw == "having") {
+                    // Applies to clause-heading keywords: SELECT, WHERE, HAVING, RETURNING.
+                    if !skip_one_ident && (kw == "select" || kw == "where" || kw == "having" || kw == "returning") {
+                        return ContextType::Keyword;
+                    }
+                    // Special handling for NOT: distinguish "WHERE col NOT " (→ Keyword)
+                    // from "WHERE status IS NOT " (→ Column) and "WHERE NOT " (→ Column)
+                    if kw == "not" {
+                        if skip_one_ident {
+                            if let Some(prev_idx) = skip_back(tokens, i) {
+                                if tokens[prev_idx].kind == TokenKind::Ident {
+                                    return ContextType::Keyword;
+                                }
+                            }
+                            return ContextType::Column;
+                        }
+                        return ContextType::Keyword;
+                    }
+                    // ALL after SELECT → Column; UNION ALL → keep original Keyword
+                    if kw == "all" && skip_one_ident {
+                        if let Some(prev_idx) = skip_back(tokens, i) {
+                            if tokens[prev_idx].kind == TokenKind::Keyword {
+                                let prev_kw = tokens[prev_idx].text(sql).to_ascii_lowercase();
+                                if prev_kw == "select" {
+                                    return ContextType::Column;
+                                }
+                            }
+                        }
                         return ContextType::Keyword;
                     }
                     return ContextType::Column;
+                }
+                // After ADD COLUMN column_name → DataType
+                if kw == "column" && !skip_one_ident {
+                    if let Some(prev) = skip_back(tokens, i) {
+                        if tokens[prev].kind == TokenKind::Keyword && kw_eq(tokens[prev].text(sql), "add") {
+                            return ContextType::DataType;
+                        }
+                    }
                 }
                 if after_comma {
                     // After comma, keep scanning for clause keyword
@@ -819,8 +852,6 @@ mod tests {
         assert_eq!(result.context_type, ContextType::Column);
     }
 
-    // ---- Predicate keywords (IN, BETWEEN, LIKE, IS, EXISTS) ----
-
     #[test]
     fn test_detect_where_in_values() {
         let result = detect_context("SELECT * FROM users WHERE id IN (1, 2, ", 41).unwrap();
@@ -865,21 +896,40 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_where_is_not_null() {
+    fn test_detect_where_not_keyword() {
+        let result = detect_context("SELECT * FROM users WHERE id NOT ", 34).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword,
+            "NOT after column should suggest IN/LIKE/BETWEEN/IS");
+    }
+
+    #[test]
+    fn test_detect_where_is_not_null_column() {
         let result = detect_context("SELECT * FROM users WHERE status IS NOT ", 41).unwrap();
-        assert_eq!(result.context_type, ContextType::Column);
+        assert_eq!(result.context_type, ContextType::Column,
+            "IS NOT should suggest NULL/columns");
+    }
+
+#[test]
+    fn test_detect_where_not_exists_keyword() {
+        let result = detect_context("SELECT * FROM users WHERE NOT ", 30).unwrap();
+        assert_eq!(result.context_type, ContextType::Column,
+            "WHERE NOT should suggest columns");
     }
 
     #[test]
-    fn test_detect_where_exists() {
-        let result = detect_context("SELECT * FROM users WHERE EXISTS ", 33).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+    fn test_detect_where_eq_column() {
+        // WHERE col = should suggest AND/OR/ORDER BY (keyword), not column
+        let result = detect_context("SELECT * FROM users WHERE id = ", 34).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword,
+            "WHERE col = should suggest keyword (AND/OR/ORDER BY)");
     }
 
     #[test]
-    fn test_detect_where_not_exists() {
-        let result = detect_context("SELECT * FROM users WHERE NOT EXISTS ", 37).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+    fn test_detect_where_gt_column() {
+        // WHERE col > should suggest keyword
+        let result = detect_context("SELECT * FROM users WHERE age > ", 35).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword,
+            "WHERE col > should suggest keyword");
     }
 
     // ---- DDL ----
@@ -912,6 +962,13 @@ mod tests {
     fn test_detect_alter_table() {
         let result = detect_context("ALTER TABLE ", 12).unwrap();
         assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_alter_table_add_column_datatype() {
+        let result = detect_context("ALTER TABLE users ADD COLUMN age ", 33).unwrap();
+        assert_eq!(result.context_type, ContextType::DataType,
+            "After ADD COLUMN col_name should suggest data types");
     }
 
     #[test]
@@ -1059,7 +1116,8 @@ mod tests {
     #[test]
     fn test_detect_returning() {
         let result = detect_context("DELETE FROM users WHERE id = 1 RETURNING ", 42).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column,
+            "RETURNING should suggest columns");
     }
 
     #[test]
@@ -1257,13 +1315,15 @@ mod tests {
     #[test]
     fn test_detect_select_distinct() {
         let result = detect_context("SELECT DISTINCT ", 16).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column,
+            "DISTINCT after SELECT should suggest columns");
     }
 
     #[test]
     fn test_detect_select_all() {
         let result = detect_context("SELECT ALL ", 11).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column,
+            "ALL after SELECT should suggest columns");
     }
 
     // ---- Comments ----

@@ -197,7 +197,7 @@ pub(crate) fn is_known_keyword(word: &str) -> bool {
         b"CASCADE", b"CASE", b"CAST", b"CHAR", b"COALESCE", b"COLUMN", b"COMMIT", b"COUNT", b"CREATE", b"CROSS",
         b"CURRENT_DATE", b"CURRENT_TIMESTAMP",
         b"DECIMAL", b"DEFAULT", b"DELETE", b"DESC", b"DISTINCT", b"DOUBLE", b"DROP",
-        b"ELSE", b"END", b"EXCEPT", b"EXISTS",
+        b"ELSE", b"END", b"EXCEPT", b"EXISTS", b"ADD",
         b"FALSE", b"FLOAT", b"FOREIGN", b"FROM", b"FULL",
         b"GROUP",
         b"HAVING",
@@ -210,7 +210,7 @@ pub(crate) fn is_known_keyword(word: &str) -> bool {
         b"OFFSET", b"ON", b"OR", b"ORDER", b"OUTER",
         b"OVER",
         b"PARTITION", b"PRIMARY",
-        b"REAL", b"REFERENCES", b"RENAME", b"RIGHT", b"ROLLBACK",
+        b"REAL", b"REFERENCES", b"RENAME", b"RETURNING", b"RIGHT", b"ROLLBACK",
         b"SELECT", b"SERIAL", b"SET", b"SHOW", b"SMALLINT",
         b"TABLE", b"TEXT", b"THEN", b"TIME", b"TIMESTAMP", b"TINYINT", b"TRIM", b"TRUE", b"TRUNCATE",
         b"UNION", b"UNIQUE", b"UPDATE", b"USE", b"USING", b"UUID",
@@ -226,7 +226,8 @@ pub(crate) fn is_table_keyword(w: &str) -> bool {
 }
 
 pub(crate) fn is_column_keyword(w: &str) -> bool {
-    matches!(w, "where" | "set" | "on" | "having" | "select" | "and" | "or" | "not" | "by")
+    matches!(w, "where" | "set" | "on" | "having" | "select" | "and" | "or" | "not" | "by"
+        | "distinct" | "returning" | "all")
 }
 
 pub(crate) fn is_predicate_keyword(w: &str) -> bool {

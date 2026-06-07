@@ -5,10 +5,10 @@
 
 -- SELECT p.slug, a.bio  FROM posts p LEFT JOIN authors a on a.id = p.author_id;
 
-UPDATE posts SET bio = '' WHERE id i
+-- UPDATE posts SET bio = '' WHERE id i
 
 
-SELECT * FROM posts WHERE id IN (SELECT id FROM posts WHERE author_id IS NULL)
+-- SELECT * FROM posts WHERE id IN (SELECT id FROM posts WHERE author_id IS NULL)
 
 
 SELECT * from web_vitals;
@@ -16,17 +16,11 @@ SELECT * from web_vitals;
 SELECT p.slug, a.bio FROM posts p LEFT JOIN authors a on a.id = p.author_id;
 
 
-select * from posts;
+ALTER TABLE authors ADD COLUMN name   ;
 
 SELECT * FROM categories;
 
-
-
--- INSERT INTO posts (id, author_id, category_id, title, slug, body, status, published_at, created_at)
--- VALUES (1, 2, 3, '',  'body', 'xx', 1, now(), )
---
--- INSERT INTO posts (slug, body, author_id, created_at) VALUES 
--- (di, s, sl, ss);
+SELECT * FROM authors a LEFT JOIN posts p on p.author_id = a.id;
 
 use inventory;
 select * from warehouses ;

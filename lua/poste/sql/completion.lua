@@ -255,6 +255,11 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     return
   end
 
+  if ctx_type == "datatype" then
+    callback(ctx.filter(ctx.make_items(data.DATA_TYPES, 25, "type: "), prefix))
+    return
+  end
+
   if vim.g.poste_sql_legacy_completion == true then
     data.ensure_tables(function()
       local key = data.conn_key()

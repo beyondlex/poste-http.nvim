@@ -133,7 +133,8 @@ end
 
 --- Close the header float window and buffer.
 local function close_header_float()
-  if float_win and vim.api.nvim_win_is_valid(float_win) then
+  local had_float = float_win and vim.api.nvim_win_is_valid(float_win)
+  if had_float then
     pcall(vim.api.nvim_win_close, float_win, true)
   end
   if float_buf and vim.api.nvim_buf_is_valid(float_buf) then
@@ -730,6 +731,35 @@ function M.sort_by_current_col()
 end
 
 --------------------------------------------------------------------------------
+-- Panel clear
+--------------------------------------------------------------------------------
+
+--- Clear dataset panel without closing the window.
+--- Called at start of run_sql_request to wipe stale state before async callback.
+function M.clear_panel(seq)
+  tabs = {}
+  active_tab_idx = 0
+  -- Force-close any float attached to dataset_window
+  if dataset_window and vim.api.nvim_win_is_valid(dataset_window) then
+    local all_wins = vim.api.nvim_tabpage_list_wins(0)
+    for _, win in ipairs(all_wins) do
+      if win ~= dataset_window then
+        local ok, config = pcall(vim.api.nvim_win_get_config, win)
+        if ok and config.relative == "win" and config.win == dataset_window then
+          pcall(vim.api.nvim_win_close, win, true)
+        end
+      end
+    end
+  end
+  close_header_float()
+  if dataset_buffer and vim.api.nvim_buf_is_valid(dataset_buffer) then
+    vim.api.nvim_set_option_value("modifiable", true, { buf = dataset_buffer })
+    vim.api.nvim_buf_set_lines(dataset_buffer, 0, -1, false, { "" })
+    vim.api.nvim_set_option_value("modifiable", false, { buf = dataset_buffer })
+  end
+end
+
+--------------------------------------------------------------------------------
 -- Render / Close
 --------------------------------------------------------------------------------
 
@@ -737,11 +767,12 @@ function M.render_dataset(lines, meta, opts)
   opts = opts or {}
   local tab_idx = opts.tab_index or 1
 
-  -- Clear old tabs at start of new execution batch
   if tab_idx == 1 then
     tabs = {}
     active_tab_idx = 0
   end
+
+  close_header_float()
 
   local tab = alloc_tab(tab_idx)
 
@@ -871,8 +902,7 @@ function M.render_dataset(lines, meta, opts)
   local winbar_text = build_status_winbar(meta)
   pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = dataset_window })
 
-  -- Close previous float, create header float
-  close_header_float()
+  -- Create header float if there's header data
   if tab.header_text then
     M.update_header_float()
   end

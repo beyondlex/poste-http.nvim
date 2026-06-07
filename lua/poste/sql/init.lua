@@ -8,7 +8,8 @@ local sql_buffer = require("poste.sql.buffer")
 
 local M = {}
 
--- Visual selection state (set by <leader>rr in visual mode)
+-- Execution tracking for callback ordering
+local exec_seq = 0
 local _vis_active = false
 local _vis_start = 0
 local _vis_end = 0
@@ -325,6 +326,12 @@ function M.run_sql_request()
   local src_buf = vim.api.nvim_get_current_buf()
   indicators.clear_all(src_buf)
 
+  exec_seq = exec_seq + 1
+  local current_seq = exec_seq
+
+  -- Clear old dataset content before new async execution
+  sql_buffer.clear_panel(current_seq)
+
   local binary = find_poste_binary()
   if not binary then
     vim.notify("Poste binary not found.", vim.log.levels.ERROR)
@@ -430,7 +437,11 @@ function M.run_sql_request()
       local output = table.concat(data, "\n")
       state.log("INFO", "SQL stdout: " .. output:sub(1, 200))
 
+local seq = current_seq
       vim.schedule(function()
+        if seq < exec_seq then
+          return
+        end
         local ok, parsed = pcall(vim.json.decode, output)
         if ok and parsed and type(parsed) == "table" then
           state.last_response = parsed
@@ -453,7 +464,7 @@ function M.run_sql_request()
                 indicators.set_indicator(src_buf, err_line - 1, "error")
                 local err_text = type(result.error) == "string" and result.error or vim.inspect(result.error)
                 local lines = sql_format.format_error(err_text, data.connection or "")
-                sql_buffer.render_dataset(lines, { type = "error" }, { tab_index = i })
+                sql_buffer.render_dataset(lines, { type = "error" }, { tab_index = i, exec_seq = seq })
               else
                 local sql_text = get_stmt_sql(buf_lines, stmt_lines, i, visual_sel_end)
                 local table_name = extract_table_name(sql_text)
@@ -469,7 +480,7 @@ function M.run_sql_request()
                   table_name = table_name,
                 }
                 local lines, meta = sql_format.format_resultset(single_data)
-                sql_buffer.render_dataset(lines, meta, { tab_index = i })
+                sql_buffer.render_dataset(lines, meta, { tab_index = i, exec_seq = seq })
 
                 local line_nr = stmt_lines[i] or first_line
                 indicators.set_indicator(src_buf, line_nr - 1, "success", result.execution_time_ms)
@@ -478,7 +489,7 @@ function M.run_sql_request()
           else
             -- Single result (existing behavior)
             local lines, meta = sql_format.format_dataset(parsed)
-            sql_buffer.render_dataset(lines, meta)
+            sql_buffer.render_dataset(lines, meta, { exec_seq = seq })
 
             local has_err = results[1] and results[1].error
             if has_err then
@@ -491,7 +502,7 @@ function M.run_sql_request()
           state.log("WARN", "SQL JSON parse failed, showing raw output")
           indicators.set_indicator(src_buf, first_line - 1, "error")
           local lines = sql_format.format_error("JSON parse failed\n\n" .. output, "")
-          sql_buffer.render_dataset(lines, { type = "error" })
+          sql_buffer.render_dataset(lines, { type = "error" }, { exec_seq = seq })
         end
       end)
     end,
@@ -505,6 +516,7 @@ function M.run_sql_request()
       if code ~= 0 then
         state.log("ERROR", string.format("SQL exit code %d", code))
         vim.schedule(function()
+          if current_seq < exec_seq then return end
           indicators.set_indicator(src_buf, first_line - 1, "error")
           local stderr_text = table.concat(stderr_buf, "\n")
           local lines = sql_format.format_error(

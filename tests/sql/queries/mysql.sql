@@ -1,19 +1,29 @@
 -- @connection my-blog
 -- @database blog
 
+-- SELECT p.slug, a. FROM posts p LEFT JOIN authors a on a.id = p.author_id;
 
-INSERT INTO posts (id, author_id, category_id, title, slug, body, status, published_at, created_at)
-VALUES (1, 2, 3, '',  'body', 'xx')
-
-INSERT INTO posts (slug, body, author_id, created_at) VALUES 
-(di, s, sl, ss);
+-- SELECT p.slug, a.bio  FROM posts p LEFT JOIN authors a on a.id = p.author_id;
 
 SELECT * from web_vitals;
+
+SELECT p.slug, a. FROM posts p LEFT JOIN authors a on a.id = p.author_id;
+
+
 select * from posts;
+
 SELECT * FROM categories;
 
+
+
+-- INSERT INTO posts (id, author_id, category_id, title, slug, body, status, published_at, created_at)
+-- VALUES (1, 2, 3, '',  'body', 'xx', 1, now(), )
+--
+-- INSERT INTO posts (slug, body, author_id, created_at) VALUES 
+-- (di, s, sl, ss);
+
 use inventory;
-select * from warehouses;
+select * from warehouses ;
 
 
 
@@ -26,10 +36,13 @@ select * from warehouses;
 
 show tables;
 
+use blog;
+
 select * from posts;
 
 
 
+use inventory;
 
 SELECT w.name AS warehouse,
        w.city,

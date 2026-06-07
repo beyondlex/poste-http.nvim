@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use anyhow::Result;
+use serde::Serialize;
 use std::io::Read;
 
 #[derive(Parser)]
@@ -61,6 +62,25 @@ enum Commands {
         #[arg(short, long, default_value = "dev")]
         env: String,
     },
+    /// SQL context detection (for completion/indicator placement)
+    Context {
+        #[command(subcommand)]
+        action: ContextAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ContextAction {
+    /// Detect SQL completion context at cursor position
+    Detect {
+        /// Byte offset of cursor within SQL text (0-based)
+        offset: usize,
+    },
+    /// Find statement boundaries containing a cursor line
+    Stmt {
+        /// Cursor line number (0-based)
+        cursor_line: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -100,6 +120,9 @@ async fn main() -> Result<()> {
         }
         Commands::Introspect { name, r#type, schema, table, database, path, env } => {
             handle_introspect_command(name, r#type, schema, table, database, path, env).await?;
+        }
+        Commands::Context { action } => {
+            handle_context_command(action)?;
         }
         Commands::Run { file, line, env, json, stdin, database } => {
             let file_path = std::path::PathBuf::from(&file);
@@ -287,6 +310,83 @@ fn is_connection_url(conn: &str) -> bool {
         return true;
     }
     false
+}
+
+// ---------------------------------------------------------------------------
+// Context command helpers
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct ContextDetectResponse {
+    ctx_type: String,
+    ctx_data: Option<String>,
+    prefix: String,
+    tables: Vec<TableRefInfo>,
+    in_string: bool,
+    in_comment: bool,
+}
+
+#[derive(Serialize)]
+struct TableRefInfo {
+    name: String,
+    alias: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ContextStmtResponse {
+    start_line: usize,
+    end_line: usize,
+}
+
+fn make_detect_response(result: &poste_core::sql_context::ContextResult) -> ContextDetectResponse {
+    let ctx_type = result.context_type.name().to_string();
+    let ctx_data = result.context_type.data();
+    let tables: Vec<TableRefInfo> = result.tables.iter().map(|t| TableRefInfo {
+        name: t.name.clone(),
+        alias: t.alias.clone(),
+    }).collect();
+    ContextDetectResponse {
+        ctx_type,
+        ctx_data,
+        prefix: result.prefix.clone(),
+        tables,
+        in_string: result.in_string,
+        in_comment: result.in_comment,
+    }
+}
+
+fn handle_context_command(action: ContextAction) -> Result<()> {
+    match action {
+        ContextAction::Detect { offset } => {
+            let mut sql = String::new();
+            std::io::stdin().read_to_string(&mut sql)?;
+            let result = poste_core::sql_context::detect_context(&sql, offset);
+            let response = match result {
+                Some(ctx) => make_detect_response(&ctx),
+                None => ContextDetectResponse {
+                    ctx_type: "keyword".into(),
+                    ctx_data: None,
+                    prefix: String::new(),
+                    tables: vec![],
+                    in_string: true,
+                    in_comment: true,
+                },
+            };
+            println!("{}", serde_json::to_string(&response)?);
+        }
+        ContextAction::Stmt { cursor_line } => {
+            let mut input = String::new();
+            std::io::stdin().read_to_string(&mut input)?;
+            let lines: Vec<&str> = input.lines().collect();
+            let span = poste_core::sql_context::find_statement_span(&lines, cursor_line);
+            let response = match span {
+                Some((start, end)) => ContextStmtResponse { start_line: start, end_line: end },
+                None => ContextStmtResponse { start_line: 0, end_line: 0 },
+            };
+            println!("{}", serde_json::to_string(&response)?);
+        }
+    }
+    Ok(())
 }
 
 async fn handle_connection_command(action: ConnectionAction) -> Result<()> {

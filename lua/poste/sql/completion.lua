@@ -124,6 +124,86 @@ local function search_dir()
 end
 
 ---------------------------------------------------------------------------
+-- Rust context detection
+---------------------------------------------------------------------------
+
+--- Try to detect completion context using the Rust binary.
+--- Returns a context dict or nil (fall back to Lua).
+--- The returned dict has: ctx_type, ctx_data, tables (array of {name, alias}).
+local function try_rust_context(bufnr, line_before, cursor_line)
+  -- Only use Rust in SQL buffers (not in test environments)
+  local ok_ft, ft = pcall(vim.api.nvim_buf_get_option, bufnr, "filetype")
+  if not ok_ft or (ft ~= "poste_sql" and ft ~= "poste_sqlite") then return nil end
+
+  local binary = find_binary()
+  if not binary then return nil end
+
+  -- Get entire buffer so we can send the full ### block (including text after
+  -- cursor) to Rust. This lets extract_tables see FROM/JOIN clauses that
+  -- appear after the cursor position.
+  local total_lines = vim.api.nvim_buf_line_count(bufnr)
+  local all_lines = vim.api.nvim_buf_get_lines(bufnr, 0, total_lines, false)
+
+  -- Find block start (previous ###, or line 1 if no ### found)
+  local block_start = 1
+  if cursor_line > 1 then
+    for i = cursor_line - 1, 1, -1 do
+      if all_lines[i] and all_lines[i]:match("^###") then
+        block_start = i + 1  -- skip the ### marker line
+        break
+      end
+    end
+  end
+
+  -- Find block end (next ### or buffer end)
+  local block_end = total_lines
+  for i = cursor_line + 1, total_lines do
+    if all_lines[i] and all_lines[i]:match("^###") then
+      block_end = i - 1
+      break
+    end
+  end
+
+  -- Cursor is on ### line or outside block → nothing to analyze
+  if block_start > cursor_line or cursor_line > block_end then
+    return nil
+  end
+
+  -- Build full SQL text from block start to block end
+  local sql_parts = {}
+  for i = block_start, block_end do
+    table.insert(sql_parts, all_lines[i])
+  end
+  local sql_text = table.concat(sql_parts, "\n")
+
+  -- Compute byte offset of cursor within sql_text:
+  --   sum of full lines (block_start .. cursor_line - 1) + line_before
+  local before_parts = {}
+  for i = block_start, cursor_line - 1 do
+    table.insert(before_parts, all_lines[i])
+  end
+  table.insert(before_parts, line_before)
+  local offset = #table.concat(before_parts, "\n")
+
+  -- Call Rust binary synchronously (fast for small SQL text)
+  local cmd = string.format("%s context detect %d", vim.fn.shellescape(binary), offset)
+  local output = vim.fn.system(cmd, sql_text)
+  if vim.v.shell_error ~= 0 then return nil end
+
+  local ok, parsed = pcall(vim.json.decode, output)
+  if not ok or not parsed or type(parsed) ~= "table" then return nil end
+
+  if vim.g.poste_sql_debug then
+    state.log("INFO", string.format("Rust context: type=%s, prefix='%s', tables=%d, in_string=%s, in_comment=%s",
+      tostring(parsed.ctx_type), tostring(parsed.prefix or ""),
+      parsed.tables and #parsed.tables or 0,
+      tostring(parsed.in_string), tostring(parsed.in_comment)))
+  end
+
+  return parsed
+end
+
+---------------------------------------------------------------------------
 -- Lazy fetch tables
 ---------------------------------------------------------------------------
 
@@ -414,8 +494,11 @@ end
 ---------------------------------------------------------------------------
 
 local function extract_from_tables(bufnr, cursor_lnum)
-  -- collect lines from start of current ### block to cursor
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, cursor_lnum, false)
+  -- Collect lines up to and INCLUDING the cursor line.
+  -- nvim_buf_get_lines uses 0-indexed exclusive end. cursor_lnum may be
+  -- 1-indexed (vim.fn.line, nvim-cmp) or 0-indexed (blink.cmp). To handle both,
+  -- we add 1 to guarantee we read at least through the cursor line.
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, cursor_lnum + 1, false)
   local block_start = 1
   for i = #lines, 1, -1 do
     if lines[i]:match("^###") then block_start = i; break end
@@ -469,6 +552,24 @@ local function extract_from_tables(bufnr, cursor_lnum)
   end
 
   return tbls, alias_map
+end
+
+--- Get extracted tables and alias map, preferring Rust context when available.
+--- Falls back to Lua extract_from_tables() when Rust context is nil or
+--- returns no tables.
+local function get_tables_and_alias(bufnr, cursor_line, rust_ctx)
+  if rust_ctx and rust_ctx.tables and #rust_ctx.tables > 0 then
+    local from_tbls, alias_map = {}, {}
+    for _, t in ipairs(rust_ctx.tables) do
+      if t.name and t.name ~= "" then
+        table.insert(from_tbls, t.name)
+        alias_map[t.name] = t.name
+        if t.alias then alias_map[t.alias] = t.name end
+      end
+    end
+    return from_tbls, alias_map
+  end
+  return extract_from_tables(bufnr, cursor_line)
 end
 
 ---------------------------------------------------------------------------
@@ -578,8 +679,34 @@ local function get_items(bufnr, line_before, cursor_line, callback)
   local prefix = line_before:match("[%w_]*$") or ""
   local ctx_type, ctx_data = detect_context(line_before)
 
+  -- vim.g.poste_sql_legacy_completion controls completion mode:
+  --   nil     → Rust + Lua fallback (default)
+  --   true    → Pure Lua (Rust disabled)
+  --   "rust"  → Pure Rust (no Lua fallback — for regression testing)
+  local rust_ctx = nil
+  local use_rust = not vim.g.poste_sql_legacy_completion or vim.g.poste_sql_legacy_completion == "rust"
+  if use_rust then
+    local rust_ok, rust_ctx_raw = pcall(try_rust_context, bufnr, line_before, cursor_line)
+    if rust_ok and rust_ctx_raw then
+      rust_ctx = rust_ctx_raw
+      ctx_type, ctx_data = rust_ctx.ctx_type, rust_ctx.ctx_data
+      -- Lua fallback: when Rust returns keyword on a partial identifier,
+      -- check if the Lua heuristic detects table/column context more accurately.
+      -- Disabled in "rust" strict mode for pure Rust testing.
+      if vim.g.poste_sql_legacy_completion ~= "rust" then
+        -- e.g. "FROM au" → Rust sees trailing ident → keyword, Lua sees FROM → table
+        if ctx_type == "keyword" and prefix ~= "" then
+          local lua_type = detect_context(line_before)
+          if lua_type ~= "keyword" then
+            ctx_type, ctx_data = lua_type, nil
+          end
+        end
+      end
+    end
+  end
+
   if vim.g.poste_sql_debug then
-    vim.notify(string.format("DEBUG get_items: ctx=%s, prefix='%s', line='%s'", 
+    vim.notify(string.format("DEBUG get_items: ctx=%s, prefix='%s', line='%s'",
       ctx_type, prefix, line_before), vim.log.levels.WARN)
   end
 
@@ -602,7 +729,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
   if ctx_type == "dot_column" then
     local col_prefix = line_before:match("[%w_]+%.([%w_]*)$") or ""
     -- Resolve alias to real table name using current block's alias map
-    local _, alias_map = extract_from_tables(bufnr, cursor_line or vim.fn.line("."))
+    local _, alias_map = get_tables_and_alias(bufnr, cursor_line or vim.fn.line("."), rust_ctx)
     local real_tbl = alias_map[ctx_data] or ctx_data
     ensure_columns(real_tbl, function()
       local key = conn_key()
@@ -627,7 +754,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
   end
 
   if ctx_type == "column" then
-    local from_tbls, alias_map = extract_from_tables(bufnr, cursor_line or vim.fn.line("."))
+    local from_tbls, alias_map = get_tables_and_alias(bufnr, cursor_line or vim.fn.line("."), rust_ctx)
     -- Resolve aliases to real table names (deduplicated)
     local real_tbls, seen_real = {}, {}
     for _, t in ipairs(from_tbls) do
@@ -732,16 +859,22 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     return
   end
 
-  -- keyword: also mix in table names so they show up in general typing
-  ensure_tables(function()
-    local key = conn_key()
-    local tbls = cache[key] and cache[key].tables or {}
-    local items = kw_items(prefix)
-    for _, item in ipairs(filter(make_items(tbls, 7, "table: "), prefix)) do
-      table.insert(items, item)
-    end
-    callback(items)
-  end)
+  if vim.g.poste_sql_legacy_completion == true then
+    -- Legacy: mix in table names so they show up in general typing
+    ensure_tables(function()
+      local key = conn_key()
+      local tbls = cache[key] and cache[key].tables or {}
+      local items = kw_items(prefix)
+      for _, item in ipairs(filter(make_items(tbls, 7, "table: "), prefix)) do
+        table.insert(items, item)
+      end
+      callback(items)
+    end)
+  else
+    -- Modern: Rust detects table/column context accurately, so in keyword
+    -- context only show SQL keywords + data types (no table noise).
+    callback(kw_items(prefix))
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -878,6 +1011,30 @@ function M.register()
 end
 
 ---------------------------------------------------------------------------
+-- Toggle: legacy-only mode for regression comparison
+---------------------------------------------------------------------------
+
+--- Cycle completion mode: default (Rust + Lua fallback) → legacy Lua-only
+--- → Rust strict (no Lua fallback). Use `:lua require("poste.sql.completion").toggle_legacy()`
+--- to switch, or set vim.g.poste_sql_legacy_completion directly:
+---   nil     → default (Rust + Lua fallback)
+---   true    → legacy (Lua only, Rust disabled)
+---   "rust"  → strict Rust (no Lua fallback)
+function M.toggle_legacy()
+  local current = vim.g.poste_sql_legacy_completion
+  if current == nil then
+    vim.g.poste_sql_legacy_completion = true
+    vim.notify("Poste SQL completion: Legacy Lua-only mode (Rust disabled)", vim.log.levels.WARN)
+  elseif current == true then
+    vim.g.poste_sql_legacy_completion = "rust"
+    vim.notify("Poste SQL completion: Rust strict mode (no Lua fallback)", vim.log.levels.WARN)
+  else -- "rust"
+    vim.g.poste_sql_legacy_completion = nil
+    vim.notify("Poste SQL completion: Rust + Lua fallback (default)", vim.log.levels.INFO)
+  end
+end
+
+---------------------------------------------------------------------------
 -- Test interface
 ---------------------------------------------------------------------------
 M._test = {
@@ -886,6 +1043,8 @@ M._test = {
   conn_key = conn_key,
   get_items = get_items,
   extract_from_tables = extract_from_tables,
+  try_rust_context = try_rust_context,
+  get_tables_and_alias = get_tables_and_alias,
 }
 
 return M

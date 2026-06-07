@@ -92,6 +92,70 @@ end
 -- Statement extraction
 --------------------------------------------------------------------------------
 
+--- Find the ###-delimited block containing a given line.
+--- Returns (block_start, block_end) as 1-based line numbers.
+local function find_block_for_line(buf_lines, line)
+  -- Search backward for the opening ###
+  local start = line
+  while start >= 1 do
+    if buf_lines[start]:match("^%s*###") then
+      start = start + 1  -- skip past the ### line
+      break
+    end
+    if start == 1 then break end
+    start = start - 1
+  end
+  -- Search forward for the closing ### (or end of buffer)
+  local finish = line
+  while finish < #buf_lines do
+    if buf_lines[finish + 1]:match("^%s*###") then
+      break
+    end
+    finish = finish + 1
+  end
+  return start, finish
+end
+
+--- Try to find statement boundaries using the Rust binary.
+--- Returns {start_line, end_line} as 1-based buffer line numbers, or nil.
+local function try_rust_stmt_span(buf_lines, cursor_line)
+  local binary = find_poste_binary()
+  if not binary then return nil end
+
+  -- Find the current ### block to limit the scope
+  local block_start, block_end = find_block_for_line(buf_lines, cursor_line)
+
+  -- Extract block lines and compute relative cursor
+  local block_lines = {}
+  for i = block_start, block_end do
+    block_lines[#block_lines + 1] = buf_lines[i] or ""
+  end
+  local rel_cursor = cursor_line - block_start  -- 0-based within block
+
+  -- Call Rust binary
+  local cmd = string.format("%s context stmt %d", vim.fn.shellescape(binary), rel_cursor)
+  local input = table.concat(block_lines, "\n")
+  local output = vim.fn.system(cmd, input)
+  if vim.v.shell_error ~= 0 then return nil end
+
+  local ok, parsed = pcall(vim.json.decode, output)
+  if not ok or not parsed or type(parsed) ~= "table" then return nil end
+
+  -- Convert Rust 0-based lines to absolute Lua 1-based lines
+  local rust_start = parsed.start_line
+  local rust_end = parsed.end_line
+  if type(rust_start) ~= "number" or type(rust_end) ~= "number" then return nil end
+
+  local abs_start = block_start + rust_start
+  local abs_end = block_start + rust_end
+  if vim.g.poste_sql_debug then
+    vim.notify(string.format("[poste] Rust stmt span: relative=(%d,%d) absolute=(%d,%d)",
+      rust_start, rust_end, abs_start, abs_end), vim.log.levels.INFO)
+  end
+
+  return { abs_start, abs_end }
+end
+
 --- Extract a single SQL statement at the cursor position.
 --- Delimited purely by semicolons, wrapped in a synthetic ### block.
 local function extract_stmt_at_cursor(buf_lines, cursor_line)
@@ -105,35 +169,66 @@ local function extract_stmt_at_cursor(buf_lines, cursor_line)
   end
 
   local stmt_start
-  if (buf_lines[cursor_line] or ""):match("^%s*$") then
-    -- Cursor on empty line: search forward for next statement
-    stmt_start = cursor_line
-    while stmt_start <= #buf_lines and (buf_lines[stmt_start] or ""):match("^%s*$") do
-      stmt_start = stmt_start + 1
+  -- Try Rust for proper statement boundary detection (handles ; in strings/comments)
+  -- poste_sql_legacy_completion: nil → Rust+Lua, true → Lua only, "rust" → Rust only
+  local use_rust = not vim.g.poste_sql_legacy_completion or vim.g.poste_sql_legacy_completion == "rust"
+  local rust_ok, rust_result
+  if use_rust then
+    rust_ok, rust_result = pcall(try_rust_stmt_span, buf_lines, cursor_line)
+  end
+  if use_rust and rust_ok and rust_result then
+    stmt_start = rust_result[1]
+    stmt_end = rust_result[2]
+    -- If cursor is on a blank line, skip forward past empty lines
+    -- to find the next statement start.
+    if (buf_lines[cursor_line] or ""):match("^%s*$") then
+      while stmt_start <= #buf_lines and (buf_lines[stmt_start] or ""):match("^%s*$") do
+        stmt_start = stmt_start + 1
+      end
+    end
+    -- Skip past directive lines (-- @connection, -- @database), ### markers,
+    -- and blank lines before the cursor — Rust's find_statement_span only
+    -- uses ; boundaries, so it doesn't know about these SQL-file-specific constructs.
+    while stmt_start < cursor_line and stmt_start <= #buf_lines do
+      local l = buf_lines[stmt_start] or ""
+      if l:match("^%s*$") or l:match("^%s*%-%-") or l:match("^%s*###") then
+        stmt_start = stmt_start + 1
+      else
+        break
+      end
     end
   else
-    stmt_start = cursor_line
-    for i = cursor_line - 1, 1, -1 do
-      local txt = buf_lines[i] or ""
-      if txt:match(";") then
-        stmt_start = i + 1
-        break
+    -- Fall back to Lua logic
+    if (buf_lines[cursor_line] or ""):match("^%s*$") then
+      -- Cursor on empty line: search forward for next statement
+      stmt_start = cursor_line
+      while stmt_start <= #buf_lines and (buf_lines[stmt_start] or ""):match("^%s*$") do
+        stmt_start = stmt_start + 1
       end
-      if txt:match("^%s*###") or txt:match("^%s*%-%-%s*@") then
-        stmt_start = i + 1
-        break
+    else
+      stmt_start = cursor_line
+      for i = cursor_line - 1, 1, -1 do
+        local txt = buf_lines[i] or ""
+        if txt:match(";") then
+          stmt_start = i + 1
+          break
+        end
+        if txt:match("^%s*###") or txt:match("^%s*%-%-%s*@") then
+          stmt_start = i + 1
+          break
+        end
+      end
+      while stmt_start <= cursor_line and (buf_lines[stmt_start] or ""):match("^%s*$") do
+        stmt_start = stmt_start + 1
       end
     end
-    while stmt_start <= cursor_line and (buf_lines[stmt_start] or ""):match("^%s*$") do
-      stmt_start = stmt_start + 1
-    end
-  end
 
-  local stmt_end = #buf_lines
-  for i = cursor_line, #buf_lines do
-    if (buf_lines[i] or ""):match(";") then
-      stmt_end = i
-      break
+    stmt_end = #buf_lines
+    for i = cursor_line, #buf_lines do
+      if (buf_lines[i] or ""):match(";") then
+        stmt_end = i
+        break
+      end
     end
   end
 
@@ -553,6 +648,8 @@ M._test = {
   extract_stmt_at_cursor = extract_stmt_at_cursor,
   find_stmt_lines = find_stmt_lines,
   extract_visual_block = extract_visual_block,
+  try_rust_stmt_span = try_rust_stmt_span,
+  find_block_for_line = find_block_for_line,
 }
 
 --- Show DDL for the table under the cursor in a floating window.

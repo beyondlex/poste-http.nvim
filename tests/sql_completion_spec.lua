@@ -290,6 +290,9 @@ describe("get_items dot_column resolves alias", function()
     sql_comp.cache_columns("posts", {
       { name = "id" }, { name = "title" }, { name = "author_id" },
     })
+    sql_comp.cache_columns("authors", {
+      { name = "id" }, { name = "username" }, { name = "email" }, { name = "bio" },
+    })
   end)
 
   it("p. after JOIN posts p returns posts columns", function()
@@ -313,6 +316,37 @@ describe("get_items dot_column resolves alias", function()
     for _, item in ipairs(items) do labels[item.label] = true end
     assert.is_true(labels["title"])
     assert.is_nil(labels["id"])
+  end)
+
+  it("a. resolves alias from statement on a later line after other SQL", function()
+    local buf = make_buf({
+      "###",
+      "select * from posts;",
+      "",
+      "SELECT p.slug, a.  FROM posts p LEFT JOIN authors a on a.id = p.author_id;",
+    })
+    -- Cursor on line 4 (the last line), line_before with a.
+    local items = nil
+    get_items(buf, "SELECT p.slug, a.", 4, function(r) items = r end)
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items) do labels[item.label] = true end
+    assert.is_true(labels["id"], "should have id column from authors table")
+    assert.is_true(labels["bio"], "should have bio column from authors table")
+  end)
+
+  it("a. resolves alias from extract_from_tables when statement after other SQL on a later line", function()
+    local buf = make_buf({
+      "###",
+      "select * from posts;",
+      "",
+      "SELECT p.slug, a.  FROM posts p LEFT JOIN authors a on a.id = p.author_id;",
+    })
+    -- Simulate Rust returning empty tables (e.g., because FROM clause is after cursor)
+    local tbls, alias_map = extract_from_tables(buf, 4)
+    assert.equals("authors", alias_map["a"], "alias a should resolve to authors")
+    assert.equals("posts", alias_map["p"], "alias p should resolve to posts")
+    assert.is_true(#tbls >= 2, "should have at least 2 tables")
   end)
 end)
 

@@ -134,6 +134,12 @@ function M.setup()
     fg = dark and 0xc084fc or 0x7e22ce,
     bold = true,
   })
+  -- INSERT INTO value-to-column hint: yellow/gold underline for dark, blue for light
+  vim.api.nvim_set_hl(0, "PosteInsertHint", {
+    fg = dark and 0xe5c07b or 0x0550ae,
+    bold = true,
+    underline = true,
+  })
 end
 
 -- Apply highlights on require

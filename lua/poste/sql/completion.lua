@@ -32,6 +32,7 @@ local KEYWORDS = {
   "TRIM", "UPPER", "LOWER", "LENGTH", "SUBSTRING", "CONCAT",
   "PRIMARY KEY", "FOREIGN KEY", "UNIQUE", "NOT NULL", "DEFAULT", "REFERENCES",
   "BEGIN", "COMMIT", "ROLLBACK",
+  "DESC", "SHOW", "USE",
 }
 
 local DATA_TYPES = {
@@ -444,6 +445,7 @@ local function extract_from_tables(bufnr, cursor_lnum)
     "[Ff][Rr][Oo][Mm]%s+([%w_]+)%s+([%w_]+)",
     "[Jj][Oo][Ii][Nn]%s+([%w_]+)%s+([%w_]+)",
     "[Uu][Pp][Dd][Aa][Tt][Ee]%s+([%w_]+)%s+([%w_]+)",
+    "[Ii][Nn][Tt][Oo]%s+([%w_]+)%s+([%w_]+)",
   }) do
     for tbl, alias in text:gmatch(pat) do
       -- Skip if alias is a SQL keyword (ON, SET, WHERE, etc.)
@@ -458,6 +460,7 @@ local function extract_from_tables(bufnr, cursor_lnum)
     "[Ff][Rr][Oo][Mm]%s+([%w_]+)",
     "[Jj][Oo][Ii][Nn]%s+([%w_]+)",
     "[Uu][Pp][Dd][Aa][Tt][Ee]%s+([%w_]+)",
+    "[Ii][Nn][Tt][Oo]%s+([%w_]+)",
   }) do
     for t in text:gmatch(pat) do
       if not seen[t] then seen[t] = true; table.insert(tbls, t) end
@@ -472,7 +475,7 @@ end
 -- Context detection
 ---------------------------------------------------------------------------
 
---- Returns: ctx_type ("table"|"column"|"dot_column"|"connection"|"database"|"keyword"), extra
+--- Returns: ctx_type ("table"|"column"|"dot_column"|"connection"|"database"|"insert_column"|"keyword"), extra
 local function detect_context(line_before)
   -- @connection directive (anywhere on the line up to cursor)
   if line_before:match("@connection%s+%S*$") then
@@ -482,6 +485,13 @@ local function detect_context(line_before)
   -- USE statement: USE <db>
   if line_before:match("^%s*[Uu][Ss][Ee]%s+%S*$") then
     return "database", nil
+  end
+
+  -- INSERT INTO tbl (col, ...) → column completion for tbl
+  local insert_tbl = line_before:match(
+    "^%s*[Ii][Nn][Ss][Ee][Rr][Tt]%s+[Ii][Nn][Tt][Oo]%s+([%w_]+)%s*%([%w_,%s]*$")
+  if insert_tbl then
+    return "insert_column", insert_tbl
   end
 
   -- table.col  (e.g. "users." or "users.na")
@@ -678,6 +688,50 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     return
   end
 
+  if ctx_type == "insert_column" then
+    local tbl = ctx_data
+    local prefix = line_before:match("([%w_]*)$") or ""
+    local inside = line_before:match("%(([%w_,%s]*)$") or ""
+    local seen = {}
+    for col in inside:gmatch("([%w_]+)") do
+      seen[col:lower()] = true
+    end
+    ensure_columns(tbl, function()
+      local key = conn_key()
+      local all = cache[key] and cache[key].columns[tbl] or {}
+      local result = {}
+      -- Quick-insert items: always at top
+      if #all > 0 then
+        local all_csv = table.concat(all, ", ")
+        result[#result + 1] = {
+          label = all_csv, kind = 8,
+          insertText = all_csv,
+          documentation = "Insert all columns",
+        }
+        local no_id = {}
+        for _, c in ipairs(all) do
+          if c:lower() ~= "id" then no_id[#no_id + 1] = c end
+        end
+        if #no_id > 0 then
+          local no_id_csv = table.concat(no_id, ", ")
+          result[#result + 1] = {
+            label = no_id_csv, kind = 8,
+            insertText = no_id_csv,
+            documentation = "All columns except id",
+          }
+        end
+      end
+      -- Individual columns (excluding already-listed)
+      for _, c in ipairs(all) do
+        if not seen[c:lower()] and (prefix == "" or c:lower():sub(1, #prefix) == prefix) then
+          result[#result + 1] = { label = c, kind = 5, insertText = c, documentation = "col: " .. tbl .. "." .. c }
+        end
+      end
+      callback(result)
+    end)
+    return
+  end
+
   -- keyword: also mix in table names so they show up in general typing
   ensure_tables(function()
     local key = conn_key()
@@ -706,7 +760,7 @@ function M:enabled()
 end
 
 function M:get_trigger_characters()
-  return { ".", " ", "@" }
+  return { ".", " ", "@", "(", "," }
 end
 
 --- Tell blink.cmp the minimum keyword length (0 = show immediately after trigger)
@@ -770,16 +824,13 @@ function M.source:is_available()
   local ft = vim.bo.filetype
   return ft == "poste_sql" or ft == "poste_sqlite"
 end
-function M.source:get_trigger_characters() return { ".", " ", "@" } end
+function M.source:get_trigger_characters() return { ".", " ", "@", "(", "," } end
 function M.source:complete(params, callback)
   local line_before = params.context.cursor_before_line or ""
   local bufnr = vim.api.nvim_get_current_buf()
   local cursor_line = vim.fn.line(".")
   get_items(bufnr, line_before, cursor_line, function(items)
     -- Deduplicate by label (other nvim-cmp sources may provide same items)
-    if #items > 1 then
-      vim.notify("poste_sql complete: " .. #items .. " items (deduping)", vim.log.levels.WARN)
-    end
     local seen = {}
     local deduped = {}
     for _, item in ipairs(items) do

@@ -318,6 +318,9 @@ local function ensure_sql_keymaps(buf)
 end
 M.ensure_sql_keymaps = ensure_sql_keymaps
 
+-- INSERT INTO value-to-column hint
+require("poste.sql.insert_hint").setup()
+
 -- Global: clear filter/search from any buffer
 vim.keymap.set("n", "<leader>cr", function()
   local sql_buffer = require("poste.sql.buffer")

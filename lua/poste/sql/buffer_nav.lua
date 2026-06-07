@@ -3,6 +3,8 @@ local state = require("poste.state")
 local sql_highlights = require("poste.sql.highlights")
 local M = {}
 
+local preview_win = nil
+
 
 
 local function build_header_index(line)
@@ -281,6 +283,12 @@ local function pretty_print(val)
 end
 
 function M.preview_cell()
+  if preview_win and vim.api.nvim_win_is_valid(preview_win) then
+    vim.api.nvim_win_close(preview_win, true)
+    preview_win = nil
+    return
+  end
+
   local tab = D.T()
   if not tab or not tab.data or not tab.meta or tab.meta.type ~= "resultset" then return end
   local data = tab.data
@@ -334,6 +342,8 @@ function M.preview_cell()
   vim.wo[win].scrolloff = 1
   vim.wo[win].cursorline = true
 
+  preview_win = win
+
   local sopts = { buffer = float_buf, noremap = true, silent = true }
   vim.keymap.set("n", "j", "<C-e>", sopts)
   vim.keymap.set("n", "k", "<C-y>", sopts)
@@ -345,6 +355,7 @@ function M.preview_cell()
   vim.keymap.set("n", "<BS>", "<C-b>", sopts)
   local close_fn = function()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
+    preview_win = nil
   end
   vim.keymap.set("n", "q", close_fn, sopts)
   vim.keymap.set("n", "<Esc>", close_fn, sopts)

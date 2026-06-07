@@ -8,11 +8,7 @@
 UPDATE posts SET bio = '' WHERE id i
 
 
-SELECT * FROM posts WHERE id IN (SELECT id FROM )
-
-
-
-
+SELECT * FROM posts WHERE id IN (SELECT id FROM posts WHERE author_id IS NULL)
 
 
 SELECT * from web_vitals;

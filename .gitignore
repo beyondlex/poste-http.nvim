@@ -8,3 +8,4 @@
 ignore/
 graphify-out/
 .idea/
+conversation-*.md

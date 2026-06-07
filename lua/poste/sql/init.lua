@@ -232,6 +232,11 @@ local function extract_stmt_at_cursor(buf_lines, cursor_line)
     end
   end
 
+  -- Ensure stmt_start is not on a blank line
+  while stmt_start and stmt_start <= #buf_lines and (buf_lines[stmt_start] or ""):match("^%s*$") do
+    stmt_start = stmt_start + 1
+  end
+
   local stmt_lines = {}
   for i = stmt_start, stmt_end do
     table.insert(stmt_lines, buf_lines[i] or "")

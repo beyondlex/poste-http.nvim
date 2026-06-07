@@ -6,6 +6,17 @@ local select_mod = require("poste.select")
 local M = {}
 
 -----------------------------------------------------------------------
+-- Get search directory for connections.json
+-----------------------------------------------------------------------
+local function get_search_dir()
+  local buf_name = vim.api.nvim_buf_get_name(0)
+  if buf_name ~= "" then
+    return vim.fn.fnamemodify(buf_name, ":h")
+  end
+  return vim.fn.getcwd()
+end
+
+-----------------------------------------------------------------------
 -- Config file discovery
 -----------------------------------------------------------------------
 
@@ -59,17 +70,6 @@ local function find_poste_binary()
     end
   end
   return nil
-end
-
----------------------------------------------------------------------------
--- Get search directory for connections.json
----------------------------------------------------------------------------
-local function get_search_dir()
-  local buf_name = vim.api.nvim_buf_get_name(0)
-  if buf_name ~= "" then
-    return vim.fn.fnamemodify(buf_name, ":h")
-  end
-  return vim.fn.getcwd()
 end
 
 ---------------------------------------------------------------------------

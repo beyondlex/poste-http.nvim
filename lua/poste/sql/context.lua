@@ -54,21 +54,21 @@ function M.resolve_context(buf, limit_line)
   return { connection = connection, database = database }
 end
 
---- Resolve the full context chain: buffer scan → runtime state → connections.json default.
---- Priority: block-level > USE > file-level > runtime state > connections.json default
+--- Resolve the full context chain: buffer scan → connections.json default.
+--- Priority: block-level > USE > file-level > runtime connection > connections.json default
+--- Does NOT fall back to state.sql.context.database — context is position-determined.
 --- @param buf number Buffer handle (default: current buffer)
 --- @return table context { connection = string|nil, database = string|nil }
-function M.resolve_full_context(buf)
+function M.resolve_full_context(buf, limit_line)
   buf = buf or vim.api.nvim_get_current_buf()
 
-  -- L1/L2: buffer scan (@connection, @database, USE)
-  local ctx = M.resolve_context(buf)
+  local ctx = M.resolve_context(buf, limit_line)
 
-  -- Fallback to runtime state for connection
+  -- Fallback to runtime state for connection (from :PosteSQLContext or manual set)
   local conn = ctx.connection or state.sql.context.connection
 
-  -- Fallback chain for database: buffer > runtime state > connections.json default
-  local db = ctx.database or state.sql.context.database
+  -- Database: buffer scan → connections.json default
+  local db = ctx.database
   if not db and conn then
     local connections = require("poste.sql.connections")
     local config = connections.get_connection_config(conn)
@@ -112,6 +112,20 @@ function M.get_status_text()
   else
     return string.format("[db: ?/%s]", db)
   end
+end
+
+--- Get status text for cursor position in a SQL buffer.
+--- Resolves context at cursor line: @connection → @database/USE → connections.json default.
+--- @param buf number|nil Buffer handle (default: current buffer)
+--- @return string Status text like "[my-blog/inventory]" or ""
+function M.get_cursor_status_text(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  local ctx = M.resolve_full_context(buf)
+  if not ctx.connection then return "" end
+  if ctx.database then
+    return string.format("[%s/%s]", ctx.connection, ctx.database)
+  end
+  return string.format("[%s]", ctx.connection)
 end
 
 ---------------------------------------------------------------------------

@@ -412,6 +412,21 @@ local function ensure_sql_keymaps(buf)
     )
     M.run_sql_request()
   end, keymap_opts)
+
+  -- CursorMoved: update context indicator in statusline
+  local augroup = "PosteSQLContext_" .. buf
+  pcall(vim.api.nvim_del_augroup_by_name, augroup)
+  local group = vim.api.nvim_create_augroup(augroup, { clear = true })
+  vim.api.nvim_create_autocmd("CursorMoved", {
+    group = group,
+    buffer = buf,
+    callback = function()
+      if vim.api.nvim_get_current_buf() ~= buf then return end
+      local ctx_mod = require("poste.sql.context")
+      local text = ctx_mod.get_cursor_status_text(buf)
+      vim.b[buf].poste_sql_context = text
+    end,
+  })
 end
 M.ensure_sql_keymaps = ensure_sql_keymaps
 
@@ -518,11 +533,11 @@ function M.run_sql_request()
   local ctx
   if is_visual then
     local sel_start = math.min(_vis_start, _vis_end)
-    ctx = sql_context.resolve_context(src_buf, math.max(1, sel_start - 1))
+    ctx = sql_context.resolve_full_context(src_buf, math.max(1, sel_start - 1))
   else
-    ctx = sql_context.resolve_context(src_buf)
+    ctx = sql_context.resolve_full_context(src_buf)
   end
-  local db = ctx.database or state.sql.context.database
+  local db = ctx.database
   if db and db ~= vim.NIL and db ~= "" then
     cmd = cmd .. " --database " .. vim.fn.shellescape(db)
   end

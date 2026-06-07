@@ -168,8 +168,12 @@ function M.render_dataset(lines, meta, opts)
   if meta and meta.type == "resultset" then
     local data = opts.data
     if not data then
-      local ok, d = pcall(vim.json.decode, state.last_response and state.last_response.body or "{}")
-      if ok then data = d end
+      if opts.keep_tabs then
+        data = tab.data
+      else
+        local ok, d = pcall(vim.json.decode, state.last_response and state.last_response.body or "{}")
+        if ok then data = d end
+      end
     end
     if data then
       tab.data = data

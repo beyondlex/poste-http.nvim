@@ -28,7 +28,24 @@ local function pad_right(s, width)
   return s .. string.rep(" ", width - dw)
 end
 
---- Parse connection URL to extract host:port/database for display.
+--- Wrap a long line to fit within a given display width, splitting at word boundaries.
+local function wrap_line(text, width)
+  if displaywidth(text) <= width then return { text } end
+  local lines = {}
+  local current = ""
+  for word in text:gmatch("%S+") do
+    local sep = #current > 0 and " " or ""
+    if displaywidth(current .. sep .. word) > width then
+      table.insert(lines, current)
+      current = word
+    else
+      current = current .. sep .. word
+    end
+  end
+  if #current > 0 then table.insert(lines, current) end
+  if #lines == 0 then lines = { "" } end
+  return lines
+end
 --- Examples:
 ---   mysql://user:pass@localhost:13306/blog → localhost:13306/blog
 ---   postgres://user@host:5432/db → host:5432/db
@@ -367,10 +384,16 @@ function M.format_resultset(data)
 
   -- Translated SQL footnote (e.g. SHOW TABLES → information_schema query)
   if res.translated_sql then
+    local footnote_width = math.max(40, (vim.o.columns or 80) - 4)
     line_num = line_num + 1
     lines[line_num] = "  -- " .. (res.original_sql or "")
     line_num = line_num + 1
-    lines[line_num] = "  ⚡ " .. res.translated_sql
+    local wrapped = wrap_line("  ⚡ " .. res.translated_sql, footnote_width)
+    lines[line_num] = wrapped[1]
+    for i = 2, #wrapped do
+      line_num = line_num + 1
+      lines[line_num] = "     " .. wrapped[i]
+    end
   end
 
   -- Metadata passed to buffer for winbar display

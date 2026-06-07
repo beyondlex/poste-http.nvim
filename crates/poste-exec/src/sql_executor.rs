@@ -80,6 +80,7 @@ struct StatementResult {
     affected_rows: Option<u64>,
     execution_time_ms: u64,
     error: Option<String>,
+    connection: Option<String>,
     translated_sql: Option<String>,
     original_sql: Option<String>,
 }
@@ -213,6 +214,7 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
                     affected_rows: None,
                     execution_time_ms: elapsed,
                     error: None,
+                    connection: None,
                     translated_sql,
                     original_sql,
                 })
@@ -227,6 +229,7 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
                     affected_rows: Some(result.rows_affected()),
                     execution_time_ms: elapsed,
                     error: None,
+                    connection: None,
                     translated_sql,
                     original_sql,
                 })
@@ -394,7 +397,7 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
 
     for stmt in &parsed.statements {
         if let Some(db_name) = sql_parser::detect_use_statement(stmt) {
-            let stmt_start = Instant::now();
+            let _stmt_start = Instant::now();
             pool.close().await;
             current_url = replace_database_in_url(&current_url, &db_name);
             pool = MySqlPoolOptions::new()
@@ -405,6 +408,7 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
             continue;
         }
 
+        let stmt_conn = current_url.clone();
         let stmt_result: anyhow::Result<StatementResult> = async {
             let stmt_start = Instant::now();
             let upper = stmt.trim().to_uppercase();
@@ -452,6 +456,7 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
                     affected_rows: None,
                     execution_time_ms: elapsed,
                     error: None,
+                    connection: Some(stmt_conn.clone()),
                     translated_sql: None,
                     original_sql: None,
                 })
@@ -466,6 +471,7 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
                     affected_rows: Some(result.rows_affected()),
                     execution_time_ms: elapsed,
                     error: None,
+                    connection: Some(stmt_conn.clone()),
                     translated_sql: None,
                     original_sql: None,
                 })
@@ -473,10 +479,14 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
         }.await;
 
         match stmt_result {
-            Ok(sr) => results.push(sr),
+            Ok(mut sr) => {
+                sr.connection = Some(current_url.clone());
+                results.push(sr);
+            }
             Err(e) => {
                 results.push(StatementResult {
                     error: Some(format!("{:#}", e)),
+                    connection: Some(current_url.clone()),
                     ..Default::default()
                 });
             }
@@ -665,6 +675,7 @@ async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> Result<Response>
                     affected_rows: None,
                     execution_time_ms: elapsed,
                     error: None,
+                    connection: None,
                     translated_sql: None,
                     original_sql: None,
                 })
@@ -679,6 +690,7 @@ async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> Result<Response>
                     affected_rows: Some(result.rows_affected()),
                     execution_time_ms: elapsed,
                     error: None,
+                    connection: None,
                     translated_sql: None,
                     original_sql: None,
                 })
@@ -812,6 +824,9 @@ fn build_response(
             }
             if let Some(ref sql) = r.original_sql {
                 obj["original_sql"] = json!(sql);
+            }
+            if let Some(ref conn) = r.connection {
+                obj["connection"] = json!(conn);
             }
             obj
         })

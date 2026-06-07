@@ -1365,6 +1365,16 @@ function M.close()
   end
   close_header_float()
   if dataset_window and vim.api.nvim_win_is_valid(dataset_window) then
+    -- Force-close any float anchored to dataset_window
+    local all_wins = vim.api.nvim_tabpage_list_wins(0)
+    for _, win in ipairs(all_wins) do
+      if win ~= dataset_window then
+        local ok, config = pcall(vim.api.nvim_win_get_config, win)
+        if ok and config.relative == "win" and config.win == dataset_window then
+          pcall(vim.api.nvim_win_close, win, true)
+        end
+      end
+    end
     vim.api.nvim_win_close(dataset_window, true)
     dataset_window = nil
   end

@@ -111,6 +111,29 @@ function M.setup()
     bg = dark and 0x3b6fa0 or 0x2563eb,
     bold = true,
   })
+
+  -- Search match: purple background, white text
+  vim.api.nvim_set_hl(0, "PosteSearchMatch", {
+    fg = 0xffffff,
+    bg = dark and 0x6b21a8 or 0xd8b4fe,
+    bold = true,
+  })
+  -- Current search match: brighter purple
+  vim.api.nvim_set_hl(0, "PosteSearchCurrent", {
+    fg = 0xffffff,
+    bg = dark and 0x9333ea or 0x7e22ce,
+    bold = true,
+  })
+  -- Filter indicator in winbar: green
+  vim.api.nvim_set_hl(0, "PosteFilterActive", {
+    fg = dark and 0x4ade80 or 0x16a34a,
+    bold = true,
+  })
+  -- Search indicator in winbar: purple
+  vim.api.nvim_set_hl(0, "PosteSearchActive", {
+    fg = dark and 0xc084fc or 0x7e22ce,
+    bold = true,
+  })
 end
 
 -- Apply highlights on require

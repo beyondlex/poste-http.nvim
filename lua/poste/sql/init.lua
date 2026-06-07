@@ -318,6 +318,14 @@ local function ensure_sql_keymaps(buf)
 end
 M.ensure_sql_keymaps = ensure_sql_keymaps
 
+-- Global: clear filter/search from any buffer
+vim.keymap.set("n", "<leader>cr", function()
+  local sql_buffer = require("poste.sql.buffer")
+  if sql_buffer.is_open() then
+    sql_buffer.clear_filter_search()
+  end
+end, { noremap = true, silent = true, desc = "Poste: clear filter/search" })
+
 --------------------------------------------------------------------------------
 -- Main entry point
 --------------------------------------------------------------------------------
@@ -480,7 +488,7 @@ local seq = current_seq
                   table_name = table_name,
                 }
                 local lines, meta = sql_format.format_resultset(single_data)
-                sql_buffer.render_dataset(lines, meta, { tab_index = i, exec_seq = seq })
+                sql_buffer.render_dataset(lines, meta, { tab_index = i, exec_seq = seq, data = single_data })
 
                 local line_nr = stmt_lines[i] or first_line
                 indicators.set_indicator(src_buf, line_nr - 1, "success", result.execution_time_ms)

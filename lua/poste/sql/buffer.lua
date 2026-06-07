@@ -13,6 +13,9 @@ local dataset_window = nil
 local LEFT_PADDING = 2
 local PADDING_SPACES = string.rep(" ", LEFT_PADDING)
 
+-- Forward declarations for functions defined later
+local apply_search_highlights
+
 --------------------------------------------------------------------------------
 -- Tab system
 --------------------------------------------------------------------------------
@@ -60,6 +63,9 @@ local function alloc_tab(idx)
       padded_full = nil, meta_full = nil,
       page = 1, page_size = 50, num_pages = 1,
       pagination_enabled = true, visible_rows = nil,
+      filter_col = nil, filter_val = nil, filter_col_name = nil,
+      filter_active = false, original_data = nil,
+      search_text = nil, search_matches = {}, search_idx = 0,
     }
   end
   return tabs[idx]
@@ -111,6 +117,11 @@ local function get_dataset_buffer()
   vim.keymap.set("n", "<leader>ll", function() M.goto_last_page() end, opts)
   vim.keymap.set("n", "<leader>pa", function() M.toggle_pagination() end, opts)
   vim.keymap.set("n", "<leader>fc", function() M.find_column() end, opts)
+  vim.keymap.set("n", "<leader>ce", function() M.filter_by_current_cell() end, opts)
+  vim.keymap.set("n", "<leader>/", function() M.show_search() end, opts)
+  vim.keymap.set("n", "<leader>cr", function() M.clear_filter_search() end, opts)
+  vim.keymap.set("n", "n", function() M.next_search_match() end, opts)
+  vim.keymap.set("n", "N", function() M.prev_search_match() end, opts)
 
   return dataset_buffer
 end
@@ -189,6 +200,25 @@ local function build_status_winbar(meta)
     end
   end
 
+  -- Filter indicator
+  if tab and tab.filter_active and tab.filter_col_name then
+    local fv = tab.filter_val
+    local fvs = (fv == nil or fv == vim.NIL) and "NULL" or tostring(fv)
+    left = left .. string.format("  %sfilter: %s=%s%s",
+      "%#PosteFilterActive#", tab.filter_col_name, fvs, "%#PosteSqlMeta#")
+  end
+
+  -- Search indicator
+  if tab and tab.search_text and #tab.search_matches > 0 then
+    local cnt = string.format("%d/%d", tab.search_idx or 0, #tab.search_matches)
+    local info = tab.search_text .. " (" .. cnt .. ")"
+    left = left .. string.format("  %ssearch: %s%s",
+      "%#PosteSearchActive#", info, "%#PosteSqlMeta#")
+  elseif tab and tab.search_text then
+    left = left .. string.format("  %ssearch: %s (0)%s",
+      "%#PosteSearchActive#", tab.search_text, "%#PosteSqlMeta#")
+  end
+
   -- Right: tab indicator + connection info
   local right = ""
   if #tabs > 1 then
@@ -243,6 +273,8 @@ local function switch_tab(idx)
   -- Update winbar
   local winbar_text = build_status_winbar(meta)
   pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = dataset_window })
+
+  apply_search_highlights()
 end
 
 function M.next_tab()
@@ -442,6 +474,7 @@ end
 local float_buf = nil
 local float_win = nil
 local scroll_autocmd_id = nil
+local search_ns = vim.api.nvim_create_namespace("poste_sql_search")
 
 function M.update_header_float()
   local tab = T()
@@ -739,7 +772,7 @@ function M.sort_by_current_col()
   tab.is_sorting = true
   local new_data = vim.deepcopy(data)
   local lines, meta = sql_format.format_resultset(new_data)
-  M.render_dataset(lines, meta)
+  M.render_dataset(lines, meta, { keep_tabs = true, tab_index = active_tab_idx })
   tab.is_sorting = false
   M.move_cell(0, 0)
 end
@@ -781,7 +814,7 @@ function M.render_dataset(lines, meta, opts)
   opts = opts or {}
   local tab_idx = opts.tab_index or 1
 
-  if tab_idx == 1 then
+  if tab_idx == 1 and not opts.keep_tabs then
     tabs = {}
     active_tab_idx = 0
   end
@@ -802,8 +835,12 @@ function M.render_dataset(lines, meta, opts)
   end
 
   if meta and meta.type == "resultset" then
-    local ok, data = pcall(vim.json.decode, state.last_response and state.last_response.body or "{}")
-    if ok then
+    local data = opts.data
+    if not data then
+      local ok, d = pcall(vim.json.decode, state.last_response and state.last_response.body or "{}")
+      if ok then data = d end
+    end
+    if data then
       tab.data = data
       state.sql.last_dataset = data
     end
@@ -977,6 +1014,8 @@ function M.render_dataset(lines, meta, opts)
   end
 
   vim.api.nvim_set_option_value("sidescrolloff", 5, { win = dataset_window })
+
+  apply_search_highlights()
 end
 
 function M.toggle_cell_highlight()
@@ -1052,6 +1091,8 @@ local function refresh_page()
 
   local winbar_text = build_status_winbar(meta)
   pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = dataset_window })
+
+  apply_search_highlights()
 end
 
 function M.prev_page()
@@ -1092,6 +1133,201 @@ function M.toggle_pagination()
   local status = tab.pagination_enabled and ("Page " .. tab.page .. "/" .. tab.num_pages) or "All"
   vim.notify(string.format("Pagination: %s", status),
     vim.log.levels.INFO, { title = "Poste SQL" })
+end
+
+--------------------------------------------------------------------------------
+-- Winbar helper
+--------------------------------------------------------------------------------
+
+local function update_winbar()
+  if not dataset_window or not vim.api.nvim_win_is_valid(dataset_window) then return end
+  local meta = T() and T().meta
+  if not meta then return end
+  local text = build_status_winbar(meta)
+  pcall(vim.api.nvim_set_option_value, "winbar", text or "", { win = dataset_window })
+end
+
+--------------------------------------------------------------------------------
+-- Search
+--------------------------------------------------------------------------------
+
+apply_search_highlights = function()
+  if not dataset_buffer or not vim.api.nvim_buf_is_valid(dataset_buffer) then return end
+  vim.api.nvim_buf_clear_namespace(dataset_buffer, search_ns, 0, -1)
+  local tab = T()
+  if not tab or not tab.search_text or not tab.search_matches or #tab.search_matches == 0 then return end
+  if not tab.meta then return end
+
+  local data_start = tab.meta.data_start_line
+  local page = tab.page or 1
+  local paginated = tab.pagination_enabled and tab.padded_full and tab.num_pages and tab.num_pages > 1
+
+  for i, match in ipairs(tab.search_matches) do
+    local on_page = true
+    local vis_row = match.row
+    if paginated then
+      local match_page = math.ceil(match.row / tab.page_size)
+      on_page = match_page == page
+      if on_page then
+        vis_row = match.row - (page - 1) * tab.page_size
+      end
+    end
+    if on_page then
+      local buf_line = data_start + vis_row - 1
+      local line = vim.api.nvim_buf_get_lines(dataset_buffer, buf_line - 1, buf_line, false)[1]
+      if line then
+        local range = sql_highlights.find_cell_range(line, match.col + 1)
+        if range then
+          local hl = (i == tab.search_idx) and "PosteSearchCurrent" or "PosteSearchMatch"
+          vim.api.nvim_buf_set_extmark(dataset_buffer, search_ns, buf_line - 1, range.ext_start, {
+            end_row = buf_line - 1,
+            end_col = range.ext_end,
+            hl_group = hl,
+            priority = 150,
+          })
+        end
+      end
+    end
+  end
+end
+
+local function jump_to_search_match(idx)
+  local tab = T()
+  if not tab or not tab.search_matches or #tab.search_matches == 0 then return end
+  local match = tab.search_matches[idx]
+  if not match then return end
+  tab.search_idx = idx
+
+  local paginated = tab.pagination_enabled and tab.padded_full and tab.num_pages and tab.num_pages > 1
+  if paginated then
+    local match_page = math.ceil(match.row / tab.page_size)
+    if match_page ~= tab.page then
+      tab.page = match_page
+      refresh_page()
+    end
+  end
+
+  local posize = paginated and tab.page_size or nil
+  local vis_row = posize and (match.row - (tab.page - 1) * posize) or match.row
+  state.sql.cell.row = vis_row
+  state.sql.cell.col = match.col
+  local line = M.position_cursor(vis_row, match.col)
+  sql_highlights.highlight_cell(dataset_buffer, vis_row, match.col, tab.meta, line)
+  M.update_header_float()
+  apply_search_highlights()
+  update_winbar()
+end
+
+function M.show_search()
+  local tab = T()
+  if not tab or not tab.data or not tab.meta then return end
+  vim.ui.input({ prompt = "Search: " }, function(text)
+    if text == nil then return end
+    if text == "" then
+      tab.search_text = nil; tab.search_matches = {}; tab.search_idx = 0
+      apply_search_highlights(); update_winbar()
+      return
+    end
+    local res = tab.data.results and tab.data.results[1]
+    if not res or not res.rows then return end
+    tab.search_text = text
+    tab.search_matches = {}
+    local q = text:lower()
+    for ri, row in ipairs(res.rows) do
+      for ci, val in ipairs(row) do
+        local s = (val == nil or val == vim.NIL) and "" or tostring(val)
+        if s:lower():find(q, 1, true) then
+          tab.search_matches[#tab.search_matches + 1] = { row = ri, col = ci }
+        end
+      end
+    end
+    if #tab.search_matches > 0 then
+      jump_to_search_match(1)
+    else
+      tab.search_idx = 0
+      apply_search_highlights(); update_winbar()
+      vim.notify("No matches for '" .. text .. "'", vim.log.levels.INFO, { title = "Poste SQL" })
+    end
+  end)
+end
+
+function M.next_search_match()
+  local tab = T()
+  if not tab or not tab.search_matches or #tab.search_matches == 0 then return end
+  local idx = (tab.search_idx % #tab.search_matches) + 1
+  jump_to_search_match(idx)
+end
+
+function M.prev_search_match()
+  local tab = T()
+  if not tab or not tab.search_matches or #tab.search_matches == 0 then return end
+  local idx = ((tab.search_idx - 2 + #tab.search_matches) % #tab.search_matches) + 1
+  jump_to_search_match(idx)
+end
+
+--------------------------------------------------------------------------------
+-- Filter
+--------------------------------------------------------------------------------
+
+function M.filter_by_current_cell()
+  local tab = T()
+  if not tab or not tab.data or not tab.meta then return end
+  local res = tab.data.results and tab.data.results[1]
+  if not res or not res.rows or #res.rows == 0 then return end
+  local row, col = state.sql.cell.row, state.sql.cell.col
+  -- Convert visible row to absolute data row when paginated
+  local paginated = tab.pagination_enabled and tab.padded_full and tab.num_pages and tab.num_pages > 1
+  if paginated then
+    row = row + (tab.page - 1) * tab.page_size
+  end
+  local col_name = tab.meta.columns and tab.meta.columns[col] and tab.meta.columns[col].name or tostring(col)
+  local filter_val = res.rows[row] and res.rows[row][col]
+  if filter_val == nil or filter_val == vim.NIL then return end
+  if not tab.original_data then
+    tab.original_data = vim.deepcopy(tab.data)
+  end
+  tab.filter_col = col; tab.filter_val = filter_val
+  tab.filter_col_name = col_name; tab.filter_active = true
+  local data = vim.deepcopy(tab.original_data)
+  local fr = {}
+  for _, r in ipairs(data.results[1].rows) do
+    if r[col] == filter_val then
+      fr[#fr + 1] = r
+    end
+  end
+  data.results[1].rows = fr
+  data.results[1].row_count = #fr
+  local lines, meta = sql_format.format_resultset(data)
+  M.render_dataset(lines, meta, { data = data, keep_tabs = true, tab_index = active_tab_idx })
+end
+
+--------------------------------------------------------------------------------
+-- Clear all (filter + search)
+--------------------------------------------------------------------------------
+
+function M.clear_filter_search()
+  local tab = T()
+  if not tab then return end
+  local had_filter = tab.filter_active
+  local had_search = tab.search_text ~= nil
+  tab.filter_active = false; tab.filter_col = nil; tab.filter_val = nil; tab.filter_col_name = nil
+  tab.search_text = nil; tab.search_matches = {}; tab.search_idx = 0
+  if dataset_buffer and vim.api.nvim_buf_is_valid(dataset_buffer) then
+    vim.api.nvim_buf_clear_namespace(dataset_buffer, search_ns, 0, -1)
+  end
+  if had_filter and tab.original_data then
+    local data = vim.deepcopy(tab.original_data)
+    local lines, meta = sql_format.format_resultset(data)
+    M.render_dataset(lines, meta, { data = data, keep_tabs = true, tab_index = active_tab_idx })
+  elseif had_search then
+    update_winbar()
+  end
+  local parts = {}
+  if had_filter then parts[#parts+1] = "filter" end
+  if had_search then parts[#parts+1] = "search" end
+  if #parts > 0 then
+    vim.notify("Cleared " .. table.concat(parts, " + "), vim.log.levels.INFO, { title = "Poste SQL" })
+  end
 end
 
 function M.find_column()

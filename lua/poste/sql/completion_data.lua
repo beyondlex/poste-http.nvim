@@ -43,6 +43,7 @@ local COLUMN_CTX = {
   where = true, set = true, on = true, having = true, select = true,
   ["and"] = true, ["or"] = true, ["not"] = true,
   by = true,  -- ORDER BY, GROUP BY
+  ["after"] = true,  -- ALTER TABLE ... ADD/MODIFY COLUMN col AFTER col_name
   ["="] = true, [">"] = true, ["<"] = true, [">="] = true, ["<="] = true,
   ["!="] = true, ["<>"] = true,
 }

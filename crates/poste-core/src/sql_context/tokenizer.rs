@@ -227,7 +227,7 @@ pub(crate) fn is_table_keyword(w: &str) -> bool {
 
 pub(crate) fn is_column_keyword(w: &str) -> bool {
     matches!(w, "where" | "set" | "on" | "having" | "select" | "and" | "or" | "not" | "by"
-        | "distinct" | "returning" | "all")
+        | "distinct" | "returning" | "all" | "after")
 }
 
 pub(crate) fn is_predicate_keyword(w: &str) -> bool {

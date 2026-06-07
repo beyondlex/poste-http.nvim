@@ -413,8 +413,8 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str) -> Conte
                     // If we've already consumed a column expression (the
                     // user's typing prefix), the column has been specified.
                     // Return Keyword — user needs AND/OR/IN/IS etc.
-                    // Applies to clause-heading keywords: SELECT, WHERE, HAVING, RETURNING.
-                    if !skip_one_ident && (kw == "select" || kw == "where" || kw == "having" || kw == "returning") {
+                    // Applies to clause-heading keywords: SELECT, WHERE, HAVING, RETURNING, AFTER.
+                    if !skip_one_ident && (kw == "select" || kw == "where" || kw == "having" || kw == "returning" || kw == "after") {
                         return ContextType::Keyword;
                     }
                     // Special handling for NOT: distinguish "WHERE col NOT " (→ Keyword)

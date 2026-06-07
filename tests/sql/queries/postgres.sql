@@ -6,6 +6,10 @@ SELECT 1;
 ### 
 use ecommerce;
 
+show tables;
+desc users;
+
+
 ### List all users
 SELECT * FROM users;
 

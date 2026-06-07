@@ -15,6 +15,8 @@ SELECT * from web_vitals;
 
 SELECT p.slug, a.bio FROM posts p LEFT JOIN authors a on a.id = p.author_id;
 
+SELECT * from comments;
+SELECT * FROM posts;
 
 ALTER TABLE authors ADD COLUMN name   ;
 
@@ -24,6 +26,11 @@ SELECT * FROM authors a LEFT JOIN posts p on p.author_id = a.id;
 
 use inventory;
 select * from warehouses ;
+SELECT * FROM shipments;
+SELECT * FROM  items;
+SELECT * FROM  suppliers;
+SELECT * FROM  stock;
+
 
 
 

@@ -81,6 +81,7 @@ struct StatementResult {
     execution_time_ms: u64,
     error: Option<String>,
     translated_sql: Option<String>,
+    original_sql: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -161,11 +162,11 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
 
         let stmt_result: anyhow::Result<StatementResult> = async {
             let stmt_start = Instant::now();
-            let (exec_stmt, translated_sql) = match translate_pg_mysql_compat(stmt) {
+            let (exec_stmt, translated_sql, original_sql) = match translate_pg_mysql_compat(stmt) {
                 Some((translated, original)) => {
-                    (translated, Some(original))
+                    (translated.clone(), Some(translated), Some(original))
                 }
-                None => (stmt.clone(), None),
+                None => (stmt.clone(), None, None),
             };
             let upper = exec_stmt.trim().to_uppercase();
 
@@ -213,6 +214,7 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
                     execution_time_ms: elapsed,
                     error: None,
                     translated_sql,
+                    original_sql,
                 })
             } else {
                 let result = sqlx::query(&exec_stmt).execute(&pool).await?;
@@ -226,6 +228,7 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
                     execution_time_ms: elapsed,
                     error: None,
                     translated_sql,
+                    original_sql,
                 })
             }
         }.await;
@@ -450,6 +453,7 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
                     execution_time_ms: elapsed,
                     error: None,
                     translated_sql: None,
+                    original_sql: None,
                 })
             } else {
                 let result = sqlx::query(stmt).execute(&pool).await?;
@@ -463,6 +467,7 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
                     execution_time_ms: elapsed,
                     error: None,
                     translated_sql: None,
+                    original_sql: None,
                 })
             }
         }.await;
@@ -661,6 +666,7 @@ async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> Result<Response>
                     execution_time_ms: elapsed,
                     error: None,
                     translated_sql: None,
+                    original_sql: None,
                 })
             } else {
                 let result = sqlx::query(stmt).execute(&pool).await?;
@@ -674,6 +680,7 @@ async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> Result<Response>
                     execution_time_ms: elapsed,
                     error: None,
                     translated_sql: None,
+                    original_sql: None,
                 })
             }
         }.await;
@@ -802,6 +809,9 @@ fn build_response(
             }
             if let Some(ref sql) = r.translated_sql {
                 obj["translated_sql"] = json!(sql);
+            }
+            if let Some(ref sql) = r.original_sql {
+                obj["original_sql"] = json!(sql);
             }
             obj
         })

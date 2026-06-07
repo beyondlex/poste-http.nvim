@@ -368,6 +368,8 @@ function M.format_resultset(data)
   -- Translated SQL footnote (e.g. SHOW TABLES → information_schema query)
   if res.translated_sql then
     line_num = line_num + 1
+    lines[line_num] = "  -- " .. (res.original_sql or "")
+    line_num = line_num + 1
     lines[line_num] = "  ⚡ " .. res.translated_sql
   end
 

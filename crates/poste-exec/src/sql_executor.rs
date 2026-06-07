@@ -80,11 +80,67 @@ struct StatementResult {
     affected_rows: Option<u64>,
     execution_time_ms: u64,
     error: Option<String>,
+    translated_sql: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
 // PostgreSQL
 // ---------------------------------------------------------------------------
+
+/// Translate MySQL-isms (SHOW TABLES, DESC table) to PostgreSQL information_schema queries.
+/// Returns (translated_sql, original_sql) if translation occurred.
+fn translate_pg_mysql_compat(stmt: &str) -> Option<(String, String)> {
+    let upper = stmt.trim().to_uppercase();
+    let trimmed = stmt.trim();
+
+    if upper == "SHOW TABLES" || upper == "SHOW TABLES;" {
+        let sql = "\
+            SELECT table_name AS \"Table\", table_type AS \"Type\" \
+            FROM information_schema.tables \
+            WHERE table_schema = 'public' \
+            ORDER BY table_name"
+            .to_string();
+        return Some((sql, trimmed.to_string()));
+    }
+
+    if upper.starts_with("DESC ") || upper.starts_with("DESCRIBE ") {
+        let rest = trimmed.splitn(2, char::is_whitespace).nth(1)?;
+        // Strip trailing semicolon and whitespace
+        let table_name = rest.trim_end_matches(';').trim_end().trim_start_matches('"').trim_end_matches('"');
+        if table_name.is_empty() {
+            return None;
+        }
+        // Handle schema-qualified: schema.table_name
+        let (schema, table) = if let Some(dot) = table_name.rfind('.') {
+            let s = table_name[..dot].trim_matches('"');
+            let t = table_name[dot + 1..].trim_matches('"');
+            (s.to_string(), t.to_string())
+        } else {
+            ("public".to_string(), table_name.to_string())
+        };
+        let schema_escaped = schema.replace('\'', "''");
+        let table_escaped = table.replace('\'', "''");
+        let sql_inlined = format!(
+            "SELECT c.column_name AS \"Column\", c.data_type AS \"Type\", \
+             c.is_nullable AS \"Nullable\", c.column_default AS \"Default\", \
+             CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS \"Key\" \
+             FROM information_schema.columns c \
+             LEFT JOIN ( \
+               SELECT kcu.column_name \
+               FROM information_schema.table_constraints tc \
+               JOIN information_schema.key_column_usage kcu \
+                 ON tc.constraint_name = kcu.constraint_name \
+               WHERE tc.table_schema = '{schema_escaped}' AND tc.table_name = '{table_escaped}' \
+                 AND tc.constraint_type = 'PRIMARY KEY' \
+             ) pk ON c.column_name = pk.column_name \
+             WHERE c.table_schema = '{schema_escaped}' AND c.table_name = '{table_escaped}' \
+             ORDER BY c.ordinal_position"
+        );
+        return Some((sql_inlined, trimmed.to_string()));
+    }
+
+    None
+}
 
 async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Response> {
     use sqlx::postgres::{PgPoolOptions, PgRow};
@@ -105,7 +161,13 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
 
         let stmt_result: anyhow::Result<StatementResult> = async {
             let stmt_start = Instant::now();
-            let upper = stmt.trim().to_uppercase();
+            let (exec_stmt, translated_sql) = match translate_pg_mysql_compat(stmt) {
+                Some((translated, original)) => {
+                    (translated, Some(original))
+                }
+                None => (stmt.clone(), None),
+            };
+            let upper = exec_stmt.trim().to_uppercase();
 
             if upper.starts_with("SELECT")
                 || upper.starts_with("WITH")
@@ -114,7 +176,7 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
                 || upper.starts_with("TABLE ")
                 || upper.contains("RETURNING")
             {
-                let rows: Vec<PgRow> = sqlx::query(stmt).fetch_all(&pool).await?;
+                let rows: Vec<PgRow> = sqlx::query(&exec_stmt).fetch_all(&pool).await?;
                 let elapsed = stmt_start.elapsed().as_millis() as u64;
 
                 let columns: Vec<Value> = if let Some(first_row) = rows.first() {
@@ -150,9 +212,10 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
                     affected_rows: None,
                     execution_time_ms: elapsed,
                     error: None,
+                    translated_sql,
                 })
             } else {
-                let result = sqlx::query(stmt).execute(&pool).await?;
+                let result = sqlx::query(&exec_stmt).execute(&pool).await?;
                 let elapsed = stmt_start.elapsed().as_millis() as u64;
 
                 Ok(StatementResult {
@@ -162,6 +225,7 @@ async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> Result<Respons
                     affected_rows: Some(result.rows_affected()),
                     execution_time_ms: elapsed,
                     error: None,
+                    translated_sql,
                 })
             }
         }.await;
@@ -385,6 +449,7 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
                     affected_rows: None,
                     execution_time_ms: elapsed,
                     error: None,
+                    translated_sql: None,
                 })
             } else {
                 let result = sqlx::query(stmt).execute(&pool).await?;
@@ -397,6 +462,7 @@ async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> Result<Response> 
                     affected_rows: Some(result.rows_affected()),
                     execution_time_ms: elapsed,
                     error: None,
+                    translated_sql: None,
                 })
             }
         }.await;
@@ -594,6 +660,7 @@ async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> Result<Response>
                     affected_rows: None,
                     execution_time_ms: elapsed,
                     error: None,
+                    translated_sql: None,
                 })
             } else {
                 let result = sqlx::query(stmt).execute(&pool).await?;
@@ -606,6 +673,7 @@ async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> Result<Response>
                     affected_rows: Some(result.rows_affected()),
                     execution_time_ms: elapsed,
                     error: None,
+                    translated_sql: None,
                 })
             }
         }.await;
@@ -731,6 +799,9 @@ fn build_response(
             });
             if let Some(ref err) = r.error {
                 obj["error"] = json!(err);
+            }
+            if let Some(ref sql) = r.translated_sql {
+                obj["translated_sql"] = json!(sql);
             }
             obj
         })

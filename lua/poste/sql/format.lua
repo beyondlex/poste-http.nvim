@@ -365,6 +365,12 @@ function M.format_resultset(data)
   line_num = line_num + 1
   lines[line_num] = border_line(col_widths, "└", "┴", "┘", "─")
 
+  -- Translated SQL footnote (e.g. SHOW TABLES → information_schema query)
+  if res.translated_sql then
+    line_num = line_num + 1
+    lines[line_num] = "  ⚡ " .. res.translated_sql
+  end
+
   -- Metadata passed to buffer for winbar display
   local total_ms = data.total_execution_time_ms or 0
   local conn = data.connection or ""

@@ -986,8 +986,13 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str) -> Conte
                     return ContextType::Keyword;
                 }
             }
+            TokenKind::RParen => {
+                // Cursor is on a closing paren — structural (closes subquery,
+                // function call, or expression). Continue scanning backward
+                // to find the real context keyword.
+            }
             _ => {
-                // Dot, RParen, Semi, At, etc.
+                // Dot, Semi, At, etc.
                 if after_comma {
                     after_comma = false;
                 } else {
@@ -1260,7 +1265,7 @@ mod tests {
     #[test]
     fn test_detect_where_id_completed_keyword() {
         // After WHERE <column> <space>, user needs AND/OR/IN/IS not more columns.
-        let result = detect_context("SELECT * FROM users WHERE id ", 32).unwrap();
+        let result = detect_context("SELECT * FROM users WHERE id ", 29).unwrap();
         assert_eq!(result.context_type, ContextType::Keyword);
     }
 
@@ -2018,6 +2023,37 @@ mod tests {
     fn test_edge_order_by() {
         let result = detect_context("SELECT * FROM users ORDER BY ", 30).unwrap();
         assert_eq!(result.context_type, ContextType::Column);
+    }
+
+    #[test]
+    fn test_edge_subquery_in_where_select_from() {
+        let result = detect_context(
+            "SELECT * FROM posts WHERE id IN (SELECT * FROM ", 49).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_edge_where_right_before_paren_with_space_after() {
+        // User's cursor is at `)` in `WHERE   ) ` (space after paren)
+        // Cursor offset is right at the `)` character
+        let sql = "SELECT * FROM posts WHERE id IN (SELECT id FROM posts WHERE  ) ";
+        let paren_pos = sql.rfind(')').unwrap();
+        assert_eq!(sql.as_bytes()[paren_pos], b')');
+        let result = detect_context(sql, paren_pos).unwrap();
+        // The cursor is on `)` which should scan backward through WHERE → Column
+        assert_eq!(result.context_type, ContextType::Column,
+            "cursor on ) in WHERE  ) should scan back to WHERE → Column");
+    }
+
+    #[test]
+    fn test_edge_where_right_before_paren_no_space_after() {
+        // User's cursor is at `)` in `WHERE)` (no space after paren)
+        let sql = "SELECT * FROM posts WHERE id IN (SELECT id FROM posts WHERE )";
+        let paren_pos = sql.rfind(')').unwrap();
+        let result = detect_context(sql, paren_pos).unwrap();
+        // Same: cursor on `)` should scan back to WHERE → Column
+        assert_eq!(result.context_type, ContextType::Column,
+            "cursor on ) in WHERE) should scan back to WHERE → Column");
     }
 
     #[test]

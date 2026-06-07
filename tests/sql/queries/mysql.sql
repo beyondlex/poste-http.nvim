@@ -5,9 +5,19 @@
 
 -- SELECT p.slug, a.bio  FROM posts p LEFT JOIN authors a on a.id = p.author_id;
 
+UPDATE posts SET bio = '' WHERE id i
+
+
+SELECT * FROM posts WHERE id IN (SELECT id FROM )
+
+
+
+
+
+
 SELECT * from web_vitals;
 
-SELECT p.slug, a. FROM posts p LEFT JOIN authors a on a.id = p.author_id;
+SELECT p.slug, a.bio FROM posts p LEFT JOIN authors a on a.id = p.author_id;
 
 
 select * from posts;

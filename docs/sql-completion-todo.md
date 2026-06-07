@@ -16,7 +16,7 @@ WHERE id NOT ▊
 -- 目前: Column (NOT 在 COLUMN_CTX 中)
 ```
 
-- 已标注：`CURRENT: NOT is in COLUMN_CTX → Column. Ideal: Keyword`
+- 已修复：`detect_scan_backward` 中 NOT 前为 Ident 时返回 Keyword，前为 IS/WHERE 时返回 Column
 
 ### 1.2 `WHERE col = ` → 应提示关键字，现提示列名
 
@@ -26,7 +26,7 @@ WHERE id = ▊
 -- 目前: Column (跳过 Op，往前扫到 WHERE)
 ```
 
-- 已标注：`CURRENT: WHERE col = <space> → keyword (operator not in word tokens)`
+- 已修复：Op token 的 backward scan 在 prev 不是 Keyword 时自动返回 Keyword
 
 ### 1.3 `RETURNING ` → 应提示列名，现提示关键字
 
@@ -36,7 +36,7 @@ DELETE FROM users WHERE id = 1 RETURNING ▊
 -- 目前: Keyword
 ```
 
-- 已标注：`CURRENT: RETURNING not in COLUMN_CTX → Keyword`
+- 已修复：加入 `is_column_keyword` + 已知关键字列表
 
 ### 1.4 `SELECT DISTINCT ` / `SELECT ALL ` → 应提示列名，现提示关键字
 
@@ -47,8 +47,7 @@ SELECT ALL ▊
 -- 目前: Keyword (DISTINCT/ALL 不在 COLUMN_CTX 中)
 ```
 
-- 已标注：`CURRENT: DISTINCT not in COLUMN_CTX → Keyword`
-- 已标注：`CURRENT: ALL not in COLUMN_CTX → Keyword`
+- 已修复：DISTINCT/ALL 加入 `is_column_keyword`；ALL 仅在 SELECT 后返回 Column（UNION ALL 保持 Keyword）
 
 ### 1.5 `COPY table FROM ` → 应提示表名，现提示关键字
 
@@ -78,7 +77,7 @@ ALTER TABLE users ADD COLUMN age ▊
 -- 目前: Keyword
 ```
 
-- 已在 Lua 侧标注 `BEFORE FIX`
+- 已修复：Rust 侧检测 `ADD COLUMN col_name` 模式后返回 DataType；Lua 侧新增 `"datatype"` handler 只过滤数据类型
 
 ### 1.8 `COALESCE(` / `NULLIF(` 等函数 → 括号后应提示列名，现提示关键字
 
@@ -276,15 +275,17 @@ SELECT $$hello$$ FROM posts WHERE ▊
 
 ## 优先级建议
 
-### P0 — 高频使用、影响明显
+### P0 — 高频使用、影响明显（✅ 全部完成）
 
-| 优先级 | 项目 | 工作量 |
-|--------|------|--------|
-| P0 | `WHERE col NOT ` → Keyword | 小（改 `is_column_keyword` 检查） |
-| P0 | `WHERE col = ▊` → Keyword | 中（需要处理 Op token 后的上下文） |
-| P0 | `ALTER TABLE name ADD COLUMN ` → DataType | 小（新增 `is_datatype_keyword`） |
-| P0 | `SELECT DISTINCT/ALL ` → Column | 小（加入 COLUMN_CTX） |
-| P0 | `RETURNING ` → Column | 小（加入 COLUMN_CTX） |
+| 优先级 | 项目 | 状态 |
+|--------|------|------|
+| P0 | `WHERE col NOT ` → Keyword | ✅ |
+| P0 | `WHERE col = ▊` → Keyword | ✅ |
+| P0 | `ALTER TABLE name ADD COLUMN ` → DataType | ✅ |
+| P0 | `SELECT DISTINCT/ALL ` → Column | ✅ |
+| P0 | `RETURNING ` → Column | ✅ |
+| P0 | `COMMENT`, `AFTER` 关键字缺失 | ✅ |
+| P0 | `AFTER ` → Column（仅列名） | ✅ |
 
 ### P1 — 重要但使用频率较低
 

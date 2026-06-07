@@ -110,6 +110,7 @@ local function get_dataset_buffer()
   vim.keymap.set("n", "<leader>hh", function() M.goto_first_page() end, opts)
   vim.keymap.set("n", "<leader>ll", function() M.goto_last_page() end, opts)
   vim.keymap.set("n", "<leader>pa", function() M.toggle_pagination() end, opts)
+  vim.keymap.set("n", "<leader>fc", function() M.find_column() end, opts)
 
   return dataset_buffer
 end
@@ -478,7 +479,7 @@ function M.update_header_float()
       style = "minimal",
       border = "none",
       focusable = false,
-      zindex = 60,
+      zindex = 40,
     })
     vim.wo[float_win].winhighlight = "Normal:PosteSqlHeader"
   end
@@ -1091,6 +1092,34 @@ function M.toggle_pagination()
   local status = tab.pagination_enabled and ("Page " .. tab.page .. "/" .. tab.num_pages) or "All"
   vim.notify(string.format("Pagination: %s", status),
     vim.log.levels.INFO, { title = "Poste SQL" })
+end
+
+function M.find_column()
+  local tab = T()
+  if not tab or not tab.meta or tab.meta.type ~= "resultset" then return end
+  if not tab.meta.columns or #tab.meta.columns == 0 then
+    vim.notify("No columns to search", vim.log.levels.WARN, { title = "Poste SQL" })
+    return
+  end
+
+  local picker = require("poste.select")
+  local items = {}
+  local lookup = {}
+  for i, col in ipairs(tab.meta.columns) do
+    local label = string.format("%s  (%s)", col.name or "", col.type or "?")
+    items[i] = label
+    lookup[label] = { idx = i, name = col.name }
+  end
+
+  picker.select(items, "Find column", function(choice)
+    if not choice then return end
+    local info = lookup[choice]
+    if not info then return end
+    state.sql.cell.col = info.idx
+    local line = M.position_cursor(state.sql.cell.row, info.idx)
+    sql_highlights.highlight_cell(dataset_buffer, state.sql.cell.row, info.idx, tab.meta, line)
+    M.update_header_float()
+  end)
 end
 
 function M.close()

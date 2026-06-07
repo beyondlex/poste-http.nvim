@@ -194,10 +194,10 @@ pub(crate) fn is_known_keyword(word: &str) -> bool {
     const KWS: &[&[u8]] = &[
         b"ALL", b"ALTER", b"AND", b"ANY", b"AS", b"ASC", b"AVG",
         b"BEGIN", b"BETWEEN", b"BY", b"BOOL",
-        b"CASCADE", b"CASE", b"CAST", b"CHAR", b"COALESCE", b"COLUMN", b"COMMIT", b"COUNT", b"CREATE", b"CROSS",
+        b"CASCADE", b"CASE", b"CAST", b"CHAR", b"COALESCE", b"COLUMN", b"COMMENT", b"COMMIT", b"COUNT", b"CREATE", b"CROSS",
         b"CURRENT_DATE", b"CURRENT_TIMESTAMP",
         b"DECIMAL", b"DEFAULT", b"DELETE", b"DESC", b"DISTINCT", b"DOUBLE", b"DROP",
-        b"ELSE", b"END", b"EXCEPT", b"EXISTS", b"ADD",
+        b"ELSE", b"END", b"EXCEPT", b"EXISTS", b"ADD", b"AFTER",
         b"FALSE", b"FLOAT", b"FOREIGN", b"FROM", b"FULL",
         b"GROUP",
         b"HAVING",

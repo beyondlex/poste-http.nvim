@@ -110,12 +110,9 @@ pub fn split_statements(body: &str) -> Vec<String> {
             }
             // Line comment: -- ...
             '-' if chars.peek() == Some(&'-') => {
-                current.push(c);
                 chars.next(); // consume second -
-                current.push('-');
-                // Consume until end of line
+                // Consume until end of line (skip, not part of any statement)
                 for ch in chars.by_ref() {
-                    current.push(ch);
                     if ch == '\n' {
                         break;
                     }
@@ -243,7 +240,7 @@ mod tests {
     #[test]
     fn test_split_line_comment() {
         let stmts = split_statements("SELECT 1; -- comment with ; inside\nSELECT 2;");
-        assert_eq!(stmts, vec!["SELECT 1", "-- comment with ; inside\nSELECT 2"]);
+        assert_eq!(stmts, vec!["SELECT 1", "SELECT 2"]);
     }
 
     #[test]

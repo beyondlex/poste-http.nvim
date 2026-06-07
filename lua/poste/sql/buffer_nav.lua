@@ -79,34 +79,24 @@ function M.update_header_float()
   local index = tab.header_index or build_header_index(padded)
   local text = slice_header_to_win(leftcol, win_width, padded, index)
 
-  if D.float_win and vim.api.nvim_win_is_valid(D.float_win) then
-    vim.bo[D.float_buf].modifiable = true
-    pcall(vim.api.nvim_buf_set_lines, D.float_buf, 0, -1, false, { text })
-    vim.bo[D.float_buf].modifiable = false
-    pcall(vim.api.nvim_win_set_config, D.float_win, {
-      width = win_width,
-      col = 0,
-    })
-  else
-    D.close_header_float()
-    D.float_buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_lines(D.float_buf, 0, -1, false, { text })
-    vim.bo[D.float_buf].modifiable = false
+  D.close_header_float()
+  D.float_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(D.float_buf, 0, -1, false, { text })
+  vim.bo[D.float_buf].modifiable = false
 
-    D.float_win = vim.api.nvim_open_win(D.float_buf, false, {
-      relative = "win",
-      win = D.dataset_window,
-      row = 0,
-      col = 0,
-      width = win_width,
-      height = 1,
-      style = "minimal",
-      border = "none",
-      focusable = false,
-      zindex = 40,
-    })
-    vim.wo[D.float_win].winhighlight = "Normal:PosteSqlHeader"
-  end
+  D.float_win = vim.api.nvim_open_win(D.float_buf, false, {
+    relative = "win",
+    win = D.dataset_window,
+    row = 0,
+    col = 0,
+    width = win_width,
+    height = 1,
+    style = "minimal",
+    border = "none",
+    focusable = false,
+    zindex = 40,
+  })
+  vim.wo[D.float_win].winhighlight = "Normal:PosteSqlHeader"
 end
 
 function M.move_cell(drow, dcol)

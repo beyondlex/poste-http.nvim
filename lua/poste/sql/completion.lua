@@ -233,15 +233,33 @@ local function get_items(bufnr, line_before, cursor_line, callback)
   end
 
   if ctx_type == "table" then
+    local pending = 2
+    local all_items = {}
+    local done = false
+    local function flush()
+      if done then return end
+      done = true
+      if #all_items == 0 then
+        callback(ctx.kw_items(prefix))
+        return
+      end
+      callback(ctx.filter(all_items, prefix))
+    end
     data.ensure_tables(function()
       local key = data.conn_key()
       local cache = data.get_cache()
-      local tbls = cache[key] and cache[key].tables or {}
-      local items = ctx.make_items(tbls, 7, "table: ")
-      if #items == 0 then
-        items = ctx.kw_items(prefix)
+      for _, t in ipairs(cache[key] and cache[key].tables or {}) do
+        table.insert(all_items, { label = t, kind = 7, insertText = t, documentation = "table: " .. t })
       end
-      callback(ctx.filter(items, prefix))
+      pending = pending - 1
+      if pending <= 0 then flush() end
+    end)
+    data.ensure_databases(function(names)
+      for _, db in ipairs(names or {}) do
+        table.insert(all_items, { label = db, kind = 1, insertText = db, documentation = "database: " .. db })
+      end
+      pending = pending - 1
+      if pending <= 0 then flush() end
     end)
     return
   end

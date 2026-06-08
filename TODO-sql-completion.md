@@ -1,202 +1,240 @@
 # SQL Completion & Context Detection — TODO
 
-Priority: P0 = blocking / P1 = important / P2 = nice to have
+Last audited: 2026-06-08
+
+Priority: P0 = correctness blocker / P1 = important robustness gap / P2 = quality or performance
+
+Current baseline:
+- `cargo test -p poste-core` passes: 178 tests + 1 doc test.
+- Rust tokenizer/context detection is the right primary path and is much more robust than Lua regex fallback.
+- The system is not fully robust yet because the default path is still hybrid, schema is not preserved end-to-end, and several dialect/context cases still return generic `keyword`.
 
 ---
 
-## P0: Data Drift Between Rust and Lua
+## P0: Make Completion Semantics Deterministic
 
-### [ ] P0-1: Unify `is_known_keyword` with Lua's keyword list
+### [ ] P0-1: Stop Lua from overriding Rust context in default mode
 
-Rust `tokenizer.rs:194-219` has 105 hardcoded keywords. Lua `completion_data.lua:12-28` has ~28 display keywords.
-These are different lists serving different purposes — but they should NOT drift independently.
+Current default mode runs Rust first, then lets Lua override when Rust returns `keyword` with a non-empty prefix.
+That makes completion behavior depend on two independent parsers.
 
-**Action:**
-1. Audit both lists and identify keywords that exist in one but not the other
-2. Add missing keywords to Rust's `is_known_keyword()`: `EXPLAIN`, `ANALYZE`, `VACUUM`, `REINDEX`, `CLUSTER`, `CALL`, `DO`, `PREPARE`, `EXECUTE`, `DEALLOCATE`, `LISTEN`, `NOTIFY`, `GRANT`, `REVOKE`, `LOCK`, `COPY`, `REPLACE`
-3. Ensure Lua's `KEYWORDS` table is a subset of Rust's list (no unique keywords in Lua)
-
-**File(s):** `tokenizer.rs`, `completion_data.lua`
-
-### [ ] P0-2: Unify function lists between Rust and Lua
-
-Rust `functions.rs` has 99 entries. Lua `completion_data.lua:51-146` has ~146 entries.
-They overlap but aren't identical — drift will happen.
+**Observed code:**
+- `completion.lua:146-164` documents default hybrid mode and performs the override.
+- `completion_ctx.lua:84-134` is regex-based and does not have Rust's string/comment/paren awareness.
 
 **Action:**
-1. Design a mechanism for Rust to return the complete function list (already partially done via `ContextResult.functions`)
-2. Remove the authoritative function list from Lua — let Rust drive it
-3. Keep Lua's list as a fallback cache only, with a comment marking it as a fallback
+1. Audit known cases where Lua currently returns a better result than Rust.
+2. Add those cases to Rust tests and Rust context detection.
+3. Change default mode to trust Rust when Rust returns a valid response.
+4. Keep Lua context detection only for binary-missing legacy mode.
+5. Add debug logging when Lua fallback is used outside explicit legacy mode.
 
-**File(s):** `functions.rs`, `completion_data.lua`, `completion.lua`
+**File(s):** `lua/poste/sql/completion.lua`, `lua/poste/sql/completion_ctx.lua`, `crates/poste-core/src/sql_context/mod.rs`
 
-### [ ] P0-3: Eliminate Lua context detection duplicate logic
+### [ ] P0-2: Preserve schema through Rust → CLI → Lua → introspection
 
-`completion_ctx.lua:84-134` (`detect_context`) duplicates logic that Rust already does better (token-based, paren-aware, string-aware).
+Rust has `schema` in `TableRef` and `ContextType::DotColumn`, but the completion path drops it.
+This makes `public.users` and `auth.users` collide and can fetch the wrong columns.
 
-**Action:**
-1. Audit whether any scenario exists where Lua detects context that Rust misses
-2. If none: mark Lua path as deprecated, add warning logs when it's used
-3. If gaps found: add them to Rust, then deprecate Lua path
-4. Future: consider removing `completion_ctx.lua` entirely when Rust coverage is complete
-
-**File(s):** `completion_ctx.lua`, `completion.lua`
-
-### [ ] P0-4: Eliminate Lua table extraction duplicate logic
-
-`completion_ctx.lua:19-61` (`extract_from_tables`) duplicates `tables.rs`.
+**Observed code:**
+- `ContextType::DotColumn { table, schema }` exists in `mod.rs`.
+- `TableRef { name, alias, schema }` exists in `mod.rs`.
+- CLI `TableRefInfo` serializes only `name` and `alias`.
+- Lua column cache key is only `connection/database`.
+- `ensure_columns(tbl)` has no schema parameter and never passes `--schema`.
 
 **Action:**
-1. Verify Rust's `extract_tables` covers all cases Lua handles
-2. If yes: make `ctx.get_tables_and_alias` always prefer Rust, never fall back to Lua extraction
-3. If no: add missing cases to Rust, then remove Lua extraction
+1. Add `schema: Option<String>` to CLI `TableRefInfo`.
+2. Add a structured `ctx_schema` or equivalent field for `dot_column` responses.
+3. Update `get_tables_and_alias()` to preserve alias → `{ table, schema }`, not just alias → table.
+4. Update `ensure_columns(table, opts, callback)` to accept schema.
+5. Add schema to the column cache dimension, or key columns by `schema.table`.
+6. Pass `--schema` for PostgreSQL column introspection when schema is known.
+7. Add tests for `public.users u WHERE u.` and `auth.users WHERE users.` style cases.
 
-**File(s):** `completion_ctx.lua`, `tables.rs`
+**File(s):** `crates/poste-cli/src/main.rs`, `crates/poste-core/src/sql_context/mod.rs`, `lua/poste/sql/completion_ctx.lua`, `lua/poste/sql/completion.lua`, `lua/poste/sql/completion_data.lua`
 
-### [ ] P0-5: Eliminate Lua statement boundary duplicate logic
+### [ ] P0-3: Fix schema-qualified alias extraction in Rust
 
-`init.lua`'s `extract_stmt_at_cursor` duplicates `find_statement_span` in `mod.rs:559-613`.
+`public.users u` and `public.users AS u` should map alias `u` to table `users` with schema `public`.
+Current parser checks fixed token positions after `schema.table` and does not skip whitespace in that branch.
+
+**Observed evidence:**
+- `tables.rs:75-99` handles `schema.table`, then looks at `i + 3` directly.
+- The existing `test_extract_schema_alias` only asserts that `users` exists, not that alias/schema are correct.
+- `test_extract_join_with_schema_and_alias` currently has no assertions.
 
 **Action:**
-1. Ensure Lua always uses Rust's `find_statement_span` when available
-2. Only keep Lua implementation as last-resort fallback when binary is missing
+1. Refactor `parse_table_ref()` to parse qualified names using `skip_forward()`.
+2. Support `schema.table alias` and `schema.table AS alias`.
+3. Decide how to represent `database.schema.table`; for PostgreSQL use `schema=database?` is wrong, so document and test the intended behavior.
+4. Strengthen tests to assert `name`, `schema`, and `alias`.
 
-**File(s):** `init.lua` (in `lua/poste/sql/`), `mod.rs`
+**File(s):** `crates/poste-core/src/sql_context/tables.rs`, `crates/poste-core/src/sql_context/mod.rs`
+
+### [ ] P0-4: Make Rust/Lua function and keyword data intentionally sourced
+
+The Rust and Lua function lists are currently very similar, but still duplicated. Lua keywords are display snippets while Rust keywords classify tokens, so they are related but not identical.
+
+**Action:**
+1. Treat Rust `functions.rs` as authoritative for normal completion.
+2. Mark Lua `SQL_FUNCTIONS` as fallback-only with a comment and a drift test or generation script.
+3. Add a small test or script that checks Lua fallback functions are a subset of Rust functions.
+4. For keywords, split concepts clearly:
+   - Rust tokenizer keyword list: token classification.
+   - Lua display keywords: completion snippets, allowed to include compound snippets like `ORDER BY`.
+5. Add a drift check that every single-word Lua keyword/snippet part that should be classified is known by Rust.
+
+**File(s):** `crates/poste-core/src/sql_context/functions.rs`, `crates/poste-core/src/sql_context/tokenizer.rs`, `lua/poste/sql/completion_data.lua`, `tests/`
+
+### [ ] P0-5: Add integration coverage for all completion modes
+
+Rust unit tests are strong, but the Lua orchestrator behavior is where several correctness risks live.
+
+**Action:**
+1. Add tests for `vim.g.poste_sql_legacy_completion = nil`, `true`, and `"rust"`.
+2. Cover Rust success, binary missing fallback, and Rust `keyword` with prefix.
+3. Include a schema-qualified dot-column case.
+4. Include string/comment cases where Lua fallback must not re-enable noisy completions.
+
+**File(s):** `tests/`, `lua/poste/sql/completion.lua`
 
 ---
 
-## P1: Gaps in Context Detection
+## P1: Fill SQL Context Gaps
 
-### [ ] P1-1: Add missing common SQL keywords to tokenizer
+### [ ] P1-1: Add missing common SQL keywords to Rust tokenizer
 
-Rust `is_known_keyword()` doesn't include these widely-used keywords:
+`OVER` and `PARTITION` are already present, but many common command keywords are still missing.
 
-| Keyword | Dialect | Why It Matters |
-|---------|---------|----------------|
-| `EXPLAIN` | All | Often prefixes queries; should be recognized |
-| `ANALYZE` | PG/MySQL | `EXPLAIN ANALYZE` — compound keyword |
-| `CALL` | All | Stored procedure invocation |
-| `GRANT`/`REVOKE` | All | DCL statements |
-| `COPY` | PG | Bulk operations |
-| `TRUNCATE` | Already in list — verify | |
-| `SHOW` | Already in list — but needs special context (see P1-2) | |
-
-**Action:** Add each to `KWS` array in `tokenizer.rs:194-219`.
-
-**File(s):** `tokenizer.rs`
-
-### [ ] P1-2: MySQL `SHOW` keyword → special context
-
-MySQL `SHOW DATABASES` / `SHOW TABLES` / `SHOW COLUMNS FROM` etc. should trigger Database/Table/Column completion.
+**Add or verify:**
+`EXPLAIN`, `ANALYZE`, `VACUUM`, `REINDEX`, `CLUSTER`, `CALL`, `DO`, `PREPARE`, `EXECUTE`, `DEALLOCATE`, `LISTEN`, `NOTIFY`, `GRANT`, `REVOKE`, `LOCK`, `COPY`, `REPLACE`, `FOR`, `OF`, `SHARE`, `NOWAIT`, `SKIP`, `LOCKED`, `DATABASES`, `SCHEMAS`, `COLUMNS`, `FIELDS`.
 
 **Action:**
-1. After `SHOW`, scan forward for the next ident/keyword
-2. `SHOW DATABASES|SCHEMAS` → `ContextType::Database` (no USE needed)
-3. `SHOW TABLES` → `ContextType::Table`
-4. `SHOW COLUMNS FROM|FIELDS FROM` → needs table reference → `insert_column`-like context
-5. Gate behind `Dialect::MySQL` or check if SHOW-like syntax is common enough
+1. Add missing words to `is_known_keyword()`.
+2. Add tests that assert context behavior, not just token classification.
+3. Avoid adding words only to Lua unless they are fallback display snippets.
 
-**File(s):** `mod.rs` (special case in `detect_context`)
+**File(s):** `crates/poste-core/src/sql_context/tokenizer.rs`, `crates/poste-core/src/sql_context/mod.rs`
 
-### [ ] P1-3: Schema-aware caching in Lua
+### [ ] P1-2: Add explicit MySQL `SHOW` context handling
 
-Cache key in `completion_data.lua:177-178` is `connection/database` — no schema dimension.
-`public.users` and `auth.users` collide in column cache.
+Current sample: `SHOW TABLES ` returns `keyword`, not table/database/column context.
 
 **Action:**
-1. Add schema to cache key: `connection/database/schema`
-2. Propagate schema from `tables.rs` (schema field already exists in `TableRef`)
-3. When fetching columns for `dot_column`, use schema if available
-4. Update introspection calls to pass `--schema` when available
+1. Add a Rust special-case before generic backward scan.
+2. `SHOW DATABASES|SCHEMAS` → `ContextType::Database`.
+3. `SHOW TABLES` → `ContextType::Table` or a dedicated metadata context if table names should not be inserted.
+4. `SHOW COLUMNS FROM|FIELDS FROM <table>` → table context before table name, column/keyword after table depending cursor position.
+5. Decide whether this is always enabled or dialect-gated.
 
-**File(s):** `completion_data.lua`, `completion.lua`
+**File(s):** `crates/poste-core/src/sql_context/mod.rs`, `crates/poste-core/src/sql_context/tokenizer.rs`
 
-### [ ] P1-4: Dialect-parameterized function completion
+### [ ] P1-3: Add `COPY` / DCL / transaction command contexts
 
-Rust returns all known functions regardless of connection dialect. MySQL-only functions (`GET_LOCK`, `BENCHMARK`) should not appear when connected to PostgreSQL.
-
-**Action:**
-1. Add `Dialect` parameter to `detect_context()` — optional, defaults to `None` (show all)
-2. Annotate functions in `functions.rs` with dialect tags
-3. Filter by dialect when dialect is known
-
-**File(s):** `functions.rs`, `mod.rs` (signature), `completion.lua` (uses `rust_functions`)
-
-### [ ] P1-5: Add `ContextType::Window` for `OVER` / `PARTITION BY`
-
-Currently `OVER` and `PARTITION BY` are not keywords in `is_known_keyword` — meaning they're treated as `Ident`.
+Current sample: `COPY ` returns `keyword`. For PostgreSQL, `COPY table` should suggest tables.
 
 **Action:**
-1. Add `OVER`, `PARTITION` to `is_known_keyword()`
-2. Add `ContextType::Window` variant? Or handle inside `Column` context
-3. After `OVER (` → suggest window functions (`ROW_NUMBER`, `RANK`, etc.)
-4. After `PARTITION BY` → suggest columns
+1. `COPY ` → table context.
+2. `COPY table (` → column or insert-column-like context.
+3. `GRANT ... ON ` / `REVOKE ... ON ` should not blindly return `column`; decide table/schema/function contexts.
+4. Add tests for `EXPLAIN`, `EXPLAIN ANALYZE`, `CALL`, `PREPARE`, `EXECUTE`.
 
-**File(s):** `tokenizer.rs` (keywords), `mod.rs` (context detection)
+**File(s):** `crates/poste-core/src/sql_context/mod.rs`, `crates/poste-core/src/sql_context/tokenizer.rs`
+
+### [ ] P1-4: Add `FOR UPDATE` / `FOR SHARE` clause handling
+
+`SELECT ... FOR UPDATE OF table` should suggest tables after `OF`.
+`NOWAIT` and `SKIP LOCKED` should be recognized as keywords.
+
+**Action:**
+1. Add missing keywords.
+2. Add special handling for `FOR UPDATE OF` and `FOR SHARE OF`.
+3. Add tests for `NOWAIT`, `SKIP LOCKED`, and table completion after `OF`.
+
+**File(s):** `crates/poste-core/src/sql_context/tokenizer.rs`, `crates/poste-core/src/sql_context/mod.rs`
+
+### [ ] P1-5: Dialect-aware function completion
+
+Rust currently returns all known functions regardless of the active connection dialect.
+Example: PostgreSQL users see MySQL-only functions such as `GET_LOCK` and `BENCHMARK`.
+
+**Action:**
+1. Add a lightweight dialect parameter to the context detection CLI/API.
+2. Do not make `poste-core` depend directly on `poste-exec` unless the dependency graph is explicitly accepted.
+3. Annotate functions with dialect tags.
+4. Filter functions when dialect is known; keep current all-functions behavior when dialect is unknown.
+5. Add tests for at least PostgreSQL and MySQL.
+
+**File(s):** `crates/poste-core/src/sql_context/functions.rs`, `crates/poste-core/src/sql_context/mod.rs`, `crates/poste-cli/src/main.rs`, `lua/poste/sql/completion.lua`
 
 ---
 
-## P2: Quality of Life
+## P2: Polish and Performance
 
-### [ ] P2-1: Add `ContextType::Set` for `SET` in UPDATE
+### [ ] P2-1: Revisit window completion behavior
 
-`UPDATE users SET name = 'x', ` → after comma, cursor should be `Column` (next column to set).
-Currently works because `SET` is in `is_column_keyword`.
+`OVER` and `PARTITION` are now keywords and tests pass for `PARTITION BY` / `ORDER BY`.
+The remaining question is product behavior: should `OVER (` suggest window keywords/functions first, or keep generic keywords/functions?
 
-But `SET` in other contexts (`SET session_parameter = value`) should not trigger `Column`.
+**Action:**
+1. Decide whether to add `ContextType::Window`.
+2. If added, expose dedicated items for `PARTITION BY`, `ORDER BY`, frame clauses, and window functions.
+3. Keep `PARTITION BY` column completion.
 
-**Action:** Verify current behavior is correct for both cases. Add test if missing.
+**File(s):** `crates/poste-core/src/sql_context/mod.rs`, `lua/poste/sql/completion.lua`, `lua/poste/sql/completion_data.lua`
 
-**File(s):** `mod.rs` (tests)
+### [ ] P2-2: Verify `SET` behavior in UPDATE vs session settings
 
-### [ ] P2-2: Improve Lua fallback with Rust tokenizer library
+`UPDATE users SET name = 'x', ` should suggest columns.
+`SET statement_timeout = ` should not suggest table columns.
 
-Instead of Lua regex fallback making subprocess calls, consider compiling the Rust tokenizer as a shared library or embedding a WASM build.
+**Current status:** Rust has a passing `test_detect_set_statement`; still add/update tests for comma-after-update-set.
 
-**Action:** Research — this is a stretch goal only if subprocess latency becomes a problem.
+**File(s):** `crates/poste-core/src/sql_context/mod.rs`
 
 ### [ ] P2-3: Subprocess reuse optimization
 
-Each keystroke spawns `poste context detect` as a new process. For large `###` blocks this is wasteful.
+Each completion request spawns `poste context detect`.
 
 **Action:**
-1. Consider Neovim `chansend` / RPC to a persistent `poste` daemon
-2. Or batch requests: debounce keystrokes and cache recent results
+1. Measure context detection latency in realistic large `###` blocks.
+2. Add debounce/cache if needed.
+3. Consider a persistent Neovim job/RPC process only if measurements justify it.
 
-**File(s):** `completion.lua` (`try_rust_context`)
+**File(s):** `lua/poste/sql/completion.lua`
 
-### [ ] P2-4: Add `FOR UPDATE` / `FOR SHARE` clause handling
+### [ ] P2-4: Keep statement-boundary fallback minimal
 
-`SELECT ... FOR UPDATE OF table` should trigger Table completion after `OF`.
-`SELECT ... FOR UPDATE NOWAIT` / `SKIP LOCKED` should be recognized as keywords.
-
-**Action:**
-1. Add `FOR` handling in context detection (currently may not be in keyword list)
-2. After `FOR UPDATE OF` → Table
-3. `NOWAIT`, `SKIP LOCKED` → keywords
-
-**File(s):** `tokenizer.rs`, `mod.rs`
-
-### [ ] P2-5: Test baseline for hybrid mode
-
-The default hybrid mode (Rust + Lua fallback) is not explicitly tested in Rust tests or Lua tests.
+Rust `find_statement_span()` handles semicolons in strings/comments, but Lua still has fallback statement extraction.
 
 **Action:**
-1. Add integration test that exercises the full path: Lua → Rust → Lua fallback
-2. Verify fallback trigger conditions are correct
-3. Test all three `vim.g.poste_sql_legacy_completion` modes
+1. Keep Rust as the preferred path.
+2. Keep Lua only for binary-missing legacy behavior.
+3. Add tests for directives, blank lines, `###`, and semicolons inside strings/comments.
 
-**File(s):** `tests/` (new integration test)
+**File(s):** `lua/poste/sql/init.lua`, `crates/poste-core/src/sql_context/mod.rs`, `tests/`
+
+### [ ] P2-5: Clean up stale tests/comments
+
+Some tests still contain `BUG`, `BEFORE FIX`, or `CURRENT/Ideal` comments that no longer match the current behavior.
+
+**Action:**
+1. Audit `tests/sql_completion_edge_spec.lua` and Rust sql_context tests.
+2. Convert stale comments into assertions or remove them.
+3. Fix the unused variable warning in `test_extract_join_with_schema_and_alias`.
+
+**File(s):** `tests/`, `crates/poste-core/src/sql_context/mod.rs`
 
 ---
 
 ## Summary by Priority
 
-| Priority | Count | Key Theme |
-|----------|-------|-----------|
-| P0 | 5 | Stop data drift between Rust and Lua; eliminate duplicate logic |
-| P1 | 5 | Fill context detection gaps; add dialect awareness |
-| P2 | 5 | Polish, performance, missing clauses |
+| Priority | Count | Theme |
+|----------|-------|-------|
+| P0 | 5 | Deterministic authority, schema correctness, test the real orchestration path |
+| P1 | 5 | SQL coverage gaps and dialect awareness |
+| P2 | 5 | UX polish, performance, stale test cleanup |
 
 Total: 15 items
 
@@ -204,12 +242,11 @@ Total: 15 items
 
 ## Quick Start for Agent
 
-When starting a TODO item:
-
-1. `cargo test -p poste-core` — get baseline
-2. Read the relevant source file (listed above)
-3. Read the test block at bottom of `mod.rs` for patterns
-4. Implement Rust-side first
-5. `cargo test -p poste-core` — verify
-6. Update Lua minimally
-7. Mark `[x]` when done
+1. Read `.opencode/skills/sql-completion/SKILL.md`.
+2. Run `cargo test -p poste-core` to get the Rust baseline.
+3. Reproduce the target case with `target/debug/poste context detect <offset>`.
+4. Implement Rust-side parsing/context first.
+5. Preserve `schema` and `alias` through CLI/Lua when table columns are involved.
+6. Update Lua only for orchestration, UI dispatch, async fetching, or explicit legacy fallback.
+7. Add Rust tests plus Lua integration tests when the orchestrator behavior changes.
+8. Run `cargo test -p poste-core` and the relevant Lua tests.

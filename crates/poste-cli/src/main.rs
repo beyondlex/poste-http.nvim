@@ -322,6 +322,7 @@ struct ContextDetectResponse {
     ctx_data: Option<String>,
     prefix: String,
     tables: Vec<TableRefInfo>,
+    functions: Vec<&'static str>,
     in_string: bool,
     in_comment: bool,
 }
@@ -350,6 +351,7 @@ fn make_detect_response(result: &poste_core::sql_context::ContextResult) -> Cont
         ctx_data,
         prefix: result.prefix.clone(),
         tables,
+        functions: result.functions.clone(),
         in_string: result.in_string,
         in_comment: result.in_comment,
     }
@@ -368,6 +370,7 @@ fn handle_context_command(action: ContextAction) -> Result<()> {
                     ctx_data: None,
                     prefix: String::new(),
                     tables: vec![],
+                    functions: vec![],
                     in_string: true,
                     in_comment: true,
                 },

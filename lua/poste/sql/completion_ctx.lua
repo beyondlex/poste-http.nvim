@@ -154,17 +154,35 @@ function M.filter(items, prefix)
   end, items)
 end
 
+function M.func_items(prefix, funcs)
+  local low = prefix:lower()
+  local items = {}
+  local list = funcs or data.SQL_FUNCTIONS
+  for _, fn in ipairs(list) do
+    if fn:lower():sub(1, #low) == low then
+      table.insert(items, {
+        label = fn,
+        kind = 10,
+        insertText = fn,
+        sortText = "2" .. fn,
+        documentation = "function"
+      })
+    end
+  end
+  return items
+end
+
 function M.kw_items(prefix)
   local low = prefix:lower()
   local items = {}
   for _, kw in ipairs(data.KEYWORDS) do
     if kw:lower():sub(1, #low) == low then
-      table.insert(items, { label = kw, kind = 14, insertText = kw, documentation = "keyword" })
+      table.insert(items, { label = kw, kind = 14, insertText = kw, sortText = "0" .. kw, documentation = "keyword" })
     end
   end
   for _, t in ipairs(data.DATA_TYPES) do
     if t:lower():sub(1, #low) == low then
-      table.insert(items, { label = t, kind = 25, insertText = t, documentation = "type" })
+      table.insert(items, { label = t, kind = 25, insertText = t, sortText = "0" .. t, documentation = "type" })
     end
   end
   return items

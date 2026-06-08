@@ -165,6 +165,8 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     end
   end
 
+  local rust_functions = (rust_ctx and rust_ctx.functions) or nil
+
   if vim.g.poste_sql_debug then
     state.log("INFO", string.format("DEBUG get_items: ctx=%s, prefix='%s', line='%s'",
       ctx_type, prefix, line_before))
@@ -252,7 +254,9 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     end
 
     if #real_tbls == 0 then
-      callback(ctx.kw_items(prefix))
+      local items = ctx.kw_items(prefix)
+      vim.list_extend(items, ctx.func_items(prefix, rust_functions))
+      callback(items)
       return
     end
     local pending = #real_tbls
@@ -262,7 +266,17 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     local function flush()
       if done then return end
       done = true
-      callback(ctx.filter(all, prefix))
+      local items = ctx.filter(all, prefix)
+      -- Show functions only when user typed a prefix to avoid clobbering
+      if prefix ~= "" then
+        local funcs = ctx.func_items(prefix, rust_functions)
+        if vim.g.poste_sql_debug then
+          state.log("INFO", string.format("DEBUG flush: prefix='%s', %d cols, %d funcs (rust_functions=%s)",
+            prefix, #items, #funcs, tostring(rust_functions ~= nil)))
+        end
+        vim.list_extend(items, funcs)
+      end
+      callback(items)
     end
     for _, tbl in ipairs(real_tbls) do
       data.ensure_columns(tbl, function()
@@ -279,7 +293,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
               kind = 5,
               insertText = col,
               filterText = col,
-              sortText = col,
+              sortText = "1" .. col,
               documentation = "col: " .. uniq
             })
           end
@@ -351,13 +365,16 @@ local function get_items(bufnr, line_before, cursor_line, callback)
       local cache = data.get_cache()
       local tbls = cache[key] and cache[key].tables or {}
       local items = ctx.kw_items(prefix)
+      vim.list_extend(items, ctx.func_items(prefix))
       for _, item in ipairs(ctx.filter(ctx.make_items(tbls, 7, "table: "), prefix)) do
         table.insert(items, item)
       end
       callback(items)
     end)
   else
-    callback(ctx.kw_items(prefix))
+    local items = ctx.kw_items(prefix)
+    vim.list_extend(items, ctx.func_items(prefix, rust_functions))
+    callback(items)
   end
 end
 
@@ -418,7 +435,7 @@ function M:get_completions(ctx, callback)
     if vim.g.poste_sql_debug then
       state.log("INFO", string.format("SQL completion: %d items (deduped from %d)", #deduped, #items))
     end
-    callback({ is_incomplete_forward = false, is_incomplete_backward = false, items = deduped })
+    callback({ is_incomplete_forward = true, is_incomplete_backward = false, items = deduped })
   end)
 end
 

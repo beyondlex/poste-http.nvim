@@ -19,6 +19,7 @@
 //! assert_eq!(result.tables[0].name, "users");
 //! ```
 
+mod functions;
 mod tokenizer;
 mod tables;
 
@@ -92,6 +93,8 @@ pub struct ContextResult {
     pub prefix: String,
     /// All tables referenced in the current statement scope (deduplicated).
     pub tables: Vec<TableRef>,
+    /// Known SQL function names for completion.
+    pub functions: Vec<&'static str>,
     /// Whether the cursor is inside a string literal.
     pub in_string: bool,
     /// Whether the cursor is inside a comment.
@@ -116,6 +119,7 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
             context_type: ContextType::Keyword,
             tables: vec![],
             prefix: String::new(),
+            functions: functions::known_functions().to_vec(),
             in_string: false,
             in_comment: false,
         });
@@ -136,10 +140,12 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     // Special cases: check for dot-notation at cursor
     if let Some(ctx) = try_dot_column(&tokens, cursor_idx, sql) {
         let tables = extract_tables(&tokens, sql);
+        let funcs = functions::known_functions().to_vec();
         return Some(ContextResult {
             context_type: ctx,
             tables,
             prefix,
+            functions: funcs,
             in_string: false,
             in_comment: false,
         });
@@ -148,10 +154,12 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     // Special cases: check for INSERT INTO table ( — InsertColumn
     if let Some(ctx) = try_insert_column(&tokens, cursor_idx, sql) {
         let tables = extract_tables(&tokens, sql);
+        let funcs = functions::known_functions().to_vec();
         return Some(ContextResult {
             context_type: ctx,
             tables,
             prefix,
+            functions: funcs,
             in_string: false,
             in_comment: false,
         });
@@ -160,10 +168,12 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     // Special cases: @connection / USE
     if let Some(ctx) = try_directive(&tokens, cursor_idx, sql) {
         let tables = extract_tables(&tokens, sql);
+        let funcs = functions::known_functions().to_vec();
         return Some(ContextResult {
             context_type: ctx,
             tables,
             prefix,
+            functions: funcs,
             in_string: false,
             in_comment: false,
         });
@@ -173,10 +183,12 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     let context_type = detect_scan_backward(&tokens, cursor_idx, sql);
 
     let tables = extract_tables(&tokens, sql);
+    let functions = functions::known_functions().to_vec();
     Some(ContextResult {
         context_type,
         tables,
         prefix,
+        functions,
         in_string: false,
         in_comment: false,
     })
@@ -485,15 +497,20 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str) -> Conte
                 }
             }
             TokenKind::LParen => {
-                // We're inside parens — could be a subquery or function call
-                // Check what's before the paren
+                // Distinguish function-call parens from subquery/expression parens
                 if let Some(prev) = skip_back(tokens, i) {
                     let prev_text = tokens[prev].text(sql).to_ascii_lowercase();
+                    // IN/EXISTS (subquery) → Keyword
                     if prev_text == "in" || prev_text == "exists" {
                         return ContextType::Keyword;
                     }
+                    // FROM/JOIN/UPDATE/INTO/TABLE (subquery start) → Keyword
+                    if is_table_keyword(&prev_text) {
+                        return ContextType::Keyword;
+                    }
+                    // Otherwise: function-call args, expression grouping → Column
+                    return ContextType::Column;
                 }
-                // Inside a subquery or function: default to keyword
                 return ContextType::Keyword;
             }
             TokenKind::Ident | TokenKind::NumLit => {
@@ -1057,58 +1074,140 @@ mod tests {
         assert_eq!(result.context_type, ContextType::Keyword);
     }
 
+    // ---- Function call parens — should suggest Column ----
+
+    #[test]
+    fn test_detect_function_paren_coalesce() {
+        let result = detect_context("SELECT COALESCE(", 16).unwrap();
+        assert_eq!(result.context_type, ContextType::Column,
+            "COALESCE( is a function call → Column");
+    }
+
+    #[test]
+    fn test_detect_function_paren_from_unixtime() {
+        let result = detect_context("SELECT FROM_UNIXTIME(", 21).unwrap();
+        assert_eq!(result.context_type, ContextType::Column,
+            "FROM_UNIXTIME( is a function call → Column");
+    }
+
+    #[test]
+    fn test_detect_function_paren_concat() {
+        let result = detect_context("SELECT CONCAT(", 14).unwrap();
+        assert_eq!(result.context_type, ContextType::Column,
+            "CONCAT( is a function call → Column");
+    }
+
+    #[test]
+    fn test_detect_function_paren_nested() {
+        let result = detect_context("SELECT ROUND(AVG(", 17).unwrap();
+        assert_eq!(result.context_type, ContextType::Column,
+            "Nested function call AVG( → Column");
+    }
+
+    #[test]
+    fn test_detect_function_paren_after_comma() {
+        let result = detect_context("SELECT COALESCE(col1, ", 22).unwrap();
+        assert_eq!(result.context_type, ContextType::Column,
+            "Inside COALESCE( after comma → Column");
+    }
+
+    #[test]
+    fn test_detect_function_paren_with_tables() {
+        let result = detect_context(
+            "SELECT COALESCE(col1, col2) FROM users WHERE COALESCE(", 53).unwrap();
+        assert_eq!(result.context_type, ContextType::Column,
+            "COALESCE( in WHERE should suggest columns");
+        assert!(result.tables.iter().any(|t| t.name == "users"),
+            "Tables should include 'users' from outer query");
+    }
+
+    #[test]
+    fn test_detect_where_paren_expression() {
+        let result = detect_context("SELECT * FROM users WHERE (", 27).unwrap();
+        assert_eq!(result.context_type, ContextType::Column,
+            "WHERE ( is expression grouping → Column");
+    }
+
+    #[test]
+    fn test_detect_and_paren_expression() {
+        let result = detect_context("SELECT * FROM users WHERE id = 1 AND (", 38).unwrap();
+        assert_eq!(result.context_type, ContextType::Column,
+            "AND ( is expression grouping → Column");
+    }
+
+    #[test]
+    fn test_detect_subquery_paren_after_from() {
+        let result = detect_context("SELECT * FROM (", 15).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword,
+            "FROM ( is subquery start → Keyword");
+    }
+
+    #[test]
+    fn test_detect_subquery_paren_after_in() {
+        let result = detect_context("SELECT * FROM users WHERE id IN (", 34).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword,
+            "IN ( is subquery → Keyword");
+    }
+
+    #[test]
+    fn test_detect_subquery_paren_after_exists() {
+        let result = detect_context("SELECT * FROM users WHERE EXISTS (", 35).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword,
+            "EXISTS ( is subquery → Keyword");
+    }
+
     #[test]
     fn test_detect_coalesce() {
         let result = detect_context("SELECT COALESCE(", 16).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column);
     }
 
     #[test]
     fn test_detect_nullif() {
         let result = detect_context("SELECT NULLIF(", 14).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column);
     }
 
     #[test]
     fn test_detect_count() {
         let result = detect_context("SELECT COUNT(", 13).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column);
     }
 
     #[test]
     fn test_detect_avg() {
         let result = detect_context("SELECT AVG(", 11).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column);
     }
 
     #[test]
     fn test_detect_sum() {
         let result = detect_context("SELECT SUM(", 11).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column);
     }
 
     #[test]
     fn test_detect_extract() {
         let result = detect_context("SELECT EXTRACT(", 15).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column);
     }
 
     #[test]
     fn test_detect_concat() {
         let result = detect_context("SELECT CONCAT(", 14).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column);
     }
 
     #[test]
     fn test_detect_substring() {
         let result = detect_context("SELECT SUBSTRING(", 17).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column);
     }
 
     #[test]
     fn test_detect_cast_as() {
         let result = detect_context("SELECT CAST(", 12).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column);
     }
 
     // ---- RETURNING / ON CONFLICT ----

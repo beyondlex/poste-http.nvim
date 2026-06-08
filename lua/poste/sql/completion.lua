@@ -444,6 +444,25 @@ function M.source:is_available()
   return ft == "poste_sql" or ft == "poste_sqlite"
 end
 function M.source:get_trigger_characters() return { ".", " ", "@", "(", "," } end
+function M.source:execute(entry, callback)
+  local item = entry:get_completion_item()
+  if item.data and item.data.directive_fallback then
+    vim.schedule(function()
+      local buf = vim.api.nvim_get_current_buf()
+      local lnum = vim.fn.line(".")
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local indent = (lines[lnum] or ""):match("^(%s*)") or ""
+      table.insert(lines, lnum, indent .. "-- @connection " .. item.data.conn_name)
+      lines[lnum + 1] = indent .. "-- @database "
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      vim.api.nvim_win_set_cursor(0, { lnum + 1, #(indent .. "-- @database ") })
+      vim.cmd("startinsert!")
+    end)
+    callback()
+    return
+  end
+  callback()
+end
 function M.source:complete(params, callback)
   local line_before = params.context.cursor_before_line or ""
   local bufnr = vim.api.nvim_get_current_buf()

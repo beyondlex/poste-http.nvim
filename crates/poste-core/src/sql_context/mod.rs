@@ -42,6 +42,8 @@ pub enum ContextType {
     Column,
     /// After `table.` or `alias.` — suggest columns for that table.
     DotColumn { table: String, schema: Option<String> },
+    /// After `schema.` in FROM/JOIN context — suggest tables for that schema.
+    SchemaTable { schema: String },
     /// Inside INSERT INTO table(...) — suggest columns for insertion.
     InsertColumn { table: String },
     /// After `@connection` — suggest connection names.
@@ -60,6 +62,7 @@ impl ContextType {
             Self::Table => "table",
             Self::Column => "column",
             Self::DotColumn { .. } => "dot_column",
+            Self::SchemaTable { .. } => "schema_table",
             Self::InsertColumn { .. } => "insert_column",
             Self::Connection => "connection",
             Self::Database => "database",
@@ -71,6 +74,7 @@ impl ContextType {
     pub fn data(&self) -> Option<String> {
         match self {
             Self::DotColumn { table, .. } => Some(table.clone()),
+            Self::SchemaTable { schema } => Some(schema.clone()),
             Self::InsertColumn { table } => Some(table.clone()),
             _ => None,
         }
@@ -204,6 +208,7 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
 }
 
 /// Try to detect a dot-column context: `table.` or `alias.` or `schema.table.`
+/// Also detects schema-qualified table context: `schema.` after FROM/JOIN.
 fn try_dot_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
     // Check if the cursor is right after a dot
     // Case 1: cursor is on an Ident/Keyword after a dot → table.col
@@ -223,7 +228,17 @@ fn try_dot_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<Cont
         let prev_tok = &tokens[prev_idx];
         match prev_tok.kind {
             TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword => {
-                let table = prev_tok.text(sql).to_string();
+                let ident = prev_tok.text(sql).to_string();
+                // Scan backward to check if we're in FROM/JOIN context — if so,
+                // this dot is a namespace qualifier, not a column accessor.
+                if let Some(ctx_kw_idx) = skip_back(tokens, prev_idx) {
+                    if tokens[ctx_kw_idx].kind == TokenKind::Keyword {
+                        let kw = tokens[ctx_kw_idx].text(sql).to_ascii_lowercase();
+                        if is_table_keyword(&kw) {
+                            return Some(ContextType::SchemaTable { schema: ident });
+                        }
+                    }
+                }
                 // Check for schema qualifier: schema.table.
                 let mut schema = None;
                 if let Some(before) = skip_back(tokens, prev_idx) {
@@ -236,7 +251,7 @@ fn try_dot_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<Cont
                         }
                     }
                 }
-                Some(ContextType::DotColumn { table, schema })
+                Some(ContextType::DotColumn { table: ident, schema })
             }
             _ => None,
         }
@@ -853,6 +868,25 @@ mod tests {
         let result = detect_context("SELECT * FROM auth.users WHERE users.", 39).unwrap();
         assert_eq!(result.context_type, ContextType::DotColumn { table: "users".into(), schema: None });
         assert!(result.tables.iter().any(|t| t.name == "users" && t.schema == Some("auth".into())));
+    }
+
+    #[test]
+    fn test_detect_schema_table_after_from_dot() {
+        let result = detect_context("SELECT * FROM inventory.", 24).unwrap();
+        assert_eq!(result.context_type, ContextType::SchemaTable { schema: "inventory".into() });
+    }
+
+    #[test]
+    fn test_detect_schema_table_with_prefix() {
+        let result = detect_context("SELECT * FROM inventory.us", 27).unwrap();
+        assert_eq!(result.context_type, ContextType::SchemaTable { schema: "inventory".into() });
+        assert_eq!(result.prefix, "us");
+    }
+
+    #[test]
+    fn test_detect_schema_table_after_join_dot() {
+        let result = detect_context("SELECT * FROM t JOIN inventory.", 32).unwrap();
+        assert_eq!(result.context_type, ContextType::SchemaTable { schema: "inventory".into() });
     }
 
     #[test]

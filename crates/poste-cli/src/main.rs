@@ -346,6 +346,7 @@ fn make_detect_response(result: &poste_core::sql_context::ContextResult) -> Cont
     let ctx_data = result.context_type.data();
     let ctx_schema = match &result.context_type {
         poste_core::sql_context::ContextType::DotColumn { schema, .. } => schema.clone(),
+        poste_core::sql_context::ContextType::SchemaTable { .. } => None,
         _ => None,
     };
     let tables: Vec<TableRefInfo> = result.tables.iter().map(|t| TableRefInfo {

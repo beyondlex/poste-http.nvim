@@ -287,6 +287,70 @@ function M.ensure_tables(callback)
   })
 end
 
+--- Fetch tables for a specific database/schema (e.g. `FROM inventory.`)
+function M.ensure_tables_for_db(db_name, callback)
+  local key = M.conn_key()
+  local ctx = M.resolve_current_context()
+  if not key or not ctx or not ctx.connection then
+    callback()
+    return
+  end
+
+  local db_cache_key = key .. "/db:" .. db_name
+
+  if cache[db_cache_key] and #cache[db_cache_key].tables > 0 then callback(); return end
+
+  if fetching_tables[db_cache_key] then
+    tables_callbacks[db_cache_key] = tables_callbacks[db_cache_key] or {}
+    table.insert(tables_callbacks[db_cache_key], callback)
+    return
+  end
+
+  fetching_tables[db_cache_key] = true
+  tables_callbacks[db_cache_key] = { callback }
+
+  local binary = M.find_binary()
+  if not binary then
+    fetching_tables[db_cache_key] = false
+    for _, cb in ipairs(tables_callbacks[db_cache_key] or {}) do cb() end
+    tables_callbacks[db_cache_key] = nil
+    return
+  end
+
+  local args = { binary, "introspect", ctx.connection,
+    "--type", "tables", "--path", M.search_dir(),
+    "--env", state.current_env or "dev" }
+  vim.list_extend(args, { "--database", db_name })
+
+  vim.fn.jobstart(args, {
+    stdout_buffered = true,
+    on_stdout = function(_, data)
+      if not data then return end
+      while #data > 0 and data[#data] == "" do data[#data] = nil end
+      if #data == 0 then return end
+      local ok, parsed = pcall(vim.json.decode, table.concat(data, "\n"))
+      if ok and parsed and parsed.items then
+        cache[db_cache_key] = cache[db_cache_key] or { tables = {}, columns = {} }
+        cache[db_cache_key].tables = vim.tbl_map(function(i) return i.name end, parsed.items)
+      end
+      fetching_tables[db_cache_key] = false
+      vim.schedule(function()
+        for _, cb in ipairs(tables_callbacks[db_cache_key] or {}) do cb() end
+        tables_callbacks[db_cache_key] = nil
+      end)
+    end,
+    on_exit = function(_, code)
+      fetching_tables[db_cache_key] = false
+      if code ~= 0 then
+        vim.schedule(function()
+          for _, cb in ipairs(tables_callbacks[db_cache_key] or {}) do cb() end
+          tables_callbacks[db_cache_key] = nil
+        end)
+      end
+    end,
+  })
+end
+
 ---------------------------------------------------------------------------
 -- Lazy fetch databases for current connection
 ---------------------------------------------------------------------------

@@ -232,6 +232,31 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     return
   end
 
+  if ctx_type == "schema_table" then
+    local schema_name = ctx_data
+    local tbl_prefix = line_before:match("[%w_]+%.([%w_]*)$") or ""
+    data.ensure_tables_for_db(schema_name, function()
+      local key = data.conn_key()
+      local db_cache_key = key .. "/db:" .. schema_name
+      local cache = data.get_cache()
+      local tbls = cache[db_cache_key] and cache[db_cache_key].tables or {}
+      local items = {}
+      for _, t in ipairs(tbls) do
+        table.insert(items, {
+          label = schema_name .. "." .. t,
+          kind = 7,
+          insertText = t,
+          documentation = "table: " .. schema_name .. "." .. t,
+        })
+      end
+      if #items == 0 then
+        items = ctx.kw_items(tbl_prefix)
+      end
+      callback(ctx.filter(items, tbl_prefix))
+    end)
+    return
+  end
+
   if ctx_type == "table" then
     local pending = 2
     local all_items = {}

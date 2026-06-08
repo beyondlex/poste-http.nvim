@@ -72,7 +72,7 @@ Current parser checks fixed token positions after `schema.table` and does not sk
 
 **File(s):** `crates/poste-core/src/sql_context/tables.rs`, `crates/poste-core/src/sql_context/mod.rs`
 
-### [ ] P0-4: Make Rust/Lua function and keyword data intentionally sourced
+### [x] P0-4: Make Rust/Lua function and keyword data intentionally sourced
 
 The Rust and Lua function lists are currently very similar, but still duplicated. Lua keywords are display snippets while Rust keywords classify tokens, so they are related but not identical.
 

@@ -9,6 +9,11 @@ local M = {}
 -- Keywords & types
 ---------------------------------------------------------------------------
 
+--- Completion display snippets.
+--- Role: completion UI display, may include compound snippets (e.g. "ORDER BY").
+--- This is NOT the same as Rust `is_known_keyword()`, which classifies individual
+--- tokens for context detection. Every single-word entry here that affects parsing
+--- must also be known by Rust. See drift test in `tests/sql_completion_spec.lua`.
 local KEYWORDS = {
   "SELECT", "FROM", "WHERE", "JOIN", "INNER JOIN", "LEFT JOIN", "RIGHT JOIN",
   "FULL JOIN", "CROSS JOIN", "ON", "GROUP BY", "ORDER BY", "HAVING",
@@ -48,6 +53,11 @@ local COLUMN_CTX = {
   ["!="] = true, ["<>"] = true,
 }
 
+--- Fallback-only SQL function list.
+--- Rust `functions.rs` is the authoritative source. This list is only used
+--- when the Rust binary is unavailable (`vim.g.poste_sql_legacy_completion = true`).
+--- MUST be a subset of Rust's `known_functions()`. See drift tests in
+--- `tests/sql_completion_spec.lua`.
 local SQL_FUNCTIONS = {
   -- String
   "CONCAT", "CONCAT_WS", "FORMAT", "INSTR", "LOCATE", "POSITION",

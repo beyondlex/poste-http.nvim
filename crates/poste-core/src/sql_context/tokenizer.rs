@@ -320,3 +320,31 @@ pub(crate) fn extract_prefix(sql: &str, offset: usize, tokens: &[Token], idx: us
     }
     String::new()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Drift check: every structural single-word SQL keyword from Lua KEYWORDS
+    /// must be recognized by Rust's is_known_keyword() for correct token classification.
+    /// Compound snippets (e.g. "ORDER BY") are display-only and not checked.
+    #[test]
+    fn test_lua_keywords_recognized_by_rust() {
+        let single_word_keywords: &[&str] = &[
+            "SELECT", "FROM", "WHERE", "JOIN", "ON", "HAVING", "LIMIT", "OFFSET",
+            "DISTINCT", "ALL", "UNION", "AS", "WITH", "VALUES", "UPDATE", "SET",
+            "AND", "OR", "NOT", "IN", "EXISTS", "IS", "NULL", "LIKE", "ILIKE", "BETWEEN",
+            "UNIQUE", "DEFAULT", "REFERENCES", "COMMENT", "AFTER",
+            "BEGIN", "COMMIT", "ROLLBACK", "DESC", "SHOW", "USE",
+            "DELETE", "ADD", "DROP", "RENAME", "MODIFY",
+        ];
+        for &kw in single_word_keywords {
+            assert!(
+                is_known_keyword(kw),
+                "Lua keyword '{}' is not in Rust's is_known_keyword() — tokenizer classifies it as Ident",
+                kw,
+            );
+        }
+    }
+
+}

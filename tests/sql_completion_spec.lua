@@ -680,7 +680,7 @@ describe("get_items keyword context (no connection)", function()
     assert.is_nil(labels["SELECT"], "SELECT should not match prefix CRE")
   end)
 
-  it("returns data types as well as keywords", function()
+  it("returns data types as well as keywords (regression: INSERT INTO keyword)", function()
     local buf = make_buf({ "###", "IN" })
     local items = nil
     get_items(buf, "IN", 2, function(r) items = r end)
@@ -691,5 +691,40 @@ describe("get_items keyword context (no connection)", function()
     assert.is_true(labels["INTEGER"], "data type INTEGER should match")
     assert.is_true(labels["INSERT INTO"], "keyword INSERT INTO should match prefix IN")
     assert.is_true(labels["IN"], "keyword IN should match prefix IN")
+  end)
+end)
+
+-- ── 7. Drift check: Lua fallback functions ⊆ Rust functions ───────────────────
+-- Requires Rust binary. Skip if not found.
+-- Authoritative drift tests are in Rust: test_lua_fallback_functions_are_subset,
+-- test_lua_keywords_recognized_by_rust.
+describe("Rust/Lua function drift", function()
+  it("every Lua SQL_FUNCTIONS entry exists in Rust known_functions()", function()
+    local binary = data.find_binary()
+    if not binary then
+      print("SKIP: Rust binary not found")
+      assert.is_true(true)
+      return
+    end
+    local out = vim.fn.system(binary .. " context detect 0", "")
+    if vim.v.shell_error ~= 0 then
+      print("SKIP: Rust context detect failed")
+      assert.is_true(true)
+      return
+    end
+    local ok, rust = pcall(vim.json.decode, out)
+    if not ok or not rust.functions then
+      print("SKIP: cannot parse Rust output")
+      assert.is_true(true)
+      return
+    end
+    local rust_set = {}
+    for _, f in ipairs(rust.functions) do rust_set[f] = true end
+    local missing = {}
+    for _, f in ipairs(data.SQL_FUNCTIONS) do
+      if not rust_set[f] then table.insert(missing, f) end
+    end
+    assert.equals(0, #missing,
+      "Lua functions not in Rust: " .. table.concat(missing, ", "))
   end)
 end)

@@ -125,7 +125,14 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
         });
     }
 
-    let cursor_idx = find_token_at_offset(&tokens, offset).unwrap_or(0);
+    let cursor_idx_raw = find_token_at_offset(&tokens, offset).unwrap_or(0);
+    // When cursor past found token's end, advance to next token (handles
+    // trailing-whitespace cases where find_token_at_offset falls back)
+    let cursor_idx = if cursor_idx_raw + 1 < tokens.len() && offset > tokens[cursor_idx_raw].end {
+        cursor_idx_raw + 1
+    } else {
+        cursor_idx_raw
+    };
     let cursor_tok = &tokens[cursor_idx];
 
     // Check for string/comment — return None (no SQL completion)
@@ -180,7 +187,9 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     }
 
     // General case: scan backward for context keyword
-    let context_type = detect_scan_backward(&tokens, cursor_idx, sql);
+    let cursor_on_ident = matches!(cursor_tok.kind,
+        TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At);
+    let context_type = detect_scan_backward(&tokens, cursor_idx, sql, cursor_on_ident);
 
     let tables = extract_tables(&tokens, sql);
     let functions = functions::known_functions().to_vec();
@@ -391,7 +400,7 @@ fn try_directive(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<Conte
 }
 
 /// Generic backward scan for context keyword.
-fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str) -> ContextType {
+fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str, cursor_on_ident: bool) -> ContextType {
     // Start from cursor, scan backward
     let mut i = cursor_idx;
     let mut after_comma = false;
@@ -414,9 +423,12 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str) -> Conte
                 let kw = tok.text(sql).to_ascii_lowercase();
                 if is_table_keyword(&kw) {
                     // If we already skipped an ident (the table name), the
-                    // table has been provided — return keyword so the user
-                    // sees WHERE/JOIN/ORDER BY etc.
+                    // table has been provided. If the user is still typing
+                    // (has_prefix), suggest tables; otherwise keywords.
                     if !skip_one_ident {
+                        if cursor_on_ident {
+                            return ContextType::Table;
+                        }
                         return ContextType::Keyword;
                     }
                     return ContextType::Table;
@@ -424,9 +436,13 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str) -> Conte
                 if is_column_keyword(&kw) {
                     // If we've already consumed a column expression (the
                     // user's typing prefix), the column has been specified.
-                    // Return Keyword — user needs AND/OR/IN/IS etc.
+                    // If the cursor is on the identifier (cursor_on_ident),
+                    // return Column; otherwise Keyword — user needs AND/OR/IN/IS etc.
                     // Applies to clause-heading keywords: SELECT, WHERE, HAVING, RETURNING, AFTER.
                     if !skip_one_ident && (kw == "select" || kw == "where" || kw == "having" || kw == "returning" || kw == "after") {
+                        if cursor_on_ident {
+                            return ContextType::Column;
+                        }
                         return ContextType::Keyword;
                     }
                     // Special handling for NOT: distinguish "WHERE col NOT " (→ Keyword)
@@ -1351,7 +1367,7 @@ mod tests {
     fn test_detect_inside_subquery_in_in_clause() {
         let result = detect_context(
             "SELECT * FROM users WHERE id IN (SELECT user_id FROM orders WHERE ", 57).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Table);
     }
 
     #[test]
@@ -1402,7 +1418,7 @@ mod tests {
     #[test]
     fn test_detect_select_comma_with_prefix() {
         let result = detect_context("SELECT *, col", 13).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Column);
     }
 
     #[test]

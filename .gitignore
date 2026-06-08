@@ -9,3 +9,4 @@ ignore/
 graphify-out/
 .idea/
 conversation-*.md
+session-*.md

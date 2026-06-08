@@ -154,14 +154,6 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     if rust_ok and rust_ctx_raw then
       rust_ctx = rust_ctx_raw
       ctx_type, ctx_data = rust_ctx.ctx_type, rust_ctx.ctx_data
-      if vim.g.poste_sql_legacy_completion ~= "rust" then
-        if ctx_type == "keyword" and prefix ~= "" then
-          local lua_type = ctx.detect_context(line_before)
-          if lua_type ~= "keyword" then
-            ctx_type, ctx_data = lua_type, nil
-          end
-        end
-      end
     end
   end
 

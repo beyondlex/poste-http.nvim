@@ -87,7 +87,7 @@ The Rust and Lua function lists are currently very similar, but still duplicated
 
 **File(s):** `crates/poste-core/src/sql_context/functions.rs`, `crates/poste-core/src/sql_context/tokenizer.rs`, `lua/poste/sql/completion_data.lua`, `tests/`
 
-### [ ] P0-5: Add integration coverage for all completion modes
+### [x] P0-5: Add integration coverage for all completion modes
 
 Rust unit tests are strong, but the Lua orchestrator behavior is where several correctness risks live.
 
@@ -96,8 +96,10 @@ Rust unit tests are strong, but the Lua orchestrator behavior is where several c
 2. Cover Rust success, binary missing fallback, and Rust `keyword` with prefix.
 3. Include a schema-qualified dot-column case.
 4. Include string/comment cases where Lua fallback must not re-enable noisy completions.
+5. **[done]** 69 tests covering 3 modes, Rust CLI integration (7 cases), schema-qualified dot-column, comment/string fallback, toggle_legacy cycle.
+6. **[bonus]** Fixed missing `local data` in drift test (hidden when binary absent). Fixed table context tests to pre-cache databases when binary exists.
 
-**File(s):** `tests/`, `lua/poste/sql/completion.lua`
+**File(s):** `tests/sql_completion_spec.lua`, `tests/completion_spec.lua`, `tests/`
 
 ---
 

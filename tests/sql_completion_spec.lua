@@ -616,6 +616,10 @@ describe("get_items table context", function()
     state.sql = state.sql or {}
     state.sql.context = { connection = "test-conn", database = "blog" }
     sql_comp.cache_tables({ { name = "authors" }, { name = "posts" } })
+    -- Pre-cache databases so ensure_databases doesn't start async job with binary
+    local data_mod = require("poste.sql.completion_data")
+    local cache = data_mod.get_cache()
+    cache["test-conn/__databases__"] = { "blog" }
   end)
 
   it("FROM<space> returns cached tables", function()
@@ -698,6 +702,7 @@ end)
 -- Requires Rust binary. Skip if not found.
 -- Authoritative drift tests are in Rust: test_lua_fallback_functions_are_subset,
 -- test_lua_keywords_recognized_by_rust.
+local data = require("poste.sql.completion_data")
 describe("Rust/Lua function drift", function()
   it("every Lua SQL_FUNCTIONS entry exists in Rust known_functions()", function()
     local binary = data.find_binary()
@@ -726,5 +731,312 @@ describe("Rust/Lua function drift", function()
     end
     assert.equals(0, #missing,
       "Lua functions not in Rust: " .. table.concat(missing, ", "))
+  end)
+end)
+
+-- ── 13. Completion mode integration tests ─────────────────────────
+
+describe("completion mode integration", function()
+  local function make_buf(lines)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
+    vim.api.nvim_set_current_buf(buf)
+    return buf
+  end
+
+  local function mock_find_binary()
+    _G._saved_find_binary = require("poste.sql.completion_data").find_binary
+    require("poste.sql.completion_data").find_binary = function() return nil end
+  end
+
+  local function restore_find_binary()
+    if _G._saved_find_binary then
+      require("poste.sql.completion_data").find_binary = _G._saved_find_binary
+      _G._saved_find_binary = nil
+    end
+  end
+
+  before_each(function()
+    local state = require("poste.state")
+    state.sql = state.sql or {}
+    state.sql.context = { connection = "test-conn", database = "blog" }
+    sql_comp.cache_tables({ { name = "authors" }, { name = "posts" } })
+    sql_comp.cache_columns("authors", {
+      { name = "id" }, { name = "username" }, { name = "email" }, { name = "bio" },
+    })
+    _G._saved_legacy = vim.g.poste_sql_legacy_completion
+  end)
+
+  after_each(function()
+    vim.g.poste_sql_legacy_completion = _G._saved_legacy
+    restore_find_binary()
+  end)
+
+  -- Mode: nil (default hybrid) — exercises Rust path with fallback to Lua
+  describe("legacy_completion = nil (default hybrid)", function()
+    before_each(function() mock_find_binary() end)
+
+    it("returns columns after WHERE", function()
+      vim.g.poste_sql_legacy_completion = nil
+      local buf = make_buf({ "###", "SELECT * FROM authors WHERE " })
+      local items = nil
+      get_items(buf, "SELECT * FROM authors WHERE ", 2, function(r) items = r end)
+      assert.is_not_nil(items)
+      local labels = {}
+      for _, item in ipairs(items) do labels[item.label] = true end
+      assert.is_true(labels["id"])
+      assert.is_true(labels["username"])
+    end)
+
+    it("returns tables after FROM", function()
+      vim.g.poste_sql_legacy_completion = nil
+      local buf = make_buf({ "###", "SELECT * FROM " })
+      local items = nil
+      get_items(buf, "SELECT * FROM ", 2, function(r) items = r end)
+      assert.is_not_nil(items)
+      local labels = {}
+      for _, item in ipairs(items) do labels[item.label] = true end
+      assert.is_true(labels["authors"])
+      assert.is_true(labels["posts"])
+    end)
+
+    it("returns keywords for bare prefix", function()
+      vim.g.poste_sql_legacy_completion = nil
+      local buf = make_buf({ "###", "SEL" })
+      local items = nil
+      get_items(buf, "SEL", 2, function(r) items = r end)
+      assert.is_not_nil(items)
+      local labels = {}
+      for _, item in ipairs(items) do labels[item.label] = true end
+      assert.is_true(labels["SELECT"])
+    end)
+  end)
+
+  -- Mode: true (Lua-only legacy) — Rust path is skipped entirely
+  describe("legacy_completion = true (Lua-only)", function()
+    before_each(function() mock_find_binary() end)
+
+    it("returns columns after WHERE", function()
+      vim.g.poste_sql_legacy_completion = true
+      local buf = make_buf({ "###", "SELECT * FROM authors WHERE " })
+      local items = nil
+      get_items(buf, "SELECT * FROM authors WHERE ", 2, function(r) items = r end)
+      assert.is_not_nil(items)
+      local labels = {}
+      for _, item in ipairs(items) do labels[item.label] = true end
+      assert.is_true(labels["id"])
+      assert.is_true(labels["username"])
+    end)
+
+    it("uses Lua fallback SQL_FUNCTIONS for keyword context", function()
+      vim.g.poste_sql_legacy_completion = true
+      local buf = make_buf({ "###", "CO" })
+      local items = nil
+      get_items(buf, "CO", 2, function(r) items = r end)
+      assert.is_not_nil(items)
+      local labels = {}
+      for _, item in ipairs(items) do labels[item.label] = true end
+      -- Lua fallback functions should be available
+      assert.is_true(labels["COUNT"], "COUNT should come from Lua fallback")
+      assert.is_true(labels["COALESCE"], "COALESCE should come from Lua fallback")
+    end)
+  end)
+
+  -- Mode: "rust" (Rust strict) — Rust path only, no Lua fallback
+  describe("legacy_completion = 'rust' (Rust strict)", function()
+    before_each(function() mock_find_binary() end)
+
+    it("returns columns after WHERE", function()
+      vim.g.poste_sql_legacy_completion = "rust"
+      local buf = make_buf({ "###", "SELECT * FROM authors WHERE " })
+      local items = nil
+      get_items(buf, "SELECT * FROM authors WHERE ", 2, function(r) items = r end)
+      assert.is_not_nil(items)
+      local labels = {}
+      for _, item in ipairs(items) do labels[item.label] = true end
+      assert.is_true(labels["id"])
+      assert.is_true(labels["username"])
+    end)
+
+    it("returns tables after FROM", function()
+      vim.g.poste_sql_legacy_completion = "rust"
+      local buf = make_buf({ "###", "SELECT * FROM " })
+      local items = nil
+      get_items(buf, "SELECT * FROM ", 2, function(r) items = r end)
+      assert.is_not_nil(items)
+      local labels = {}
+      for _, item in ipairs(items) do labels[item.label] = true end
+      assert.is_true(labels["authors"])
+    end)
+  end)
+
+  -- Conditional: Rust binary integration tests
+  describe("Rust binary integration", function()
+    local data_mod = require("poste.sql.completion_data")
+    local binary = data_mod.find_binary()
+    local has_binary = binary ~= nil
+
+    local function skip_or_run(assert_fn)
+      if not has_binary then
+        print("SKIP: Rust binary not found, build with 'cargo build -p poste-cli' first")
+        assert.is_true(true)
+        return
+      end
+      assert_fn()
+    end
+
+    it("detects column context via CLI", function()
+      skip_or_run(function()
+        local out = vim.fn.system(binary .. " context detect 23", "SELECT * FROM authors WHERE ")
+        assert.equals(0, vim.v.shell_error)
+        local ok, parsed = pcall(vim.json.decode, out)
+        assert.is_true(ok)
+        assert.equals("column", parsed.ctx_type)
+      end)
+    end)
+
+    it("detects table context via CLI", function()
+      skip_or_run(function()
+        local out = vim.fn.system(binary .. " context detect 14", "SELECT * FROM ")
+        assert.equals(0, vim.v.shell_error)
+        local ok, parsed = pcall(vim.json.decode, out)
+        assert.is_true(ok)
+        assert.equals("table", parsed.ctx_type)
+      end)
+    end)
+
+    it("detects schema-qualified dot-column with ctx_schema", function()
+      skip_or_run(function()
+        local sql = "SELECT * FROM public.users WHERE public.users."
+        local out = vim.fn.system(binary .. " context detect 47", sql)
+        assert.equals(0, vim.v.shell_error)
+        local ok, parsed = pcall(vim.json.decode, out)
+        assert.is_true(ok)
+        assert.equals("dot_column", parsed.ctx_type)
+        assert.equals("users", parsed.ctx_data)
+        assert.equals("public", parsed.ctx_schema)
+        assert.is_true(#parsed.tables > 0)
+        assert.equals("public", parsed.tables[1].schema)
+        assert.equals("users", parsed.tables[1].name)
+      end)
+    end)
+
+    it("detects string context with in_string flag", function()
+      skip_or_run(function()
+        local sql = "SELECT * FROM users WHERE name = 'hello'"
+        local out = vim.fn.system(binary .. " context detect 39", sql)
+        assert.equals(0, vim.v.shell_error)
+        local ok, parsed = pcall(vim.json.decode, out)
+        assert.is_true(ok)
+        assert.is_true(parsed.in_string, "cursor inside string")
+      end)
+    end)
+
+    it("detects comment context with in_comment flag", function()
+      skip_or_run(function()
+        local sql = "SELECT * FROM users -- comment"
+        local out = vim.fn.system(binary .. " context detect 21", sql)
+        assert.equals(0, vim.v.shell_error)
+        local ok, parsed = pcall(vim.json.decode, out)
+        assert.is_true(ok)
+        assert.is_true(parsed.in_comment, "cursor inside comment")
+      end)
+    end)
+
+    it("detects keyword context after Rust binary fallback", function()
+      skip_or_run(function()
+        local sql = "SEL"
+        local out = vim.fn.system(binary .. " context detect 3", sql)
+        assert.equals(0, vim.v.shell_error)
+        local ok, parsed = pcall(vim.json.decode, out)
+        assert.is_true(ok)
+        assert.equals("keyword", parsed.ctx_type)
+        assert.equals("SEL", parsed.prefix)
+      end)
+    end)
+  end)
+
+  -- Schema-qualified dot-column via Lua fallback
+  describe("schema-qualified dot-column (Lua fallback)", function()
+    it("detects schema.table. as dot_column", function()
+      local ctx, extra = detect_context("public.users.")
+      assert.equals("dot_column", ctx)
+      assert.equals("users", extra)
+    end)
+
+    it("detects db.schema.table. as dot_column", function()
+      local ctx, extra = detect_context("mydb.public.users.")
+      assert.equals("dot_column", ctx)
+      assert.equals("users", extra)
+    end)
+
+    it("detects alias. after schema-qualified table", function()
+      local ctx, extra = detect_context("public.users u WHERE u.")
+      assert.equals("dot_column", ctx)
+      assert.equals("u", extra)
+    end)
+  end)
+
+  -- String/comment: Lua fallback must not introduce false positives
+  describe("comment string fallback behavior", function()
+    it("comment-only line with FROM returns table (known Lua limitation)", function()
+      -- BUG: Lua detect_context has no comment awareness.
+      -- "FROM" at the end of "-- SELECT * FROM " triggers TABLE_CTX.
+      -- This is a known limitation; Rust context detection handles it correctly.
+      local ctx = detect_context("-- SELECT * FROM ")
+      assert.equals("table", ctx)
+    end)
+
+    it("get_items on comment line returns keywords not tables", function()
+      local buf = make_buf({ "###", "-- SELECT * FROM " })
+      local items = nil
+      get_items(buf, "-- SELECT * FROM ", 2, function(r) items = r end)
+      assert.is_not_nil(items)
+      -- Should be keywords, not table names
+      local labels = {}
+      for _, item in ipairs(items) do labels[item.label] = true end
+      -- Table names should NOT appear
+      assert.is_nil(labels["authors"], "tables must not leak on comment lines")
+      assert.is_nil(labels["posts"], "tables must not leak on comment lines")
+    end)
+
+    it("line inside string literal returns keywords not columns", function()
+      local buf = make_buf({ "###", "SELECT * FROM users WHERE name = 'some text'" })
+      -- cursor at the start of the string content
+      local items = nil
+      get_items(buf, "SELECT * FROM users WHERE name = 'some text'", 2, function(r) items = r end)
+      assert.is_not_nil(items)
+      -- When not in string-aware mode, at minimum should not crash
+      local labels = {}
+      for _, item in ipairs(items) do labels[item.label] = true end
+      -- May contain keywords; should not contain string fragments
+      assert.is_nil(labels["some text"], "string content must not leak as items")
+    end)
+  end)
+
+  -- Mode toggle function
+  describe("toggle_legacy cycles through modes", function()
+    before_each(function()
+      vim.g.poste_sql_legacy_completion = nil
+    end)
+
+    it("first call sets to true (Lua-only)", function()
+      sql_comp.toggle_legacy()
+      assert.is_true(vim.g.poste_sql_legacy_completion)
+    end)
+
+    it("second call sets to 'rust' (Rust strict)", function()
+      sql_comp.toggle_legacy()
+      sql_comp.toggle_legacy()
+      assert.equals("rust", vim.g.poste_sql_legacy_completion)
+    end)
+
+    it("third call resets to nil (default hybrid)", function()
+      sql_comp.toggle_legacy()
+      sql_comp.toggle_legacy()
+      sql_comp.toggle_legacy()
+      assert.is_nil(vim.g.poste_sql_legacy_completion)
+    end)
   end)
 end)

@@ -77,9 +77,45 @@ end
 function M.show_search()
   local tab = D.T()
   if not tab or not tab.data or not tab.meta then return end
-  vim.ui.input({ prompt = "Search: " }, function(text)
-    if text == nil then return end
-    if text == "" then
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_set_option_value("buftype", "prompt", { buf = buf })
+  vim.api.nvim_set_option_value("filetype", "poste_search", { buf = buf })
+  vim.api.nvim_set_option_value("swapfile", false, { buf = buf })
+  vim.api.nvim_set_option_value("complete", "", { buf = buf })
+
+  local ui = vim.api.nvim_list_uis()[1]
+  local width = 50
+  local height = 1
+  local row = math.floor((ui.height - height) * 0.4) - 1
+  local col = math.floor((ui.width - width) / 2)
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    style = "minimal",
+    border = "rounded",
+    title = " Search ",
+    title_pos = "center",
+  })
+
+  vim.fn.prompt_setprompt(buf, "> ")
+  vim.api.nvim_set_option_value("winhl", "Normal:NormalFloat,FloatBorder:FloatBorder", { win = win })
+
+  local closed = false
+  local function cleanup()
+    if closed then return end
+    closed = true
+    pcall(vim.api.nvim_win_close, win, { force = true })
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end
+
+  vim.fn.prompt_setcallback(buf, function(text)
+    cleanup()
+    if text == nil or text == "" then
       tab.search_text = nil; tab.search_matches = {}; tab.search_idx = 0
       M.apply_search_highlights(); update_winbar()
       return
@@ -105,6 +141,12 @@ function M.show_search()
       vim.notify("No matches for '" .. text .. "'", vim.log.levels.INFO, { title = "Poste SQL" })
     end
   end)
+
+  local km = { buffer = buf, noremap = true, silent = true }
+  vim.keymap.set("i", "<Esc>", cleanup, km)
+  vim.keymap.set("i", "<C-c>", cleanup, km)
+
+  vim.cmd("startinsert!")
 end
 
 function M.next_search_match()

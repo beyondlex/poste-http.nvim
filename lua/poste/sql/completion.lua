@@ -267,15 +267,12 @@ local function get_items(bufnr, line_before, cursor_line, callback)
       if done then return end
       done = true
       local items = ctx.filter(all, prefix)
-      -- Show functions only when user typed a prefix to avoid clobbering
-      if prefix ~= "" then
-        local funcs = ctx.func_items(prefix, rust_functions)
-        if vim.g.poste_sql_debug then
-          state.log("INFO", string.format("DEBUG flush: prefix='%s', %d cols, %d funcs (rust_functions=%s)",
-            prefix, #items, #funcs, tostring(rust_functions ~= nil)))
-        end
-        vim.list_extend(items, funcs)
+      local funcs = ctx.func_items(prefix, rust_functions)
+      if vim.g.poste_sql_debug then
+        state.log("INFO", string.format("DEBUG flush: prefix='%s', %d cols, %d funcs (rust_functions=%s)",
+          prefix, #items, #funcs, tostring(rust_functions ~= nil)))
       end
+      vim.list_extend(items, funcs)
       callback(items)
     end
     for _, tbl in ipairs(real_tbls) do
@@ -395,8 +392,13 @@ function M:get_trigger_characters()
   return { ".", " ", "@", "(", "," }
 end
 
-function M:get_keyword_length()
-  return 0
+function M:get_keyword_length(ctx)
+  if not ctx or not ctx.cursor then return 0 end
+  local col = ctx.cursor[2]
+  local line = ctx.line or ""
+  local before = line:sub(1, col)
+  local prefix = before:match("[%w_]*$") or ""
+  return #prefix
 end
 
 local completion_gen = 0
@@ -435,7 +437,7 @@ function M:get_completions(ctx, callback)
     if vim.g.poste_sql_debug then
       state.log("INFO", string.format("SQL completion: %d items (deduped from %d)", #deduped, #items))
     end
-    callback({ is_incomplete_forward = true, is_incomplete_backward = false, items = deduped })
+    callback({ is_incomplete_forward = false, is_incomplete_backward = false, items = deduped })
   end)
 end
 

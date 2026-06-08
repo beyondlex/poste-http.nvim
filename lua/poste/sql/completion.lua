@@ -115,6 +115,22 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     return
   end
 
+  -- Partial directive: show @connection, @database while user types
+  if line_before:match("^%s*%-%-%s*@%w*$") then
+    local partial = line_before:match("@(%w*)$") or ""
+    local low = partial:lower()
+    local directives = { "@connection", "@database" }
+    local items = {}
+    for _, d in ipairs(directives) do
+      local name = d:sub(2)
+      if name:lower():sub(1, #low) == low then
+        table.insert(items, { label = d, kind = 14, insertText = d, documentation = "directive" })
+      end
+    end
+    callback(items)
+    return
+  end
+
   local ctx_type, ctx_data = ctx.detect_context(line_before)
 
   -- vim.g.poste_sql_legacy_completion controls completion mode:

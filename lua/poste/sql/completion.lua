@@ -182,7 +182,17 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     data.ensure_databases(function(names)
       if ctx_data == "directive" and #names == 0 then
         data.ensure_conn_names(function(conn_names)
-          callback(ctx.filter(ctx.make_items(conn_names, 6, "connection: "), db_prefix))
+          local items = {}
+          for _, name in ipairs(conn_names) do
+            table.insert(items, {
+              label = name,
+              kind = 6,
+              insertText = "",
+              data = { directive_fallback = true, conn_name = name },
+              documentation = "connection: " .. name,
+            })
+          end
+          callback(ctx.filter(items, db_prefix))
         end)
       else
         callback(ctx.filter(ctx.make_items(names, 1, "database: "), db_prefix))
@@ -404,6 +414,21 @@ end
 
 function M:resolve(item, callback) callback(item) end
 function M:execute(ctx, item, callback, default_impl)
+  if item.data and item.data.directive_fallback then
+    vim.schedule(function()
+      local buf = vim.api.nvim_get_current_buf()
+      local lnum = vim.fn.line(".")
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local indent = (lines[lnum] or ""):match("^(%s*)") or ""
+      table.insert(lines, lnum, indent .. "-- @connection " .. item.data.conn_name)
+      lines[lnum + 1] = indent .. "-- @database "
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      vim.api.nvim_win_set_cursor(0, { lnum + 1, #(indent .. "-- @database ") })
+      vim.cmd("startinsert!")
+    end)
+    callback()
+    return
+  end
   if default_impl then default_impl() end
   callback()
 end

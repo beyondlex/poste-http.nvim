@@ -190,11 +190,12 @@ function M.cache_tables(items)
   cache[key].tables = vim.tbl_map(function(i) return i.name end, items or {})
 end
 
-function M.cache_columns(tbl, items)
+function M.cache_columns(tbl, items, schema)
   local key = M.conn_key()
   if not key then return end
+  local cache_key = schema and (schema .. "." .. tbl) or tbl
   cache[key] = cache[key] or { tables = {}, columns = {} }
-  cache[key].columns[tbl] = vim.tbl_map(function(i) return i.name end, items or {})
+  cache[key].columns[cache_key] = vim.tbl_map(function(i) return i.name end, items or {})
 end
 
 ---------------------------------------------------------------------------
@@ -354,13 +355,21 @@ end
 local fetching_cols = {}
 local cols_callbacks = {}
 
-function M.ensure_columns(tbl, callback)
+--- Ensure columns for `tbl` are cached, optionally with schema qualification.
+--- schema can be a string or nil. When set, columns are cached and fetched
+--- as `schema.table` to distinguish same-named tables in different schemas.
+function M.ensure_columns(tbl, schema, callback)
+  if type(schema) == "function" then
+    callback = schema
+    schema = nil
+  end
   local key = M.conn_key()
   local ctx = M.resolve_current_context()
+  local cache_tbl_key = schema and (schema .. "." .. tbl) or tbl
 
   if vim.g.poste_sql_debug then
-    vim.notify(string.format("DEBUG: ensure_columns(%s) key=%s, conn=%s",
-      tbl, tostring(key), tostring(ctx and ctx.connection)), vim.log.levels.INFO)
+    vim.notify(string.format("DEBUG: ensure_columns(%s, %s) key=%s, conn=%s",
+      tbl, tostring(schema), tostring(key), tostring(ctx and ctx.connection)), vim.log.levels.INFO)
   end
 
   if not key or not ctx or not ctx.connection then
@@ -371,20 +380,20 @@ function M.ensure_columns(tbl, callback)
     return
   end
 
-  if cache[key] and cache[key].columns[tbl] then
+  if cache[key] and cache[key].columns[cache_tbl_key] then
     if vim.g.poste_sql_debug then
       vim.notify(string.format("DEBUG: cache hit for %s, %d columns",
-        tbl, #cache[key].columns[tbl]), vim.log.levels.INFO)
+        cache_tbl_key, #cache[key].columns[cache_tbl_key]), vim.log.levels.INFO)
     end
     callback()
     return
   end
 
-  local fkey = key .. "/" .. tbl
+  local fkey = key .. "/" .. cache_tbl_key
 
   if fetching_cols[fkey] then
     if vim.g.poste_sql_debug then
-      vim.notify(string.format("DEBUG: already fetching %s, queuing callback", tbl), vim.log.levels.WARN)
+      vim.notify(string.format("DEBUG: already fetching %s, queuing callback", cache_tbl_key), vim.log.levels.WARN)
     end
     cols_callbacks[fkey] = cols_callbacks[fkey] or {}
     table.insert(cols_callbacks[fkey], callback)
@@ -392,7 +401,7 @@ function M.ensure_columns(tbl, callback)
   end
 
   if vim.g.poste_sql_debug then
-    vim.notify(string.format("DEBUG: starting fetch for %s", tbl), vim.log.levels.WARN)
+    vim.notify(string.format("DEBUG: starting fetch for %s", cache_tbl_key), vim.log.levels.WARN)
   end
 
   fetching_cols[fkey] = true
@@ -410,6 +419,9 @@ function M.ensure_columns(tbl, callback)
   local args = { binary, "introspect", ctx.connection,
     "--type", "columns", "--table", tbl,
     "--path", M.search_dir(), "--env", state.current_env or "dev" }
+  if schema then
+    vim.list_extend(args, { "--schema", schema })
+  end
   if ctx.database and ctx.database ~= "" then
     vim.list_extend(args, { "--database", ctx.database })
   end
@@ -427,7 +439,7 @@ function M.ensure_columns(tbl, callback)
         for _, item in ipairs(parsed.items) do
           table.insert(cols, item.name)
         end
-        cache[key].columns[tbl] = cols
+        cache[key].columns[cache_tbl_key] = cols
       end
       fetching_cols[fkey] = false
       vim.schedule(function()

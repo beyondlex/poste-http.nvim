@@ -61,19 +61,25 @@ function M.extract_from_tables(bufnr, cursor_lnum)
 end
 
 --- Get extracted tables and alias map, preferring Rust context when available.
+--- Returns: (from_tbls, alias_map, schema_map)
+---   from_tbls: list of table names
+---   alias_map: { alias_or_name → table_name }
+---   schema_map: { table_name → schema }
 function M.get_tables_and_alias(bufnr, cursor_line, rust_ctx)
   if rust_ctx and rust_ctx.tables and #rust_ctx.tables > 0 then
-    local from_tbls, alias_map = {}, {}
+    local from_tbls, alias_map, schema_map = {}, {}, {}
     for _, t in ipairs(rust_ctx.tables) do
       if t.name and t.name ~= "" then
         table.insert(from_tbls, t.name)
         alias_map[t.name] = t.name
         if t.alias then alias_map[t.alias] = t.name end
+        if t.schema then schema_map[t.name] = t.schema end
       end
     end
-    return from_tbls, alias_map
+    return from_tbls, alias_map, schema_map
   end
-  return M.extract_from_tables(bufnr, cursor_line)
+  local tbls, alias_map = M.extract_from_tables(bufnr, cursor_line)
+  return tbls, alias_map, {}
 end
 
 ---------------------------------------------------------------------------

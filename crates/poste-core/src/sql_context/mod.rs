@@ -833,6 +833,48 @@ mod tests {
         assert!(result.tables.iter().any(|t| t.name == "posts" && t.alias == Some("p".into())));
     }
 
+    #[test]
+    fn test_detect_dot_column_schema_qualified() {
+        let result = detect_context("SELECT auth.users.", 18).unwrap();
+        assert_eq!(result.context_type, ContextType::DotColumn { table: "users".into(), schema: Some("auth".into()) });
+    }
+
+    #[test]
+    fn test_detect_dot_column_schema_qualified_alias() {
+        let result = detect_context("SELECT * FROM public.users u WHERE u.", 38).unwrap();
+        assert_eq!(result.context_type, ContextType::DotColumn { table: "u".into(), schema: None });
+        assert!(result.tables.iter().any(|t| {
+            t.name == "users" && t.alias == Some("u".into()) && t.schema == Some("public".into())
+        }));
+    }
+
+    #[test]
+    fn test_detect_dot_column_schema_qualified_bare_table() {
+        let result = detect_context("SELECT * FROM auth.users WHERE users.", 39).unwrap();
+        assert_eq!(result.context_type, ContextType::DotColumn { table: "users".into(), schema: None });
+        assert!(result.tables.iter().any(|t| t.name == "users" && t.schema == Some("auth".into())));
+    }
+
+    #[test]
+    fn test_detect_column_with_schema_qualified_table() {
+        let result = detect_context("SELECT * FROM auth.users WHERE ", 31).unwrap();
+        assert_eq!(result.context_type, ContextType::Column);
+        assert!(result.tables.iter().any(|t| {
+            t.name == "users" && t.schema == Some("auth".into())
+        }));
+    }
+
+    #[test]
+    fn test_detect_multi_schema_tables() {
+        let result = detect_context(
+            "SELECT * FROM public.users JOIN auth.users ON public.users.id = auth.users.user_id WHERE ",
+            88,
+        ).unwrap();
+        assert_eq!(result.context_type, ContextType::Column);
+        assert!(result.tables.iter().any(|t| t.name == "users" && t.schema == Some("public".into())));
+        assert!(result.tables.iter().any(|t| t.name == "users" && t.schema == Some("auth".into())));
+    }
+
     // ---- INSERT column ----
 
     #[test]
@@ -1514,14 +1556,14 @@ mod tests {
 
     #[test]
     fn test_extract_schema_alias() {
-        // BUG: schema-qualified alias detection doesn't skip whitespace.
         let result = detect_context(
             "SELECT * FROM public.users u WHERE ",
             29,
         ).unwrap();
-        // At minimum users should be found as a table
         assert!(result.tables.iter().any(|t| t.name == "users"),
             "users should be found as table");
+        assert!(result.tables.iter().any(|t| t.schema == Some("public".into())),
+            "public schema should be preserved");
     }
 
     #[test]
@@ -1551,6 +1593,12 @@ mod tests {
             "SELECT * FROM public.users AS u JOIN public.posts AS p ON u.id = p.user_id WHERE ",
             68,
         ).unwrap();
+        assert!(result.tables.iter().any(|t| {
+            t.name == "users" && t.schema == Some("public".into()) && t.alias == Some("u".into())
+        }));
+        assert!(result.tables.iter().any(|t| {
+            t.name == "posts" && t.schema == Some("public".into()) && t.alias == Some("p".into())
+        }));
     }
 
     #[test]

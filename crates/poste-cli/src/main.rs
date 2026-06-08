@@ -320,6 +320,7 @@ fn is_connection_url(conn: &str) -> bool {
 struct ContextDetectResponse {
     ctx_type: String,
     ctx_data: Option<String>,
+    ctx_schema: Option<String>,
     prefix: String,
     tables: Vec<TableRefInfo>,
     functions: Vec<&'static str>,
@@ -331,6 +332,7 @@ struct ContextDetectResponse {
 struct TableRefInfo {
     name: String,
     alias: Option<String>,
+    schema: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -342,13 +344,19 @@ struct ContextStmtResponse {
 fn make_detect_response(result: &poste_core::sql_context::ContextResult) -> ContextDetectResponse {
     let ctx_type = result.context_type.name().to_string();
     let ctx_data = result.context_type.data();
+    let ctx_schema = match &result.context_type {
+        poste_core::sql_context::ContextType::DotColumn { schema, .. } => schema.clone(),
+        _ => None,
+    };
     let tables: Vec<TableRefInfo> = result.tables.iter().map(|t| TableRefInfo {
         name: t.name.clone(),
         alias: t.alias.clone(),
+        schema: t.schema.clone(),
     }).collect();
     ContextDetectResponse {
         ctx_type,
         ctx_data,
+        ctx_schema,
         prefix: result.prefix.clone(),
         tables,
         functions: result.functions.clone(),
@@ -368,6 +376,7 @@ fn handle_context_command(action: ContextAction) -> Result<()> {
                 None => ContextDetectResponse {
                     ctx_type: "keyword".into(),
                     ctx_data: None,
+                    ctx_schema: None,
                     prefix: String::new(),
                     tables: vec![],
                     functions: vec![],

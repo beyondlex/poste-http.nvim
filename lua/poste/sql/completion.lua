@@ -71,6 +71,18 @@ local function try_rust_context(bufnr, line_before, cursor_line)
   local ok, parsed = pcall(vim.json.decode, output)
   if not ok or not parsed or type(parsed) ~= "table" then return nil end
 
+  -- Normalize vim.NIL → nil (JSON null becomes vim.NIL userdata in Neovim)
+  local function deep_clean(t)
+    for k, v in pairs(t) do
+      if v == vim.NIL then
+        t[k] = nil
+      elseif type(v) == "table" then
+        deep_clean(v)
+      end
+    end
+  end
+  deep_clean(parsed)
+
   if vim.g.poste_sql_debug then
     state.log("INFO", string.format("Rust context: type=%s, prefix='%s', tables=%d, in_string=%s, in_comment=%s",
       tostring(parsed.ctx_type), tostring(parsed.prefix or ""),
@@ -207,12 +219,14 @@ local function get_items(bufnr, line_before, cursor_line, callback)
 
   if ctx_type == "dot_column" then
     local col_prefix = line_before:match("[%w_]+%.([%w_]*)$") or ""
-    local _, alias_map = ctx.get_tables_and_alias(bufnr, cursor_line or vim.fn.line("."), rust_ctx)
+    local _, alias_map, schema_map = ctx.get_tables_and_alias(bufnr, cursor_line or vim.fn.line("."), rust_ctx)
     local real_tbl = alias_map[ctx_data] or ctx_data
-    data.ensure_columns(real_tbl, function()
+    local schema = rust_ctx and rust_ctx.ctx_schema or schema_map[real_tbl]
+    data.ensure_columns(real_tbl, schema, function()
       local key = data.conn_key()
       local cache = data.get_cache()
-      local cols = cache[key] and cache[key].columns[real_tbl] or {}
+      local cache_tbl_key = schema and (schema .. "." .. real_tbl) or real_tbl
+      local cols = cache[key] and cache[key].columns[cache_tbl_key] or {}
       callback(ctx.filter(ctx.make_items(cols, 5, "col: "), col_prefix))
     end)
     return
@@ -233,11 +247,16 @@ local function get_items(bufnr, line_before, cursor_line, callback)
   end
 
   if ctx_type == "column" then
-    local from_tbls, alias_map = ctx.get_tables_and_alias(bufnr, cursor_line or vim.fn.line("."), rust_ctx)
+    local from_tbls, alias_map, schema_map = ctx.get_tables_and_alias(bufnr, cursor_line or vim.fn.line("."), rust_ctx)
     local real_tbls, seen_real = {}, {}
     for _, t in ipairs(from_tbls) do
       local real = alias_map[t] or t
-      if not seen_real[real] then seen_real[real] = true; table.insert(real_tbls, real) end
+      local schema = schema_map[real]
+      local uniq_key = schema and (schema .. "." .. real) or real
+      if not seen_real[uniq_key] then
+        seen_real[uniq_key] = true
+        table.insert(real_tbls, { name = real, schema = schema })
+      end
     end
 
     if vim.g.poste_sql_debug then
@@ -267,14 +286,15 @@ local function get_items(bufnr, line_before, cursor_line, callback)
       vim.list_extend(items, funcs)
       callback(items)
     end
-    for _, tbl in ipairs(real_tbls) do
-      data.ensure_columns(tbl, function()
+    for _, tbl_info in ipairs(real_tbls) do
+      data.ensure_columns(tbl_info.name, tbl_info.schema, function()
         local key = data.conn_key()
         local cache = data.get_cache()
-        local cols = cache[key] and cache[key].columns[tbl] or {}
+        local cache_tbl_key = tbl_info.schema and (tbl_info.schema .. "." .. tbl_info.name) or tbl_info.name
+        local cols = cache[key] and cache[key].columns[cache_tbl_key] or {}
 
         for _, col in ipairs(cols) do
-          local uniq = tbl .. "." .. col
+          local uniq = cache_tbl_key .. "." .. col
           if not seen_keys[uniq] then
             seen_keys[uniq] = true
             table.insert(all, {

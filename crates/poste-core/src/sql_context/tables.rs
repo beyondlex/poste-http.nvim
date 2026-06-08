@@ -41,7 +41,7 @@ pub(crate) fn extract_tables(tokens: &[Token], sql: &str) -> Vec<TableRef> {
                             schema: schema.map(|s| s.to_string()),
                         };
 
-                        if !tables.iter().any(|t| t.name == table.name && t.alias == table.alias) {
+                        if !tables.iter().any(|t| t.name == table.name && t.alias == table.alias && t.schema == table.schema) {
                             tables.push(table);
                         }
 
@@ -81,17 +81,29 @@ pub(crate) fn parse_table_ref<'a>(
                     let table = table_tok.text(sql);
                     consumed = 3;
 
-                    if let Some(alias_tok) = tokens.get(i + 3) {
-                        if alias_tok.kind == TokenKind::Dot {
-                            // database.schema.table — skip middle components
-                        }
-                        if matches!(alias_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
-                            let alias_text = alias_tok.text(sql);
+                    // Skip whitespace and optional AS to find alias
+                    if let Some(next_idx) = skip_forward(tokens, i + 2) {
+                        if tokens[next_idx].kind == TokenKind::Keyword && kw_eq(tokens[next_idx].text(sql), "as") {
+                            if let Some(after_as) = skip_forward(tokens, next_idx) {
+                                let alias_tok = &tokens[after_as];
+                                if matches!(alias_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
+                                    let alias_text = alias_tok.text(sql);
+                                    if !is_table_keyword(alias_text) && !is_column_keyword(alias_text)
+                                        && !is_predicate_keyword(alias_text)
+                                        && !is_known_keyword(alias_text)
+                                    {
+                                        consumed = after_as - i + 1;
+                                        return (schema, table, Some(alias_text), consumed);
+                                    }
+                                }
+                            }
+                        } else if matches!(tokens[next_idx].kind, TokenKind::Ident | TokenKind::QuotedIdent) {
+                            let alias_text = tokens[next_idx].text(sql);
                             if !is_table_keyword(alias_text) && !is_column_keyword(alias_text)
                                 && !is_predicate_keyword(alias_text)
                                 && !is_known_keyword(alias_text)
                             {
-                                consumed = 4;
+                                consumed = next_idx - i + 1;
                                 return (schema, table, Some(alias_text), consumed);
                             }
                         }

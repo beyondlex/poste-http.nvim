@@ -317,17 +317,8 @@ describe("extract_stmt_at_cursor — edge cases", function()
       "SELECT * FROM users WHERE id = 1;",
     }
     local content, adjusted_line, stmt_start = t.extract_stmt_at_cursor(lines, 2)
-    -- The indicators code uses stmt_start (0-indexed) for placement
-    indicators_line = stmt_start - 1  -- the 0-indexed version used by indicators
-    -- The actual indicator placement code in init.lua:
-    --   local first_line = stmt_lines[1]
-    --   indicators.set_indicator(src_buf, first_line - 1, "running")
-    -- So indicators appear at (stmt_start-1) which is 1-1=0 → line 1 (0-indexed = "###")
-    -- BUG: indicators should appear on the SELECT line (0-indexed = 1), not the ### line
-    -- But that's what the current code does! Let's check...
-    -- Actually in init.lua: stmt_lines = { stmt_start or 1 } — stmt_start = 2 (correct)
-    -- indicators.set_indicator(src_buf, first_line - 1, ...) — line 2-1=1 → 0-indexed line 1 = SELECT line
-    -- Oh wait, that's correct!
+    -- stmt_start = 2 (SELECT line). indicators.set_indicator uses
+    -- first_line - 1 = 2 - 1 = 1 → 0-indexed line 1 = SELECT line
     assert.equals(2, stmt_start)
   end)
 end)

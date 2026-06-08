@@ -2,6 +2,11 @@
 name = "poste-core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core parsing, SQL context detection, and environment logic for Poste"
+keywords = ["http", "rest-client", "sql", "redis", "request"]
+categories = ["command-line-utilities", "parser-implementations"]
 
 [dependencies]
 serde.workspace = true

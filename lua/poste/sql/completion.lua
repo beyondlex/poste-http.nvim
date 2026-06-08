@@ -521,7 +521,7 @@ function M:get_completions(ctx, callback)
     if vim.g.poste_sql_debug then
       state.log("INFO", string.format("SQL completion: %d items (deduped from %d)", #deduped, #items))
     end
-    callback({ is_incomplete_forward = false, is_incomplete_backward = false, items = deduped })
+    callback({ is_incomplete_forward = true, is_incomplete_backward = true, items = deduped })
   end)
 end
 

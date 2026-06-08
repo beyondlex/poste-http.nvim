@@ -11,7 +11,11 @@
 -- SELECT * FROM posts WHERE id IN (SELECT id FROM posts WHERE author_id IS NULL)
 
 
+UPDATE posts SET author_id=1, id=1, bio='' WHERE;
+
+
 SELECT * from web_vitals;
+
 
 SELECT p.slug, a.bio FROM posts p LEFT JOIN authors a on a.id = p.author_id;
 

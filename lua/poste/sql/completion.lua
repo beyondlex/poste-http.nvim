@@ -106,7 +106,17 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     data.ensure_databases(function(names)
       if #names == 0 then
         data.ensure_conn_names(function(conn_names)
-          callback(ctx.filter(ctx.make_items(conn_names, 6, "connection: "), db_prefix))
+          local items = {}
+          for _, name in ipairs(conn_names) do
+            table.insert(items, {
+              label = name,
+              kind = 6,
+              insertText = "",
+              data = { directive_fallback = true, conn_name = name },
+              documentation = "connection: " .. name,
+            })
+          end
+          callback(ctx.filter(items, db_prefix))
         end)
       else
         callback(ctx.filter(ctx.make_items(names, 1, "database: "), db_prefix))

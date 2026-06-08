@@ -1594,10 +1594,9 @@ mod tests {
             "SELECT * FROM public.users u WHERE ",
             29,
         ).unwrap();
-        assert!(result.tables.iter().any(|t| t.name == "users"),
-            "users should be found as table");
-        assert!(result.tables.iter().any(|t| t.schema == Some("public".into())),
-            "public schema should be preserved");
+        assert!(result.tables.iter().any(|t| {
+            t.name == "users" && t.schema == Some("public".into()) && t.alias == Some("u".into())
+        }), "users with schema public and alias u should be found");
     }
 
     #[test]
@@ -1619,6 +1618,50 @@ mod tests {
         assert!(result.tables.iter().any(|t| t.name == "users"));
         assert!(result.tables.iter().any(|t| t.name == "posts"));
         assert!(result.tables.iter().any(|t| t.name == "comments"));
+    }
+
+    #[test]
+    fn test_extract_three_level_name() {
+        let result = detect_context(
+            "SELECT * FROM mydb.public.users WHERE ",
+            34,
+        ).unwrap();
+        assert!(result.tables.iter().any(|t| {
+            t.name == "users" && t.schema == Some("public".into())
+        }), "three-level name should extract schema=public, table=users");
+    }
+
+    #[test]
+    fn test_extract_three_level_name_with_alias() {
+        let result = detect_context(
+            "SELECT * FROM mydb.public.users u WHERE ",
+            33,
+        ).unwrap();
+        assert!(result.tables.iter().any(|t| {
+            t.name == "users" && t.schema == Some("public".into()) && t.alias == Some("u".into())
+        }), "three-level name with alias should extract name, schema, and alias");
+    }
+
+    #[test]
+    fn test_extract_three_level_name_with_as_alias() {
+        let result = detect_context(
+            "SELECT * FROM mydb.public.users AS u WHERE ",
+            36,
+        ).unwrap();
+        assert!(result.tables.iter().any(|t| {
+            t.name == "users" && t.schema == Some("public".into()) && t.alias == Some("u".into())
+        }), "three-level name with AS alias should work");
+    }
+
+    #[test]
+    fn test_extract_table_with_as_alias_no_schema() {
+        let result = detect_context(
+            "SELECT * FROM users AS u WHERE ",
+            28,
+        ).unwrap();
+        assert!(result.tables.iter().any(|t| {
+            t.name == "users" && t.alias == Some("u".into())
+        }), "table with AS alias and no schema should extract alias");
     }
 
     #[test]

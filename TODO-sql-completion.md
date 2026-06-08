@@ -54,7 +54,7 @@ This makes `public.users` and `auth.users` collide and can fetch the wrong colum
 
 **File(s):** `crates/poste-cli/src/main.rs`, `crates/poste-core/src/sql_context/mod.rs`, `lua/poste/sql/completion_ctx.lua`, `lua/poste/sql/completion.lua`, `lua/poste/sql/completion_data.lua`
 
-### [ ] P0-3: Fix schema-qualified alias extraction in Rust
+### [x] P0-3: Fix schema-qualified alias extraction in Rust
 
 `public.users u` and `public.users AS u` should map alias `u` to table `users` with schema `public`.
 Current parser checks fixed token positions after `schema.table` and does not skip whitespace in that branch.

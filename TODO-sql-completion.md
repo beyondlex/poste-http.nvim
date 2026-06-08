@@ -13,7 +13,7 @@ Current baseline:
 
 ## P0: Make Completion Semantics Deterministic
 
-### [ ] P0-1: Stop Lua from overriding Rust context in default mode
+### [x] P0-1: Stop Lua from overriding Rust context in default mode
 
 Current default mode runs Rust first, then lets Lua override when Rust returns `keyword` with a non-empty prefix.
 That makes completion behavior depend on two independent parsers.
@@ -31,7 +31,7 @@ That makes completion behavior depend on two independent parsers.
 
 **File(s):** `lua/poste/sql/completion.lua`, `lua/poste/sql/completion_ctx.lua`, `crates/poste-core/src/sql_context/mod.rs`
 
-### [ ] P0-2: Preserve schema through Rust → CLI → Lua → introspection
+### [x] P0-2: Preserve schema through Rust → CLI → Lua → introspection
 
 Rust has `schema` in `TableRef` and `ContextType::DotColumn`, but the completion path drops it.
 This makes `public.users` and `auth.users` collide and can fetch the wrong columns.
@@ -120,7 +120,7 @@ Rust unit tests are strong, but the Lua orchestrator behavior is where several c
 
 **File(s):** `crates/poste-core/src/sql_context/tokenizer.rs`, `crates/poste-core/src/sql_context/mod.rs`
 
-### [ ] P1-2: Add explicit MySQL `SHOW` context handling
+### [x] P1-2: Add explicit MySQL `SHOW` context handling
 
 Current sample: `SHOW TABLES ` returns `keyword`, not table/database/column context.
 
@@ -133,7 +133,7 @@ Current sample: `SHOW TABLES ` returns `keyword`, not table/database/column cont
 
 **File(s):** `crates/poste-core/src/sql_context/mod.rs`, `crates/poste-core/src/sql_context/tokenizer.rs`
 
-### [ ] P1-3: Add `COPY` / DCL / transaction command contexts
+### [x] P1-3: Add `COPY` / DCL / transaction command contexts
 
 Current sample: `COPY ` returns `keyword`. For PostgreSQL, `COPY table` should suggest tables.
 
@@ -145,7 +145,7 @@ Current sample: `COPY ` returns `keyword`. For PostgreSQL, `COPY table` should s
 
 **File(s):** `crates/poste-core/src/sql_context/mod.rs`, `crates/poste-core/src/sql_context/tokenizer.rs`
 
-### [ ] P1-4: Add `FOR UPDATE` / `FOR SHARE` clause handling
+### [x] P1-4: Add `FOR UPDATE` / `FOR SHARE` clause handling
 
 `SELECT ... FOR UPDATE OF table` should suggest tables after `OF`.
 `NOWAIT` and `SKIP LOCKED` should be recognized as keywords.
@@ -157,7 +157,7 @@ Current sample: `COPY ` returns `keyword`. For PostgreSQL, `COPY table` should s
 
 **File(s):** `crates/poste-core/src/sql_context/tokenizer.rs`, `crates/poste-core/src/sql_context/mod.rs`
 
-### [ ] P1-5: Dialect-aware function completion
+### [x] P1-5: Dialect-aware function completion
 
 Rust currently returns all known functions regardless of the active connection dialect.
 Example: PostgreSQL users see MySQL-only functions such as `GET_LOCK` and `BENCHMARK`.
@@ -175,7 +175,7 @@ Example: PostgreSQL users see MySQL-only functions such as `GET_LOCK` and `BENCH
 
 ## P2: Polish and Performance
 
-### [ ] P2-1: Revisit window completion behavior
+### [x] P2-1: Revisit window completion behavior
 
 `OVER` and `PARTITION` are now keywords and tests pass for `PARTITION BY` / `ORDER BY`.
 The remaining question is product behavior: should `OVER (` suggest window keywords/functions first, or keep generic keywords/functions?
@@ -187,7 +187,7 @@ The remaining question is product behavior: should `OVER (` suggest window keywo
 
 **File(s):** `crates/poste-core/src/sql_context/mod.rs`, `lua/poste/sql/completion.lua`, `lua/poste/sql/completion_data.lua`
 
-### [ ] P2-2: Verify `SET` behavior in UPDATE vs session settings
+### [x] P2-2: Verify `SET` behavior in UPDATE vs session settings
 
 `UPDATE users SET name = 'x', ` should suggest columns.
 `SET statement_timeout = ` should not suggest table columns.
@@ -233,11 +233,11 @@ Some tests still contain `BUG`, `BEFORE FIX`, or `CURRENT/Ideal` comments that n
 
 ## Summary by Priority
 
-| Priority | Count | Theme |
-|----------|-------|-------|
-| P0 | 5 | Deterministic authority, schema correctness, test the real orchestration path |
-| P1 | 5 | SQL coverage gaps and dialect awareness |
-| P2 | 5 | UX polish, performance, stale test cleanup |
+| Priority | Done | Total | Theme |
+|----------|------|-------|-------|
+| P0 | 5/5 | 5 | Deterministic authority, schema correctness, test the real orchestration path |
+| P1 | 5/5 | 5 | SQL coverage gaps and dialect awareness |
+| P2 | 3/5 | 5 | UX polish, performance, stale test cleanup |
 
 Total: 15 items
 

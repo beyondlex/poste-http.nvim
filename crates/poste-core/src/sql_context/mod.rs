@@ -792,6 +792,16 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str, cursor_o
                         }
                         return ContextType::Keyword;
                     }
+                    // SET after completing column assignments: if cursor is on
+                    // an ident (typing WHERE/RETURNING), return Keyword.
+                    // Otherwise (cursor on WS after `=` or comma) return Column
+                    // — the user still needs to type a column name/value.
+                    if kw == "set" && !skip_one_ident {
+                        if cursor_on_ident {
+                            return ContextType::Keyword;
+                        }
+                        return ContextType::Column;
+                    }
                     return ContextType::Column;
                 }
                 // After ADD COLUMN column_name → DataType
@@ -817,6 +827,13 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str, cursor_o
                 // for the clause keyword rather than returning Keyword.
                 if after_comma {
                     after_comma = false;
+                    // After comma, `= colname` (backward scan) — also
+                    // reset skip_one_ident for the column name ahead.
+                    if let Some(prev) = skip_back(tokens, i) {
+                        if tokens[prev].kind == TokenKind::Ident {
+                            skip_one_ident = true;
+                        }
+                    }
                 } else if let Some(prev) = skip_back(tokens, i) {
                     if tokens[prev].kind == TokenKind::Keyword {
                         let kw = tokens[prev].text(sql).to_ascii_lowercase();
@@ -829,14 +846,13 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str, cursor_o
                             return ContextType::Column;
                         }
                     }
-                    // `=` after column name in SET clause — continue
-                    // scanning to find SET (handles `name = ` and
-                    // `name = 'x', age = `).  The SET handler below
-                    // checks for a preceding UPDATE to distinguish
-                    // `UPDATE ... SET col = ` (Column) from the
-                    // standalone `SET param = ` (Keyword).
+                    // `=` follows a column name — across comma-separated
+                    // assignments (`col = val, col2 = val2, `) reset
+                    // skip_one_ident so each column name can be consumed
+                    // as a prefix, letting SET be found as the context
+                    // keyword.  try_bare_set handles bare `SET param = `.
                     if tokens[prev].kind == TokenKind::Ident {
-                        // Continue scanning — don't short-circuit
+                        skip_one_ident = true;
                     } else {
                         return ContextType::Keyword;
                     }
@@ -1725,9 +1741,23 @@ mod tests {
 
     #[test]
     fn test_detect_update_set_multi_column() {
-        // After `= value, col = ` the cursor expects a value — Keyword is acceptable
-        // (Column would need multi-ident tracking across comma boundaries)
         let result = detect_context("UPDATE users SET name = 'x', age = ", 35).unwrap();
+        assert_eq!(result.context_type, ContextType::Column);
+    }
+
+    #[test]
+    fn test_detect_update_set_three_columns() {
+        // Regression: multiple comma-separated SET columns
+        let result = detect_context("UPDATE posts SET author_id=1, slug='', ", 39).unwrap();
+        assert_eq!(result.context_type, ContextType::Column,
+            "After comma in SET clause, should suggest next column");
+    }
+
+    #[test]
+    fn test_detect_update_set_where_keyword() {
+        // After completing SET column assignments, typing WHERE should
+        // return Keyword, not Column (the cursor ident w is not a column name)
+        let result = detect_context("UPDATE posts SET slug='', author_id='', bio='' w", 48).unwrap();
         assert_eq!(result.context_type, ContextType::Keyword);
     }
 

@@ -696,6 +696,17 @@ describe("get_items keyword context (no connection)", function()
     assert.is_true(labels["INSERT INTO"], "keyword INSERT INTO should match prefix IN")
     assert.is_true(labels["IN"], "keyword IN should match prefix IN")
   end)
+
+  it("UPDATE SET slug='...', bio='' w suggests WHERE keyword", function()
+    local buf = make_buf({ "###", "UPDATE posts SET slug='', author_id='', bio='' w" })
+    local items = nil
+    get_items(buf, "UPDATE posts SET slug='', author_id='', bio='' w", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items) do labels[item.label] = true end
+    assert.is_true(labels["WHERE"], "WHERE should match prefix w after SET column assignments")
+    assert.is_true(labels["WITH"], "WITH should match prefix w after SET column assignments")
+  end)
 end)
 
 -- ── 7. Drift check: Lua fallback functions ⊆ Rust functions ───────────────────

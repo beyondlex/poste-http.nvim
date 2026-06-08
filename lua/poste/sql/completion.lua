@@ -10,6 +10,11 @@ local ctx = require("poste.sql.completion_ctx")
 
 local M = {}
 
+-- Cache last context detect result to avoid re-spawning the binary
+-- when the SQL text + offset + dialect haven't changed.
+local _ctx_cache_key = nil
+local _ctx_cache_result = nil
+
 ---------------------------------------------------------------------------
 -- Rust context detection
 ---------------------------------------------------------------------------
@@ -75,12 +80,23 @@ local function try_rust_context(bufnr, line_before, cursor_line)
       end
     end
   end
+  local cache_key = sql_text .. "|" .. offset .. "|" .. dialect_flag
+  if cache_key == _ctx_cache_key then
+    return _ctx_cache_result
+  end
+
   local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset, dialect_flag)
   local output = vim.fn.system(cmd, sql_text)
-  if vim.v.shell_error ~= 0 then return nil end
+  if vim.v.shell_error ~= 0 then
+    _ctx_cache_key, _ctx_cache_result = nil, nil
+    return nil
+  end
 
   local ok, parsed = pcall(vim.json.decode, output)
-  if not ok or not parsed or type(parsed) ~= "table" then return nil end
+  if not ok or not parsed or type(parsed) ~= "table" then
+    _ctx_cache_key, _ctx_cache_result = nil, nil
+    return nil
+  end
 
   -- Normalize vim.NIL → nil (JSON null becomes vim.NIL userdata in Neovim)
   local function deep_clean(t)
@@ -101,6 +117,8 @@ local function try_rust_context(bufnr, line_before, cursor_line)
       tostring(parsed.in_string), tostring(parsed.in_comment)))
   end
 
+  _ctx_cache_key = cache_key
+  _ctx_cache_result = parsed
   return parsed
 end
 

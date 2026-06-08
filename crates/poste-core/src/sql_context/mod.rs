@@ -798,9 +798,32 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str, cursor_o
                     // — the user still needs to type a column name/value.
                     if kw == "set" && !skip_one_ident {
                         if cursor_on_ident {
+                            // Cursor on ident (typing WHERE/RETURNING) → Keyword
                             return ContextType::Keyword;
                         }
-                        return ContextType::Column;
+                        // Cursor not on ident (on WS/comments). Check the
+                        // first non-WS token before cursor:
+                        //   Comma → more columns expected → Column
+                        //   Op (=) → about to type value → Column
+                        //   Value literal → column assignment done → Keyword
+                        //   Other → Keyword
+                        for check in (0..cursor_idx).rev() {
+                            match tokens[check].kind {
+                                TokenKind::Whitespace
+                                | TokenKind::LineComment
+                                | TokenKind::BlockComment => continue,
+                                TokenKind::Comma | TokenKind::Op => {
+                                    return ContextType::Column;
+                                }
+                                TokenKind::StrLit
+                                | TokenKind::NumLit
+                                | TokenKind::DollarStr => {
+                                    return ContextType::Keyword;
+                                }
+                                _ => break,
+                            }
+                        }
+                        return ContextType::Keyword;
                     }
                     return ContextType::Column;
                 }

@@ -218,6 +218,20 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
         });
     }
 
+    // Special case: FOR UPDATE OF / FOR SHARE OF → Table
+    if let Some(ctx) = try_for_update_of(&tokens, cursor_idx, sql) {
+        let tables = extract_tables(&tokens, sql);
+        let funcs = functions::known_functions().to_vec();
+        return Some(ContextResult {
+            context_type: ctx,
+            tables,
+            prefix,
+            functions: funcs,
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
     // General case: scan backward for context keyword
     let cursor_on_ident = matches!(cursor_tok.kind,
         TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At);
@@ -559,6 +573,45 @@ fn try_grant_revoke(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<Co
             None => return None,
         }
     }
+}
+
+/// Try to detect FOR UPDATE OF / FOR SHARE OF — return Table for the object name.
+fn try_for_update_of(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
+    // Walk backward to find OF keyword
+    let start = if matches!(tokens[cursor_idx].kind, TokenKind::Ident | TokenKind::Keyword) {
+        skip_back(tokens, cursor_idx)?
+    } else {
+        cursor_idx
+    };
+
+    let mut search = start;
+    loop {
+        if tokens[search].kind == TokenKind::Keyword && kw_eq(tokens[search].text(sql), "of") {
+            break;
+        }
+        if search == 0 {
+            return None;
+        }
+        search = skip_back(tokens, search)?;
+    }
+
+    // Check if OF is preceded by UPDATE or SHARE
+    let update_or_share = skip_back(tokens, search)?;
+    if tokens[update_or_share].kind != TokenKind::Keyword {
+        return None;
+    }
+    let kw = tokens[update_or_share].text(sql).to_ascii_lowercase();
+    if kw != "update" && kw != "share" {
+        return None;
+    }
+
+    // Check if UPDATE/SHARE is preceded by FOR
+    let for_idx = skip_back(tokens, update_or_share)?;
+    if tokens[for_idx].kind == TokenKind::Keyword && kw_eq(tokens[for_idx].text(sql), "for") {
+        return Some(ContextType::Table);
+    }
+
+    None
 }
 
 /// Check if a word is a SHOW type keyword and return its normalized form.
@@ -1675,6 +1728,38 @@ mod tests {
     fn test_detect_lock_table() {
         let result = detect_context("LOCK TABLE ", 11).unwrap();
         assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    // ---- FOR UPDATE / FOR SHARE ----
+
+    #[test]
+    fn test_detect_for_update_of() {
+        let result = detect_context("SELECT * FROM users FOR UPDATE OF ", 34).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_for_update_of_prefix() {
+        let result = detect_context("SELECT * FROM users FOR UPDATE OF ord", 38).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_for_share_of() {
+        let result = detect_context("SELECT * FROM users FOR SHARE OF ", 33).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_for_update_nowait() {
+        let result = detect_context("SELECT * FROM users FOR UPDATE NOWAIT", 37).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_for_update_skip_locked() {
+        let result = detect_context("SELECT * FROM users FOR UPDATE SKIP LOCKED", 42).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
     }
 
     // ---- LATERAL / INSERT INTO SELECT ----

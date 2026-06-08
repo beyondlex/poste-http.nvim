@@ -356,6 +356,12 @@ local function get_items(bufnr, line_before, cursor_line, callback)
           prefix, #items, #funcs, tostring(rust_functions ~= nil)))
       end
       vim.list_extend(items, funcs)
+      -- When user has typed a prefix, also suggest matching keywords
+      -- (e.g. WHERE after SET col = val w).  Empty prefix means the
+      -- user just triggered completion — default context suffices.
+      if #prefix > 0 then
+        vim.list_extend(items, ctx.kw_items(prefix))
+      end
       callback(items)
     end
     for _, tbl_info in ipairs(real_tbls) do

@@ -67,16 +67,7 @@ Queries: `tests/sql/queries/`. Execute: `cargo run -- run tests/sql/queries/post
 
 ## Current Focus
 
-SQL **Phase 4 — Table Ops + DDL + Completion** (23/38 steps, see `PROGRESS.md`):
-
-| Step | What | Key File |
-|------|------|----------|
-| 24 | `sql_ddl.rs` — DDL generator | new |
-| 25 | `sql/table_ops.lua` — table ops UI | new |
-| 26 | `sql/completion.lua` — SQL completion | new |
-| 27 | Phase 4 integration tests | — |
-
-Flow: find `[ ]` in `PROGRESS.md` → read `docs/sql-design.md` → implement → `cargo test` → mark `[x]`.
+All P0-P2 SQL completion tasks done (15/15). See `PROGRESS.md` for next priorities.
 
 ## File Index
 
@@ -98,4 +89,4 @@ Flow: find `[ ]` in `PROGRESS.md` → read `docs/sql-design.md` → implement �
 | Response struct | `crates/poste-exec/src/response.rs` |
 | HTTP result buf | `lua/poste/buffer.lua` |
 | SQL result buf | `lua/poste/sql/buffer.lua` |
-| Completion | `lua/poste/completion.lua` |
+| Completion | `lua/poste/sql/completion.lua` (SQL), `lua/poste/completion.lua` (HTTP) |

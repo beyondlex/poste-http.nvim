@@ -1,6 +1,6 @@
 " Vim syntax file for Poste SQL request files (.sql, .sqlite)
 " Language: Poste SQL request format
-" Latest Revision: 2026-06-04
+" Latest Revision: 2026-06-09
 
 if exists("b:current_syntax")
   finish
@@ -53,28 +53,87 @@ syn keyword PosteSqlKeyword SELECT FROM WHERE AND OR NOT IN EXISTS
   \ RETURNING CONFLICT DO NOTHING
   \ EXPLAIN ANALYZE VERBOSE COSTS BUFFERS FORMAT
   \ TRUNCATE VACUUM REINDEX
+  \ CALL COPY EXECUTE PREPARE SHOW USE
+  \ TABLES DATABASES SCHEMAS COLUMNS FIELDS
+  \ FOR UPDATE SHARE OF
+  \ NOWAIT SKIP LOCKED
+  \ OVER PARTITION WINDOW FILTER
+  \ COMMENT AFTER DESC
 
 " ─── SQL Functions ──────────────────────────────────
 syn keyword PosteSqlFunction
-  \ abs ceil ceiling floor round
-  \ length char_length character_length
+  \ abs ceil ceiling floor round truncate trunc div
+  \ rand random power pow sqrt exp ln log log2 log10
+  \ mod sign pi crc32
+  \ sin cos tan asin acos atan atan2 radians degrees
+  \ length char_length character_length octet_length bit_length
   \ lower upper trim ltrim rtrim
   \ substring replace position
-  \ concat string_agg array_agg
-  \ now date_trunc extract date_part
-  \ to_char to_date to_timestamp to_number
-  \ json_build_object json_build_array json_extract_path_text
-  \ jsonb_build_object jsonb_build_array
-  \ array_length unnest generate_series
-  \ pg_typeof typeof
+  \ concat concat_ws format instr locate
+  \ left right substr mid substring_index
+  \ repeat reverse lpad rpad space
+  \ field find_in_set elt soundex ascii ord char unicode
+  \ unhex hex quote strcmp
+  \ regexp_replace regexp_like regexp_substr regexp_instr
+  \ greatest least coalesce nullif ifnull if
+  \ count sum avg min max
+  \ group_concat string_agg array_agg
+  \ std stddev stddev_pop stddev_samp
+  \ var_pop var_samp variance
+  \ bit_and bit_or bit_xor
+  \ row_number rank dense_rank ntile lag lead
+  \ first_value last_value nth_value
+  \ cume_dist percent_rank percentile_cont percentile_disc
+  \ now sysdate localtime localtimestamp
+  \ utc_date utc_time utc_timestamp
+  \ curdate curtime
+  \ year month day dayofmonth dayofweek dayofyear
+  \ week weekday weekofyear
+  \ hour minute second microsecond quarter last_day
+  \ date_format time_format
+  \ from_unixtime unixt_timestamp str_to_date
+  \ to_days from_days
+  \ date_add date_sub adddate subdate
+  \ addtime subtime timediff timestampdiff timestampadd
+  \ datediff extract date_part
+  \ makedate maketime make_date make_time make_timestamp
+  \ convert_tz date_trunc time_trunc
+  \ age isfinite justify_days justify_hours justify_interval
+  \ clock_timestamp statement_timestamp transaction_timestamp
+  \ json_extract json_unquote json_keys json_contains
+  \ json_contains_path json_set json_insert json_replace
+  \ json_remove json_array json_object json_array_append
+  \ json_merge json_merge_patch
+  \ json_type json_valid json_depth json_length
+  \ json_quote json_table json_value
+  \ json_agg json_object_agg
+  \ jsonb_build_object jsonb_agg jsonb_pretty jsonb_extract_path
+  \ to_json row_to_json
+  \ cast convert try_cast try_convert
+  \ to_char to_number to_timestamp
+  \ md5 sha1 sha2 aes_encrypt aes_decrypt
+  \ random_bytes uuid uuid_short
+  \ version database schema user
+  \ session_user system_user connection_id
+  \ row_count found_rows last_insert_id
+  \ charset collation current_schema
+  \ current_setting set_config
+  \ match against
+  \ unnest generate_series array row setseed
+  \ any_value benchmark
+  \ get_lock release_lock release_all_locks
+  \ is_free_lock is_used_lock sleep
+  \ total typeof likely unlikely likelihood
+  \ changes total_changes
+  \ sqlite_version sqlite_source_id zeroblob
 
 " ─── Data Types ─────────────────────────────────────
 syn keyword PosteSqlType
-  \ integer int bigint smallint serial bigserial
+  \ integer int bigint smallint tinyint serial bigserial
   \ varchar char text boolean bool
   \ numeric decimal real float double precision
-  \ date time timestamp timestamptz interval
-  \ bytea uuid json jsonb xml
+  \ date time datetime timestamp timestamptz interval
+  \ bytea uuid json jsonb xml blob
   \ inet cidr macaddr
   \ point line polygon circle path box lseg
   \ array int4range int8range numrange tsrange tstzrange daterange

@@ -18,7 +18,7 @@
 | 5 | Import/export + pagination | 28-31 | ⏳ |
 | 6 | Advanced features | 32-38 | ⏳ |
 
-**Tests: 90 passed** · 27/38 steps done
+**Tests: 300 passed (230 Rust + 70 Lua)** · 27/38 steps done
 
 ---
 

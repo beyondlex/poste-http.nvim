@@ -64,7 +64,18 @@ local function try_rust_context(bufnr, line_before, cursor_line)
   table.insert(before_parts, line_before)
   local offset = #table.concat(before_parts, "\n")
 
-  local cmd = string.format("%s context detect %d", vim.fn.shellescape(binary), offset)
+  local dialect_flag = ""
+  local ok_ctx, ctx = pcall(data.resolve_current_context)
+  if ok_ctx and ctx and ctx.connection then
+    local ok_conn, conn_mod = pcall(require, "poste.sql.connections")
+    if ok_conn then
+      local conn = conn_mod.get_connection_config(ctx.connection)
+      if conn and conn.dialect then
+        dialect_flag = " --dialect " .. conn.dialect
+      end
+    end
+  end
+  local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset, dialect_flag)
   local output = vim.fn.system(cmd, sql_text)
   if vim.v.shell_error ~= 0 then return nil end
 

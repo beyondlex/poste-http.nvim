@@ -31,6 +31,27 @@ pub(crate) use tables::extract_tables;
 // Public types
 // ---------------------------------------------------------------------------
 
+/// SQL dialect for dialect-aware function filtering.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SqlDialect {
+    /// No specific dialect — return all known functions.
+    Generic,
+    Postgres,
+    MySql,
+    Sqlite,
+}
+
+impl SqlDialect {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Generic => "generic",
+            Self::Postgres => "postgres",
+            Self::MySql => "mysql",
+            Self::Sqlite => "sqlite",
+        }
+    }
+}
+
 /// The detected completion context at a cursor position.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ContextType {
@@ -117,13 +138,17 @@ pub struct ContextResult {
 /// Returns `None` if the cursor is inside a string or comment (no meaningful
 /// SQL completion is possible).
 pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
+    detect_context_with_dialect(sql, offset, SqlDialect::Generic)
+}
+
+pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect) -> Option<ContextResult> {
     let tokens = tokenize(sql);
     if tokens.is_empty() {
         return Some(ContextResult {
             context_type: ContextType::Keyword,
             tables: vec![],
             prefix: String::new(),
-            functions: functions::known_functions().to_vec(),
+            functions: functions::known_functions_for_dialect(dialect),
             in_string: false,
             in_comment: false,
         });
@@ -151,7 +176,7 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     // Special cases: check for dot-notation at cursor
     if let Some(ctx) = try_dot_column(&tokens, cursor_idx, sql) {
         let tables = extract_tables(&tokens, sql);
-        let funcs = functions::known_functions().to_vec();
+        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
@@ -165,7 +190,7 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     // Special cases: check for INSERT INTO table ( — InsertColumn
     if let Some(ctx) = try_insert_column(&tokens, cursor_idx, sql) {
         let tables = extract_tables(&tokens, sql);
-        let funcs = functions::known_functions().to_vec();
+        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
@@ -179,7 +204,7 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     // Special cases: @connection / USE
     if let Some(ctx) = try_directive(&tokens, cursor_idx, sql) {
         let tables = extract_tables(&tokens, sql);
-        let funcs = functions::known_functions().to_vec();
+        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
@@ -193,7 +218,7 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     // Special case: SHOW statement context
     if let Some(ctx) = try_show_statement(&tokens, cursor_idx, sql) {
         let tables = extract_tables(&tokens, sql);
-        let funcs = functions::known_functions().to_vec();
+        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
@@ -207,7 +232,7 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     // Special case: GRANT/REVOKE ... ON → Table
     if let Some(ctx) = try_grant_revoke(&tokens, cursor_idx, sql) {
         let tables = extract_tables(&tokens, sql);
-        let funcs = functions::known_functions().to_vec();
+        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
@@ -221,7 +246,7 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     // Special case: FOR UPDATE OF / FOR SHARE OF → Table
     if let Some(ctx) = try_for_update_of(&tokens, cursor_idx, sql) {
         let tables = extract_tables(&tokens, sql);
-        let funcs = functions::known_functions().to_vec();
+        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
@@ -238,7 +263,7 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     let context_type = detect_scan_backward(&tokens, cursor_idx, sql, cursor_on_ident);
 
     let tables = extract_tables(&tokens, sql);
-    let functions = functions::known_functions().to_vec();
+    let functions = functions::known_functions_for_dialect(dialect);
     Some(ContextResult {
         context_type,
         tables,
@@ -491,7 +516,6 @@ fn try_show_statement(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<
     // Scan forward from SHOW to find what keyword follows
     let mut next = search;
     let mut show_type: Option<String> = None;
-    let mut has_from = false;
 
     loop {
         match skip_forward(tokens, next) {
@@ -502,9 +526,7 @@ fn try_show_statement(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<
                 match tokens[idx].kind {
                     TokenKind::Keyword | TokenKind::Ident => {
                         let text = tokens[idx].text(sql);
-                        if kw_eq(text, "from") {
-                            has_from = true;
-                        } else if let Some(ty) = show_type_keyword(text) {
+                        if let Some(ty) = show_type_keyword(text) {
                             show_type = Some(ty.to_string());
                         }
                     }
@@ -1552,6 +1574,37 @@ mod tests {
     fn test_detect_begin_keyword() {
         let result = detect_context("BEGIN ", 6).unwrap();
         assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_dialect_functions_pg() {
+        // PG dialect should exclude MySQL-only functions
+        let result = detect_context_with_dialect("SELECT * FROM users WHERE ", 26,
+            SqlDialect::Postgres).unwrap();
+        for f in &result.functions {
+            assert_ne!(*f, "CRC32", "PG should not include CRC32");
+        }
+        assert!(result.functions.contains(&"STRING_AGG"), "PG should include STRING_AGG");
+        assert!(result.functions.contains(&"COUNT"), "PG should include COUNT");
+    }
+
+    #[test]
+    fn test_detect_dialect_functions_mysql() {
+        let result = detect_context_with_dialect("SELECT * FROM users WHERE ", 26,
+            SqlDialect::MySql).unwrap();
+        for f in &result.functions {
+            assert_ne!(*f, "STRING_AGG", "MySQL should not include STRING_AGG");
+        }
+        assert!(result.functions.contains(&"CRC32"), "MySQL should include CRC32");
+        assert!(result.functions.contains(&"COUNT"), "MySQL should include COUNT");
+    }
+
+    #[test]
+    fn test_detect_dialect_functions_unknown_defaults_all() {
+        // Default detect_context should use Generic = all
+        let result = detect_context("SELECT * FROM users WHERE ", 26).unwrap();
+        assert!(result.functions.contains(&"CRC32"), "Default should include all functions");
+        assert!(result.functions.contains(&"STRING_AGG"), "Default should include all functions");
     }
 
     #[test]

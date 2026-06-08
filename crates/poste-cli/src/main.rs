@@ -75,6 +75,9 @@ enum ContextAction {
     Detect {
         /// Byte offset of cursor within SQL text (0-based)
         offset: usize,
+        /// Optional dialect for function filtering (generic, postgres, mysql, sqlite)
+        #[arg(long, default_value = "generic")]
+        dialect: String,
     },
     /// Find statement boundaries containing a cursor line
     Stmt {
@@ -368,10 +371,16 @@ fn make_detect_response(result: &poste_core::sql_context::ContextResult) -> Cont
 
 fn handle_context_command(action: ContextAction) -> Result<()> {
     match action {
-        ContextAction::Detect { offset } => {
+        ContextAction::Detect { offset, dialect } => {
             let mut sql = String::new();
             std::io::stdin().read_to_string(&mut sql)?;
-            let result = poste_core::sql_context::detect_context(&sql, offset);
+            let dialect = match dialect.as_str() {
+                "postgres" => poste_core::sql_context::SqlDialect::Postgres,
+                "mysql" => poste_core::sql_context::SqlDialect::MySql,
+                "sqlite" => poste_core::sql_context::SqlDialect::Sqlite,
+                _ => poste_core::sql_context::SqlDialect::Generic,
+            };
+            let result = poste_core::sql_context::detect_context_with_dialect(&sql, offset, dialect);
             let response = match result {
                 Some(ctx) => make_detect_response(&ctx),
                 None => ContextDetectResponse {

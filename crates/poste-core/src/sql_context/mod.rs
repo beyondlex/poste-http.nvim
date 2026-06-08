@@ -190,6 +190,20 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
         });
     }
 
+    // Special case: SHOW statement context
+    if let Some(ctx) = try_show_statement(&tokens, cursor_idx, sql) {
+        let tables = extract_tables(&tokens, sql);
+        let funcs = functions::known_functions().to_vec();
+        return Some(ContextResult {
+            context_type: ctx,
+            tables,
+            prefix,
+            functions: funcs,
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
     // General case: scan backward for context keyword
     let cursor_on_ident = matches!(cursor_tok.kind,
         TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At);
@@ -412,6 +426,87 @@ fn try_directive(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<Conte
     }
 
     None
+}
+
+/// Try to detect SHOW statement context.
+///
+/// Handles:
+/// - `SHOW TABLES ` → Table
+/// - `SHOW DATABASES ` / `SHOW SCHEMAS ` → Database
+/// - `SHOW COLUMNS FROM ` / `SHOW FIELDS FROM ` → Table
+fn try_show_statement(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
+    // Walk backward from cursor to find SHOW keyword.
+    // Skip the user's current typing prefix if on ident or keyword.
+    let start = if matches!(tokens[cursor_idx].kind, TokenKind::Ident | TokenKind::Keyword) {
+        skip_back(tokens, cursor_idx)?
+    } else {
+        cursor_idx
+    };
+
+    // Scan back to find SHOW
+    let mut search = start;
+    loop {
+        if tokens[search].kind == TokenKind::Keyword && kw_eq(tokens[search].text(sql), "show") {
+            break;
+        }
+        search = skip_back(tokens, search)?;
+    }
+
+    // Scan forward from SHOW to find what keyword follows
+    let mut next = search;
+    let mut show_type: Option<String> = None;
+    let mut has_from = false;
+
+    loop {
+        match skip_forward(tokens, next) {
+            Some(idx) => {
+                if idx > cursor_idx {
+                    break;
+                }
+                match tokens[idx].kind {
+                    TokenKind::Keyword | TokenKind::Ident => {
+                        let text = tokens[idx].text(sql);
+                        if kw_eq(text, "from") {
+                            has_from = true;
+                        } else if let Some(ty) = show_type_keyword(text) {
+                            show_type = Some(ty.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+                next = idx;
+            }
+            None => break,
+        }
+    }
+
+    match show_type.as_deref() {
+        Some("databases") | Some("schemas") => Some(ContextType::Database),
+        Some("tables") => Some(ContextType::Table),
+        Some("columns") | Some("fields") => Some(ContextType::Table),
+        _ => None,
+    }
+}
+
+/// Check if a word is a SHOW type keyword and return its normalized form.
+fn show_type_keyword(w: &str) -> Option<&'static str> {
+    let w = w.as_bytes();
+    if w.len() < 4 || w.len() > 9 {
+        return None;
+    }
+    let up = |b: u8| if b >= b'a' && b <= b'z' { b - 32 } else { b };
+    let mut buf = [0u8; 9];
+    for (i, &b) in w.iter().enumerate() {
+        buf[i] = up(b);
+    }
+    match &buf[..w.len()] {
+        b"TABLES" => Some("tables"),
+        b"DATABASES" => Some("databases"),
+        b"SCHEMAS" => Some("schemas"),
+        b"COLUMNS" => Some("columns"),
+        b"FIELDS" => Some("fields"),
+        _ => None,
+    }
 }
 
 /// Generic backward scan for context keyword.
@@ -1378,9 +1473,106 @@ mod tests {
 
     #[test]
     fn test_detect_copy_from() {
-        // CURRENT: COPY not in TABLE_CTX → Keyword. Ideal: Table.
         let result = detect_context("COPY ", 5).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    // ---- SHOW statement ----
+
+    #[test]
+    fn test_detect_show_tables() {
+        let result = detect_context("SHOW TABLES ", 12).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_show_tables_prefix() {
+        let result = detect_context("SHOW TABLES", 11).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_show_databases() {
+        let result = detect_context("SHOW DATABASES ", 15).unwrap();
+        assert_eq!(result.context_type, ContextType::Database);
+    }
+
+    #[test]
+    fn test_detect_show_schemas() {
+        let result = detect_context("SHOW SCHEMAS ", 13).unwrap();
+        assert_eq!(result.context_type, ContextType::Database);
+    }
+
+    #[test]
+    fn test_detect_show_columns_from() {
+        let result = detect_context("SHOW COLUMNS FROM ", 18).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_show_fields_from() {
+        let result = detect_context("SHOW FIELDS FROM ", 17).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_show_columns_from_table_prefix() {
+        let result = detect_context("SHOW COLUMNS FROM us", 20).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_show_bare_keyword() {
+        let result = detect_context("SHOW ", 5).unwrap();
         assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_analyze() {
+        let result = detect_context("ANALYZE ", 8).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_vacuum() {
+        let result = detect_context("VACUUM ", 7).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_call_keyword() {
+        let result = detect_context("CALL ", 5).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_do_keyword() {
+        let result = detect_context("DO ", 3).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_prepare_keyword() {
+        let result = detect_context("PREPARE ", 8).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_listen_keyword() {
+        let result = detect_context("LISTEN ", 7).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_notify_keyword() {
+        let result = detect_context("NOTIFY ", 7).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_lock_table() {
+        let result = detect_context("LOCK TABLE ", 11).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
     }
 
     // ---- LATERAL / INSERT INTO SELECT ----

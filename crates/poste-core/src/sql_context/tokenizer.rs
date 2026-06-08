@@ -192,29 +192,28 @@ pub(crate) fn is_known_keyword(word: &str) -> bool {
     let up_slice = &buf[..w.len()];
 
     const KWS: &[&[u8]] = &[
-        b"ALL", b"ALTER", b"AND", b"ANY", b"AS", b"ASC", b"AVG",
+        b"ADD", b"AFTER", b"ALL", b"ALTER", b"ANALYZE", b"AND", b"ANY", b"AS", b"ASC", b"AVG",
         b"BEGIN", b"BETWEEN", b"BY", b"BOOL",
-        b"CASCADE", b"CASE", b"CAST", b"CHAR", b"COALESCE", b"COLUMN", b"COMMENT", b"COMMIT", b"COUNT", b"CREATE", b"CROSS",
+        b"CALL", b"CASCADE", b"CASE", b"CAST", b"CHAR", b"CLUSTER", b"COALESCE", b"COLUMN", b"COLUMNS", b"COMMENT", b"COMMIT", b"COPY", b"COUNT", b"CREATE", b"CROSS",
         b"CURRENT_DATE", b"CURRENT_TIMESTAMP",
-        b"DECIMAL", b"DEFAULT", b"DELETE", b"DESC", b"DISTINCT", b"DOUBLE", b"DROP",
-        b"ELSE", b"END", b"EXCEPT", b"EXISTS", b"ADD", b"AFTER",
-        b"FALSE", b"FLOAT", b"FOREIGN", b"FROM", b"FULL",
-        b"GROUP",
+        b"DEALLOCATE", b"DECIMAL", b"DEFAULT", b"DELETE", b"DESC", b"DISTINCT", b"DO", b"DOUBLE", b"DROP",
+        b"ELSE", b"END", b"EXCEPT", b"EXECUTE", b"EXISTS", b"EXPLAIN",
+        b"FALSE", b"FIELDS", b"FLOAT", b"FOR", b"FOREIGN", b"FROM", b"FULL",
+        b"GRANT", b"GROUP",
         b"HAVING",
         b"ILIKE", b"IN", b"INDEX", b"INNER", b"INSERT", b"INT", b"INTEGER", b"INTERSECT", b"INTO", b"IS",
         b"JOIN",
         b"KEY",
-        b"LEFT", b"LIKE", b"LIMIT", b"LOWER",
+        b"LEFT", b"LIKE", b"LIMIT", b"LISTEN", b"LOCK", b"LOCKED", b"LOWER",
         b"MAX", b"MIN", b"MODIFY",
-        b"NATURAL", b"NOT", b"NULL", b"NULLIF", b"NUMERIC",
-        b"OFFSET", b"ON", b"OR", b"ORDER", b"OUTER",
-        b"OVER",
-        b"PARTITION", b"PRIMARY",
-        b"REAL", b"REFERENCES", b"RENAME", b"RETURNING", b"RIGHT", b"ROLLBACK",
-        b"SELECT", b"SERIAL", b"SET", b"SHOW", b"SMALLINT",
-        b"TABLE", b"TEXT", b"THEN", b"TIME", b"TIMESTAMP", b"TINYINT", b"TRIM", b"TRUE", b"TRUNCATE",
+        b"NATURAL", b"NOT", b"NOTIFY", b"NOWAIT", b"NULL", b"NULLIF", b"NUMERIC",
+        b"OF", b"OFFSET", b"ON", b"OR", b"ORDER", b"OUTER", b"OVER",
+        b"PARTITION", b"PREPARE", b"PRIMARY",
+        b"REAL", b"REINDEX", b"REFERENCES", b"RENAME", b"REPLACE", b"RETURNING", b"REVOKE", b"RIGHT", b"ROLLBACK",
+        b"DATABASES", b"SCHEMAS", b"SELECT", b"SERIAL", b"SET", b"SHARE", b"SHOW", b"SKIP", b"SMALLINT",
+        b"TABLE", b"TABLES", b"TEXT", b"THEN", b"TIME", b"TIMESTAMP", b"TINYINT", b"TRIM", b"TRUE", b"TRUNCATE",
         b"UNION", b"UNIQUE", b"UPDATE", b"USE", b"USING", b"UUID",
-        b"VALUES", b"VARCHAR",
+        b"VACUUM", b"VALUES", b"VARCHAR",
         b"WHEN", b"WHERE", b"WITH",
     ];
 
@@ -222,7 +221,7 @@ pub(crate) fn is_known_keyword(word: &str) -> bool {
 }
 
 pub(crate) fn is_table_keyword(w: &str) -> bool {
-    matches!(w, "from" | "join" | "into" | "table" | "update")
+    matches!(w, "analyze" | "copy" | "from" | "into" | "join" | "table" | "update" | "vacuum")
 }
 
 pub(crate) fn is_column_keyword(w: &str) -> bool {

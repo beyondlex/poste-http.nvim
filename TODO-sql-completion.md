@@ -105,7 +105,7 @@ Rust unit tests are strong, but the Lua orchestrator behavior is where several c
 
 ## P1: Fill SQL Context Gaps
 
-### [ ] P1-1: Add missing common SQL keywords to Rust tokenizer
+### [x] P1-1: Add missing common SQL keywords to Rust tokenizer
 
 `OVER` and `PARTITION` are already present, but many common command keywords are still missing.
 
@@ -116,6 +116,7 @@ Rust unit tests are strong, but the Lua orchestrator behavior is where several c
 1. Add missing words to `is_known_keyword()`.
 2. Add tests that assert context behavior, not just token classification.
 3. Avoid adding words only to Lua unless they are fallback display snippets.
+4. **[done]** 27 keywords added to `is_known_keyword()`. `COPY`, `ANALYZE`, `VACUUM` added to `is_table_keyword()` for table context. 8 new context tests added. Updated existing `test_detect_copy_from` to expect `Table`.
 
 **File(s):** `crates/poste-core/src/sql_context/tokenizer.rs`, `crates/poste-core/src/sql_context/mod.rs`
 

@@ -530,7 +530,8 @@ function M.source:is_available()
 end
 function M.source:get_trigger_characters() return { ".", " ", "@", "(", "," } end
 function M.source:execute(entry, callback)
-  local item = entry:get_completion_item()
+  local item = (type(entry.get_completion_item) == "function" and entry:get_completion_item()) or entry.completion_item
+  if not item then callback(); return end
   if item.data and item.data.directive_fallback then
     vim.schedule(function()
       local buf = vim.api.nvim_get_current_buf()

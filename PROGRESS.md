@@ -323,3 +323,36 @@ Phase 6:   11→32→33,34,35,36    5→37    12→38
 | `lua/poste/highlights.lua` | 10 | SQL highlight groups |
 | `ftdetect/poste.vim` | 7 | *.sql/*.sqlite |
 | `after/ftdetect/poste.vim` | 7 | override builtin detection |
+
+---
+
+## Future: Rust Binary Distribution
+
+### Plan
+
+The `poste` CLI binary must be distributed alongside the Neovim plugin. Current local dev relies on `cargo build` in the repo — for plugin installs (lazy.nvim/packer), we need prebuilt binaries.
+
+### Release Flow
+
+1. **GitHub Actions CI**: Build `poste-cli` for `linux-x64`, `macos-x64`, `macos-aarch64`, `windows-x64`
+2. **GitHub Releases**: Attach built binaries to each tagged release
+3. **Plugin bootstrap**: On first load, detect platform + arch, download correct binary from latest release to `vim.fn.stdpath("data")/poste/bin/poste`
+4. **Automatic config**: Set `vim.g.poste_binary` to the downloaded path
+
+### Search Order (already implemented)
+
+| Priority | Source | Example |
+|----------|--------|---------|
+| 1 | `vim.g.poste_binary` (user override) | `set g:poste_binary = "/custom/path/poste"` |
+| 2 | `completion_data.lua` plugin-relative | `<plugin_root>/target/debug/poste` |
+| 3 | `completion_data.lua` plugin-relative | `<plugin_root>/target/release/poste` |
+| 4 | `completion_data.lua` plugin-relative | `<plugin_root>/bin/poste` |
+| 5 | CWD-relative (in-repo dev) | `./target/debug/poste` |
+| 6 | `vim.fn.exepath("poste")` | Needs `poste` in PATH |
+
+### Not Yet Implemented
+
+- [ ] GitHub Actions release workflow (`.github/workflows/release.yml`)
+- [ ] Plugin download/bootstrap script (`lua/poste/install.lua`)
+- [ ] Auto-update mechanism
+- [ ] Version check (CLI vs plugin compatibility)

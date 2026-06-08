@@ -435,14 +435,7 @@ function M:execute(ctx, item, callback, default_impl)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
       vim.api.nvim_win_set_cursor(0, { lnum + 1, #(indent .. "-- @database ") })
       vim.cmd("startinsert!")
-      vim.schedule(function()
-        local ok, cmp = pcall(require, "cmp")
-        if ok then pcall(cmp.complete, cmp)
-        else
-          local ok2, blink = pcall(require, "blink.cmp")
-          if ok2 then pcall(blink.show, blink) end
-        end
-      end)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(" ", true, false, true), "n")
     end)
     callback()
     return
@@ -475,14 +468,7 @@ function M.source:execute(entry, callback)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
       vim.api.nvim_win_set_cursor(0, { lnum + 1, #(indent .. "-- @database ") })
       vim.cmd("startinsert!")
-      vim.schedule(function()
-        local ok, cmp = pcall(require, "cmp")
-        if ok then pcall(cmp.complete, cmp)
-        else
-          local ok2, blink = pcall(require, "blink.cmp")
-          if ok2 then pcall(blink.show, blink) end
-        end
-      end)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(" ", true, false, true), "n")
     end)
     callback()
     return

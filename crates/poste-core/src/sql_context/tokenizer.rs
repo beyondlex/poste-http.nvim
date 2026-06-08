@@ -221,7 +221,7 @@ pub(crate) fn is_known_keyword(word: &str) -> bool {
 }
 
 pub(crate) fn is_table_keyword(w: &str) -> bool {
-    matches!(w, "analyze" | "copy" | "from" | "into" | "join" | "table" | "update" | "vacuum")
+    matches!(w, "analyze" | "call" | "copy" | "from" | "into" | "join" | "table" | "update" | "vacuum")
 }
 
 pub(crate) fn is_column_keyword(w: &str) -> bool {

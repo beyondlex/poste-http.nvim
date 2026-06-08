@@ -204,6 +204,20 @@ pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
         });
     }
 
+    // Special case: GRANT/REVOKE ... ON → Table
+    if let Some(ctx) = try_grant_revoke(&tokens, cursor_idx, sql) {
+        let tables = extract_tables(&tokens, sql);
+        let funcs = functions::known_functions().to_vec();
+        return Some(ContextResult {
+            context_type: ctx,
+            tables,
+            prefix,
+            functions: funcs,
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
     // General case: scan backward for context keyword
     let cursor_on_ident = matches!(cursor_tok.kind,
         TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At);
@@ -352,7 +366,7 @@ fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<C
 
     // Now i is at LParen. Scan backward: skip whitespace, find table name,
     // then INTO, then INSERT.
-    // Pattern: INSERT INTO <table> (
+    // Also handles: COPY <table> ( and COPY table FROM/TO ...
 
     // Walk backward from LParen for table name
     if let Some(tbl_idx) = skip_back(tokens, i) {
@@ -373,6 +387,14 @@ fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<C
                         return Some(ContextType::InsertColumn { table });
                     }
                 }
+            }
+        }
+
+        // Also handle COPY <table> (
+        if let Some(prev_idx) = skip_back(tokens, tbl_idx) {
+            let prev_tok = &tokens[prev_idx];
+            if prev_tok.kind == TokenKind::Keyword && kw_eq(prev_tok.text(sql), "copy") {
+                return Some(ContextType::InsertColumn { table });
             }
         }
     }
@@ -485,6 +507,57 @@ fn try_show_statement(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<
         Some("tables") => Some(ContextType::Table),
         Some("columns") | Some("fields") => Some(ContextType::Table),
         _ => None,
+    }
+}
+
+/// Try to detect GRANT/REVOKE ... ON context — return Table for the object name.
+fn try_grant_revoke(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
+    // Walk backward to find ON keyword
+    let start = if matches!(tokens[cursor_idx].kind, TokenKind::Ident | TokenKind::Keyword) {
+        skip_back(tokens, cursor_idx)?
+    } else {
+        cursor_idx
+    };
+
+    let mut search = start;
+    loop {
+        if tokens[search].kind == TokenKind::Keyword && kw_eq(tokens[search].text(sql), "on") {
+            break;
+        }
+        if search == 0 {
+            return None;
+        }
+        search = skip_back(tokens, search)?;
+    }
+
+    // Check if ON is preceded by GRANT or REVOKE (possibly with intervening tokens)
+    // We need to scan further back — skip over privilege keywords (SELECT, INSERT, etc.)
+    let mut before_on = search;
+    loop {
+        match skip_back(tokens, before_on) {
+            Some(idx) => {
+                let tok = &tokens[idx];
+                match tok.kind {
+                    TokenKind::Keyword => {
+                        let kw = tok.text(sql).to_ascii_lowercase();
+                        if kw == "grant" || kw == "revoke" {
+                            return Some(ContextType::Table);
+                        }
+                        // Skip known privilege/grant keywords and identifiers
+                        if kw == "on" {
+                            return None; // nested ON — not our pattern
+                        }
+                        // Continue scanning for GRANT/REVOKE
+                        before_on = idx;
+                    }
+                    TokenKind::Ident | TokenKind::Comma => {
+                        before_on = idx;
+                    }
+                    _ => return None,
+                }
+            }
+            None => return None,
+        }
     }
 }
 
@@ -1460,9 +1533,20 @@ mod tests {
 
     #[test]
     fn test_detect_grant() {
-        // CURRENT: ON is in COLUMN_CTX → Column. Ideal: Table.
         let result = detect_context("GRANT SELECT ON ", 16).unwrap();
-        assert_eq!(result.context_type, ContextType::Column);
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_grant_on_prefix() {
+        let result = detect_context("GRANT SELECT ON us", 19).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_revoke_on() {
+        let result = detect_context("REVOKE ALL ON ", 14).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
     }
 
     #[test]
@@ -1475,6 +1559,12 @@ mod tests {
     fn test_detect_copy_from() {
         let result = detect_context("COPY ", 5).unwrap();
         assert_eq!(result.context_type, ContextType::Table);
+    }
+
+    #[test]
+    fn test_detect_copy_column() {
+        let result = detect_context("COPY users (", 12).unwrap();
+        assert_eq!(result.context_type, ContextType::InsertColumn { table: "users".to_string() });
     }
 
     // ---- SHOW statement ----
@@ -1542,7 +1632,7 @@ mod tests {
     #[test]
     fn test_detect_call_keyword() {
         let result = detect_context("CALL ", 5).unwrap();
-        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.context_type, ContextType::Table);
     }
 
     #[test]
@@ -1555,6 +1645,18 @@ mod tests {
     fn test_detect_prepare_keyword() {
         let result = detect_context("PREPARE ", 8).unwrap();
         assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_execute_keyword() {
+        let result = detect_context("EXECUTE ", 8).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_explain_analyze() {
+        let result = detect_context("EXPLAIN ANALYZE ", 16).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
     }
 
     #[test]

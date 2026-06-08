@@ -10,7 +10,6 @@
 
 -- SELECT * FROM posts WHERE id IN (SELECT id FROM posts WHERE author_id IS NULL)
 
-show tables;
 
 SELECT * from web_vitals;
 

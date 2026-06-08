@@ -14,9 +14,12 @@ syn region PosteSqlRequestName
   \ contains=PosteSqlSeparator keepend
 syn match PosteSqlSeparator '^###' contained
 
-" ─── Directives (must be before comments) ────────────
+" ─── Directives (inside comments) ────────────
 syn match PosteSqlDirective
-  \ '^\s*--\s*@\%(connection\|database\|protocol\)\s\+.*$'
+  \ '@\%(connection\|database\|protocol\)'
+  \ contained
+  \ nextgroup=PosteSqlDirectiveValue skipwhite
+syn match PosteSqlDirectiveValue '\S.*$' contained
 
 " ─── Variable definitions: @name = value / @name value ──
 syn match PosteSqlVarDef '^\s*@\w\+'
@@ -97,7 +100,8 @@ syn match PosteSqlOperator '<@'
 hi def link PosteSqlSeparator   Delimiter
 hi def link PosteSqlRequestName Title
 hi def link PosteSqlComment     Comment
-hi def link PosteSqlDirective   PreProc
+hi def PosteSqlDirective        guifg=#9B59B6 ctermfg=141 gui=bold
+hi def PosteSqlDirectiveValue   guifg=#E5C07B ctermfg=180
 hi def link PosteSqlVarDef      Identifier
 hi def link PosteSqlVarAssign   Operator
 hi def link PosteSqlVarValue    String

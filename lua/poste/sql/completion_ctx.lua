@@ -82,8 +82,12 @@ end
 
 --- Returns: ctx_type, ctx_data
 function M.detect_context(line_before)
-  if line_before:match("@connection%s+%S*$") then
+  if line_before:match("@connection%s") or line_before:match("^%s*%-%-%s*@connection$") then
     return "connection", nil
+  end
+
+  if line_before:match("@database%s") or line_before:match("^%s*%-%-%s*@database$") then
+    return "database", "directive"
   end
 
   if line_before:match("^%s*[Uu][Ss][Ee]%s+%S*$") then

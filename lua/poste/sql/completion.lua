@@ -87,6 +87,34 @@ end
 
 local function get_items(bufnr, line_before, cursor_line, callback)
   local prefix = line_before:match("[%w_]*$") or ""
+
+  -- Directive lines: handle immediately, bypass Rust path entirely
+  if line_before:match("^%s*%-%-%s*@connection") then
+    local cp = line_before:match("@connection$")
+      or line_before:match("@connection%s+(%S*)$")
+      or ""
+    data.ensure_conn_names(function(names)
+      callback(ctx.filter(ctx.make_items(names, 6, "connection: "), cp))
+    end)
+    return
+  end
+
+  if line_before:match("^%s*%-%-%s*@database") then
+    local db_prefix = line_before:match("@database$")
+      or line_before:match("@database%s+(%S*)$")
+      or ""
+    data.ensure_databases(function(names)
+      if #names == 0 then
+        data.ensure_conn_names(function(conn_names)
+          callback(ctx.filter(ctx.make_items(conn_names, 6, "connection: "), db_prefix))
+        end)
+      else
+        callback(ctx.filter(ctx.make_items(names, 1, "database: "), db_prefix))
+      end
+    end)
+    return
+  end
+
   local ctx_type, ctx_data = ctx.detect_context(line_before)
 
   -- vim.g.poste_sql_legacy_completion controls completion mode:
@@ -117,7 +145,9 @@ local function get_items(bufnr, line_before, cursor_line, callback)
   end
 
   if ctx_type == "connection" then
-    local cp = line_before:match("@connection%s+(%S*)$") or ""
+    local cp = line_before:match("@connection$")
+      or line_before:match("@connection%s+(%S*)$")
+      or ""
     data.ensure_conn_names(function(names)
       callback(ctx.filter(ctx.make_items(names, 6, "connection: "), cp))
     end)
@@ -125,9 +155,22 @@ local function get_items(bufnr, line_before, cursor_line, callback)
   end
 
   if ctx_type == "database" then
-    local db_prefix = line_before:match("[Uu][Ss][Ee]%s+(%S*)$") or ""
+    local db_prefix
+    if ctx_data == "directive" then
+      db_prefix = line_before:match("@database$")
+        or line_before:match("@database%s+(%S*)$")
+        or ""
+    else
+      db_prefix = line_before:match("[Uu][Ss][Ee]%s+(%S*)$") or ""
+    end
     data.ensure_databases(function(names)
-      callback(ctx.filter(ctx.make_items(names, 1, "database: "), db_prefix))
+      if ctx_data == "directive" and #names == 0 then
+        data.ensure_conn_names(function(conn_names)
+          callback(ctx.filter(ctx.make_items(conn_names, 6, "connection: "), db_prefix))
+        end)
+      else
+        callback(ctx.filter(ctx.make_items(names, 1, "database: "), db_prefix))
+      end
     end)
     return
   end
@@ -257,6 +300,12 @@ local function get_items(bufnr, line_before, cursor_line, callback)
 
   if ctx_type == "datatype" then
     callback(ctx.filter(ctx.make_items(data.DATA_TYPES, 25, "type: "), prefix))
+    return
+  end
+
+  -- Don't show keywords on directive lines (prevents @ trigger pollution)
+  if line_before:match("^%s*%-%-%s*@") then
+    callback({})
     return
   end
 

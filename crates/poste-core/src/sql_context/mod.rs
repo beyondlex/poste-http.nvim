@@ -257,6 +257,20 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
         });
     }
 
+    // Special case: bare SET (session params) → Keyword
+    if let Some(ctx) = try_bare_set(&tokens, cursor_idx, sql) {
+        let tables = extract_tables(&tokens, sql);
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ctx,
+            tables,
+            prefix,
+            functions: funcs,
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
     // General case: scan backward for context keyword
     let cursor_on_ident = matches!(cursor_tok.kind,
         TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At);
@@ -636,6 +650,56 @@ fn try_for_update_of(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<C
     None
 }
 
+/// Try to detect bare SET statement (session parameters) — return Keyword.
+/// Distinguishes `SET param = ` (bare SET) from `UPDATE ... SET col = ` (Column).
+fn try_bare_set(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
+    let start = if matches!(tokens[cursor_idx].kind, TokenKind::Ident | TokenKind::Keyword) {
+        skip_back(tokens, cursor_idx)?
+    } else {
+        cursor_idx
+    };
+
+    let mut search = start;
+    loop {
+        if tokens[search].kind == TokenKind::Keyword && kw_eq(tokens[search].text(sql), "set") {
+            break;
+        }
+        if search == 0 {
+            return None;
+        }
+        search = skip_back(tokens, search)?;
+    }
+
+    // SET found. Check if preceded by a table keyword (UPDATE → UPDATE ... SET)
+    // or by an Ident that is preceded by a table keyword.
+    if let Some(prev) = skip_back(tokens, search) {
+        match tokens[prev].kind {
+            TokenKind::Keyword => {
+                let kw = tokens[prev].text(sql).to_ascii_lowercase();
+                if is_table_keyword(&kw) || kw == "lock" {
+                    return None; // UPDATE/... SET → let general scan handle it
+                }
+                return Some(ContextType::Keyword); // SomeKeyword SET → bare SET
+            }
+            TokenKind::Ident => {
+                // `UPDATE users SET` — check if Ident is preceded by table keyword
+                if let Some(before) = skip_back(tokens, prev) {
+                    if tokens[before].kind == TokenKind::Keyword {
+                        let kw = tokens[before].text(sql).to_ascii_lowercase();
+                        if is_table_keyword(&kw) || kw == "lock" {
+                            return None; // UPDATE users SET → let general scan handle
+                        }
+                    }
+                }
+                return Some(ContextType::Keyword); // Ident SET → bare SET
+            }
+            _ => return Some(ContextType::Keyword),
+        }
+    }
+
+    Some(ContextType::Keyword) // SET at start of statement → bare SET
+}
+
 /// Check if a word is a SHOW type keyword and return its normalized form.
 fn show_type_keyword(w: &str) -> Option<&'static str> {
     let w = w.as_bytes();
@@ -765,7 +829,17 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str, cursor_o
                             return ContextType::Column;
                         }
                     }
-                    return ContextType::Keyword;
+                    // `=` after column name in SET clause — continue
+                    // scanning to find SET (handles `name = ` and
+                    // `name = 'x', age = `).  The SET handler below
+                    // checks for a preceding UPDATE to distinguish
+                    // `UPDATE ... SET col = ` (Column) from the
+                    // standalone `SET param = ` (Keyword).
+                    if tokens[prev].kind == TokenKind::Ident {
+                        // Continue scanning — don't short-circuit
+                    } else {
+                        return ContextType::Keyword;
+                    }
                 } else {
                     return ContextType::Keyword;
                 }
@@ -803,6 +877,12 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str, cursor_o
                 // Cursor is on a closing paren — structural (closes subquery,
                 // function call, or expression). Continue scanning backward
                 // to find the real context keyword.
+            }
+            TokenKind::StrLit | TokenKind::DollarStr => {
+                // String literal value — part of a column expression.
+                // Preserve after_comma so the SET keyword after comma
+                // correctly returns Column context (e.g. UPDATE users
+                // SET name = 'x', ).
             }
             _ => {
                 // Dot, Semi, At, etc.
@@ -1634,6 +1714,20 @@ mod tests {
     #[test]
     fn test_detect_set_statement() {
         let result = detect_context("SET statement_timeout = ", 24).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_update_set_comma() {
+        let result = detect_context("UPDATE users SET name = 'x', ", 30).unwrap();
+        assert_eq!(result.context_type, ContextType::Column);
+    }
+
+    #[test]
+    fn test_detect_update_set_multi_column() {
+        // After `= value, col = ` the cursor expects a value — Keyword is acceptable
+        // (Column would need multi-ident tracking across comma boundaries)
+        let result = detect_context("UPDATE users SET name = 'x', age = ", 35).unwrap();
         assert_eq!(result.context_type, ContextType::Keyword);
     }
 

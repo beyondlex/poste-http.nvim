@@ -59,10 +59,8 @@ impl ConnectionConfig {
                 // sqlx expects: sqlite::memory: or sqlite:/absolute/path or sqlite:relative/path
                 if path == ":memory:" {
                     "sqlite::memory:".to_string()
-                } else if path.starts_with('/') {
-                    format!("sqlite:{}", path)  // sqlite:/absolute/path
                 } else {
-                    format!("sqlite:{}", path)  // sqlite:relative/path or sqlite:./relative
+                    format!("sqlite:{}", path)
                 }
             }
             "postgres" | "mysql" => {

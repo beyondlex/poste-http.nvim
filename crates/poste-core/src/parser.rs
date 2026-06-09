@@ -38,11 +38,9 @@ impl Parser {
         let mut current_block = String::new();
 
         for line in content.lines() {
-            if line.trim().starts_with("###") {
-                if !current_block.is_empty() {
-                    blocks.push(current_block.clone());
-                    current_block.clear();
-                }
+            if line.trim().starts_with("###") && !current_block.is_empty() {
+                blocks.push(current_block.clone());
+                current_block.clear();
             }
             current_block.push_str(line);
             current_block.push('\n');
@@ -292,6 +290,8 @@ impl Parser {
         let lines: Vec<&str> = content.lines().collect();
         let mut i = 0;
 
+        let connection_re = Regex::new(r"(?:--|#)\s*@connection\s+(.+)").unwrap();
+
         while i < lines.len() {
             let line = lines[i];
             if line.trim().starts_with("###") {
@@ -331,8 +331,7 @@ impl Parser {
             }
 
             // Also parse @connection directives in comments (# @connection ... or -- @connection ...)
-            let re = Regex::new(r"(?:--|#)\s*@connection\s+(.+)").unwrap();
-            if let Some(caps) = re.captures(line) {
+            if let Some(caps) = connection_re.captures(line) {
                 vars.insert("connection".to_string(), caps[1].trim().to_string());
             }
         }

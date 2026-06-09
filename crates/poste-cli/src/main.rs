@@ -581,7 +581,7 @@ async fn handle_introspect_command(
     let params = IntrospectParams {
         connection_url,
         dialect_name,
-        introspect_type: IntrospectType::from_str(&introspect_type)?,
+        introspect_type: IntrospectType::parse_str(&introspect_type)?,
         schema,
         table,
     };

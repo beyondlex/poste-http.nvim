@@ -1237,6 +1237,217 @@ function M.navigate_to(conn_name, db_name)
   end)
 end
 
+--- Navigate to a specific table in the DB Browser, expanding to show columns.
+--- Handles SQLite (no db/schema layers), MySQL (db → tables), PG (db → schema → tables).
+--- @param conn_name string Connection name
+--- @param db_name string|nil Database name (nil for SQLite)
+--- @param table_name string Table name (optionally schema-qualified for PG: "schema.table")
+--- @param column_name string|nil Optional column name to navigate to within the table
+function M.navigate_to_table(conn_name, db_name, table_name, column_name)
+  source_buf = vim.api.nvim_get_current_buf()
+
+  -- Create/ensure browser buffer and window (same setup as open())
+  if not browser_buf or not vim.api.nvim_buf_is_valid(browser_buf) then
+    browser_buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_set_option_value("buftype", "nofile", { buf = browser_buf })
+    vim.api.nvim_set_option_value("bufhidden", "hide", { buf = browser_buf })
+    vim.api.nvim_set_option_value("swapfile", false, { buf = browser_buf })
+    vim.api.nvim_set_option_value("modifiable", false, { buf = browser_buf })
+    vim.api.nvim_buf_set_name(browser_buf, "poste://db_browser")
+
+    local opts = { buffer = browser_buf, noremap = true, silent = true }
+    vim.keymap.set("n", "<CR>", function() toggle_node(vim.fn.line(".")) end, opts)
+    vim.keymap.set("n", "r", function() refresh_node(vim.fn.line(".")) end, opts)
+    vim.keymap.set("n", "/", function() search_filter() end, opts)
+    vim.keymap.set("n", "s", function() generate_select_query(vim.fn.line(".")) end, opts)
+    vim.keymap.set("n", "d", function() generate_describe_query(vim.fn.line(".")) end, opts)
+    vim.keymap.set("n", "q", function() M.close() end, opts)
+  end
+
+  if not browser_win or not vim.api.nvim_win_is_valid(browser_win) then
+    vim.cmd("topleft 40vsplit")
+    browser_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_buf(browser_win, browser_buf)
+    vim.api.nvim_set_option_value("number", false, { win = browser_win })
+    vim.api.nvim_set_option_value("relativenumber", false, { win = browser_win })
+    vim.api.nvim_set_option_value("signcolumn", "no", { win = browser_win })
+    vim.api.nvim_set_option_value("wrap", false, { win = browser_win })
+    vim.api.nvim_set_option_value("cursorline", true, { win = browser_win })
+    vim.api.nvim_set_option_value("conceallevel", 2, { win = browser_win })
+    vim.api.nvim_set_option_value("spell", false, { win = browser_win })
+  end
+
+  -- Parse schema if table_name is schema-qualified
+  local schema_name = nil
+  local bare_table = table_name
+  local dot_idx = table_name:find("%.")
+  if dot_idx then
+    schema_name = table_name:sub(1, dot_idx - 1)
+    bare_table = table_name:sub(dot_idx + 1)
+  end
+
+  load_connections(function()
+    -- Find target connection node
+    local conn_node = nil
+    for _, node in ipairs(root_nodes) do
+      if node.name == conn_name then conn_node = node; break end
+    end
+    if not conn_node then
+      render_tree()
+      vim.notify("Connection '" .. conn_name .. "' not found", vim.log.levels.WARN)
+      return
+    end
+
+    local dialect = conn_node.meta and conn_node.meta.dialect or "postgres"
+
+    local function position_on_table(table_node, col_name)
+      vim.schedule(function()
+        render_tree()
+        -- Find the column node if col_name given
+        local target_node = table_node
+        if col_name and table_node.children then
+          for _, child in ipairs(table_node.children) do
+            if child.node_type == "column" and child.name == col_name then
+              target_node = child
+              break
+            end
+          end
+        end
+        for i, n in ipairs(line_to_node) do
+          if n == target_node then
+            local target_line = i + HEADER_LINES
+            if vim.api.nvim_win_is_valid(browser_win) then
+              vim.api.nvim_set_current_win(browser_win)
+              vim.api.nvim_win_set_cursor(browser_win, { target_line, 0 })
+            end
+            break
+          end
+        end
+      end)
+    end
+
+    if dialect == "sqlite" then
+      -- SQLite: connection → tables directly
+      conn_node.loading = true
+      render_tree()
+      fetch_children(conn_node, function()
+        conn_node.expanded = true
+        local found = nil
+        for _, child in ipairs(conn_node.children or {}) do
+          if child.node_type == "table" and child.name == bare_table then
+            found = child; break
+          end
+        end
+        if not found then
+          vim.schedule(function() render_tree() end)
+          return
+        end
+        found.loading = true
+        vim.schedule(function() render_tree() end)
+        fetch_children(found, function()
+          found.expanded = true
+          position_on_table(found, column_name)
+        end)
+      end)
+      return
+    end
+
+    -- PG/MySQL: connection → databases
+    conn_node.loading = true
+    render_tree()
+    fetch_children(conn_node, function()
+      conn_node.expanded = true
+      local db_node = nil
+      for _, child in ipairs(conn_node.children or {}) do
+        if child.node_type == "database" and child.name == db_name then
+          db_node = child; break
+        end
+      end
+      if not db_node then
+        vim.schedule(function()
+          render_tree()
+          vim.notify("Database '" .. (db_name or "?") .. "' not found under '" .. conn_name .. "'", vim.log.levels.WARN)
+        end)
+        return
+      end
+
+      if dialect == "postgres" then
+        -- PG: database → schemas
+        local target_schema = schema_name or "public"
+        db_node.loading = true
+        vim.schedule(function() render_tree() end)
+        fetch_children(db_node, function()
+          db_node.expanded = true
+          local schema_node = nil
+          for _, child in ipairs(db_node.children or {}) do
+            if child.node_type == "schema" and child.name == target_schema then
+              schema_node = child; break
+            end
+          end
+          if not schema_node then
+            vim.schedule(function()
+              render_tree()
+              vim.notify("Schema '" .. target_schema .. "' not found", vim.log.levels.WARN)
+            end)
+            return
+          end
+          -- schema → tables
+          schema_node.loading = true
+          vim.schedule(function() render_tree() end)
+          fetch_children(schema_node, function()
+            schema_node.expanded = true
+            local table_node = nil
+            for _, child in ipairs(schema_node.children or {}) do
+              if child.node_type == "table" and child.name == bare_table then
+                table_node = child; break
+              end
+            end
+            if not table_node then
+              vim.schedule(function()
+                render_tree()
+                vim.notify("Table '" .. bare_table .. "' not found in schema '" .. target_schema .. "'", vim.log.levels.WARN)
+              end)
+              return
+            end
+            table_node.loading = true
+            vim.schedule(function() render_tree() end)
+            fetch_children(table_node, function()
+              table_node.expanded = true
+              position_on_table(table_node, column_name)
+            end)
+          end)
+        end)
+      else
+        -- MySQL: database → tables
+        db_node.loading = true
+        vim.schedule(function() render_tree() end)
+        fetch_children(db_node, function()
+          db_node.expanded = true
+          local table_node = nil
+          for _, child in ipairs(db_node.children or {}) do
+            if child.node_type == "table" and child.name == bare_table then
+              table_node = child; break
+            end
+          end
+          if not table_node then
+            vim.schedule(function()
+              render_tree()
+              vim.notify("Table '" .. bare_table .. "' not found in database '" .. db_name .. "'", vim.log.levels.WARN)
+            end)
+            return
+          end
+          table_node.loading = true
+          vim.schedule(function() render_tree() end)
+          fetch_children(table_node, function()
+            table_node.expanded = true
+            position_on_table(table_node, column_name)
+          end)
+        end)
+      end
+    end)
+  end)
+end
+
 --- Open the DB browser sidebar.
 function M.open()
   -- Remember the source buffer (the SQL file)

@@ -1,19 +1,20 @@
 -- @connection my-blog
 -- @database blog
 
+select id, slug FROM posts;
+
 -- SELECT p.slug, a. FROM posts p LEFT JOIN authors a on a.id = p.author_id;
 
 -- SELECT p.slug, a.bio  FROM posts p LEFT JOIN authors a on a.id = p.author_id;
 
 -- UPDATE posts SET bio = '' WHERE id i
 
+UPDATE posts SET bio='', author_id=1 WHERE id = 1;
+
 
 -- SELECT * FROM posts WHERE id IN (SELECT id FROM posts WHERE author_id IS NULL)
 
-
-UPDATE posts SET author_id=1, id=1, bio='' WHERE;
-
-SELECT * FROM ;
+UPDATE posts SET aluthor_id=1, id=1, bio='' WHERE;
 
 SELECT id, page_id, url, measured_at, metric_01 from web_vitals ;
 SELECT * from web_vitals ;

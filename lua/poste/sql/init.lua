@@ -402,6 +402,11 @@ local function ensure_sql_keymaps(buf)
     M.run_sql_request()
   end, keymap_opts)
 
+  -- K: show DDL for table under cursor
+  vim.keymap.set("n", "K", function()
+    M.show_table_ddl()
+  end, keymap_opts)
+
   -- Visual mode: execute selected statements
   vim.keymap.set("x", "<CR>", function()
     _vis_start = vim.fn.line("v")

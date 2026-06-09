@@ -715,6 +715,89 @@ M._test = {
   find_block_for_line = find_block_for_line,
 }
 
+--- Show column info in a float window.
+local function show_column_info(binary, conn, db, file, table_name, col_name)
+  local cmd = string.format("%s introspect %s --type columns --table %s --env %s",
+    vim.fn.shellescape(binary),
+    vim.fn.shellescape(conn),
+    vim.fn.shellescape(table_name),
+    vim.fn.shellescape(state.current_env)
+  )
+  if file and file ~= "" then
+    cmd = cmd .. " --path " .. vim.fn.shellescape(vim.fn.fnamemodify(file, ":h"))
+  end
+  if db and db ~= vim.NIL and db ~= "" then
+    cmd = cmd .. " --database " .. vim.fn.shellescape(db)
+  end
+
+  state.log("INFO", "Column info cmd: " .. cmd)
+
+  vim.fn.jobstart(cmd, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      if not data then return end
+      while #data > 0 and data[#data] == "" do
+        data[#data] = nil
+      end
+      if #data == 0 then return end
+
+      local output = table.concat(data, "\n")
+      vim.schedule(function()
+        local ok, parsed = pcall(vim.json.decode, output)
+        if not ok or type(parsed) ~= "table" then
+          vim.notify("Failed to parse introspection response", vim.log.levels.ERROR, { title = "Poste SQL" })
+          return
+        end
+
+        local items = parsed.items
+        if not items or #items == 0 then
+          vim.notify("No columns found for table '" .. table_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
+          return
+        end
+
+        local col = nil
+        for _, c in ipairs(items) do
+          if c.name == col_name then col = c; break end
+        end
+        if not col then
+          vim.notify("Column '" .. col_name .. "' not found in table '" .. table_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
+          return
+        end
+
+        local lines = {
+          "  Table:    " .. table_name,
+          "  Name:     " .. tostring(col.name or ""),
+          "  Type:     " .. tostring(col.type or ""),
+          "  Nullable: " .. tostring(col.nullable == true and "YES" or (col.nullable == false and "NO" or "?")),
+          "  Default:  " .. tostring(col.default or "(null)"),
+        }
+        if col.max_length then
+          table.insert(lines, "  Max Len:  " .. tostring(col.max_length))
+        end
+        if col.comment and col.comment ~= vim.NIL then
+          table.insert(lines, "  Comment:  " .. tostring(col.comment))
+        end
+
+        show_float(lines, "Column: " .. col_name, "sql")
+      end)
+    end,
+    on_stderr = function(_, data)
+      if not data then return end
+      for _, l in ipairs(data) do
+        if l ~= "" then state.log("ERROR", "Column info stderr: " .. l) end
+      end
+    end,
+    on_exit = function(_, code)
+      if code ~= 0 then
+        vim.schedule(function()
+          vim.notify("Column introspection exited with code " .. code, vim.log.levels.ERROR, { title = "Poste SQL" })
+        end)
+      end
+    end,
+  })
+end
+
 --- Show DDL for the table under the cursor in a floating window.
 function M.show_table_ddl()
   local binary = find_poste_binary()
@@ -996,87 +1079,4 @@ end
 --- @param file string
 --- @param table_name string Parent table
 --- @param col_name string Column name under cursor
-local function show_column_info(binary, conn, db, file, table_name, col_name)
-  local cmd = string.format("%s introspect %s --type columns --table %s --env %s",
-    vim.fn.shellescape(binary),
-    vim.fn.shellescape(conn),
-    vim.fn.shellescape(table_name),
-    vim.fn.shellescape(state.current_env)
-  )
-  if file and file ~= "" then
-    cmd = cmd .. " --path " .. vim.fn.shellescape(vim.fn.fnamemodify(file, ":h"))
-  end
-  if db and db ~= vim.NIL and db ~= "" then
-    cmd = cmd .. " --database " .. vim.fn.shellescape(db)
-  end
-
-  state.log("INFO", "Column info cmd: " .. cmd)
-
-  vim.fn.jobstart(cmd, {
-    stdout_buffered = true,
-    stderr_buffered = true,
-    on_stdout = function(_, data)
-      if not data then return end
-      while #data > 0 and data[#data] == "" do
-        data[#data] = nil
-      end
-      if #data == 0 then return end
-
-      local output = table.concat(data, "\n")
-      vim.schedule(function()
-        local ok, parsed = pcall(vim.json.decode, output)
-        if not ok or type(parsed) ~= "table" then
-          vim.notify("Failed to parse introspection response", vim.log.levels.ERROR, { title = "Poste SQL" })
-          return
-        end
-
-        local items = parsed.items
-        if not items or #items == 0 then
-          vim.notify("No columns found for table '" .. table_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
-          return
-        end
-
-        -- Find the matching column
-        local col = nil
-        for _, c in ipairs(items) do
-          if c.name == col_name then col = c; break end
-        end
-        if not col then
-          vim.notify("Column '" .. col_name .. "' not found in table '" .. table_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
-          return
-        end
-
-        local lines = {
-          "  Table:    " .. table_name,
-          "  Name:     " .. tostring(col.name or ""),
-          "  Type:     " .. tostring(col.type or ""),
-          "  Nullable: " .. tostring(col.nullable == true and "YES" or (col.nullable == false and "NO" or "?")),
-          "  Default:  " .. tostring(col.default or "(null)"),
-        }
-        if col.max_length then
-          table.insert(lines, "  Max Len:  " .. tostring(col.max_length))
-        end
-        if col.comment and col.comment ~= vim.NIL then
-          table.insert(lines, "  Comment:  " .. tostring(col.comment))
-        end
-
-        show_float(lines, "Column: " .. col_name, "sql")
-      end)
-    end,
-    on_stderr = function(_, data)
-      if not data then return end
-      for _, l in ipairs(data) do
-        if l ~= "" then state.log("ERROR", "Column info stderr: " .. l) end
-      end
-    end,
-    on_exit = function(_, code)
-      if code ~= 0 then
-        vim.schedule(function()
-          vim.notify("Column introspection exited with code " .. code, vim.log.levels.ERROR, { title = "Poste SQL" })
-        end)
-      end
-    end,
-  })
-end
-
 return M

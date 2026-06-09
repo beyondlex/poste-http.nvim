@@ -318,6 +318,10 @@ function M.render_dataset(lines, meta, opts)
     pcall(vim.api.nvim_del_autocmd, D.resize_autocmd_id)
     D.resize_autocmd_id = nil
   end
+  if D.scroll_autocmd_id then
+    pcall(vim.api.nvim_del_autocmd, D.scroll_autocmd_id)
+    D.scroll_autocmd_id = nil
+  end
   if D.dataset_buffer then
     D.resize_autocmd_id = vim.api.nvim_create_autocmd("WinResized", {
       callback = function()

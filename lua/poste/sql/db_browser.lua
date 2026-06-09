@@ -415,7 +415,9 @@ local function fetch_children(node, callback)
         end
         if indexes_result and indexes_result.items then
           for _, item in ipairs(indexes_result.items) do
-            table.insert(node.children, make_index_node(item))
+            if item.name ~= "PRIMARY" then
+              table.insert(node.children, make_index_node(item))
+            end
           end
         end
         callback()
@@ -554,7 +556,7 @@ local function apply_highlights(buf, line_count, count_ranges)
     schema     = "PosteSqlBrowserIconSchema",
     table      = "PosteSqlBrowserIconTable",
     column     = "PosteSqlBrowserIconCol",
-    index      = "PosteSqlBrowserIconIdx",
+    index      = "PosteSqlBrowserCount",
   }
 
   for i = HEADER_LINES + 1, line_count do
@@ -613,6 +615,15 @@ local function apply_highlights(buf, line_count, count_ranges)
       end
       vim.api.nvim_buf_add_highlight(buf, hl_ns, icon_hl_group,
         i - 1, icon_byte_start, icon_byte_start + icon_len)
+    end
+
+    -- Muted text for index nodes
+    if node.node_type == "index" then
+      local text_start = icon_byte_start + icon_len
+      if text_start < #text then
+        vim.api.nvim_buf_add_highlight(buf, hl_ns, "PosteSqlBrowserCount",
+          i - 1, text_start, -1)
+      end
     end
 
     -- Column type suffix highlighting
@@ -1075,7 +1086,6 @@ local function setup_highlights()
     vim.api.nvim_set_hl(0, "PosteSqlBrowserIconCol", { fg = "#a9b1d6" })
     vim.api.nvim_set_hl(0, "PosteSqlBrowserIconPk", { fg = "#e0af68" })
     vim.api.nvim_set_hl(0, "PosteSqlBrowserIconFk", { fg = "#7dcfff" })
-    vim.api.nvim_set_hl(0, "PosteSqlBrowserIconIdx", { fg = "#a9b1d6" })
   else
     vim.api.nvim_set_hl(0, "PosteSqlBrowserHeader", { fg = "#2e7de9", bold = true })
     vim.api.nvim_set_hl(0, "PosteSqlBrowserSeparator", { fg = "#a8aecb" })
@@ -1090,7 +1100,6 @@ local function setup_highlights()
     vim.api.nvim_set_hl(0, "PosteSqlBrowserIconCol", { fg = "#6172b0" })
     vim.api.nvim_set_hl(0, "PosteSqlBrowserIconPk", { fg = "#8c6c3e" })
     vim.api.nvim_set_hl(0, "PosteSqlBrowserIconFk", { fg = "#1880a8" })
-    vim.api.nvim_set_hl(0, "PosteSqlBrowserIconIdx", { fg = "#6172b0" })
   end
 end
 

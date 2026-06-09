@@ -392,6 +392,20 @@ function M.goto_definition()
       vim.api.nvim_win_set_cursor(0, { target_line, 0 })
       return
     end
+    local db_match = line_text:match("^%s*--%s*@database%s+(.+)")
+    if db_match then
+      local db_name = vim.trim(db_match)
+      local ctx = require("poste.sql.context")
+      local full_ctx = ctx.resolve_full_context(buf, line_num)
+      local conn = full_ctx.connection
+      if not conn then
+        vim.notify("No connection context for database '" .. db_name .. "'. Add -- @connection <name> to the file.", vim.log.levels.WARN)
+        return
+      end
+      vim.cmd("normal! m'")
+      require("poste.sql.db_browser").navigate_to(conn, db_name)
+      return
+    end
     require("poste.sql.init").show_table_ddl()
     return
   end

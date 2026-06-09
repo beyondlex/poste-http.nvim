@@ -4,6 +4,7 @@ local sql_highlights = require("poste.sql.highlights")
 local M = {}
 
 local preview_win = nil
+local raw_buffer = nil  -- scratch buffer for raw mode
 
 ------------------------------------------------------------------------------
 -- Trace helpers (opt-in via state.sql._trace)
@@ -572,6 +573,62 @@ function M.toggle_row_numbers()
   end
   vim.notify(string.format("Row numbers: %s", state.sql._hide_row_numbers and "OFF" or "ON"),
     vim.log.levels.INFO, { title = "Poste SQL" })
+end
+
+function M.restore_from_raw_mode()
+  if not state.sql._raw_mode then return end
+  local buf = D.dataset_buffer and vim.api.nvim_buf_is_valid(D.dataset_buffer) and D.dataset_buffer
+  local win = D.dataset_window and vim.api.nvim_win_is_valid(D.dataset_window) and D.dataset_window
+  -- Switch window back to dataset buffer BEFORE deleting raw buffer,
+  -- so the window isn't closed by force-deleting the displayed buffer.
+  if win and buf then
+    pcall(vim.api.nvim_win_set_buf, win, buf)
+  end
+  if raw_buffer and vim.api.nvim_buf_is_valid(raw_buffer) then
+    pcall(vim.api.nvim_buf_delete, raw_buffer, { force = true })
+  end
+  raw_buffer = nil
+  state.sql._raw_mode = false
+end
+
+function M.toggle_raw_mode()
+  if state.sql._raw_mode then
+    M.restore_from_raw_mode()
+    require("poste.sql.buffer_page").refresh_page()
+    return
+  end
+
+  local tab = D.T()
+  local win = D.dataset_window and vim.api.nvim_win_is_valid(D.dataset_window) and D.dataset_window
+
+  if not tab or not tab.layout then
+    vim.notify("No dataset to display in raw mode", vim.log.levels.WARN, { title = "Poste SQL" })
+    return
+  end
+  if not win then
+    vim.notify("No dataset window", vim.log.levels.WARN, { title = "Poste SQL" })
+    return
+  end
+
+  D.close_header_float()
+
+  local fmt = require("poste.sql.format")
+  local lines, _ = fmt.render_page(tab.layout, 1, #tab.layout.rows)
+
+  raw_buffer = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_set_option_value("buftype", "nofile", { buf = raw_buffer })
+  vim.api.nvim_set_option_value("swapfile", false, { buf = raw_buffer })
+  vim.api.nvim_set_option_value("modifiable", true, { buf = raw_buffer })
+  vim.api.nvim_buf_set_lines(raw_buffer, 0, -1, false, lines)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = raw_buffer })
+  vim.keymap.set("n", "<leader>gp", function() M.toggle_raw_mode() end, { buffer = raw_buffer, noremap = true, silent = true })
+  state.sql._raw_mode = true
+
+  vim.api.nvim_win_set_buf(win, raw_buffer)
+  pcall(vim.api.nvim_set_option_value, "winbar", " Raw mode — toggle to exit ", { win = win })
+  pcall(vim.api.nvim_buf_set_name, raw_buffer, "poste://raw-mode")
+
+  vim.notify("Raw mode: ON (browse table)", vim.log.levels.INFO, { title = "Poste SQL" })
 end
 
 function M.goto_header()

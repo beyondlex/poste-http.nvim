@@ -59,6 +59,12 @@ function M.refresh_page()
       local buffer = require("poste.sql.buffer")
       buffer.apply_rendered_page(tab, lines, meta)
     end
+
+    -- Re-create header float if it was closed (e.g. after raw mode toggle)
+    if tab.header_text and not state.sql._hide_header_float then
+      require("poste.sql.buffer_nav").update_header_float()
+    end
+
     return
   end
 

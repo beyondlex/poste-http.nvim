@@ -574,6 +574,9 @@ local seq = current_seq
         if ok and parsed and type(parsed) == "table" then
           state.last_response = parsed
 
+          -- If raw mode was active, restore dataset buffer before rendering new results
+          require("poste.sql.buffer_nav").restore_from_raw_mode()
+
           sql_context.handle_use_statement(parsed)
 
           -- Decode body to get actual SQL results
@@ -637,6 +640,22 @@ local seq = current_seq
               table_name = extract_table_name(buf_content)
             end
             local lines, meta, layout = sql_format.format_dataset(parsed)
+
+            -- Auto-prompt for raw mode when many columns
+            if layout and not state.sql._raw_mode and #layout.columns > 30 then
+              vim.schedule(function()
+                vim.ui.select({ "Yes", "No" }, {
+                  prompt = string.format("%d columns detected. Switch to plain-table (no pagination/navigation)?", #layout.columns),
+                  title = "Poste SQL",
+                }, function(choice)
+                  if choice == "Yes" then
+                    vim.schedule(function()
+                      require("poste.sql.buffer_nav").toggle_raw_mode()
+                    end)
+                  end
+                end)
+              end)
+            end
             if table_name then meta.table_name = table_name end
             sql_buffer.render_dataset(lines, meta, { exec_seq = seq, layout = layout })
 

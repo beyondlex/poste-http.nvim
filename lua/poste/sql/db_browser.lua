@@ -442,11 +442,11 @@ local function fetch_children(node, callback)
           end
         end
         if #key_items > 0 then
-          local keys_node = {
+            local keys_node = {
             node_type = "key_group",
             name = "keys",
             children = {},
-            expanded = false, loading = false,
+            expanded = true, loading = false,
           }
           for _, ki in ipairs(key_items) do
             table.insert(keys_node.children, {
@@ -484,7 +484,7 @@ local function fetch_children(node, callback)
             node_type = "fk_group",
             name = "foreign keys",
             children = {},
-            expanded = false, loading = false,
+            expanded = true, loading = false,
           }
           for _, fi in ipairs(fk_items) do
             local label = fi.name
@@ -517,7 +517,7 @@ local function fetch_children(node, callback)
             node_type = "index_group",
             name = "indexes",
             children = {},
-            expanded = false, loading = false,
+            expanded = true, loading = false,
           }
           for _, ii in ipairs(idx_items) do
             table.insert(idx_node.children, {
@@ -580,8 +580,13 @@ local function flatten_tree(nodes, depth)
     end
 
     local marker
-    if node.node_type == "column" or node.node_type == "index" then
+    if node.node_type == "column" or node.node_type == "index"
+        or node.node_type == "key_item" or node.node_type == "fk_item"
+        or node.node_type == "index_item" then
       marker = "  "  -- leaf: no expand marker
+    elseif node.node_type == "key_group" or node.node_type == "fk_group"
+        or node.node_type == "index_group" then
+      marker = "  "  -- group headers: no expand marker, always open
     elseif node.loading then
       marker = MARKER_LOADING .. " "
     elseif node.expanded then
@@ -829,10 +834,12 @@ local function toggle_node(buf_line)
   local node = get_node_at_line(buf_line)
   if not node then return end
 
-  -- Leaf nodes: no toggle
+  -- Leaf nodes and always-open groups: no toggle
   if node.node_type == "column" or node.node_type == "index"
       or node.node_type == "key_item" or node.node_type == "fk_item"
-      or node.node_type == "index_item" then
+      or node.node_type == "index_item"
+      or node.node_type == "key_group" or node.node_type == "fk_group"
+      or node.node_type == "index_group" then
     return
   end
 
@@ -862,7 +869,9 @@ local function refresh_node(buf_line)
   if not node then return end
   if node.node_type == "column" or node.node_type == "index"
       or node.node_type == "key_item" or node.node_type == "fk_item"
-      or node.node_type == "index_item" then
+      or node.node_type == "index_item"
+      or node.node_type == "key_group" or node.node_type == "fk_group"
+      or node.node_type == "index_group" then
     return
   end
 

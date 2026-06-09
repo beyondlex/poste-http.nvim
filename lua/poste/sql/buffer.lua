@@ -232,6 +232,7 @@ function M.render_dataset(lines, meta, opts)
   D.close_header_float()
 
   local tab = D.alloc_tab(tab_idx)
+  D.active_tab_idx = tab_idx
 
   local buf = M.get_dataset_buffer()
 
@@ -404,8 +405,6 @@ function M.render_dataset(lines, meta, opts)
   pcall(vim.api.nvim_set_option_value, "statuscolumn", "", { win = D.dataset_window })
   vim.api.nvim_set_option_value("foldcolumn", "0", { win = D.dataset_window })
   vim.api.nvim_set_option_value("foldenable", false, { win = D.dataset_window })
-
-  D.active_tab_idx = tab_idx
 
   if tab.header_text then
     require("poste.sql.buffer_nav").update_header_float()

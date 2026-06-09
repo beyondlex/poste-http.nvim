@@ -406,7 +406,7 @@ function M.goto_definition()
       require("poste.sql.db_browser").navigate_to(conn, db_name)
       return
     end
-    -- Fallback: determine if cursor is on column or table using SQL pattern analysis
+    -- Fallback: navigate to table (or table+column) using SQL pattern analysis
     local table_name = vim.fn.expand("<cword>")
     if table_name and table_name ~= "" then
       local ctx = require("poste.sql.context")
@@ -414,50 +414,42 @@ function M.goto_definition()
       if full_ctx.connection then
         local column_name = nil
         local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-        local block_start = 1
-        if line_num > 1 then
-          for i = line_num - 1, 1, -1 do
-            if all_lines[i] and all_lines[i]:match("^###") then block_start = i + 1; break end
-          end
-        end
-        local block_end = #all_lines
-        for i = line_num + 1, #all_lines do
-          if all_lines[i] and all_lines[i]:match("^###") then block_end = i - 1; break end
-        end
-
-        -- Build full block text, strip comments
-        local block_lines = {}
-        for i = block_start, block_end do
-          table.insert(block_lines, all_lines[i] or "")
-        end
-        local block_text = table.concat(block_lines, "\n")
-        local clean = block_text:gsub("--[^\n]*", ""):gsub("/%*.-%*/", "")
-
-        -- 1. dot_column: "table.col" with cursor on "col"
         local line_text = all_lines[line_num] or ""
-        local before_cursor = line_text:sub(1, cursor[2])
-        local dot_prefix = before_cursor:match("([%w_]+)%s*%.%s*$")
-        if dot_prefix then
-          table_name = dot_prefix
-          column_name = vim.fn.expand("<cword>")
-        end
 
-        -- 2. column in SELECT list: cword appears between SELECT and FROM
-        if not column_name then
-          local select_end = clean:find("[Ss][Ee][Ll][Ee][Cc][Tt]%s+")
-          local from_start = clean:find("[Ff][Rr][Oo][Mm]%s+")
-          if select_end and from_start and select_end < from_start then
-            local select_list = clean:sub(select_end, from_start - 1)
-            if select_list:match("[^%w_]" .. vim.pesc(table_name) .. "[^%w_]")
-               or select_list:match("^" .. vim.pesc(table_name) .. "[^%w_]")
-               or select_list:match("[^%w_]" .. vim.pesc(table_name) .. "$")
-               or select_list == table_name then
-              -- Extract first table name from FROM clause
-              local after_from = clean:sub(from_start + 4)
-              local first = after_from:match("^%s*([%w_]+)")
-              if first then
-                table_name = first
-                column_name = vim.fn.expand("<cword>")
+        -- 1. dot_column: "alias.col" on current line, cursor on "col"
+        local tbl = line_text:sub(1, cursor[2]):match("([%w_]+)%s*%.%s*$")
+        if tbl then
+          table_name = tbl
+          column_name = vim.fn.expand("<cword>")
+        else
+          -- 2. Column in SELECT list (search ### block, strip comments)
+          local block_start = 1
+          if line_num > 1 then
+            for i = line_num - 1, 1, -1 do
+              if all_lines[i] and all_lines[i]:match("^###") then block_start = i + 1; break end
+            end
+          end
+          local block_end = #all_lines
+          for i = line_num + 1, #all_lines do
+            if all_lines[i] and all_lines[i]:match("^###") then block_end = i - 1; break end
+          end
+          local block_lines = {}
+          for i = block_start, block_end do table.insert(block_lines, all_lines[i] or "") end
+          local block = table.concat(block_lines, "\n")
+                     :gsub("--[^\n]*", "")
+                     :gsub("/%*.-%*/", "")
+          local s_pos = block:find("[Ss][Ee][Ll][Ee][Cc][Tt]%s+")
+          local f_pos = block:find("[Ff][Rr][Oo][Mm]%s+")
+          if s_pos and f_pos and s_pos < f_pos then
+            local cw_up = table_name:upper()
+            for word in block:sub(s_pos, f_pos - 1):upper():gmatch("[%w_]+") do
+              if word == cw_up then
+                local from_tbl = block:match("[Ff][Rr][Oo][Mm]%s+([%w_]+)")
+                if from_tbl then
+                  table_name = from_tbl
+                  column_name = vim.fn.expand("<cword>")
+                end
+                break
               end
             end
           end

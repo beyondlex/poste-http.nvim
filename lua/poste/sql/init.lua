@@ -767,7 +767,6 @@ local function show_column_info(binary, conn, db, file, table_name, col_name)
 
         local lines = {
           "  Table:    " .. table_name,
-          "  Name:     " .. tostring(col.name or ""),
           "  Type:     " .. tostring(col.type or ""),
           "  Nullable: " .. tostring(col.nullable == true and "YES" or (col.nullable == false and "NO" or "?")),
           "  Default:  " .. tostring(col.default or "(null)"),
@@ -776,7 +775,7 @@ local function show_column_info(binary, conn, db, file, table_name, col_name)
           table.insert(lines, "  Max Len:  " .. tostring(col.max_length))
         end
         if col.comment and col.comment ~= vim.NIL then
-          table.insert(lines, "  Comment:  " .. tostring(col.comment))
+          table.insert(lines, "  Comment:  '" .. tostring(col.comment) .. "'")
         end
 
         show_float(lines, "Column: " .. col_name, "sql")

@@ -406,23 +406,30 @@ function M.goto_definition()
       require("poste.sql.db_browser").navigate_to(conn, db_name)
       return
     end
-    -- Fallback: navigate to table (or table+column) using SQL pattern analysis
+    -- Fallback: use Rust context detection to navigate to table or table+column
     local table_name = vim.fn.expand("<cword>")
     if table_name and table_name ~= "" then
       local ctx = require("poste.sql.context")
       local full_ctx = ctx.resolve_full_context(buf, line_num)
       if full_ctx.connection then
+        local data = require("poste.sql.completion_data")
+        local bin = data.find_binary()
         local column_name = nil
-        local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-        local line_text = all_lines[line_num] or ""
 
-        -- 1. dot_column: "alias.col" on current line, cursor on "col"
-        local tbl = line_text:sub(1, cursor[2]):match("([%w_]+)%s*%.%s*$")
-        if tbl then
-          table_name = tbl
-          column_name = vim.fn.expand("<cword>")
-        else
-          -- 2. Column in SELECT list (search ### block, strip comments)
+        if bin then
+          local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+          local line_text = all_lines[line_num] or ""
+          local col = cursor[2]
+          local line_len = #line_text
+
+          -- Find end of word at cursor (scan forward)
+          local end_col = col
+          while end_col < line_len do
+            local ch = line_text:sub(end_col + 1, end_col + 1)
+            if ch:match("[%w_]") then end_col = end_col + 1 else break end
+          end
+
+          -- Build block text and offset (offset points AFTER the word = completion-style)
           local block_start = 1
           if line_num > 1 then
             for i = line_num - 1, 1, -1 do
@@ -433,23 +440,55 @@ function M.goto_definition()
           for i = line_num + 1, #all_lines do
             if all_lines[i] and all_lines[i]:match("^###") then block_end = i - 1; break end
           end
-          local block_lines = {}
-          for i = block_start, block_end do table.insert(block_lines, all_lines[i] or "") end
-          local block = table.concat(block_lines, "\n")
-                     :gsub("--[^\n]*", "")
-                     :gsub("/%*.-%*/", "")
-          local s_pos = block:find("[Ss][Ee][Ll][Ee][Cc][Tt]%s+")
-          local f_pos = block:find("[Ff][Rr][Oo][Mm]%s+")
-          if s_pos and f_pos and s_pos < f_pos then
-            local cw_up = table_name:upper()
-            for word in block:sub(s_pos, f_pos - 1):upper():gmatch("[%w_]+") do
-              if word == cw_up then
-                local from_tbl = block:match("[Ff][Rr][Oo][Mm]%s+([%w_]+)")
-                if from_tbl then
-                  table_name = from_tbl
+
+          if block_start <= line_num and line_num <= block_end then
+            local before_parts = {}
+            for i = block_start, line_num - 1 do
+              table.insert(before_parts, all_lines[i] or "")
+            end
+            table.insert(before_parts, line_text:sub(1, end_col))
+            local offset = #table.concat(before_parts, "\n")
+
+            local block_parts = {}
+            for i = block_start, block_end do table.insert(block_parts, all_lines[i] or "") end
+            local sql_text = table.concat(block_parts, "\n")
+
+            -- Add dialect flag for accurate context detection
+            local dialect_flag = ""
+            local conn_config = require("poste.sql.connections").get_connection_config(full_ctx.connection)
+            if conn_config and conn_config.dialect then
+              dialect_flag = " --dialect " .. conn_config.dialect
+            end
+
+            local cmd = string.format("%s context detect %d%s",
+              vim.fn.shellescape(bin), offset, dialect_flag)
+            local output = vim.fn.system(cmd, sql_text)
+            if vim.v.shell_error == 0 then
+              local ok, parsed = pcall(vim.json.decode, output)
+              if ok and parsed then
+                -- Clean vim.NIL values from JSON nulls
+                local function clean(t)
+                  for k, v in pairs(t) do
+                    if v == vim.NIL then t[k] = nil
+                    elseif type(v) == "table" then clean(v) end
+                  end
+                end
+                clean(parsed)
+
+                local ct = parsed.ctx_type
+                if ct == "dot_column" and parsed.ctx_data then
+                  table_name = parsed.ctx_data
+                  column_name = vim.fn.expand("<cword>")
+                elseif ct == "column" and parsed.tables and #parsed.tables > 0 then
+                  local tname = parsed.tables[1].name or parsed.tables[1].alias
+                  if tname then
+                    table_name = tname
+                    column_name = vim.fn.expand("<cword>")
+                  end
+                elseif ct == "insert_column" and parsed.ctx_data then
+                  table_name = parsed.ctx_data
                   column_name = vim.fn.expand("<cword>")
                 end
-                break
               end
             end
           end

@@ -477,28 +477,56 @@ function M.goto_definition()
 
                 local ct = parsed.ctx_type
                 if ct == "dot_column" and parsed.ctx_data then
+                  local ad = line_text:sub(end_col + 2)
+                  local cm = ad:match("^([%w_]+)")
                   table_name = parsed.ctx_data
-                  column_name = vim.fn.expand("<cword>")
+                  column_name = cm or vim.fn.expand("<cword>")
                 elseif ct == "insert_column" and parsed.ctx_data then
+                  local ad = line_text:sub(end_col + 2)
+                  local cm = ad:match("^([%w_]+)")
                   table_name = parsed.ctx_data
-                  column_name = vim.fn.expand("<cword>")
+                  column_name = cm or vim.fn.expand("<cword>")
                 elseif (ct == "column" or ct == "keyword") and parsed.tables and #parsed.tables > 0 then
                   local cword = vim.fn.expand("<cword>")
                   local cword_lower = cword:lower()
-                  local matched = nil
-                  for _, t in ipairs(parsed.tables) do
-                    local tn = (t.name or ""):lower()
-                    local ta = (t.alias or ""):lower()
-                    if tn == cword_lower or ta == cword_lower then matched = t; break end
+
+                  -- Detect .column suffix: a.bio → alias=a, column=bio
+                  local after_dot_col = nil
+                  local nxt = line_text:sub(end_col + 1, end_col + 1)
+                  if nxt == "." then
+                    local cm = line_text:match("^([%w_]+)", end_col + 2)
+                    if cm then after_dot_col = cm end
                   end
-                  if matched then
-                    table_name = matched.name or matched.alias
-                    column_name = nil
+
+                  if after_dot_col then
+                    -- alias.column or table.column → navigate to resolved column
+                    local matched = nil
+                    for _, t in ipairs(parsed.tables) do
+                      local tn = (t.name or ""):lower()
+                      local ta = (t.alias or ""):lower()
+                      if tn == cword_lower or ta == cword_lower then matched = t; break end
+                    end
+                    local resolved = matched and (matched.name or matched.alias) or parsed.ctx_data
+                    if resolved then
+                      table_name = resolved
+                      column_name = after_dot_col
+                    end
                   else
-                    local target = parsed.tables[1].name or parsed.tables[1].alias
-                    if target then
-                      table_name = target
-                      column_name = cword
+                    local matched = nil
+                    for _, t in ipairs(parsed.tables) do
+                      local tn = (t.name or ""):lower()
+                      local ta = (t.alias or ""):lower()
+                      if tn == cword_lower or ta == cword_lower then matched = t; break end
+                    end
+                    if matched then
+                      table_name = matched.name or matched.alias
+                      column_name = nil
+                    else
+                      local target = parsed.tables[1].name or parsed.tables[1].alias
+                      if target then
+                        table_name = target
+                        column_name = cword
+                      end
                     end
                   end
                 end

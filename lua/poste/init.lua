@@ -474,23 +474,38 @@ function M.goto_definition()
                   end
                 end
                 clean(parsed)
-                local d = string.format("gd ct=%s cd=%s pre=%s tbl=%s",
-                  tostring(parsed.ctx_type),
-                  tostring(parsed.ctx_data),
-                  tostring(parsed.prefix),
-                  vim.inspect(parsed.tables))
-                vim.notify(d, vim.log.levels.INFO)
 
                 local ct = parsed.ctx_type
                 if ct == "dot_column" and parsed.ctx_data then
+                  -- ctx_data is the alias prefix, not resolved table name
+                  local resolved = nil
+                  local prefix = parsed.ctx_data or ""
+                  if parsed.tables then
+                    for _, t in ipairs(parsed.tables) do
+                      if t.alias and t.alias:lower() == prefix:lower() then
+                        resolved = t.name
+                        break
+                      end
+                    end
+                  end
                   local ad = line_text:sub(end_col + 2)
                   local cm = ad:match("^([%w_]+)")
-                  table_name = parsed.ctx_data
+                  table_name = resolved or prefix
                   column_name = cm or vim.fn.expand("<cword>")
                 elseif ct == "insert_column" and parsed.ctx_data then
+                  local resolved = nil
+                  local prefix = parsed.ctx_data or ""
+                  if parsed.tables then
+                    for _, t in ipairs(parsed.tables) do
+                      if t.alias and t.alias:lower() == prefix:lower() then
+                        resolved = t.name
+                        break
+                      end
+                    end
+                  end
                   local ad = line_text:sub(end_col + 2)
                   local cm = ad:match("^([%w_]+)")
-                  table_name = parsed.ctx_data
+                  table_name = resolved or prefix
                   column_name = cm or vim.fn.expand("<cword>")
                 elseif (ct == "column" or ct == "keyword") and parsed.tables and #parsed.tables > 0 then
                   local cword = vim.fn.expand("<cword>")

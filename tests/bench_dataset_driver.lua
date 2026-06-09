@@ -179,7 +179,16 @@ end
 
 function M.render_dataset(data, opts)
   opts = opts or {}
-  local lines, meta = require("poste.sql.format").format_resultset(data)
+  local fmt = require("poste.sql.format")
+  local layout = fmt.plan_resultset_layout(data)
+  local lines, meta
+  if layout then
+    opts.layout = layout
+    lines, meta = fmt.render_page(layout, 1, PAGE_SIZE)
+    meta.total_rows = layout.total_rows
+  else
+    lines, meta = fmt.format_resultset(data)
+  end
   require("poste.sql.buffer").render_dataset(lines, meta, opts)
 end
 
@@ -317,6 +326,9 @@ end
 function M.phase_highlights_current_impl(lines, meta)
   if not lines then return end
   local buf = require("poste.sql.buffer").get_dataset_buffer()
+  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
   require("poste.sql.highlights").apply_dataset_highlights(buf, lines, meta)
 end
 

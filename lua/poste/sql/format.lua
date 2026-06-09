@@ -301,109 +301,135 @@ function M.format_dataset(r)
 
   -- Resultset: render table
   if rtype == "resultset" then
-    return M.format_resultset(data)
+    local layout = M.plan_resultset_layout(data)
+    if not layout or #layout.columns == 0 then
+      return { "", "  (no results)", "" }, { type = "empty" }, layout
+    end
+    local lines, meta = M.render_page(layout, 1, 50)
+    meta.total_rows = layout.total_rows
+    meta.table_name = data.table_name
+    if layout.translated_sql then
+      local footnote_width = math.max(40, (vim.o.columns or 80) - 4)
+      lines[#lines + 1] = "  -- " .. (layout.original_sql or "")
+      lines[#lines + 1] = ""
+      local wrapped = wrap_line("  ⚡ " .. layout.translated_sql, footnote_width)
+      lines[#lines + 1] = wrapped[1]
+      for i = 2, #wrapped do
+        lines[#lines + 1] = "     " .. wrapped[i]
+      end
+    end
+    return lines, meta, layout
   end
 
   -- Fallback: raw JSON
   return split_lines(vim.json.encode(data)), { type = "raw" }
 end
 
---- Render a resultset response as a Unicode table.
---- @param data table Parsed JSON with results, columns, rows
---- @return string[] lines
---- @return DatasetMeta meta
-function M.format_resultset(data)
-  local results = data.results or {}
-  if #results == 0 then
-    return { "", "  (no results)", "" }, { type = "empty" }
-  end
+----------------------------------------------------------------------
+-- Layout: full-table metadata (scans all rows once)
+----------------------------------------------------------------------
 
-  -- For now, render only the first result set.
-  -- Multi-result tabs will be implemented in Phase 6.
+--- Compute layout metadata for a result set. Scans all rows for
+--- column widths and numeric detection, but produces no rendered strings.
+--- @param data table Parsed JSON with results, columns, rows
+--- @return table|nil Layout object (nil if no results/columns)
+function M.plan_resultset_layout(data)
+  local results = data.results or {}
+  if #results == 0 then return nil end
   local res = results[1]
   local columns = res.columns or {}
   local rows = res.rows or {}
 
-  if #columns == 0 then
-    return { "", "  (empty result set)", "" }, { type = "empty" }
-  end
+  if #columns == 0 then return nil end
 
-  -- Row number column width (based on total row count for consistent width)
   local total_rows = tonumber(data.total_rows) or #rows
   local row_num_width = math.max(1, math.floor(math.log10(math.max(1, total_rows))) + 1)
 
-  -- Calculate column widths (cap at 200 total width for readability)
   local col_widths = calc_column_widths(columns, rows, 200)
-
-  -- Prepend row number column (always right-aligned)
   table.insert(col_widths, 1, row_num_width)
 
-  -- Determine which columns are numeric (for right-alignment)
-  local numeric_cols = { true }  -- row number column
+  local numeric_cols = { true }
   for i = 1, #columns do
     numeric_cols[i + 1] = is_numeric_column(rows, i)
   end
 
-  -- Build lines
-  local lines = {}
-  local line_num = 0
-
-  -- Top border
-  line_num = line_num + 1
-  lines[line_num] = border_line(col_widths, "┌", "┬", "┐", "─")
-
-  -- Header row
-  line_num = line_num + 1
-  local header_cells = { "" }  -- empty header for row number column
-  for i, col in ipairs(columns) do
-    header_cells[i + 1] = col.name
-  end
-  lines[line_num] = data_row(header_cells, col_widths, {})
-
-  local header_line = line_num
-
-  -- Header-data separator
-  line_num = line_num + 1
-  lines[line_num] = border_line(col_widths, "├", "┼", "┤", "─")
-
-  -- Data rows
-  local data_start = line_num + 1
-  for row_idx, row in ipairs(rows) do
-    line_num = line_num + 1
-    local cells = { tostring(row_idx) }  -- row number
-    for i = 1, #columns do
-      cells[i + 1] = cell_to_string(row[i])
-    end
-    lines[line_num] = data_row(cells, col_widths, numeric_cols)
-  end
-  local data_end = line_num
-
-  -- Bottom border
-  line_num = line_num + 1
-  lines[line_num] = border_line(col_widths, "└", "┴", "┘", "─")
-
-  -- Translated SQL footnote (e.g. SHOW TABLES → information_schema query)
-  if res.translated_sql then
-    local footnote_width = math.max(40, (vim.o.columns or 80) - 4)
-    line_num = line_num + 1
-    lines[line_num] = "  -- " .. (res.original_sql or "")
-    line_num = line_num + 1
-    local wrapped = wrap_line("  ⚡ " .. res.translated_sql, footnote_width)
-    lines[line_num] = wrapped[1]
-    for i = 2, #wrapped do
-      line_num = line_num + 1
-      lines[line_num] = "     " .. wrapped[i]
-    end
-  end
-
-  -- Metadata passed to buffer for winbar display
-  local total_ms = data.total_execution_time_ms or 0
   local conn = data.connection or ""
   if conn == vim.NIL then conn = "" end
   local db = data.database
   if db == vim.NIL then db = nil end
   local dialect = data.dialect or ""
   if dialect == vim.NIL then dialect = "" end
+
+  return {
+    columns = columns,
+    col_widths = col_widths,
+    numeric_cols = numeric_cols,
+    row_num_width = row_num_width,
+    total_rows = total_rows,
+    original_row_count = #rows,
+    data = data,
+    res = res,
+    rows = rows,
+    translated_sql = res.translated_sql,
+    original_sql = res.original_sql,
+    execution_time_ms = data.total_execution_time_ms or 0,
+    connection = conn,
+    database = db,
+    dialect = dialect,
+    table_name = data.table_name,
+  }
+end
+
+--- Render a single page from a Layout. Produces a bordered table with
+--- only `page_size` data rows. Column widths come from Layout (stable).
+--- @param layout table Layout from plan_resultset_layout()
+--- @param page number 1-based page number
+--- @param page_size number Rows per page
+--- @return string[] lines
+--- @return DatasetMeta meta
+function M.render_page(layout, page, page_size)
+  local col_widths = layout.col_widths
+  local columns = layout.columns
+  local numeric_cols = layout.numeric_cols
+  local rows = layout.rows
+  local total_rows = layout.total_rows or #rows
+  local total_pages = math.ceil(#rows / page_size)
+  page = math.min(page, total_pages)
+  if page < 1 then page = 1 end
+  local start_idx = (page - 1) * page_size + 1
+  local end_idx = math.min(start_idx + page_size - 1, #rows)
+  local page_rows = end_idx - start_idx + 1
+
+  local lines = {}
+  local line_num = 0
+
+  line_num = line_num + 1
+  lines[line_num] = border_line(col_widths, "┌", "┬", "┐", "─")
+
+  line_num = line_num + 1
+  local header_cells = { "" }
+  for i, col in ipairs(columns) do
+    header_cells[i + 1] = col.name
+  end
+  lines[line_num] = data_row(header_cells, col_widths, {})
+  local header_line = line_num
+
+  line_num = line_num + 1
+  lines[line_num] = border_line(col_widths, "├", "┼", "┤", "─")
+
+  local data_start = line_num + 1
+  for row_idx = start_idx, end_idx do
+    line_num = line_num + 1
+    local cells = { tostring(row_idx) }
+    for i = 1, #columns do
+      cells[i + 1] = cell_to_string(rows[row_idx][i])
+    end
+    lines[line_num] = data_row(cells, col_widths, numeric_cols)
+  end
+  local data_end = line_num
+
+  line_num = line_num + 1
+  lines[line_num] = border_line(col_widths, "└", "┴", "┘", "─")
 
   local meta = {
     type = "resultset",
@@ -413,15 +439,126 @@ function M.format_resultset(data)
     header_line = header_line,
     data_start_line = data_start,
     data_end_line = data_end,
-    row_count = #rows,
+    row_count = page_rows,
     col_count = #columns,
     total_rows = total_rows,
-    total_execution_time_ms = total_ms,
-    connection = conn,
-    database = db,
-    dialect = dialect,
-    table_name = data.table_name,
+    total_execution_time_ms = layout.execution_time_ms,
+    connection = layout.connection,
+    database = layout.database,
+    dialect = layout.dialect,
+    table_name = layout.table_name,
   }
+
+  return lines, meta
+end
+
+--- Render an arbitrary row view (filtered/sorted) from a Layout.
+--- `view_indices` are 1-based indices into `layout.rows`.
+--- @param layout table Layout from plan_resultset_layout()
+--- @param view_indices number[] 1-based indices into layout.rows
+--- @param page number 1-based page number over view_indices
+--- @param page_size number Rows per page
+--- @param opts? table Options: { row_number_mode = "source"|"view" }
+--- @return string[] lines
+--- @return DatasetMeta meta
+function M.render_view(layout, view_indices, page, page_size, opts)
+  opts = opts or {}
+  local row_number_mode = opts.row_number_mode or "source"
+  local col_widths = layout.col_widths
+  local columns = layout.columns
+  local numeric_cols = layout.numeric_cols
+  local rows = layout.rows
+  local total_view_rows = #view_indices
+  local total_pages = math.ceil(total_view_rows / page_size)
+  page = math.min(page, total_pages)
+  if page < 1 then page = 1 end
+  local start_pos = (page - 1) * page_size + 1
+  local end_pos = math.min(start_pos + page_size - 1, total_view_rows)
+  local page_rows = end_pos - start_pos + 1
+
+  local lines = {}
+  local line_num = 0
+
+  line_num = line_num + 1
+  lines[line_num] = border_line(col_widths, "┌", "┬", "┐", "─")
+
+  line_num = line_num + 1
+  local header_cells = { "" }
+  for i, col in ipairs(columns) do
+    header_cells[i + 1] = col.name
+  end
+  lines[line_num] = data_row(header_cells, col_widths, {})
+  local header_line = line_num
+
+  line_num = line_num + 1
+  lines[line_num] = border_line(col_widths, "├", "┼", "┤", "─")
+
+  local data_start = line_num + 1
+  for view_pos = start_pos, end_pos do
+    line_num = line_num + 1
+    local src_idx = view_indices[view_pos]
+    local row_num = (row_number_mode == "view") and view_pos or src_idx
+    local cells = { tostring(row_num) }
+    for i = 1, #columns do
+      cells[i + 1] = cell_to_string(rows[src_idx][i])
+    end
+    lines[line_num] = data_row(cells, col_widths, numeric_cols)
+  end
+  local data_end = line_num
+
+  line_num = line_num + 1
+  lines[line_num] = border_line(col_widths, "└", "┴", "┘", "─")
+
+  local meta = {
+    type = "resultset",
+    columns = columns,
+    col_widths = col_widths,
+    numeric_cols = numeric_cols,
+    header_line = header_line,
+    data_start_line = data_start,
+    data_end_line = data_end,
+    row_count = page_rows,
+    col_count = #columns,
+    total_rows = total_view_rows,
+    total_execution_time_ms = layout.execution_time_ms,
+    connection = layout.connection,
+    database = layout.database,
+    dialect = layout.dialect,
+    table_name = layout.table_name,
+  }
+
+  return lines, meta
+end
+
+--- Render a resultset response as a Unicode table (legacy: all rows).
+--- Used by the old path and callers still expecting full render.
+--- @param data table Parsed JSON with results, columns, rows
+--- @return string[] lines
+--- @return DatasetMeta meta
+function M.format_resultset(data)
+  local layout = M.plan_resultset_layout(data)
+  if not layout then
+    return { "", "  (no results)", "" }, { type = "empty" }
+  end
+  if #layout.columns == 0 then
+    return { "", "  (empty result set)", "" }, { type = "empty" }
+  end
+
+  local page_size = #layout.rows
+  local lines, meta = M.render_page(layout, 1, page_size)
+
+  if layout.translated_sql then
+    local footnote_width = math.max(40, (vim.o.columns or 80) - 4)
+    lines[#lines + 1] = "  -- " .. (layout.original_sql or "")
+    lines[#lines + 1] = ""
+    local wrapped = wrap_line("  ⚡ " .. layout.translated_sql, footnote_width)
+    lines[#lines + 1] = wrapped[1]
+    for i = 2, #wrapped do
+      lines[#lines + 1] = "     " .. wrapped[i]
+    end
+  end
+
+  meta.total_rows = layout.total_rows
 
   return lines, meta
 end

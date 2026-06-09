@@ -16,32 +16,24 @@ function M.apply_search_highlights()
 
   local data_start = tab.meta.data_start_line
   local page = tab.page or 1
-  local paginated = tab.pagination_enabled and tab.padded_full and tab.num_pages and tab.num_pages > 1
 
-  for i, match in ipairs(tab.search_matches) do
-    local on_page = true
-    local vis_row = match.row
-    if paginated then
-      local match_page = math.ceil(match.row / tab.page_size)
-      on_page = match_page == page
-      if on_page then
-        vis_row = match.row - (page - 1) * tab.page_size
-      end
-    end
-    if on_page then
-      local buf_line = data_start + vis_row - 1
-      local line = vim.api.nvim_buf_get_lines(D.dataset_buffer, buf_line - 1, buf_line, false)[1]
-      if line then
-        local range = sql_highlights.find_cell_range(line, match.col + 1)
-        if range then
-          local hl = (i == tab.search_idx) and "PosteSearchCurrent" or "PosteSearchMatch"
-          vim.api.nvim_buf_set_extmark(D.dataset_buffer, D.search_ns, buf_line - 1, range.ext_start, {
-            end_row = buf_line - 1,
-            end_col = range.ext_end,
-            hl_group = hl,
-            priority = 150,
-          })
-        end
+  local matches = tab.search_matches_by_page and tab.search_matches_by_page[page]
+  if not matches then return end
+
+  for _, match in ipairs(matches) do
+    local vis_row = match.row - (page - 1) * tab.page_size
+    local buf_line = data_start + vis_row - 1
+    local line = vim.api.nvim_buf_get_lines(D.dataset_buffer, buf_line - 1, buf_line, false)[1]
+    if line then
+      local range = sql_highlights.find_cell_range(line, match.col + 1)
+      if range then
+        local hl = (match.global_match_idx == tab.search_idx) and "PosteSearchCurrent" or "PosteSearchMatch"
+        vim.api.nvim_buf_set_extmark(D.dataset_buffer, D.search_ns, buf_line - 1, range.ext_start, {
+          end_row = buf_line - 1,
+          end_col = range.ext_end,
+          hl_group = hl,
+          priority = 150,
+        })
       end
     end
   end
@@ -54,7 +46,8 @@ local function jump_to_search_match(idx)
   if not match then return end
   tab.search_idx = idx
 
-  local paginated = tab.pagination_enabled and tab.padded_full and tab.num_pages and tab.num_pages > 1
+  local paginated = tab.pagination_enabled and tab.num_pages and tab.num_pages > 1
+    and (tab.padded_full or tab.layout)
   if paginated then
     local match_page = math.ceil(match.row / tab.page_size)
     if match_page ~= tab.page then
@@ -120,19 +113,36 @@ function M.show_search()
       M.apply_search_highlights(); update_winbar()
       return
     end
-    local res = tab.data.results and tab.data.results[1]
-    if not res or not res.rows then return end
+    tab.rows_source = tab.rows_source or (tab.data.results and tab.data.results[1] and tab.data.results[1].rows)
+    if not tab.rows_source then return end
     tab.search_text = text
     tab.search_matches = {}
+    tab.search_matches_by_page = {}
     local q = text:lower()
-    for ri, row in ipairs(res.rows) do
+    local all_indices = tab.view_indices
+    if not all_indices then
+      all_indices = {}
+      for i = 1, #tab.rows_source do all_indices[i] = i end
+    end
+    local total_count = 0
+    for view_pos, src_idx in ipairs(all_indices) do
+      local row = tab.rows_source[src_idx]
       for ci, val in ipairs(row) do
         local s = (val == nil or val == vim.NIL) and "" or tostring(val)
         if s:lower():find(q, 1, true) then
-          tab.search_matches[#tab.search_matches + 1] = { row = ri, col = ci }
+          total_count = total_count + 1
+          local page = math.ceil(view_pos / tab.page_size)
+          if not tab.search_matches_by_page[page] then
+            tab.search_matches_by_page[page] = {}
+          end
+          tab.search_matches_by_page[page][#tab.search_matches_by_page[page] + 1] = {
+            row = view_pos, col = ci, global_match_idx = total_count,
+          }
+          tab.search_matches[#tab.search_matches + 1] = { row = view_pos, col = ci }
         end
       end
     end
+    tab.search_total_matches = total_count
     if #tab.search_matches > 0 then
       jump_to_search_match(1)
     else
@@ -169,29 +179,57 @@ function M.filter_by_current_cell()
   local res = tab.data.results and tab.data.results[1]
   if not res or not res.rows or #res.rows == 0 then return end
   local row, col = state.sql.cell.row, state.sql.cell.col
-  local paginated = tab.pagination_enabled and tab.padded_full and tab.num_pages and tab.num_pages > 1
+  local paginated = tab.pagination_enabled and tab.num_pages and tab.num_pages > 1
+    and (tab.padded_full or tab.layout)
   if paginated then
     row = row + (tab.page - 1) * tab.page_size
   end
   local col_name = tab.meta.columns and tab.meta.columns[col] and tab.meta.columns[col].name or tostring(col)
-  local filter_val = res.rows[row] and res.rows[row][col]
+
+  tab.rows_source = tab.rows_source or res.rows
+  local src_row = tab.view_indices and tab.view_indices[row] or row
+  local filter_val = tab.rows_source[src_row] and tab.rows_source[src_row][col]
   if filter_val == nil or filter_val == vim.NIL then return end
-  if not tab.original_data then
-    tab.original_data = vim.deepcopy(tab.data)
-  end
+
   tab.filter_col = col; tab.filter_val = filter_val
   tab.filter_col_name = col_name; tab.filter_active = true
-  local data = vim.deepcopy(tab.original_data)
-  local fr = {}
-  for _, r in ipairs(data.results[1].rows) do
+  tab.row_number_mode = "view"
+
+  local indices = {}
+  for i, r in ipairs(tab.rows_source) do
     if r[col] == filter_val then
-      fr[#fr + 1] = r
+      indices[#indices + 1] = i
     end
   end
-  data.results[1].rows = fr
-  data.results[1].row_count = #fr
-  local lines, meta = sql_format.format_resultset(data)
-  require("poste.sql.buffer").render_dataset(lines, meta, { data = data, keep_tabs = true, tab_index = D.active_tab_idx })
+  tab.filtered_indices = indices
+  D.compute_view_indices(tab)
+
+  local layout = tab.layout
+  if layout then
+    local lines, meta = sql_format.render_view(
+      layout, tab.view_indices, 1, tab.page_size,
+      { row_number_mode = "view" }
+    )
+    tab.page = 1
+    require("poste.sql.buffer").render_dataset(lines, meta, {
+      data = tab.data,
+      keep_tabs = true,
+      tab_index = D.active_tab_idx,
+      layout = layout,
+      view_indices = tab.view_indices,
+      row_number_mode = "view",
+    })
+  else
+    local data = vim.deepcopy(tab.data)
+    local fr = {}
+    for _, idx in ipairs(tab.filtered_indices) do
+      fr[#fr + 1] = tab.rows_source[idx]
+    end
+    data.results[1].rows = fr
+    data.results[1].row_count = #fr
+    local lines, meta = sql_format.format_resultset(data)
+    require("poste.sql.buffer").render_dataset(lines, meta, { data = data, keep_tabs = true, tab_index = D.active_tab_idx })
+  end
 end
 
 function M.clear_filter_search()
@@ -200,16 +238,20 @@ function M.clear_filter_search()
   local had_filter = tab.filter_active
   local had_search = tab.search_text ~= nil
   tab.filter_active = false; tab.filter_col = nil; tab.filter_val = nil; tab.filter_col_name = nil
+  tab.filtered_indices = nil
   tab.search_text = nil; tab.search_matches = {}; tab.search_idx = 0
+  tab.search_matches_by_page = nil; tab.search_total_matches = 0
   if D.dataset_buffer and vim.api.nvim_buf_is_valid(D.dataset_buffer) then
     vim.api.nvim_buf_clear_namespace(D.dataset_buffer, D.search_ns, 0, -1)
   end
-  if had_filter and tab.original_data then
-    local data = vim.deepcopy(tab.original_data)
-    local lines, meta = sql_format.format_resultset(data)
-    require("poste.sql.buffer").render_dataset(lines, meta, { data = data, keep_tabs = true, tab_index = D.active_tab_idx })
-  elseif had_search then
-    update_winbar()
+  if had_filter or had_search then
+    tab.view_indices = nil
+    tab.row_number_mode = "source"
+    if tab.layout then
+      require("poste.sql.buffer_page").refresh_page()
+    else
+      update_winbar()
+    end
   end
   local parts = {}
   if had_filter then parts[#parts+1] = "filter" end

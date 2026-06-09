@@ -41,6 +41,9 @@ M.sql = {
     col = 1,
   },
   highlight_cell = true, -- toggle: extmark on current cell
+  _hide_header_float = false, -- toggle: suppress float header window
+  _hide_row_numbers = false,  -- toggle: suppress row number column highlight
+  _trace = false,        -- toggle: perf tracing for h/j/k/l navigation
   db_browser = {        -- Phase 3: database structure browser
     connection = nil,   -- current connection name being browsed
   },

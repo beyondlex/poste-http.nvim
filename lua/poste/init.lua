@@ -350,6 +350,48 @@ function M.goto_definition()
   local ft = vim.bo.filetype
   -- SQL filetypes: delegate to DDL viewer
   if ft == "poste_sql" or ft == "poste_sqlite" then
+    -- Check if cursor is on a -- @connection <name> line
+    local buf = vim.api.nvim_get_current_buf()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local line_num = cursor[1]
+    local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
+    local conn_match = line_text:match("^%s*--%s*@connection%s+(.+)")
+    if conn_match then
+      local conn_name = vim.trim(conn_match)
+      local connections = require("poste.sql.connections")
+      local search_dir = vim.api.nvim_buf_get_name(buf)
+      if search_dir ~= "" then
+        search_dir = vim.fn.fnamemodify(search_dir, ":h")
+      else
+        search_dir = vim.fn.getcwd()
+      end
+      local config_path = connections.find_connections_json(search_dir)
+      if not config_path then
+        vim.notify("connections.json not found", vim.log.levels.WARN)
+        return
+      end
+      local config_lines = vim.fn.readfile(config_path)
+      if not config_lines then
+        vim.notify("Cannot read connections.json", vim.log.levels.WARN)
+        return
+      end
+      local target_line = nil
+      local pattern = '^%s*"' .. vim.pesc(conn_name) .. '"%s*:'
+      for i, l in ipairs(config_lines) do
+        if l:match(pattern) then
+          target_line = i
+          break
+        end
+      end
+      if not target_line then
+        vim.notify("Connection '" .. conn_name .. "' not found in connections.json", vim.log.levels.WARN)
+        return
+      end
+      vim.cmd("normal! m'")
+      vim.cmd("edit " .. vim.fn.fnameescape(config_path))
+      vim.api.nvim_win_set_cursor(0, { target_line, 0 })
+      return
+    end
     require("poste.sql.init").show_table_ddl()
     return
   end

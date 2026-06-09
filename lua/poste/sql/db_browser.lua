@@ -449,7 +449,7 @@ local function fetch_children(node, callback)
             node_type = "key_group",
             name = "keys",
             children = {},
-            expanded = true, loading = false,
+            expanded = false, loading = false,
           }
           for _, ki in ipairs(key_items) do
             table.insert(keys_node.children, {
@@ -487,7 +487,7 @@ local function fetch_children(node, callback)
             node_type = "fk_group",
             name = "foreign keys",
             children = {},
-            expanded = true, loading = false,
+            expanded = false, loading = false,
           }
           for _, fi in ipairs(fk_items) do
             local label = fi.name
@@ -520,7 +520,7 @@ local function fetch_children(node, callback)
             node_type = "index_group",
             name = "indexes",
             children = {},
-            expanded = true, loading = false,
+            expanded = false, loading = false,
           }
           for _, ii in ipairs(idx_items) do
             table.insert(idx_node.children, {

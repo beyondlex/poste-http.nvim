@@ -142,6 +142,81 @@ end
 -- Render
 --------------------------------------------------------------------------------
 
+--- Process rendered table lines and write to buffer. Shared by
+--- render_dataset and buffer_page.refresh_page. Handles header
+--- extraction, padding, buffer write, highlights, winbar.
+function M.apply_rendered_page(tab, lines, meta)
+  local clean = {}
+  for i, line in ipairs(lines) do
+    if type(line) ~= "string" then line = tostring(line or "") end
+    for seg in (line .. "\n"):gmatch("(.-)\n") do
+      clean[#clean + 1] = seg
+    end
+  end
+
+  local has_header = meta and meta.type == "resultset" and meta.header_line
+  if has_header then
+    local header_line = clean[meta.header_line]
+    if header_line then
+      tab.header_text = header_line
+      if tab.sort then
+        local range = sql_highlights.find_cell_range(tab.header_text, tab.sort.col + 1)
+        if range then
+          local text_end = range.ext_end
+          while text_end > range.ext_start + 1 do
+            if tab.header_text:byte(text_end) ~= 0x20 then break end
+            text_end = text_end - 1
+          end
+          if text_end > range.ext_start then
+            local indicator = (tab.sort.ascending and " ↑" or " ↓")
+            local before = tab.header_text:sub(1, text_end)
+            local after = tab.header_text:sub(text_end + 3)
+            tab.header_text = before .. indicator .. after
+          end
+        end
+      end
+      local padded_h = "  " .. tab.header_text
+      tab.header_index = require("poste.sql.buffer_nav").build_header_index(padded_h)
+
+      table.remove(clean, meta.header_line + 1)
+      table.remove(clean, meta.header_line)
+      table.remove(clean, meta.header_line - 1)
+      meta.header_line = nil
+      meta.data_start_line = meta.data_start_line - 3
+      meta.data_end_line = meta.data_end_line - 3
+    end
+  end
+
+  local padded = {}
+  for _, line in ipairs(clean) do
+    if line == "" then
+      padded[#padded + 1] = ""
+    else
+      padded[#padded + 1] = D.PADDING_SPACES .. line
+    end
+  end
+  if has_header then
+    table.insert(padded, 1, "")
+    meta.data_start_line = meta.data_start_line + 1
+    meta.data_end_line = meta.data_end_line + 1
+  end
+
+  tab.padded = padded
+  tab.meta = meta
+
+  local buf = M.get_dataset_buffer()
+  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+
+  sql_highlights.apply_dataset_highlights(buf, padded, meta)
+
+  local winbar_text = require("poste.sql.buffer_nav").build_status_winbar(meta)
+  pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
+
+  require("poste.sql.buffer_search").apply_search_highlights()
+end
+
 function M.render_dataset(lines, meta, opts)
   opts = opts or {}
   local tab_idx = opts.tab_index or 1
@@ -185,100 +260,122 @@ function M.render_dataset(lines, meta, opts)
     tab.cursor = { row = 1, col = 1 }
   end
 
-  local clean = {}
-  for i, line in ipairs(lines) do
-    if type(line) ~= "string" then line = tostring(line or "") end
-    for seg in (line .. "\n"):gmatch("(.-)\n") do
-      clean[#clean + 1] = seg
-    end
-  end
+  -- Layout-aware path: store layout, render current page, no padded_full
+  if opts.layout and meta and meta.type == "resultset" then
+    tab.layout = opts.layout
+    tab.rows_source = tab.rows_source or opts.layout.rows
+    tab.view_indices = opts.view_indices or nil
+    tab.row_number_mode = opts.row_number_mode or "source"
 
-  local removed_lines = 0
-  local has_header = meta and meta.type == "resultset" and meta.header_line
-  if has_header then
-    local header_line = clean[meta.header_line]
-    if header_line then
-      tab.header_text = header_line
-      if tab.sort then
-        local range = sql_highlights.find_cell_range(tab.header_text, tab.sort.col + 1)
-        if range then
-          local text_end = range.ext_end
-          while text_end > range.ext_start + 1 do
-            if tab.header_text:byte(text_end) ~= 0x20 then break end
-            text_end = text_end - 1
-          end
-          if text_end > range.ext_start then
-            local indicator = (tab.sort.ascending and " ↑" or " ↓")
-            local before = tab.header_text:sub(1, text_end)
-            local after = tab.header_text:sub(text_end + 3)
-            tab.header_text = before .. indicator .. after
-          end
-        end
-      end
-      local padded_h = "  " .. tab.header_text
-      tab.header_index = require("poste.sql.buffer_nav").build_header_index(padded_h)
-
-      table.remove(clean, meta.header_line + 1)
-      table.remove(clean, meta.header_line)
-      table.remove(clean, meta.header_line - 1)
-      removed_lines = 3
-      meta.header_line = nil
-      meta.data_start_line = meta.data_start_line - removed_lines
-      meta.data_end_line = meta.data_end_line - removed_lines
-    end
-  end
-
-  local padded = {}
-  for _, line in ipairs(clean) do
-    if line == "" then
-      padded[#padded + 1] = ""
-    else
-      padded[#padded + 1] = D.PADDING_SPACES .. line
-    end
-  end
-  if has_header then
-    table.insert(padded, 1, "")
-    meta.data_start_line = meta.data_start_line + 1
-    meta.data_end_line = meta.data_end_line + 1
-  end
-
-  tab.padded = padded
-  tab.meta = meta
-  tab.lines = lines
-
-  tab.padded_full = vim.deepcopy(padded)
-  tab.meta_full = vim.deepcopy(meta)
-  if meta and meta.type == "resultset" and meta.row_count then
-    if tab.pagination_enabled and meta.row_count > tab.page_size then
-      local total_rows = meta.row_count
-      tab.num_pages = math.ceil(total_rows / tab.page_size)
+    local total_for_pagination = meta.total_rows or meta.row_count
+    if tab.pagination_enabled and total_for_pagination > tab.page_size then
+      tab.num_pages = math.ceil(total_for_pagination / tab.page_size)
       tab.page = math.min(tab.page or 1, tab.num_pages)
-      local page_rows = math.min(tab.page_size, total_rows - (tab.page - 1) * tab.page_size)
-      tab.visible_rows = page_rows
-      local data_start = meta.data_start_line
-      local page_start_idx = data_start + (tab.page - 1) * tab.page_size + 1 - 1
-      local page_end_idx = page_start_idx + page_rows - 1
-      local sliced = {}
-      for i = 1, data_start - 1 do
-        sliced[#sliced + 1] = padded[i]
-      end
-      for i = page_start_idx, page_end_idx do
-        sliced[#sliced + 1] = padded[i]
-      end
-      padded = sliced
-      meta.row_count = page_rows
-      meta.data_end_line = data_start + page_rows - 1
-      tab.padded = padded
+      tab.visible_rows = tab.page_size
     else
       tab.visible_rows = meta.row_count
     end
+
+    M.apply_rendered_page(tab, lines, meta)
+  else
+    -- Legacy path: pre-rendered lines with padded_full slicing
+    local clean = {}
+    for i, line in ipairs(lines) do
+      if type(line) ~= "string" then line = tostring(line or "") end
+      for seg in (line .. "\n"):gmatch("(.-)\n") do
+        clean[#clean + 1] = seg
+      end
+    end
+
+    local has_header = meta and meta.type == "resultset" and meta.header_line
+    if has_header then
+      local header_line = clean[meta.header_line]
+      if header_line then
+        tab.header_text = header_line
+        if tab.sort then
+          local range = sql_highlights.find_cell_range(tab.header_text, tab.sort.col + 1)
+          if range then
+            local text_end = range.ext_end
+            while text_end > range.ext_start + 1 do
+              if tab.header_text:byte(text_end) ~= 0x20 then break end
+              text_end = text_end - 1
+            end
+            if text_end > range.ext_start then
+              local indicator = (tab.sort.ascending and " ↑" or " ↓")
+              local before = tab.header_text:sub(1, text_end)
+              local after = tab.header_text:sub(text_end + 3)
+              tab.header_text = before .. indicator .. after
+            end
+          end
+        end
+        local padded_h = "  " .. tab.header_text
+        tab.header_index = require("poste.sql.buffer_nav").build_header_index(padded_h)
+
+        table.remove(clean, meta.header_line + 1)
+        table.remove(clean, meta.header_line)
+        table.remove(clean, meta.header_line - 1)
+        meta.header_line = nil
+        meta.data_start_line = meta.data_start_line - 3
+        meta.data_end_line = meta.data_end_line - 3
+      end
+    end
+
+    local padded = {}
+    for _, line in ipairs(clean) do
+      if line == "" then
+        padded[#padded + 1] = ""
+      else
+        padded[#padded + 1] = D.PADDING_SPACES .. line
+      end
+    end
+    if has_header then
+      table.insert(padded, 1, "")
+      meta.data_start_line = meta.data_start_line + 1
+      meta.data_end_line = meta.data_end_line + 1
+    end
+
+    tab.padded = padded
+    tab.meta = meta
+
+    tab.padded_full = vim.deepcopy(padded)
+    tab.meta_full = vim.deepcopy(meta)
+    if meta and meta.type == "resultset" and meta.row_count then
+      if tab.pagination_enabled and meta.row_count > tab.page_size then
+        local total_rows = meta.row_count
+        tab.num_pages = math.ceil(total_rows / tab.page_size)
+        tab.page = math.min(tab.page or 1, tab.num_pages)
+        local page_rows = math.min(tab.page_size, total_rows - (tab.page - 1) * tab.page_size)
+        tab.visible_rows = page_rows
+        local data_start = meta.data_start_line
+        local page_start_idx = data_start + (tab.page - 1) * tab.page_size + 1 - 1
+        local page_end_idx = page_start_idx + page_rows - 1
+        local sliced = {}
+        for i = 1, data_start - 1 do
+          sliced[#sliced + 1] = padded[i]
+        end
+        for i = page_start_idx, page_end_idx do
+          sliced[#sliced + 1] = padded[i]
+        end
+        padded = sliced
+        meta.row_count = page_rows
+        meta.data_end_line = data_start + page_rows - 1
+        tab.padded = padded
+      else
+        tab.visible_rows = meta.row_count
+      end
+    end
+
+    vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded)
+    vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+
+    sql_highlights.apply_dataset_highlights(buf, padded, meta)
+
+    local winbar_text = require("poste.sql.buffer_nav").build_status_winbar(meta)
+    pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
+
+    require("poste.sql.buffer_search").apply_search_highlights()
   end
-
-  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded)
-  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
-
-  sql_highlights.apply_dataset_highlights(buf, padded, meta)
 
   if not D.dataset_window or not vim.api.nvim_win_is_valid(D.dataset_window) then
     local saved_win = vim.api.nvim_get_current_win()
@@ -306,9 +403,6 @@ function M.render_dataset(lines, meta, opts)
   vim.api.nvim_set_option_value("foldenable", false, { win = D.dataset_window })
 
   D.active_tab_idx = tab_idx
-
-  local winbar_text = require("poste.sql.buffer_nav").build_status_winbar(meta)
-  pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
 
   if tab.header_text then
     require("poste.sql.buffer_nav").update_header_float()
@@ -348,8 +442,6 @@ function M.render_dataset(lines, meta, opts)
   end
 
   vim.api.nvim_set_option_value("sidescrolloff", 5, { win = D.dataset_window })
-
-  require("poste.sql.buffer_search").apply_search_highlights()
 end
 
 --------------------------------------------------------------------------------

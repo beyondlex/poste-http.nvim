@@ -16,7 +16,8 @@ function M.apply_search_highlights()
 
   local data_start = tab.meta.data_start_line
   local page = tab.page or 1
-  local paginated = tab.pagination_enabled and tab.padded_full and tab.num_pages and tab.num_pages > 1
+  local paginated = tab.pagination_enabled and tab.num_pages and tab.num_pages > 1
+    and (tab.padded_full or tab.layout)
 
   for i, match in ipairs(tab.search_matches) do
     local on_page = true
@@ -54,7 +55,8 @@ local function jump_to_search_match(idx)
   if not match then return end
   tab.search_idx = idx
 
-  local paginated = tab.pagination_enabled and tab.padded_full and tab.num_pages and tab.num_pages > 1
+  local paginated = tab.pagination_enabled and tab.num_pages and tab.num_pages > 1
+    and (tab.padded_full or tab.layout)
   if paginated then
     local match_page = math.ceil(match.row / tab.page_size)
     if match_page ~= tab.page then
@@ -169,7 +171,8 @@ function M.filter_by_current_cell()
   local res = tab.data.results and tab.data.results[1]
   if not res or not res.rows or #res.rows == 0 then return end
   local row, col = state.sql.cell.row, state.sql.cell.col
-  local paginated = tab.pagination_enabled and tab.padded_full and tab.num_pages and tab.num_pages > 1
+  local paginated = tab.pagination_enabled and tab.num_pages and tab.num_pages > 1
+    and (tab.padded_full or tab.layout)
   if paginated then
     row = row + (tab.page - 1) * tab.page_size
   end

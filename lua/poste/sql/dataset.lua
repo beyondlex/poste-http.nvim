@@ -41,6 +41,8 @@ function M.alloc_tab(idx)
       filter_col = nil, filter_val = nil, filter_col_name = nil,
       filter_active = false, original_data = nil,
       search_text = nil, search_matches = {}, search_idx = 0,
+      layout = nil, rows_source = nil, view_indices = nil,
+      row_number_mode = "source",
     }
   end
   return M.tabs[idx]

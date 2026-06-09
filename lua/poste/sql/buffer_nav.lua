@@ -509,7 +509,7 @@ local function build_status_winbar(meta)
     end
   end
 
-  if tab and tab.padded_full and tab.num_pages and tab.num_pages > 1 then
+  if tab and tab.num_pages and tab.num_pages > 1 and (tab.padded_full or tab.layout) then
     if tab.pagination_enabled then
       left = left .. string.format("  %sPage %d/%d%s",
         "%#PosteSqlMetaDim#", tab.page, tab.num_pages, "%#PosteSqlMeta#")

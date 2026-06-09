@@ -8,10 +8,59 @@ function M.goto_header()
   require("poste.sql.buffer_nav").goto_first_row()
 end
 
---- Refresh buffer content and winbar from current tab's padded_full and page state.
+--- Refresh buffer content from layout (new path) or padded_full (legacy).
 function M.refresh_page()
   local tab = D.T()
-  if not tab or not tab.padded_full or not D.dataset_window then return end
+  if not tab or not D.dataset_window then return end
+
+  -- Layout-aware path: render page from layout (no padded_full needed)
+  if tab.layout then
+    local fmt = require("poste.sql.format")
+    local total_rows = tab.layout.total_rows or #tab.layout.rows
+    local lines, meta
+
+    if tab.pagination_enabled and total_rows > tab.page_size then
+      tab.num_pages = math.ceil(total_rows / tab.page_size)
+      tab.page = math.min(tab.page or 1, tab.num_pages)
+      local page_rows = math.min(tab.page_size, total_rows - (tab.page - 1) * tab.page_size)
+      tab.visible_rows = page_rows
+
+      if tab.view_indices then
+        lines, meta = fmt.render_view(tab.layout, tab.view_indices, tab.page, tab.page_size,
+          { row_number_mode = tab.row_number_mode or "source" })
+      else
+        lines, meta = fmt.render_page(tab.layout, tab.page, tab.page_size)
+      end
+
+      meta.table_name = tab.meta and tab.meta.table_name
+      local buffer = require("poste.sql.buffer")
+      buffer.apply_rendered_page(tab, lines, meta)
+
+      if state.sql.cell.row > page_rows then
+        state.sql.cell.row = page_rows
+      end
+      if tab.cursor.row > page_rows then
+        tab.cursor.row = page_rows
+      end
+    else
+      -- All rows (pagination disabled or small dataset)
+      tab.visible_rows = total_rows
+      local page_size = total_rows
+      if tab.view_indices then
+        lines, meta = fmt.render_view(tab.layout, tab.view_indices, 1, page_size,
+          { row_number_mode = tab.row_number_mode or "source" })
+      else
+        lines, meta = fmt.render_page(tab.layout, 1, page_size)
+      end
+      meta.table_name = tab.meta and tab.meta.table_name
+      local buffer = require("poste.sql.buffer")
+      buffer.apply_rendered_page(tab, lines, meta)
+    end
+    return
+  end
+
+  -- Legacy path: slice from padded_full
+  if not tab.padded_full then return end
 
   local meta = tab.meta
   local total_rows = tab.meta_full and tab.meta_full.row_count or meta.row_count or 0
@@ -66,7 +115,8 @@ end
 
 function M.prev_page()
   local tab = D.T()
-  if not tab or not tab.padded_full or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  if not tab or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  if not tab.padded_full and not tab.layout then return end
   tab.page = tab.page - 1
   if tab.page < 1 then tab.page = tab.num_pages end
   M.refresh_page()
@@ -74,7 +124,8 @@ end
 
 function M.next_page()
   local tab = D.T()
-  if not tab or not tab.padded_full or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  if not tab or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  if not tab.padded_full and not tab.layout then return end
   tab.page = tab.page + 1
   if tab.page > tab.num_pages then tab.page = 1 end
   M.refresh_page()
@@ -82,14 +133,16 @@ end
 
 function M.goto_first_page()
   local tab = D.T()
-  if not tab or not tab.padded_full or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  if not tab or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  if not tab.padded_full and not tab.layout then return end
   tab.page = 1
   M.refresh_page()
 end
 
 function M.goto_last_page()
   local tab = D.T()
-  if not tab or not tab.padded_full or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  if not tab or not tab.pagination_enabled or tab.num_pages <= 1 then return end
+  if not tab.padded_full and not tab.layout then return end
   tab.page = tab.num_pages
   M.refresh_page()
 end

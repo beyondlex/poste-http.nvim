@@ -833,11 +833,21 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str, cursor_o
                     }
                     return ContextType::Column;
                 }
-                // After ADD COLUMN column_name → DataType
+                // After ADD/MODIFY COLUMN column_name → DataType; MODIFY COLUMN → Column
                 if kw == "column" && !skip_one_ident {
                     if let Some(prev) = skip_back(tokens, i) {
-                        if tokens[prev].kind == TokenKind::Keyword && kw_eq(tokens[prev].text(sql), "add") {
-                            return ContextType::DataType;
+                        if tokens[prev].kind == TokenKind::Keyword {
+                            let prev_kw = tokens[prev].text(sql).to_ascii_lowercase();
+                            if prev_kw == "add" || prev_kw == "modify" {
+                                return ContextType::DataType;
+                            }
+                        }
+                    }
+                }
+                if kw == "column" && skip_one_ident {
+                    if let Some(prev) = skip_back(tokens, i) {
+                        if tokens[prev].kind == TokenKind::Keyword && kw_eq(tokens[prev].text(sql), "modify") {
+                            return ContextType::Column;
                         }
                     }
                 }
@@ -2344,9 +2354,22 @@ mod tests {
     #[test]
     fn test_tables_isolated_to_current_statement() {
         let sql = "select 1 from posts; select 2 from authors";
-        // offset 35 = space after "from" in second SELECT, cursor expects table name
         let result = detect_context(sql, 35).unwrap();
         assert!(result.tables.iter().any(|t| t.name == "authors"), "should have authors");
         assert!(!result.tables.iter().any(|t| t.name == "posts"), "should NOT have posts from prior stmt");
+    }
+
+    #[test]
+    fn test_modify_column_context() {
+        let sql = "ALTER TABLE posts MODIFY COLUMN ";
+        let result = detect_context(sql, 32).unwrap();
+        assert_eq!(result.context_type, ContextType::Column, "MODIFY COLUMN should suggest column names");
+    }
+
+    #[test]
+    fn test_modify_column_after_name_context() {
+        let sql = "ALTER TABLE posts MODIFY COLUMN age ";
+        let result = detect_context(sql, 36).unwrap();
+        assert_eq!(result.context_type, ContextType::DataType, "MODIFY COLUMN colname should suggest data types");
     }
 }

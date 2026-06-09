@@ -9,7 +9,8 @@ select id, slug FROM posts;
 
 -- UPDATE posts SET bio = '' WHERE id i
 
-UPDATE posts SET slug='', author_id=1 WHERE id = 1;
+UPDATE posts SET status='', slug='', author_id=1 WHERE id = 1;
+
 
 
 

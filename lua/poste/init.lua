@@ -17,8 +17,8 @@ local M = {}
 -- Binary discovery
 ---------------------------------------------------------------------------
 local function find_poste_binary()
-  if state.config.poste_binary ~= "" then
-    return state.config.poste_binary
+  if state.config.poste_binary ~= "" and vim.fn.filereadable(state.config.poste_binary) == 1 then
+    return vim.fn.fnamemodify(state.config.poste_binary, ":p")
   end
   local local_paths = {
     "./target/debug/poste",
@@ -29,7 +29,7 @@ local function find_poste_binary()
       return vim.fn.fnamemodify(path, ":p")
     end
   end
-  return nil
+  return vim.fn.exepath("poste")
 end
 
 ---------------------------------------------------------------------------

@@ -106,7 +106,7 @@ fn translate_pg_mysql_compat(stmt: &str) -> Option<(String, String)> {
     }
 
     if upper.starts_with("DESC ") || upper.starts_with("DESCRIBE ") {
-        let rest = trimmed.splitn(2, char::is_whitespace).nth(1)?;
+        let (_, rest) = trimmed.split_once(char::is_whitespace)?;
         // Strip trailing semicolon and whitespace
         let table_name = rest.trim_end_matches(';').trim_end().trim_start_matches('"').trim_end_matches('"');
         if table_name.is_empty() {

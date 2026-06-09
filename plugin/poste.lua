@@ -8,4 +8,10 @@ if not package.path:find(lua_path, 1, true) then
   package.path = lua_path .. ";" .. package.path
 end
 
+-- Ensure the Rust CLI binary is installed (downloads if missing)
+local install_ok, install = pcall(require, "poste.install")
+if install_ok then
+  install.ensure()
+end
+
 require("poste").setup()

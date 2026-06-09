@@ -368,17 +368,12 @@ fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<C
                 // RParen with no immediately preceding LParen — walk backward
                 let mut found_lparen = false;
                 let mut j = i;
-                loop {
-                    match skip_back(tokens, j) {
-                        Some(idx) => {
-                            j = idx;
-                            match tokens[idx].kind {
-                                TokenKind::LParen => { i = idx; found_lparen = true; break; }
-                                TokenKind::RParen => break,
-                                _ => continue,
-                            }
-                        }
-                        None => break,
+                while let Some(idx) = skip_back(tokens, j) {
+                    j = idx;
+                    match tokens[idx].kind {
+                        TokenKind::LParen => { i = idx; found_lparen = true; break; }
+                        TokenKind::RParen => break,
+                        _ => continue,
                     }
                 }
                 if !found_lparen { return None; }
@@ -397,17 +392,12 @@ fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<C
                 // Walk backward to find LParen or RParen
                 let mut found_lparen = false;
                 let mut j = i;
-                loop {
-                    match skip_back(tokens, j) {
-                        Some(idx) => {
-                            j = idx;
-                            match tokens[idx].kind {
-                                TokenKind::LParen => { found_lparen = true; i = idx; break; }
-                                TokenKind::RParen => break,
-                                _ => continue,
-                            }
-                        }
-                        None => break,
+                while let Some(idx) = skip_back(tokens, j) {
+                    j = idx;
+                    match tokens[idx].kind {
+                        TokenKind::LParen => { found_lparen = true; i = idx; break; }
+                        TokenKind::RParen => break,
+                        _ => continue,
                     }
                 }
                 if !found_lparen { return None; }
@@ -476,27 +466,23 @@ fn try_directive(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<Conte
     }
 
     // Check for USE statement
-    if tokens[cursor_idx].kind == TokenKind::Keyword {
-        if kw_eq(tokens[cursor_idx].text(sql), "use") {
-            // Next non-whitespace token would be the database name
-            if let Some(next) = skip_forward(tokens, cursor_idx) {
-                if matches!(tokens[next].kind, TokenKind::Ident | TokenKind::QuotedIdent) {
-                    // Already has a prefix
-                    return Some(ContextType::Database);
-                }
-            } else {
-                // At end of SQL text — suggest databases
+    if tokens[cursor_idx].kind == TokenKind::Keyword && kw_eq(tokens[cursor_idx].text(sql), "use") {
+        // Next non-whitespace token would be the database name
+        if let Some(next) = skip_forward(tokens, cursor_idx) {
+            if matches!(tokens[next].kind, TokenKind::Ident | TokenKind::QuotedIdent) {
+                // Already has a prefix
                 return Some(ContextType::Database);
             }
+        } else {
+            // At end of SQL text — suggest databases
+            return Some(ContextType::Database);
         }
     }
 
     // Check for USE statement: token after USE
     if let Some(prev) = skip_back(tokens, cursor_idx) {
-        if tokens[prev].kind == TokenKind::Keyword {
-            if kw_eq(tokens[prev].text(sql), "use") {
-                return Some(ContextType::Database);
-            }
+        if tokens[prev].kind == TokenKind::Keyword && kw_eq(tokens[prev].text(sql), "use") {
+            return Some(ContextType::Database);
         }
     }
 
@@ -531,25 +517,20 @@ fn try_show_statement(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<
     let mut next = search;
     let mut show_type: Option<String> = None;
 
-    loop {
-        match skip_forward(tokens, next) {
-            Some(idx) => {
-                if idx > cursor_idx {
-                    break;
-                }
-                match tokens[idx].kind {
-                    TokenKind::Keyword | TokenKind::Ident => {
-                        let text = tokens[idx].text(sql);
-                        if let Some(ty) = show_type_keyword(text) {
-                            show_type = Some(ty.to_string());
-                        }
-                    }
-                    _ => {}
-                }
-                next = idx;
-            }
-            None => break,
+    while let Some(idx) = skip_forward(tokens, next) {
+        if idx > cursor_idx {
+            break;
         }
+        match tokens[idx].kind {
+            TokenKind::Keyword | TokenKind::Ident => {
+                let text = tokens[idx].text(sql);
+                if let Some(ty) = show_type_keyword(text) {
+                    show_type = Some(ty.to_string());
+                }
+            }
+            _ => {}
+        }
+        next = idx;
     }
 
     match show_type.as_deref() {
@@ -706,7 +687,7 @@ fn show_type_keyword(w: &str) -> Option<&'static str> {
     if w.len() < 4 || w.len() > 9 {
         return None;
     }
-    let up = |b: u8| if b >= b'a' && b <= b'z' { b - 32 } else { b };
+    let up = |b: u8| if b.is_ascii_lowercase() { b - 32 } else { b };
     let mut buf = [0u8; 9];
     for (i, &b) in w.iter().enumerate() {
         buf[i] = up(b);

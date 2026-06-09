@@ -4,6 +4,32 @@ local sql_highlights = require("poste.sql.highlights")
 local M = {}
 
 local preview_win = nil
+local raw_buffer = nil  -- scratch buffer for raw mode
+
+------------------------------------------------------------------------------
+-- Trace helpers (opt-in via state.sql._trace)
+------------------------------------------------------------------------------
+local T_items = {}
+local function T_clear() T_items = {} end
+local function T_mark(label)
+  if not state.sql._trace then return end
+  T_items[#T_items + 1] = { label = label, t = vim.fn.reltime() }
+end
+local function T_report()
+  if not state.sql._trace or #T_items == 0 then return end
+  local t0 = T_items[1].t
+  local total = vim.fn.reltimefloat(vim.fn.reltime(t0)) * 1000
+  local lines = {}
+  for i, ti in ipairs(T_items) do
+    local step = i == 1 and 0 or vim.fn.reltimefloat(vim.fn.reltime(T_items[i - 1].t, ti.t)) * 1000
+    local cum  = vim.fn.reltimefloat(vim.fn.reltime(t0, ti.t)) * 1000
+    lines[#lines + 1] = string.format("  %s: %7.3fms (+%.3f)", ti.label, cum, step)
+  end
+  lines[#lines + 1] = string.format("  total: %7.3fms", total)
+  local msg = table.concat(lines, "\n")
+  T_clear()
+  state.log("TRACE", "move_cell trace:\n" .. msg)
+end
 
 
 
@@ -67,22 +93,54 @@ end
 
 function M.update_header_float()
   local tab = D.T()
-  if not tab or not tab.header_text or not D.dataset_window then return end
-  if not vim.api.nvim_win_is_valid(D.dataset_window) then return end
+  if not tab or not tab.header_text or not D.dataset_window then T_mark("  hdr:early_exit"); return end
+  if not vim.api.nvim_win_is_valid(D.dataset_window) then T_mark("  hdr:early_exit"); return end
+  if state.sql._hide_header_float then D.close_header_float(); return end
 
+  T_mark("  hdr:win_width")
   local win_width = vim.api.nvim_win_get_width(D.dataset_window)
   if win_width <= 0 then return end
 
+  T_mark("  hdr:winsaveview")
   local leftcol = vim.api.nvim_win_call(D.dataset_window, function()
     return vim.fn.winsaveview().leftcol
   end)
 
+  T_mark("  hdr:cache_check")
+  if leftcol == D._float_cache_leftcol and win_width == D._float_cache_width
+     and tab.header_text == D._float_cache_header then T_mark("  hdr:cached"); return end
+
+  D._float_cache_leftcol = leftcol
+  D._float_cache_width = win_width
+  D._float_cache_header = tab.header_text
+
+  T_mark("  hdr:slice_to_win")
   local padded = "  " .. tab.header_text
   local index = tab.header_index or build_header_index(padded)
   local text = slice_header_to_win(leftcol, win_width, padded, index)
 
+  local float_buf = D.float_buf
+  local float_win = D.float_win
+
+  if float_buf and vim.api.nvim_buf_is_valid(float_buf) then
+    T_mark("  hdr:set_lines")
+    vim.api.nvim_set_option_value("modifiable", true, { buf = float_buf })
+    vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, { text })
+    vim.api.nvim_set_option_value("modifiable", false, { buf = float_buf })
+    T_mark("  hdr:set_config")
+    if float_win and vim.api.nvim_win_is_valid(float_win) then
+      vim.api.nvim_win_set_config(float_win, { width = win_width })
+      T_mark("  hdr:done")
+      return
+    end
+  end
+
+  T_mark("  hdr:create_float")
   D.close_header_float()
   D.float_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[D.float_buf].buftype = "nofile"
+  vim.bo[D.float_buf].bufhidden = "wipe"
+  vim.bo[D.float_buf].swapfile = false
   vim.api.nvim_buf_set_lines(D.float_buf, 0, -1, false, { text })
   vim.bo[D.float_buf].modifiable = false
 
@@ -99,11 +157,15 @@ function M.update_header_float()
     zindex = 40,
   })
   vim.wo[D.float_win].winhighlight = "Normal:PosteSqlHeader"
+  T_mark("  hdr:done")
 end
 
 function M.move_cell(drow, dcol)
   local tab = D.T()
   if not tab or not tab.meta or tab.meta.type ~= "resultset" then return end
+
+  if state.sql._trace then T_clear() end
+  T_mark("move_cell")
 
   local row = state.sql.cell.row + drow
   local col = state.sql.cell.col + dcol
@@ -114,11 +176,16 @@ function M.move_cell(drow, dcol)
   state.sql.cell.row = row
   state.sql.cell.col = col
 
+  T_mark("position_cursor")
   local line = M.position_cursor(row, col)
+  T_mark("highlight_cell")
   sql_highlights.highlight_cell(D.dataset_buffer, row, col, tab.meta, line)
+  T_mark("update_header_float")
   if dcol ~= 0 then
     M.update_header_float()
   end
+  T_mark("done")
+  T_report()
 end
 
 function M.goto_first_col()
@@ -165,11 +232,17 @@ function M.position_cursor(row, col)
   local line_idx = (tab.meta.data_start_line or 1) + row - 1
   local buf = vim.api.nvim_win_get_buf(D.dataset_window)
 
+  T_mark("  pos:get_line")
   local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
-  local range = sql_highlights.find_cell_range(line, col + 1)
-  local target_col = range and range.cursor_col or 0
+  T_mark("  pos:find_cell_ranges")
+  local last_col = tab.meta.col_count or 0
+  local ranges = sql_highlights.find_cell_ranges(line, col + 1, last_col + 1)
+
+  local target_col = ranges and ranges.target.cursor_col or 0
+  T_mark("  pos:strdisp_target")
   local target_disp = vim.fn.strdisplaywidth(line:sub(1, target_col))
 
+  T_mark("  pos:winsaveview")
   local saved_leftcol = vim.api.nvim_win_call(D.dataset_window, function()
     return vim.fn.winsaveview().leftcol
   end)
@@ -180,16 +253,14 @@ function M.position_cursor(row, col)
   local target_on_screen = target_disp >= math.max(0, saved_leftcol - left_margin)
     and target_disp < saved_leftcol + win_width - right_margin
 
-  local last_col = tab.meta.col_count or 0
   local last_col_fits = true
-  if last_col > 0 then
-    local last_range = sql_highlights.find_cell_range(line, last_col + 1)
-    if last_range then
-      local last_right_disp = vim.fn.strdisplaywidth(line:sub(1, last_range.ext_end + 3))
-      last_col_fits = last_right_disp <= saved_leftcol + win_width
-    end
+  if last_col > 0 and ranges and ranges.last then
+    T_mark("  pos:strdisp_last")
+    local last_right_disp = vim.fn.strdisplaywidth(line:sub(1, ranges.last.ext_end + 3))
+    last_col_fits = last_right_disp <= saved_leftcol + win_width
   end
 
+  T_mark("  pos:cursor_set")
   if target_on_screen then
     local saved_sso = vim.api.nvim_get_option_value("sidescrolloff", { win = D.dataset_window })
     if saved_sso > 0 then
@@ -207,12 +278,14 @@ function M.position_cursor(row, col)
   else
     pcall(vim.api.nvim_win_set_cursor, D.dataset_window, { line_idx, target_col })
     if not last_col_fits then
+      T_mark("  pos:zs")
       pcall(vim.api.nvim_win_call, D.dataset_window, function()
         vim.cmd("normal! zs")
       end)
     end
   end
 
+  T_mark("  pos:done")
   return line
 end
 
@@ -436,35 +509,35 @@ function M.sort_by_current_col()
   end
 
   if is_reset then
-    res.rows = tab.original_rows; tab.sort = nil
+    tab.sort = nil
   else
     tab.sort = { col = col, ascending = ascending }
-    if not tab.original_rows then
-      tab.original_rows = {}
-      for i, row in ipairs(res.rows) do tab.original_rows[i] = row end
-    end
-    table.sort(res.rows, function(a, b)
-      local va, vb = a[col], b[col]
-      if va == nil or va == vim.NIL then return false end
-      if vb == nil or vb == vim.NIL then return true end
-      local ta, tb = type(va), type(vb)
-      if ta == "number" and tb == "number" then
-        if ascending then return va < vb else return va > vb end
-      end
-      if ta == "boolean" and tb == "boolean" then
-        if ascending then return not va and vb else return va and not vb end
-      end
-      local sa, sb = tostring(va), tostring(vb)
-      if ascending then return sa < sb else return sa > sb end
-    end)
   end
 
+  tab.rows_source = tab.rows_source or res.rows
+  D.compute_view_indices(tab)
+
   tab.is_sorting = true
-  local new_data = vim.deepcopy(data)
   local sql_format = require("poste.sql.format")
-  local lines, meta = sql_format.format_resultset(new_data)
-  local buffer = require("poste.sql.buffer")
-  buffer.render_dataset(lines, meta, { keep_tabs = true, tab_index = D.active_tab_idx })
+  local layout = tab.layout
+  if layout then
+    local lines, meta = sql_format.render_view(
+      layout, tab.view_indices, tab.page, tab.page_size,
+      { row_number_mode = tab.row_number_mode or "source" }
+    )
+    local buffer = require("poste.sql.buffer")
+    buffer.render_dataset(lines, meta, {
+      keep_tabs = true,
+      tab_index = D.active_tab_idx,
+      layout = layout,
+      view_indices = tab.view_indices,
+    })
+  else
+    local new_data = vim.deepcopy(data)
+    local lines, meta = sql_format.format_resultset(new_data)
+    local buffer = require("poste.sql.buffer")
+    buffer.render_dataset(lines, meta, { keep_tabs = true, tab_index = D.active_tab_idx })
+  end
   tab.is_sorting = false
   M.move_cell(0, 0)
 end
@@ -479,6 +552,83 @@ function M.toggle_cell_highlight()
   end
   vim.notify(string.format("Cell highlight: %s", state.sql.highlight_cell and "ON" or "OFF"),
     vim.log.levels.INFO, { title = "Poste SQL" })
+end
+
+function M.toggle_header_float()
+  state.sql._hide_header_float = not state.sql._hide_header_float
+  if state.sql._hide_header_float then
+    D.close_header_float()
+  else
+    M.update_header_float()
+  end
+  vim.notify(string.format("Header float: %s", state.sql._hide_header_float and "OFF" or "ON"),
+    vim.log.levels.INFO, { title = "Poste SQL" })
+end
+
+function M.toggle_row_numbers()
+  state.sql._hide_row_numbers = not state.sql._hide_row_numbers
+  local tab = D.T()
+  if tab and tab.padded and tab.meta then
+    sql_highlights.apply_dataset_highlights(D.dataset_buffer, tab.padded, tab.meta)
+  end
+  vim.notify(string.format("Row numbers: %s", state.sql._hide_row_numbers and "OFF" or "ON"),
+    vim.log.levels.INFO, { title = "Poste SQL" })
+end
+
+function M.restore_from_raw_mode()
+  if not state.sql._raw_mode then return end
+  local buf = D.dataset_buffer and vim.api.nvim_buf_is_valid(D.dataset_buffer) and D.dataset_buffer
+  local win = D.dataset_window and vim.api.nvim_win_is_valid(D.dataset_window) and D.dataset_window
+  -- Switch window back to dataset buffer BEFORE deleting raw buffer,
+  -- so the window isn't closed by force-deleting the displayed buffer.
+  if win and buf then
+    pcall(vim.api.nvim_win_set_buf, win, buf)
+  end
+  if raw_buffer and vim.api.nvim_buf_is_valid(raw_buffer) then
+    pcall(vim.api.nvim_buf_delete, raw_buffer, { force = true })
+  end
+  raw_buffer = nil
+  state.sql._raw_mode = false
+end
+
+function M.toggle_raw_mode()
+  if state.sql._raw_mode then
+    M.restore_from_raw_mode()
+    require("poste.sql.buffer_page").refresh_page()
+    return
+  end
+
+  local tab = D.T()
+  local win = D.dataset_window and vim.api.nvim_win_is_valid(D.dataset_window) and D.dataset_window
+
+  if not tab or not tab.layout then
+    vim.notify("No dataset to display in raw mode", vim.log.levels.WARN, { title = "Poste SQL" })
+    return
+  end
+  if not win then
+    vim.notify("No dataset window", vim.log.levels.WARN, { title = "Poste SQL" })
+    return
+  end
+
+  D.close_header_float()
+
+  local fmt = require("poste.sql.format")
+  local lines, _ = fmt.render_page(tab.layout, 1, #tab.layout.rows)
+
+  raw_buffer = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_set_option_value("buftype", "nofile", { buf = raw_buffer })
+  vim.api.nvim_set_option_value("swapfile", false, { buf = raw_buffer })
+  vim.api.nvim_set_option_value("modifiable", true, { buf = raw_buffer })
+  vim.api.nvim_buf_set_lines(raw_buffer, 0, -1, false, lines)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = raw_buffer })
+  vim.keymap.set("n", "<leader>gp", function() M.toggle_raw_mode() end, { buffer = raw_buffer, noremap = true, silent = true })
+  state.sql._raw_mode = true
+
+  vim.api.nvim_win_set_buf(win, raw_buffer)
+  pcall(vim.api.nvim_set_option_value, "winbar", " Raw mode — toggle to exit ", { win = win })
+  pcall(vim.api.nvim_buf_set_name, raw_buffer, "poste://raw-mode")
+
+  vim.notify("Raw mode: ON (browse table)", vim.log.levels.INFO, { title = "Poste SQL" })
 end
 
 function M.goto_header()
@@ -509,7 +659,7 @@ local function build_status_winbar(meta)
     end
   end
 
-  if tab and tab.padded_full and tab.num_pages and tab.num_pages > 1 then
+  if tab and tab.num_pages and tab.num_pages > 1 and (tab.padded_full or tab.layout) then
     if tab.pagination_enabled then
       left = left .. string.format("  %sPage %d/%d%s",
         "%#PosteSqlMetaDim#", tab.page, tab.num_pages, "%#PosteSqlMeta#")

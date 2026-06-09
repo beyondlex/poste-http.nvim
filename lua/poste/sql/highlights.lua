@@ -2,6 +2,10 @@
 local state = require("poste.state")
 local M = {}
 
+local function row_nums_hidden()
+  return state.sql._hide_row_numbers
+end
+
 local ns = vim.api.nvim_create_namespace("poste_sql_dataset")
 local ns_cell = vim.api.nvim_create_namespace("poste_sql_dataset_cell")
 
@@ -192,23 +196,28 @@ function M.apply_dataset_highlights(buf, lines, meta)
     end
   end
 
-  -- Data rows: highlight NULL cells, numbers, and row number column
+  -- Data rows: highlight NULL cells and row number column
   if meta.data_start_line and meta.data_end_line then
+    local row_count = meta.data_end_line - meta.data_start_line + 1
+    local defer_row_nums = row_count > 1000
+
     for row_idx = meta.data_start_line, meta.data_end_line do
       local line = lines[row_idx] or ""
 
-      -- Row number column (visual column 1)
-      local row_range = M.find_cell_range(line, 1)
-      if row_range and row_range.ext_start <= #line then
-        vim.api.nvim_buf_set_extmark(buf, ns, row_idx - 1, row_range.ext_start, {
-          end_row = row_idx - 1,
-          end_col = math.min(row_range.ext_end, #line),
-          hl_group = "PosteSqlRowNum",
-          priority = 100,
-        })
+      -- Row number column (immediate for ≤1000 rows; deferred via schedule for large unpaginated)
+      if not row_nums_hidden() and not defer_row_nums then
+        local row_range = M.find_cell_range(line, 1)
+        if row_range and row_range.ext_start <= #line then
+          vim.api.nvim_buf_set_extmark(buf, ns, row_idx - 1, row_range.ext_start, {
+            end_row = row_idx - 1,
+            end_col = math.min(row_range.ext_end, #line),
+            hl_group = "PosteSqlRowNum",
+            priority = 100,
+          })
+        end
       end
 
-      -- Find NULL occurrences
+      -- Find NULL occurrences (always immediate)
       local col = 0
       while true do
         local start, stop = line:find("%(NULL%)", col + 1)
@@ -220,6 +229,25 @@ function M.apply_dataset_highlights(buf, lines, meta)
         })
         col = stop
       end
+    end
+
+    if not row_nums_hidden() and defer_row_nums then
+      local captured_lines = lines
+      vim.schedule(function()
+        if row_nums_hidden() or not vim.api.nvim_buf_is_valid(buf) then return end
+        for row_idx = meta.data_start_line, meta.data_end_line do
+          local line = captured_lines[row_idx] or ""
+          local row_range = M.find_cell_range(line, 1)
+          if row_range and row_range.ext_start <= #line then
+            pcall(vim.api.nvim_buf_set_extmark, buf, ns, row_idx - 1, row_range.ext_start, {
+              end_row = row_idx - 1,
+              end_col = math.min(row_range.ext_end, #line),
+              hl_group = "PosteSqlRowNum",
+              priority = 100,
+            })
+          end
+        end
+      end)
     end
   end
 
@@ -250,21 +278,18 @@ local function compute_seps(line)
   return seps
 end
 
---- Find the byte range and cursor column for a cell in a rendered dataset line.
+--- Find byte ranges for target and optionally last column from one sep scan.
 --- Calls compute_seps on first access; subsequent calls for the same line use
 --- cached separator positions (O(n_cols) → O(1) after first per-line scan).
 --- Reads the actual line content to locate │ separators, so it works
 --- regardless of CJK widths, truncation, or multi-byte characters.
 --- @param line string The rendered line (from buffer or format output)
---- @param col number 1-based column index
---- @return table|nil { ext_start, ext_end, cursor_col } or nil if not found
-function M.find_cell_range(line, col)
+--- @param target_col number 1-based target column index
+--- @param last_col number|nil 1-based last column index (optional, for position_cursor)
+--- @return table|nil { target: { ext_start, ext_end, cursor_col }, last?: { ext_start, ext_end, cursor_col } } or nil
+function M.find_cell_ranges(line, target_col, last_col)
   if not line or line == "" then return nil end
-  local sep_len = 3
 
-  -- Use cached seps on repeated calls for the same line string
-  -- (Lua string equality is by content, so this works across
-  --  separate nvim_buf_get_lines results for the same line)
   local seps
   if _cache_line == line then
     seps = _cache_seps
@@ -274,20 +299,25 @@ function M.find_cell_range(line, col)
     _cache_seps = seps
   end
 
-  -- Cell col is between seps[col] and seps[col+1]
-  if col > #seps - 1 then return nil end
+  if target_col > #seps - 1 then return nil end
 
-  local next_sep = seps[col]
-  local close_sep = seps[col + 1]
+  local function range_for(col)
+    local next_sep = seps[col]
+    local close_sep = seps[col + 1]
+    return { ext_start = next_sep + 2, ext_end = close_sep - 1, cursor_col = next_sep + 2 }
+  end
 
-  -- extmark range: include leading+trailing spaces
-  local ext_start = next_sep + sep_len - 1  -- 0-based, the leading space
-  local ext_end = close_sep - 1             -- 0-based exclusive, up to trailing space
+  local result = { target = range_for(target_col) }
+  if last_col and last_col <= #seps - 1 then
+    result.last = range_for(last_col)
+  end
+  return result
+end
 
-  -- cursor column: 0-based byte offset of content start (same as ext_start)
-  local cursor_col = next_sep + sep_len - 1
-
-  return { ext_start = ext_start, ext_end = ext_end, cursor_col = cursor_col }
+--- Legacy wrapper: returns only the target cell range.
+function M.find_cell_range(line, col)
+  local ranges = M.find_cell_ranges(line, col)
+  return ranges and ranges.target
 end
 
 --- Invalidate the one-entry seps cache (called on new dataset render).

@@ -92,7 +92,7 @@ impl Executor {
         }
 
         // Cookie jar: curl manages cookies natively
-        if let Some(ref jar) = cookie_jar {
+        if let Some(jar) = &cookie_jar {
             let path = jar.path().to_string_lossy().to_string();
             args.push("-b".to_string());  // read cookies
             args.push(path.clone());
@@ -405,7 +405,7 @@ fn redis_value_to_json(val: &redis::Value, cmd_name: &str) -> serde_json::Value 
                 "XRANGE" | "XREVRANGE" | "XREAD" | "XREADGROUP" => "stream",
                 _ => {
                     // Heuristic: check if array looks like key-value pairs (even length, alternating types)
-                    if arr.len() % 2 == 0 && arr.len() > 0 {
+                    if arr.len() % 2 == 0 && !arr.is_empty() {
                         let all_strings = arr.iter().all(|v| matches!(v, redis::Value::BulkString(_) | redis::Value::SimpleString(_)));
                         if all_strings {
                             "hash"
@@ -508,9 +508,9 @@ fn parse_shell_args(input: &str) -> Result<Vec<String>> {
     let mut current = String::new();
     let mut in_quotes = false;
     let mut quote_char = ' ';
-    let mut chars = input.chars().peekable();
+    let chars = input.chars().peekable();
 
-    while let Some(c) = chars.next() {
+    for c in chars {
         match c {
             '"' | '\'' if !in_quotes => {
                 in_quotes = true;

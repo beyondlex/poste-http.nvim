@@ -180,7 +180,7 @@ pub(crate) fn kw_eq(actual: &str, expected: &str) -> bool {
 /// Check if a word is a known SQL keyword.
 pub(crate) fn is_known_keyword(word: &str) -> bool {
     let w = word.as_bytes();
-    let up = |b: u8| if b >= b'a' && b <= b'z' { b - 32 } else { b };
+    let up = |b: u8| if b.is_ascii_lowercase() { b - 32 } else { b };
 
     if w.len() == 1 { return false; }
 

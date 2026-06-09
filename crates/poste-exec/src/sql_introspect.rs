@@ -23,7 +23,7 @@ pub enum IntrospectType {
 
 impl IntrospectType {
     /// Parse an introspect type from a string.
-    pub fn from_str(s: &str) -> Result<Self> {
+    pub fn parse_str(s: &str) -> Result<Self> {
         match s.to_lowercase().as_str() {
             "databases" => Ok(Self::Databases),
             "schemas" => Ok(Self::Schemas),
@@ -468,17 +468,15 @@ async fn build_create_table_from_introspect_postgres(
     }
 
     // 2. Introspect primary key
-    let pk_sql = format!(
-        r#"SELECT kc.column_name
-           FROM information_schema.table_constraints tc
-           JOIN information_schema.key_column_usage kc
-             ON kc.constraint_name = tc.constraint_name
-            AND kc.table_schema = tc.table_schema
-           WHERE tc.constraint_type = 'PRIMARY KEY'
-             AND tc.table_schema = $1
-             AND tc.table_name = $2
-           ORDER BY kc.ordinal_position"#
-    );
+    let pk_sql = r#"SELECT kc.column_name
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kc
+         ON kc.constraint_name = tc.constraint_name
+        AND kc.table_schema = tc.table_schema
+       WHERE tc.constraint_type = 'PRIMARY KEY'
+         AND tc.table_schema = $1
+         AND tc.table_name = $2
+       ORDER BY kc.ordinal_position"#.to_string();
     let pk_rows = sqlx::query(&pk_sql)
         .bind(schema)
         .bind(table)

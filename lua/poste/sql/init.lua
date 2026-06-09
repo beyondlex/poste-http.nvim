@@ -574,6 +574,9 @@ local seq = current_seq
         if ok and parsed and type(parsed) == "table" then
           state.last_response = parsed
 
+          -- If raw mode was active, restore dataset buffer before rendering new results
+          require("poste.sql.buffer_nav").restore_from_raw_mode()
+
           sql_context.handle_use_statement(parsed)
 
           -- Decode body to get actual SQL results
@@ -607,8 +610,15 @@ local seq = current_seq
                   dialect = data.dialect,
                   table_name = table_name,
                 }
-                local lines, meta = sql_format.format_resultset(single_data)
-                sql_buffer.render_dataset(lines, meta, { tab_index = i, exec_seq = seq, data = single_data })
+                local layout = sql_format.plan_resultset_layout(single_data)
+                local lines, meta
+                if layout then
+                  lines, meta = sql_format.render_page(layout, 1, 50)
+                  meta.table_name = table_name
+                else
+                  lines, meta = sql_format.format_resultset(single_data)
+                end
+                sql_buffer.render_dataset(lines, meta, { tab_index = i, exec_seq = seq, data = single_data, layout = layout })
 
                 local line_nr = stmt_lines[i] or first_line
                 indicators.set_indicator(src_buf, line_nr - 1, "success", result.execution_time_ms)
@@ -629,9 +639,25 @@ local seq = current_seq
             else
               table_name = extract_table_name(buf_content)
             end
-            local lines, meta = sql_format.format_dataset(parsed)
+            local lines, meta, layout = sql_format.format_dataset(parsed)
+
+            -- Auto-prompt for raw mode when many columns
+            if layout and not state.sql._raw_mode and #layout.columns > 30 then
+              vim.schedule(function()
+                vim.ui.select({ "Yes", "No" }, {
+                  prompt = string.format("%d columns detected. Switch to plain-table (no pagination/navigation)?", #layout.columns),
+                  title = "Poste SQL",
+                }, function(choice)
+                  if choice == "Yes" then
+                    vim.schedule(function()
+                      require("poste.sql.buffer_nav").toggle_raw_mode()
+                    end)
+                  end
+                end)
+              end)
+            end
             if table_name then meta.table_name = table_name end
-            sql_buffer.render_dataset(lines, meta, { exec_seq = seq })
+            sql_buffer.render_dataset(lines, meta, { exec_seq = seq, layout = layout })
 
             local has_err = results[1] and results[1].error
             if has_err then

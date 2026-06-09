@@ -13,6 +13,7 @@
 
 UPDATE posts SET author_id=1, id=1, bio='' WHERE;
 
+SELECT * FROM ;
 
 SELECT id, page_id, url, measured_at, metric_01 from web_vitals ;
 SELECT * from web_vitals ;

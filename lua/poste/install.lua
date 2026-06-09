@@ -162,13 +162,33 @@ function M.download(version)
   return true
 end
 
---- Ensure the binary is installed.
---- Called at plugin startup. Returns the binary path if available, nil otherwise.
+--- Ensure the binary is available.
+--- Called at plugin startup. Returns the binary path if found, nil otherwise.
+--- Checks (in order): user config, local dev build, default data path, then attempted download.
 function M.ensure()
+  -- 1. User-configured path (state.config.poste_binary)
+  local state_ok, state = pcall(require, "poste.state")
+  if state_ok and state.config.poste_binary ~= "" then
+    local p = state.config.poste_binary
+    if vim.fn.filereadable(p) == 1 then
+      return vim.fn.fnamemodify(p, ":p")
+    end
+  end
+
+  -- 2. Local dev build (in-repo development)
+  for _, path in ipairs({ "./target/debug/poste", "./target/release/poste" }) do
+    if vim.fn.filereadable(path) == 1 then
+      return vim.fn.fnamemodify(path, ":p")
+    end
+  end
+
+  -- 3. Default installed path (stdpath data)
   local bp = binary_path()
   if vim.fn.filereadable(bp) == 1 then
     return bp
   end
+
+  -- 4. Fallback: attempt download
   local ok = M.download("latest")
   if not ok then
     vim.notify(

@@ -294,7 +294,11 @@ local function get_items(bufnr, line_before, cursor_line, callback)
       if done then return end
       done = true
       if #all_items == 0 then
-        callback(ctx.kw_items(prefix))
+        if not data.conn_key() then
+          callback(ctx.kw_items(prefix))
+          return
+        end
+        callback({})
         return
       end
       callback(ctx.filter(all_items, prefix))

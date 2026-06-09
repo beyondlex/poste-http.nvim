@@ -139,6 +139,7 @@ async fn introspect_postgres(params: &IntrospectParams) -> Result<Value> {
                         "nullable": row.get::<String, _>("is_nullable") == "YES",
                         "default": row.get::<Option<String>, _>("column_default"),
                         "max_length": char_max_len,
+                        "comment": row.get::<Option<String>, _>("comment"),
                     })
                 })
                 .collect()
@@ -264,6 +265,7 @@ async fn introspect_mysql(params: &IntrospectParams) -> Result<Value> {
                         "default": col_opt(row, "Default"),
                         "key": col(row, "Key"),
                         "extra": col(row, "Extra"),
+                        "comment": col_opt(row, "Comment"),
                     })
                 })
                 .collect()
@@ -380,6 +382,7 @@ async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value> {
                         "nullable": row.get::<i64, _>("notnull") == 0,
                         "default": row.get::<Option<String>, _>("dflt_value"),
                         "pk": row.get::<i64, _>("pk") > 0,
+                        "comment": null,
                     })
                 })
                 .collect()

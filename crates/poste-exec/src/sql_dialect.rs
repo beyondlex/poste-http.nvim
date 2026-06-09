@@ -74,11 +74,18 @@ impl Dialect for PostgresDialect {
     }
 
     fn list_columns(&self) -> &str {
-        "SELECT column_name, data_type, is_nullable, column_default, \
-         character_maximum_length \
-         FROM information_schema.columns \
-         WHERE table_schema = $1 AND table_name = $2 \
-         ORDER BY ordinal_position"
+        "SELECT c.column_name, c.data_type, c.is_nullable, c.column_default, \
+         c.character_maximum_length, \
+         pgd.description AS comment \
+         FROM information_schema.columns c \
+         LEFT JOIN pg_catalog.pg_description pgd \
+           ON pgd.objoid = (SELECT oid FROM pg_catalog.pg_class \
+                             WHERE relname = c.table_name \
+                             AND relnamespace = (SELECT oid FROM pg_catalog.pg_namespace \
+                                                 WHERE nspname = c.table_schema)) \
+           AND pgd.objsubid = c.ordinal_position::int \
+         WHERE c.table_schema = $1 AND c.table_name = $2 \
+         ORDER BY c.ordinal_position"
     }
 
     fn list_indexes(&self) -> &str {

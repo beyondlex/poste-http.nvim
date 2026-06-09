@@ -723,8 +723,8 @@ function M.show_table_ddl()
     return
   end
 
-  local table_name = vim.fn.expand("<cword>")
-  if not table_name or table_name == "" then
+  local cword = vim.fn.expand("<cword>")
+  if not cword or cword == "" then
     vim.notify("No word under cursor", vim.log.levels.WARN, { title = "Poste SQL" })
     return
   end
@@ -743,29 +743,191 @@ function M.show_table_ddl()
                      "when","then","else","end","count",
                      "sum","avg","min","max","true","false" }
   for _, kw in ipairs(kw_list) do keywords[kw] = true end
-  if keywords[table_name:lower()] then
-    vim.notify("'" .. table_name .. "' is a SQL keyword", vim.log.levels.INFO, { title = "Poste SQL" })
+  if keywords[cword:lower()] then
+    vim.notify("'" .. cword .. "' is a SQL keyword", vim.log.levels.INFO, { title = "Poste SQL" })
     return
   end
 
   local sql_context = require("poste.sql.context")
-  local ctx = sql_context.resolve_full_context(vim.api.nvim_get_current_buf())
+  local buf = vim.api.nvim_get_current_buf()
+  local ctx = sql_context.resolve_full_context(buf)
   local conn = ctx.connection
   if not conn or conn == "" then
     vim.notify("No SQL connection context. Add -- @connection <name> to the file header.", vim.log.levels.ERROR, { title = "Poste SQL" })
     return
   end
 
-  local file = vim.api.nvim_buf_get_name(vim.api.nvim_get_current_buf())
+  local file = vim.api.nvim_buf_get_name(buf)
   if file == "" then
     file = vim.fn.getcwd() .. "/query.sql"
   end
-
   local db = ctx.database
+
+  -- Try to detect if cursor is on a column name via Rust context detection
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local line_num = cursor[1]
+  local col = cursor[2]
+  local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local line_text = all_lines[line_num] or ""
+  local line_len = #line_text
+
+  local end_col = col
+  while end_col < line_len do
+    local ch = line_text:sub(end_col + 1, end_col + 1)
+    if ch:match("[%w_]") then end_col = end_col + 1 else break end
+  end
+
+  -- Check for .column suffix (alias.column → column part)
+  local after_dot_col = nil
+  local nxt = line_text:sub(end_col + 1, end_col + 1)
+  if nxt == "." then
+    local cm = line_text:match("^([%w_]+)", end_col + 2)
+    if cm then after_dot_col = cm end
+  end
+
+  if after_dot_col then
+    -- alias.column pattern: resolve alias via context detection
+    local block_start = 1
+    if line_num > 1 then
+      for i = line_num - 1, 1, -1 do
+        if all_lines[i] and all_lines[i]:match("^###") then block_start = i + 1; break end
+      end
+    end
+    local block_end = #all_lines
+    for i = line_num + 1, #all_lines do
+      if all_lines[i] and all_lines[i]:match("^###") then block_end = i - 1; break end
+    end
+    if block_start <= line_num and line_num <= block_end then
+      local before_parts = {}
+      for i = block_start, line_num - 1 do
+        table.insert(before_parts, all_lines[i] or "")
+      end
+      -- Include alias.column for context: extend end_col past .column
+      local xtra = end_col + 1 + #after_dot_col
+      table.insert(before_parts, line_text:sub(1, xtra))
+      local offset = #table.concat(before_parts, "\n")
+      local block_parts = {}
+      for i = block_start, block_end do table.insert(block_parts, all_lines[i] or "") end
+      local sql_text = table.concat(block_parts, "\n")
+      local dial = ""
+      local cc = require("poste.sql.connections").get_connection_config(conn)
+      if cc and cc.dialect then dial = " --dialect " .. cc.dialect end
+      local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset, dial)
+      local out = vim.fn.system(cmd, sql_text)
+      if vim.v.shell_error == 0 and out and out ~= "" then
+        local ok, parsed = pcall(vim.json.decode, out)
+        if ok and parsed then
+          local function cclean(t)
+            for k, v in pairs(t) do
+              if v == vim.NIL then t[k] = nil elseif type(v) == "table" then cclean(v) end
+            end
+          end
+          cclean(parsed)
+          local pt = nil
+          local prefix = parsed.ctx_data or cword
+          if parsed.tables then
+            for _, t in ipairs(parsed.tables) do
+              if t.alias and t.alias:lower() == prefix:lower() then pt = t.name; break end
+            end
+          end
+          if pt then
+            show_column_info(binary, conn, db, file, pt, after_dot_col)
+            return
+          end
+        end
+      end
+    end
+  end
+
+  -- Check if cword is a column name (not a table) via context detection
+  local block_start = 1
+  if line_num > 1 then
+    for i = line_num - 1, 1, -1 do
+      if all_lines[i] and all_lines[i]:match("^###") then block_start = i + 1; break end
+    end
+  end
+  local block_end = #all_lines
+  for i = line_num + 1, #all_lines do
+    if all_lines[i] and all_lines[i]:match("^###") then block_end = i - 1; break end
+  end
+
+  if block_start <= line_num and line_num <= block_end then
+    local before_parts = {}
+    for i = block_start, line_num - 1 do
+      table.insert(before_parts, all_lines[i] or "")
+    end
+    table.insert(before_parts, line_text:sub(1, end_col))
+    local offset = #table.concat(before_parts, "\n")
+
+    local block_parts = {}
+    for i = block_start, block_end do table.insert(block_parts, all_lines[i] or "") end
+    local sql_text = table.concat(block_parts, "\n")
+
+    local dial = ""
+    local cc = require("poste.sql.connections").get_connection_config(conn)
+    if cc and cc.dialect then dial = " --dialect " .. cc.dialect end
+
+    local cmd = string.format("%s context detect %d%s",
+      vim.fn.shellescape(binary), offset, dial)
+    local out = vim.fn.system(cmd, sql_text)
+    if vim.v.shell_error == 0 and out and out ~= "" then
+      local ok, parsed = pcall(vim.json.decode, out)
+      if ok and parsed then
+        local function clean(t)
+          for k, v in pairs(t) do
+            if v == vim.NIL then t[k] = nil
+            elseif type(v) == "table" then clean(v) end
+          end
+        end
+        clean(parsed)
+
+        local ct = parsed.ctx_type
+        local tables = parsed.tables
+
+        -- Resolve column: check if cword is a known column (not table name)
+        local is_column = false
+        local parent_table = nil
+        local col_name = cword
+
+        if ct == "dot_column" and parsed.ctx_data then
+          -- alias.column: resolve alias
+          local prefix = parsed.ctx_data
+          if tables then
+            for _, t in ipairs(tables) do
+              if t.alias and t.alias:lower() == prefix:lower() then
+                parent_table = t.name; break
+              end
+            end
+          end
+          is_column = parent_table ~= nil
+        elseif (ct == "column" or ct == "keyword") and tables and #tables > 0 then
+          -- Check if cword is NOT a table name → it's a column
+          local is_table = false
+          for _, t in ipairs(tables) do
+            local tn = (t.name or ""):lower()
+            local ta = (t.alias or ""):lower()
+            if tn == cword:lower() or ta == cword:lower() then is_table = true; break end
+          end
+          if not is_table then
+            -- Not a table name: use first table as parent, cword is column
+            parent_table = tables[1].name or tables[1].alias
+            is_column = parent_table ~= nil
+          end
+        end
+
+        if is_column and parent_table then
+          show_column_info(binary, conn, db, file, parent_table, cword)
+          return
+        end
+      end
+    end
+  end
+
+  -- Fallback: show DDL (table mode)
   local cmd = string.format("%s introspect %s --type ddl --table %s --env %s",
     vim.fn.shellescape(binary),
     vim.fn.shellescape(conn),
-    vim.fn.shellescape(table_name),
+    vim.fn.shellescape(cword),
     vim.fn.shellescape(state.current_env)
   )
   if file and file ~= "" then
@@ -797,18 +959,18 @@ function M.show_table_ddl()
 
         local items = parsed.items
         if not items or #items == 0 then
-          vim.notify("No DDL found for table '" .. table_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
+          vim.notify("No DDL found for table '" .. cword .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
           return
         end
 
         local ddl_text = items[1].ddl
         if not ddl_text or ddl_text == "" then
-          vim.notify("No DDL found for table '" .. table_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
+          vim.notify("No DDL found for table '" .. cword .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
           return
         end
 
         local lines = vim.split(ddl_text, "\n", { plain = true })
-        show_float(lines, "DDL: " .. table_name, "sql")
+        show_float(lines, "DDL: " .. cword, "sql")
       end)
     end,
     on_stderr = function(_, data)
@@ -821,6 +983,96 @@ function M.show_table_ddl()
       if code ~= 0 then
         vim.schedule(function()
           vim.notify("DDL introspection exited with code " .. code, vim.log.levels.ERROR, { title = "Poste SQL" })
+        end)
+      end
+    end,
+  })
+end
+
+--- Show column info in a float window.
+--- @param binary string
+--- @param conn string
+--- @param db string|nil
+--- @param file string
+--- @param table_name string Parent table
+--- @param col_name string Column name under cursor
+local function show_column_info(binary, conn, db, file, table_name, col_name)
+  local cmd = string.format("%s introspect %s --type columns --table %s --env %s",
+    vim.fn.shellescape(binary),
+    vim.fn.shellescape(conn),
+    vim.fn.shellescape(table_name),
+    vim.fn.shellescape(state.current_env)
+  )
+  if file and file ~= "" then
+    cmd = cmd .. " --path " .. vim.fn.shellescape(vim.fn.fnamemodify(file, ":h"))
+  end
+  if db and db ~= vim.NIL and db ~= "" then
+    cmd = cmd .. " --database " .. vim.fn.shellescape(db)
+  end
+
+  state.log("INFO", "Column info cmd: " .. cmd)
+
+  vim.fn.jobstart(cmd, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      if not data then return end
+      while #data > 0 and data[#data] == "" do
+        data[#data] = nil
+      end
+      if #data == 0 then return end
+
+      local output = table.concat(data, "\n")
+      vim.schedule(function()
+        local ok, parsed = pcall(vim.json.decode, output)
+        if not ok or type(parsed) ~= "table" then
+          vim.notify("Failed to parse introspection response", vim.log.levels.ERROR, { title = "Poste SQL" })
+          return
+        end
+
+        local items = parsed.items
+        if not items or #items == 0 then
+          vim.notify("No columns found for table '" .. table_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
+          return
+        end
+
+        -- Find the matching column
+        local col = nil
+        for _, c in ipairs(items) do
+          if c.name == col_name then col = c; break end
+        end
+        if not col then
+          vim.notify("Column '" .. col_name .. "' not found in table '" .. table_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
+          return
+        end
+
+        local lines = {
+          "  Table:    " .. table_name,
+          "  Name:     " .. tostring(col.name or ""),
+          "  Type:     " .. tostring(col.type or ""),
+          "  Nullable: " .. tostring(col.nullable == true and "YES" or (col.nullable == false and "NO" or "?")),
+          "  Default:  " .. tostring(col.default or "(null)"),
+        }
+        if col.max_length then
+          table.insert(lines, "  Max Len:  " .. tostring(col.max_length))
+        end
+        if col.comment and col.comment ~= vim.NIL then
+          table.insert(lines, "  Comment:  " .. tostring(col.comment))
+        end
+
+        show_float(lines, "Column: " .. col_name, "sql")
+      end)
+    end,
+    on_stderr = function(_, data)
+      if not data then return end
+      for _, l in ipairs(data) do
+        if l ~= "" then state.log("ERROR", "Column info stderr: " .. l) end
+      end
+    end,
+    on_exit = function(_, code)
+      if code ~= 0 then
+        vim.schedule(function()
+          vim.notify("Column introspection exited with code " .. code, vim.log.levels.ERROR, { title = "Poste SQL" })
         end)
       end
     end,

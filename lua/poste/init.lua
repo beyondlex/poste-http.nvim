@@ -1180,6 +1180,24 @@ function M.setup(opts)
         end,
       })
 
+      -- Show completion on InsertEnter if cursor is on an existing identifier
+      vim.api.nvim_create_autocmd("InsertEnter", {
+        group = group,
+        buffer = 0,
+        callback = function()
+          local line = vim.api.nvim_get_current_line()
+          local col = vim.api.nvim_win_get_cursor(0)[2]
+          local before = line:sub(1, col)
+          local prefix = before:match("[%w_]*$") or ""
+          if #prefix > 0 then
+            vim.schedule(function()
+              local ok, t = pcall(require, "blink.cmp.completion.trigger")
+              if ok then t.show({ force = true, trigger_kind = "manual" }) end
+            end)
+          end
+        end,
+      })
+
       -- Configure buffer-local blink.cmp settings
       vim.b.blink_cmp_min_keyword_length = 0
     end,

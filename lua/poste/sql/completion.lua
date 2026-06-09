@@ -294,11 +294,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
       if done then return end
       done = true
       if #all_items == 0 then
-        if not data.conn_key() then
-          callback(ctx.kw_items(prefix))
-          return
-        end
-        callback({})
+        callback(ctx.kw_items(prefix))
         return
       end
       callback(ctx.filter(all_items, prefix))
@@ -319,6 +315,9 @@ local function get_items(bufnr, line_before, cursor_line, callback)
       pending = pending - 1
       if pending <= 0 then flush() end
     end)
+    if pending > 0 then
+      callback(ctx.kw_items(prefix))
+    end
     return
   end
 
@@ -483,7 +482,10 @@ function M:enabled()
 end
 
 function M:get_trigger_characters()
-  return { ".", " ", "@", "(", "," }
+    -- Empty = trigger on every keystroke via keyword-length mechanism.
+    -- Non-empty would LIMIT triggering to only these chars, preventing
+    -- auto-completion for basic typing like `s` → SELECT or `f` → FROM.
+    return {}
 end
 
 function M:get_keyword_length(ctx)
@@ -511,6 +513,11 @@ function M:get_completions(ctx, callback)
     cursor_line = vim.fn.line(".")
     cursor_col = vim.fn.col(".")
     line = vim.api.nvim_get_current_line()
+  end
+  -- blink.cmp passes cursor_line as 0-indexed; normalize to 1-indexed
+  -- for use in try_rust_context and extract_from_tables.
+  if ctx and ctx.cursor then
+    cursor_line = cursor_line + 1
   end
   local line_before = line:sub(1, cursor_col)
 

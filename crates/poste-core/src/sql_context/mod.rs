@@ -1085,6 +1085,20 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_s_prefix_returns_keyword() {
+        let result = detect_context("s", 1).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.prefix, "s");
+    }
+
+    #[test]
+    fn test_detect_select_star_f_prefix_returns_keyword() {
+        let result = detect_context("select * f", 10).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.prefix, "f");
+    }
+
+    #[test]
     fn test_detect_table_after_from() {
         let result = detect_context("SELECT * FROM ", 14).unwrap();
         assert_eq!(result.context_type, ContextType::Table);
@@ -2061,6 +2075,19 @@ mod tests {
     fn test_detect_select_with_prefix_returns_keyword() {
         let result = detect_context("SELECT col ", 11).unwrap();
         assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_select_star_typed_f_returns_keyword() {
+        let result = detect_context("select * f", 10).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_typed_s_returns_keyword() {
+        let result = detect_context("s", 1).unwrap();
+        assert_eq!(result.context_type, ContextType::Keyword);
+        assert_eq!(result.prefix, "s");
     }
 
     #[test]

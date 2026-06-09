@@ -242,6 +242,70 @@ describe("get_completions line_before", function()
     -- Just verify it doesn't crash and returns something
     assert.is_not_nil(items)
   end)
+
+  it("single letter s returns SELECT via get_completions", function()
+    local line = "s"
+    local items = nil
+    sql_comp.new():get_completions(
+      { line = line, cursor = { 0, 1 } },
+      function(r) items = r end
+    )
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items.items) do labels[item.label] = true end
+    assert.is_true(labels["SELECT"], "SELECT should appear for prefix 's'")
+    assert.is_true(#items.items > 0, "expected items for prefix 's'")
+  end)
+
+  it("select * f returns FROM via get_completions", function()
+    local line = "select * f"
+    local items = nil
+    sql_comp.new():get_completions(
+      { line = line, cursor = { 0, 10 } },
+      function(r) items = r end
+    )
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items.items) do labels[item.label] = true end
+    assert.is_true(labels["FROM"], "FROM should appear for prefix 'f' after 'select *'")
+    assert.is_nil(labels["SELECT"], "SELECT should not match prefix 'f'")
+  end)
+end)
+
+-- ── 14. get_keyword_length edge cases ────────────────────────────────────
+
+describe("get_keyword_length", function()
+  local src = sql_comp.new()
+
+  it("returns 0 when cursor is nil", function()
+    assert.equals(0, src:get_keyword_length({}))
+    assert.equals(0, src:get_keyword_length(nil))
+  end)
+
+  it("returns 1 for single letter s", function()
+    local len = src:get_keyword_length({ line = "s", cursor = { 0, 1 } })
+    assert.equals(1, len)
+  end)
+
+  it("returns 1 for prefix f after select *", function()
+    local len = src:get_keyword_length({ line = "select * f", cursor = { 0, 10 } })
+    assert.equals(1, len)
+  end)
+
+  it("returns 0 for empty line", function()
+    local len = src:get_keyword_length({ line = "", cursor = { 0, 0 } })
+    assert.equals(0, len)
+  end)
+
+  it("returns 0 for cursor at position 0 with content", function()
+    local len = src:get_keyword_length({ line = "foo", cursor = { 0, 0 } })
+    assert.equals(0, len)
+  end)
+
+  it("returns correct length for multi-char prefix", function()
+    local len = src:get_keyword_length({ line = "SEL", cursor = { 0, 3 } })
+    assert.equals(3, len)
+  end)
 end)
 
 -- ── 6. Alias resolution ───────────────────────────────────────────────────────
@@ -663,6 +727,28 @@ describe("get_items keyword context (no connection)", function()
     assert.is_true(labels["SELECT"], "SELECT should match prefix SEL")
     assert.is_nil(labels["FROM"], "FROM should not match prefix SEL")
     assert.is_true(#items > 0, "expected at least one keyword")
+  end)
+
+  it("single letter s returns SELECT keyword", function()
+    local buf = make_buf({ "###", "s" })
+    local items = nil
+    get_items(buf, "s", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items) do labels[item.label] = true end
+    assert.is_true(labels["SELECT"], "SELECT should match single-letter prefix 's'")
+    assert.is_true(#items > 0, "expected at least one item for prefix 's'")
+  end)
+
+  it("select * f returns FROM keyword", function()
+    local buf = make_buf({ "###", "select * f" })
+    local items = nil
+    get_items(buf, "select * f", 2, function(r) items = r end)
+    assert.is_not_nil(items)
+    local labels = {}
+    for _, item in ipairs(items) do labels[item.label] = true end
+    assert.is_true(labels["FROM"], "FROM should match prefix 'f' after 'select *'")
+    assert.is_nil(labels["SELECT"], "SELECT should not match prefix 'f'")
   end)
 
   it("empty prefix returns many keywords", function()

@@ -155,8 +155,6 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
     }
 
     let cursor_idx_raw = find_token_at_offset(&tokens, offset).unwrap_or(0);
-    // When cursor past found token's end, advance to next token (handles
-    // trailing-whitespace cases where find_token_at_offset falls back)
     let cursor_idx = if cursor_idx_raw + 1 < tokens.len() && offset > tokens[cursor_idx_raw].end {
         cursor_idx_raw + 1
     } else {
@@ -164,7 +162,6 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
     };
     let cursor_tok = &tokens[cursor_idx];
 
-    // Check for string/comment — return None (no SQL completion)
     let in_string = cursor_tok.kind == TokenKind::StrLit;
     let in_comment = matches!(cursor_tok.kind, TokenKind::LineComment | TokenKind::BlockComment);
     if in_string || in_comment {
@@ -173,9 +170,13 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
 
     let prefix = extract_prefix(sql, offset, &tokens, cursor_idx);
 
+    // Find statement boundaries — only extract tables from the same statement
+    let (stmt_start, stmt_end) = find_statement_token_range(&tokens, cursor_idx);
+    let stmt_tokens = &tokens[stmt_start..stmt_end];
+
     // Special cases: check for dot-notation at cursor
     if let Some(ctx) = try_dot_column(&tokens, cursor_idx, sql) {
-        let tables = extract_tables(&tokens, sql);
+        let tables = extract_tables(stmt_tokens, sql);
         let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
@@ -189,7 +190,7 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
 
     // Special cases: check for INSERT INTO table ( — InsertColumn
     if let Some(ctx) = try_insert_column(&tokens, cursor_idx, sql) {
-        let tables = extract_tables(&tokens, sql);
+        let tables = extract_tables(stmt_tokens, sql);
         let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
@@ -203,7 +204,7 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
 
     // Special cases: @connection / USE
     if let Some(ctx) = try_directive(&tokens, cursor_idx, sql) {
-        let tables = extract_tables(&tokens, sql);
+        let tables = extract_tables(stmt_tokens, sql);
         let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
@@ -217,7 +218,7 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
 
     // Special case: SHOW statement context
     if let Some(ctx) = try_show_statement(&tokens, cursor_idx, sql) {
-        let tables = extract_tables(&tokens, sql);
+        let tables = extract_tables(stmt_tokens, sql);
         let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
@@ -231,7 +232,7 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
 
     // Special case: GRANT/REVOKE ... ON → Table
     if let Some(ctx) = try_grant_revoke(&tokens, cursor_idx, sql) {
-        let tables = extract_tables(&tokens, sql);
+        let tables = extract_tables(stmt_tokens, sql);
         let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
@@ -245,7 +246,7 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
 
     // Special case: FOR UPDATE OF / FOR SHARE OF → Table
     if let Some(ctx) = try_for_update_of(&tokens, cursor_idx, sql) {
-        let tables = extract_tables(&tokens, sql);
+        let tables = extract_tables(stmt_tokens, sql);
         let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
@@ -259,7 +260,7 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
 
     // Special case: bare SET (session params) → Keyword
     if let Some(ctx) = try_bare_set(&tokens, cursor_idx, sql) {
-        let tables = extract_tables(&tokens, sql);
+        let tables = extract_tables(stmt_tokens, sql);
         let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
@@ -276,7 +277,7 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
         TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At);
     let context_type = detect_scan_backward(&tokens, cursor_idx, sql, cursor_on_ident);
 
-    let tables = extract_tables(&tokens, sql);
+    let tables = extract_tables(stmt_tokens, sql);
     let functions = functions::known_functions_for_dialect(dialect);
     Some(ContextResult {
         context_type,
@@ -286,6 +287,30 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
         in_string: false,
         in_comment: false,
     })
+}
+
+/// Find the token range of the SQL statement containing `cursor_idx`.
+/// Returns `(start, end)` token indices bounded by `;` (not inside strings/comments).
+fn find_statement_token_range(tokens: &[Token], cursor_idx: usize) -> (usize, usize) {
+    let mut start = 0;
+    let mut i = cursor_idx;
+    while i > 0 {
+        i -= 1;
+        if tokens[i].kind == TokenKind::Semi {
+            start = i + 1;
+            break;
+        }
+    }
+    let mut end = tokens.len();
+    let mut i = cursor_idx;
+    while i < tokens.len() {
+        if tokens[i].kind == TokenKind::Semi {
+            end = i;
+            break;
+        }
+        i += 1;
+    }
+    (start, end)
 }
 
 /// Try to detect a dot-column context: `table.` or `alias.` or `schema.table.`
@@ -2314,5 +2339,14 @@ mod tests {
         let lines = vec!["SELECT 1; SELECT 2;"];
         let span = find_statement_span(&lines, 0);
         assert_eq!(span, Some((0, 0)));
+    }
+
+    #[test]
+    fn test_tables_isolated_to_current_statement() {
+        let sql = "select 1 from posts; select 2 from authors";
+        // offset 35 = space after "from" in second SELECT, cursor expects table name
+        let result = detect_context(sql, 35).unwrap();
+        assert!(result.tables.iter().any(|t| t.name == "authors"), "should have authors");
+        assert!(!result.tables.iter().any(|t| t.name == "posts"), "should NOT have posts from prior stmt");
     }
 }

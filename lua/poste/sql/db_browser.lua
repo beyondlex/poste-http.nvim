@@ -33,6 +33,9 @@ local ICONS = {
   column_pk  = "\239\130\132",  --  nf-fa-key
   column_fk  = "\239\131\129",  --  nf-fa-link
   index      = "#",
+  key_group  = "\239\130\132",  -- nf-fa-key, for the "keys" section header
+  fk_group   = "\239\131\129",  -- nf-fa-link, for the "foreign keys" section header
+  index_group = "#",
 }
 
 -- Map dialect names to their icons
@@ -407,18 +410,126 @@ local function fetch_children(node, callback)
     local function check_done()
       if columns_done and indexes_done then
         node.loading = false
+        local cols = columns_result and columns_result.items or {}
+        local idxs = indexes_result and indexes_result.items or {}
+        local pk_cols, fk_cols, regular_cols = {}, {}, {}
+        for _, item in ipairs(cols) do
+          local pk = item.pk or item.key == "PRI"
+          local fk = item.is_fk or item.key == "MUL"
+          if pk then table.insert(pk_cols, item)
+          elseif fk then table.insert(fk_cols, item)
+          else table.insert(regular_cols, item) end
+        end
         node.children = {}
-        if columns_result and columns_result.items then
-          for _, item in ipairs(columns_result.items) do
-            table.insert(node.children, make_column_node(item))
+        for _, item in ipairs(regular_cols) do
+          table.insert(node.children, make_column_node(item))
+        end
+        for _, item in ipairs(pk_cols) do
+          table.insert(node.children, make_column_node(item))
+        end
+        for _, item in ipairs(fk_cols) do
+          table.insert(node.children, make_column_node(item))
+        end
+        -- Build keys group: PK columns + unique indexes
+        local key_items = {}
+        for _, item in ipairs(pk_cols) do
+          table.insert(key_items, { type = "pk", name = item.name })
+        end
+        for _, item in ipairs(idxs) do
+          if item.unique and item.name ~= "PRIMARY" then
+            local cols_str = item.columns and #item.columns > 0 and (" (" .. table.concat(item.columns, ", ") .. ")") or ""
+            table.insert(key_items, { type = "unique", name = item.name .. cols_str })
           end
         end
-        if indexes_result and indexes_result.items then
-          for _, item in ipairs(indexes_result.items) do
-            if item.name ~= "PRIMARY" then
-              table.insert(node.children, make_index_node(item))
-            end
+        if #key_items > 0 then
+          local keys_node = {
+            node_type = "key_group",
+            name = "keys",
+            children = {},
+            expanded = false, loading = false,
+          }
+          for _, ki in ipairs(key_items) do
+            table.insert(keys_node.children, {
+              node_type = "key_item",
+              name = ki.name,
+              full_name = ki.name,
+              children = {},
+              expanded = false, loading = false,
+              meta = { is_pk = ki.type == "pk" },
+            })
           end
+          table.insert(node.children, keys_node)
+        end
+        -- Build FK group
+        local fk_items = {}
+        for _, item in ipairs(cols) do
+          if item.fk_table and item.fk_table ~= "" then
+            table.insert(fk_items, {
+              name = item.name,
+              ref_table = item.fk_table,
+              ref_column = item.fk_column,
+            })
+          elseif item.is_fk or item.key == "MUL" then
+            -- has FK marker but no ref info yet
+            table.insert(fk_items, {
+              name = item.name,
+              ref_table = "",
+              ref_column = "",
+            })
+          end
+        end
+        -- Also deduplicate FK items (multiple FKs per column is unusual but possible)
+        if #fk_items > 0 then
+          local fk_node = {
+            node_type = "fk_group",
+            name = "foreign keys",
+            children = {},
+            expanded = false, loading = false,
+          }
+          for _, fi in ipairs(fk_items) do
+            local label = fi.name
+            if fi.ref_table and fi.ref_table ~= "" then
+              label = label .. " -> " .. fi.ref_table .. "(" .. fi.ref_column .. ")"
+            end
+            table.insert(fk_node.children, {
+              node_type = "fk_item",
+              name = label,
+              full_name = label,
+              children = {},
+              expanded = false, loading = false,
+            })
+          end
+          table.insert(node.children, fk_node)
+        end
+        -- Build indexes group: all indexes (including PK)
+        local idx_items = {}
+        for _, item in ipairs(idxs) do
+          local cols_str = item.columns and #item.columns > 0 and (" (" .. table.concat(item.columns, ", ") .. ")") or ""
+          local unique_str = item.unique and " UNIQUE" or ""
+          local label = item.name .. cols_str .. unique_str
+          table.insert(idx_items, {
+            name = label,
+            is_pk = item.name == "PRIMARY",
+          })
+        end
+        if #idx_items > 0 then
+          local idx_node = {
+            node_type = "index_group",
+            name = "indexes",
+            children = {},
+            expanded = false, loading = false,
+          }
+          for _, ii in ipairs(idx_items) do
+            table.insert(idx_node.children, {
+              node_type = "index_item",
+              name = ii.name,
+              full_name = ii.name,
+              children = {},
+              expanded = false, loading = false,
+              meta = { is_pk = ii.is_pk },
+            })
+          end
+          table.insert(node.children, idx_node)
         end
         callback()
       end
@@ -551,12 +662,15 @@ local function apply_highlights(buf, line_count, count_ranges)
 
   -- Icon and type highlighting per node
   local icon_hl = {
-    connection = "PosteSqlBrowserIconConn",
-    database   = "PosteSqlBrowserIconDb",
-    schema     = "PosteSqlBrowserIconSchema",
-    table      = "PosteSqlBrowserIconTable",
-    column     = "PosteSqlBrowserIconCol",
-    index      = "PosteSqlBrowserCount",
+    connection  = "PosteSqlBrowserIconConn",
+    database    = "PosteSqlBrowserIconDb",
+    schema      = "PosteSqlBrowserIconSchema",
+    table       = "PosteSqlBrowserIconTable",
+    column      = "PosteSqlBrowserIconCol",
+    index       = "PosteSqlBrowserCount",
+    key_group   = "PosteSqlBrowserIconPk",
+    fk_group    = "PosteSqlBrowserIconFk",
+    index_group = "PosteSqlBrowserCount",
   }
 
   for i = HEADER_LINES + 1, line_count do
@@ -603,22 +717,34 @@ local function apply_highlights(buf, line_count, count_ranges)
         icon_hl_group = "PosteSqlBrowserIconFk"
       end
     end
+    -- Override for grouped key/index items
+    if node.node_type == "key_item" and node.meta and node.meta.is_pk then
+      icon_hl_group = "PosteSqlBrowserIconPk"
+    end
+    if node.node_type == "fk_item" then
+      icon_hl_group = "PosteSqlBrowserIconFk"
+    end
+    if node.node_type == "index_item" and node.meta then
+      icon_hl_group = node.meta.is_pk and "PosteSqlBrowserIconPk" or "PosteSqlBrowserCount"
+    end
+
+    -- Compute icon byte length
+    local icon_char = text:sub(icon_byte_start + 1)
+    -- Nerd font chars are 3 bytes, "#" is 1 byte, "●" is 3 bytes
+    local icon_len = 3
+    local first_byte = icon_char:byte(1)
+    if first_byte and first_byte < 128 then
+      icon_len = 1
+    end
 
     if icon_hl_group then
-      -- Get icon byte length
-      local icon_char = text:sub(icon_byte_start + 1)
-      -- Nerd font chars are 3 bytes, "#" is 1 byte, "●" is 3 bytes
-      local icon_len = 3
-      local first_byte = icon_char:byte(1)
-      if first_byte and first_byte < 128 then
-        icon_len = 1
-      end
       vim.api.nvim_buf_add_highlight(buf, hl_ns, icon_hl_group,
         i - 1, icon_byte_start, icon_byte_start + icon_len)
     end
 
-    -- Muted text for index nodes
-    if node.node_type == "index" then
+    -- Muted text for index/key_item/index_item nodes
+    if node.node_type == "index" or node.node_type == "index_item"
+        or node.node_type == "key_item" or node.node_type == "fk_item" then
       local text_start = icon_byte_start + icon_len
       if text_start < #text then
         vim.api.nvim_buf_add_highlight(buf, hl_ns, "PosteSqlBrowserCount",
@@ -704,7 +830,9 @@ local function toggle_node(buf_line)
   if not node then return end
 
   -- Leaf nodes: no toggle
-  if node.node_type == "column" or node.node_type == "index" then
+  if node.node_type == "column" or node.node_type == "index"
+      or node.node_type == "key_item" or node.node_type == "fk_item"
+      or node.node_type == "index_item" then
     return
   end
 
@@ -732,7 +860,9 @@ end
 local function refresh_node(buf_line)
   local node = get_node_at_line(buf_line)
   if not node then return end
-  if node.node_type == "column" or node.node_type == "index" then
+  if node.node_type == "column" or node.node_type == "index"
+      or node.node_type == "key_item" or node.node_type == "fk_item"
+      or node.node_type == "index_item" then
     return
   end
 

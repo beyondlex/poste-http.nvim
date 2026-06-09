@@ -89,9 +89,21 @@ impl Dialect for PostgresDialect {
     }
 
     fn list_indexes(&self) -> &str {
-        "SELECT indexname, indexdef FROM pg_indexes \
-         WHERE schemaname = $1 AND tablename = $2 \
-         ORDER BY indexname"
+        "SELECT i.indexname, i.indexdef, \
+         ix.indisunique AS is_unique, \
+         COALESCE(a.columns, '') AS columns \
+         FROM pg_indexes i \
+         JOIN pg_class c ON c.relname = i.indexname \
+           AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = i.schemaname) \
+         JOIN pg_index ix ON ix.indexrelid = c.oid \
+         LEFT JOIN LATERAL ( \
+           SELECT string_agg(a.attname, ',' ORDER BY u.ord) AS columns \
+           FROM unnest(ix.indkey) WITH ORDINALITY u(key, ord) \
+           JOIN pg_attribute a ON a.attrelid = ix.indrelid AND a.attnum = u.key \
+           WHERE a.attnum > 0 \
+         ) a ON true \
+         WHERE i.schemaname = $1 AND i.tablename = $2 \
+         ORDER BY i.indexname"
     }
 
     fn describe_table(&self) -> &str {

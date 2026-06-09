@@ -130,16 +130,46 @@ async fn introspect_postgres(params: &IntrospectParams) -> Result<Value> {
                 .bind(table)
                 .fetch_all(&pool)
                 .await?;
+            // Fetch FK reference info
+            let fk_rows = sqlx::query(
+                "SELECT kcu.column_name, ccu.table_name AS fk_table, ccu.column_name AS fk_column \
+                 FROM information_schema.table_constraints tc \
+                 JOIN information_schema.key_column_usage kcu \
+                   ON tc.constraint_name = kcu.constraint_name \
+                   AND tc.table_schema = kcu.table_schema \
+                 JOIN information_schema.constraint_column_usage ccu \
+                   ON ccu.constraint_name = tc.constraint_name \
+                   AND ccu.table_schema = tc.table_schema \
+                 WHERE tc.constraint_type = 'FOREIGN KEY' \
+                   AND tc.table_schema = $1 AND tc.table_name = $2"
+            )
+                .bind(schema)
+                .bind(table)
+                .fetch_all(&pool)
+                .await
+                .unwrap_or_default();
+            #[derive(Default)]
+            struct FkInfo { table: String, column: String }
+            let fk_map: std::collections::HashMap<String, FkInfo> = fk_rows.iter().map(|r| {
+                (r.get::<String, _>("column_name"), FkInfo {
+                    table: r.get::<String, _>("fk_table"),
+                    column: r.get::<String, _>("fk_column"),
+                })
+            }).collect();
             rows.iter()
                 .map(|row| {
+                    let col_name: String = row.get("column_name");
                     let char_max_len: Option<i32> = row.get("character_maximum_length");
+                    let fk = fk_map.get(&col_name);
                     json!({
-                        "name": row.get::<String, _>("column_name"),
+                        "name": col_name,
                         "type": row.get::<String, _>("data_type"),
                         "nullable": row.get::<String, _>("is_nullable") == "YES",
                         "default": row.get::<Option<String>, _>("column_default"),
                         "max_length": char_max_len,
                         "comment": row.get::<Option<String>, _>("comment"),
+                        "fk_table": fk.map(|f| f.table.as_str()),
+                        "fk_column": fk.map(|f| f.column.as_str()),
                     })
                 })
                 .collect()
@@ -158,9 +188,13 @@ async fn introspect_postgres(params: &IntrospectParams) -> Result<Value> {
                 .await?;
             rows.iter()
                 .map(|row| {
+                    let is_unique: bool = row.get("is_unique");
+                    let columns: String = row.get("columns");
                     json!({
                         "name": row.get::<String, _>("indexname"),
                         "definition": row.get::<String, _>("indexdef"),
+                        "unique": is_unique,
+                        "columns": columns.split(',').filter(|s| !s.is_empty()).collect::<Vec<_>>(),
                     })
                 })
                 .collect()
@@ -256,16 +290,37 @@ async fn introspect_mysql(params: &IntrospectParams) -> Result<Value> {
             // inside backticks, so substitute the raw name.
             let sql = dialect.list_columns().replace("{}", table);
             let rows = sqlx::query(&sql).fetch_all(&pool).await?;
+            // Fetch FK reference info
+            let fk_sql = format!(
+                "SELECT kcu.column_name, kcu.referenced_table_name, kcu.referenced_column_name \
+                 FROM information_schema.key_column_usage kcu \
+                 WHERE kcu.table_schema = DATABASE() AND kcu.table_name = '{}' \
+                   AND kcu.referenced_table_name IS NOT NULL",
+                table.replace('\'', "''")
+            );
+            let fk_rows = sqlx::query(&fk_sql).fetch_all(&pool).await.unwrap_or_default();
+            let fk_map: std::collections::HashMap<String, (String, String)> = fk_rows.iter().map(|r| {
+                (col(r, "column_name"), (
+                    col(r, "referenced_table_name"),
+                    col(r, "referenced_column_name"),
+                ))
+            }).collect();
             rows.iter()
                 .map(|row| {
+                    let col_name = col(row, "Field");
+                    let (ref_table, ref_col) = fk_map.get(&col_name)
+                        .cloned()
+                        .unwrap_or_default();
                     json!({
-                        "name": col(row, "Field"),
+                        "name": col_name,
                         "type": col(row, "Type"),
                         "nullable": col(row, "Null") == "YES",
                         "default": col_opt(row, "Default"),
                         "key": col(row, "Key"),
                         "extra": col(row, "Extra"),
                         "comment": col_opt(row, "Comment"),
+                        "fk_table": ref_table,
+                        "fk_column": ref_col,
                     })
                 })
                 .collect()
@@ -279,19 +334,23 @@ async fn introspect_mysql(params: &IntrospectParams) -> Result<Value> {
             let sql = dialect.list_indexes().replace("{}", table);
             let rows = sqlx::query(&sql).fetch_all(&pool).await?;
             // Group by index name (SHOW INDEX returns one row per column per index)
-            let mut index_map: std::collections::BTreeMap<String, Vec<String>> =
-                std::collections::BTreeMap::new();
+            use std::collections::BTreeMap;
+            let mut index_map: BTreeMap<String, (Vec<String>, bool)> = BTreeMap::new();
             for row in &rows {
                 let key_name = col(row, "Key_name");
                 let column_name = col(row, "Column_name");
-                index_map.entry(key_name).or_default().push(column_name);
+                let is_unique = col(row, "Non_unique") == "0";
+                let entry = index_map.entry(key_name).or_default();
+                entry.0.push(column_name);
+                if is_unique { entry.1 = true; }
             }
             index_map
                 .into_iter()
-                .map(|(name, columns)| {
+                .map(|(name, (columns, unique))| {
                     json!({
                         "name": name,
                         "columns": columns,
+                        "unique": unique,
                         "definition": format!("INDEX {} ({})", name, columns.join(", ")),
                     })
                 })
@@ -374,15 +433,30 @@ async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value> {
             let quoted = dialect.quote_identifier(table);
             let sql = dialect.list_columns().replace("{}", &quoted);
             let rows = sqlx::query(&sql).fetch_all(&pool).await?;
+            // Fetch FK reference info
+            let fk_pragma = format!("SELECT \"from\", \"table\", \"to\" FROM pragma_foreign_key_list('{}')", table);
+            let fk_rows = sqlx::query(&fk_pragma).fetch_all(&pool).await.unwrap_or_default();
+            let fk_map: std::collections::HashMap<String, (String, String)> = fk_rows.iter().map(|r| {
+                (r.get::<String, _>("from"), (
+                    r.get::<String, _>("table"),
+                    r.get::<String, _>("to"),
+                ))
+            }).collect();
             rows.iter()
                 .map(|row| {
+                    let col_name: String = row.get("name");
+                    let (fk_table, fk_column) = fk_map.get(&col_name)
+                        .cloned()
+                        .unwrap_or_default();
                     json!({
-                        "name": row.get::<String, _>("name"),
+                        "name": col_name,
                         "type": row.get::<String, _>("type"),
                         "nullable": row.get::<i64, _>("notnull") == 0,
                         "default": row.get::<Option<String>, _>("dflt_value"),
                         "pk": row.get::<i64, _>("pk") > 0,
                         "comment": null,
+                        "fk_table": fk_table,
+                        "fk_column": fk_column,
                     })
                 })
                 .collect()
@@ -395,14 +469,25 @@ async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value> {
             let quoted = dialect.quote_identifier(table);
             let sql = dialect.list_indexes().replace("{}", &quoted);
             let rows = sqlx::query(&sql).fetch_all(&pool).await?;
-            rows.iter()
-                .map(|row| {
-                    json!({
-                        "name": row.get::<String, _>("name"),
-                        "unique": row.get::<i64, _>("unique") > 0,
-                    })
-                })
-                .collect()
+            let mut items: Vec<Value> = Vec::new();
+            for row in &rows {
+                let name: String = row.get("name");
+                let unique: bool = row.get::<i64, _>("unique") > 0;
+                let mut columns: Vec<String> = Vec::new();
+                if let Ok(info_rows) = sqlx::query(
+                    "SELECT name FROM pragma_index_info(?)"
+                ).bind(&name).fetch_all(&pool).await {
+                    for info in &info_rows {
+                        columns.push(info.get::<String, _>("name"));
+                    }
+                }
+                items.push(json!({
+                    "name": name,
+                    "unique": unique,
+                    "columns": columns,
+                }));
+            }
+            items
         }
         IntrospectType::Ddl => {
             let table = params

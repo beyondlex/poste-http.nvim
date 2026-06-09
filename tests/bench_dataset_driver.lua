@@ -326,6 +326,9 @@ end
 function M.phase_highlights_current_impl(lines, meta)
   if not lines then return end
   local buf = require("poste.sql.buffer").get_dataset_buffer()
+  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
   require("poste.sql.highlights").apply_dataset_highlights(buf, lines, meta)
 end
 

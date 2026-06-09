@@ -77,12 +77,35 @@ function M.update_header_float()
     return vim.fn.winsaveview().leftcol
   end)
 
+  if leftcol == D._float_cache_leftcol and win_width == D._float_cache_width
+     and tab.header_text == D._float_cache_header then return end
+
+  D._float_cache_leftcol = leftcol
+  D._float_cache_width = win_width
+  D._float_cache_header = tab.header_text
+
   local padded = "  " .. tab.header_text
   local index = tab.header_index or build_header_index(padded)
   local text = slice_header_to_win(leftcol, win_width, padded, index)
 
+  local float_buf = D.float_buf
+  local float_win = D.float_win
+
+  if float_buf and vim.api.nvim_buf_is_valid(float_buf) then
+    vim.api.nvim_set_option_value("modifiable", true, { buf = float_buf })
+    vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, { text })
+    vim.api.nvim_set_option_value("modifiable", false, { buf = float_buf })
+    if float_win and vim.api.nvim_win_is_valid(float_win) then
+      vim.api.nvim_win_set_config(float_win, { width = win_width })
+      return
+    end
+  end
+
   D.close_header_float()
   D.float_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[D.float_buf].buftype = "nofile"
+  vim.bo[D.float_buf].bufhidden = "wipe"
+  vim.bo[D.float_buf].swapfile = false
   vim.api.nvim_buf_set_lines(D.float_buf, 0, -1, false, { text })
   vim.bo[D.float_buf].modifiable = false
 
@@ -166,8 +189,10 @@ function M.position_cursor(row, col)
   local buf = vim.api.nvim_win_get_buf(D.dataset_window)
 
   local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
-  local range = sql_highlights.find_cell_range(line, col + 1)
-  local target_col = range and range.cursor_col or 0
+  local last_col = tab.meta.col_count or 0
+  local ranges = sql_highlights.find_cell_ranges(line, col + 1, last_col + 1)
+
+  local target_col = ranges and ranges.target.cursor_col or 0
   local target_disp = vim.fn.strdisplaywidth(line:sub(1, target_col))
 
   local saved_leftcol = vim.api.nvim_win_call(D.dataset_window, function()
@@ -180,14 +205,10 @@ function M.position_cursor(row, col)
   local target_on_screen = target_disp >= math.max(0, saved_leftcol - left_margin)
     and target_disp < saved_leftcol + win_width - right_margin
 
-  local last_col = tab.meta.col_count or 0
   local last_col_fits = true
-  if last_col > 0 then
-    local last_range = sql_highlights.find_cell_range(line, last_col + 1)
-    if last_range then
-      local last_right_disp = vim.fn.strdisplaywidth(line:sub(1, last_range.ext_end + 3))
-      last_col_fits = last_right_disp <= saved_leftcol + win_width
-    end
+  if last_col > 0 and ranges and ranges.last then
+    local last_right_disp = vim.fn.strdisplaywidth(line:sub(1, ranges.last.ext_end + 3))
+    last_col_fits = last_right_disp <= saved_leftcol + win_width
   end
 
   if target_on_screen then

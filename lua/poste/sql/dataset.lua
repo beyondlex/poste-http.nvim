@@ -14,6 +14,9 @@ M.active_tab_idx = 0
 
 M.float_buf = nil
 M.float_win = nil
+M._float_cache_leftcol = nil
+M._float_cache_width = nil
+M._float_cache_header = nil
 M.scroll_autocmd_id = nil
 M.resize_autocmd_id = nil
 M.search_ns = vim.api.nvim_create_namespace("poste_sql_search")
@@ -69,6 +72,9 @@ function M.close_header_float()
   end
   M.float_win = nil
   M.float_buf = nil
+  M._float_cache_leftcol = nil
+  M._float_cache_width = nil
+  M._float_cache_header = nil
 end
 
 return M

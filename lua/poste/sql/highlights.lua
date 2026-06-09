@@ -2,6 +2,10 @@
 local state = require("poste.state")
 local M = {}
 
+local function row_nums_hidden()
+  return state.sql._hide_row_numbers
+end
+
 local ns = vim.api.nvim_create_namespace("poste_sql_dataset")
 local ns_cell = vim.api.nvim_create_namespace("poste_sql_dataset_cell")
 
@@ -192,23 +196,28 @@ function M.apply_dataset_highlights(buf, lines, meta)
     end
   end
 
-  -- Data rows: highlight NULL cells, numbers, and row number column
+  -- Data rows: highlight NULL cells and row number column
   if meta.data_start_line and meta.data_end_line then
+    local row_count = meta.data_end_line - meta.data_start_line + 1
+    local defer_row_nums = row_count > 1000
+
     for row_idx = meta.data_start_line, meta.data_end_line do
       local line = lines[row_idx] or ""
 
-      -- Row number column (visual column 1)
-      local row_range = M.find_cell_range(line, 1)
-      if row_range and row_range.ext_start <= #line then
-        vim.api.nvim_buf_set_extmark(buf, ns, row_idx - 1, row_range.ext_start, {
-          end_row = row_idx - 1,
-          end_col = math.min(row_range.ext_end, #line),
-          hl_group = "PosteSqlRowNum",
-          priority = 100,
-        })
+      -- Row number column (immediate for ≤1000 rows; deferred via schedule for large unpaginated)
+      if not row_nums_hidden() and not defer_row_nums then
+        local row_range = M.find_cell_range(line, 1)
+        if row_range and row_range.ext_start <= #line then
+          vim.api.nvim_buf_set_extmark(buf, ns, row_idx - 1, row_range.ext_start, {
+            end_row = row_idx - 1,
+            end_col = math.min(row_range.ext_end, #line),
+            hl_group = "PosteSqlRowNum",
+            priority = 100,
+          })
+        end
       end
 
-      -- Find NULL occurrences
+      -- Find NULL occurrences (always immediate)
       local col = 0
       while true do
         local start, stop = line:find("%(NULL%)", col + 1)
@@ -220,6 +229,25 @@ function M.apply_dataset_highlights(buf, lines, meta)
         })
         col = stop
       end
+    end
+
+    if not row_nums_hidden() and defer_row_nums then
+      local captured_lines = lines
+      vim.schedule(function()
+        if row_nums_hidden() or not vim.api.nvim_buf_is_valid(buf) then return end
+        for row_idx = meta.data_start_line, meta.data_end_line do
+          local line = captured_lines[row_idx] or ""
+          local row_range = M.find_cell_range(line, 1)
+          if row_range and row_range.ext_start <= #line then
+            pcall(vim.api.nvim_buf_set_extmark, buf, ns, row_idx - 1, row_range.ext_start, {
+              end_row = row_idx - 1,
+              end_col = math.min(row_range.ext_end, #line),
+              hl_group = "PosteSqlRowNum",
+              priority = 100,
+            })
+          end
+        end
+      end)
     end
   end
 

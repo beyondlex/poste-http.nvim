@@ -14,7 +14,8 @@
 UPDATE posts SET author_id=1, id=1, bio='' WHERE;
 
 
-SELECT * from web_vitals;
+SELECT id, page_id, url, measured_at, metric_01 from web_vitals ;
+SELECT * from web_vitals ;
 
 
 SELECT p.slug, a.bio FROM posts p LEFT JOIN authors a on a.id = p.author_id;

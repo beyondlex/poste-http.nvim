@@ -5,6 +5,31 @@ local M = {}
 
 local preview_win = nil
 
+------------------------------------------------------------------------------
+-- Trace helpers (opt-in via state.sql._trace)
+------------------------------------------------------------------------------
+local T_items = {}
+local function T_clear() T_items = {} end
+local function T_mark(label)
+  if not state.sql._trace then return end
+  T_items[#T_items + 1] = { label = label, t = vim.fn.reltime() }
+end
+local function T_report()
+  if not state.sql._trace or #T_items == 0 then return end
+  local t0 = T_items[1].t
+  local total = vim.fn.reltimefloat(vim.fn.reltime(t0)) * 1000
+  local lines = {}
+  for i, ti in ipairs(T_items) do
+    local step = i == 1 and 0 or vim.fn.reltimefloat(vim.fn.reltime(T_items[i - 1].t, ti.t)) * 1000
+    local cum  = vim.fn.reltimefloat(vim.fn.reltime(t0, ti.t)) * 1000
+    lines[#lines + 1] = string.format("  %s: %7.3fms (+%.3f)", ti.label, cum, step)
+  end
+  lines[#lines + 1] = string.format("  total: %7.3fms", total)
+  local msg = table.concat(lines, "\n")
+  T_clear()
+  state.log("TRACE", "move_cell trace:\n" .. msg)
+end
+
 
 
 local function build_header_index(line)
@@ -67,23 +92,28 @@ end
 
 function M.update_header_float()
   local tab = D.T()
-  if not tab or not tab.header_text or not D.dataset_window then return end
-  if not vim.api.nvim_win_is_valid(D.dataset_window) then return end
+  if not tab or not tab.header_text or not D.dataset_window then T_mark("  hdr:early_exit"); return end
+  if not vim.api.nvim_win_is_valid(D.dataset_window) then T_mark("  hdr:early_exit"); return end
+  if state.sql._hide_header_float then D.close_header_float(); return end
 
+  T_mark("  hdr:win_width")
   local win_width = vim.api.nvim_win_get_width(D.dataset_window)
   if win_width <= 0 then return end
 
+  T_mark("  hdr:winsaveview")
   local leftcol = vim.api.nvim_win_call(D.dataset_window, function()
     return vim.fn.winsaveview().leftcol
   end)
 
+  T_mark("  hdr:cache_check")
   if leftcol == D._float_cache_leftcol and win_width == D._float_cache_width
-     and tab.header_text == D._float_cache_header then return end
+     and tab.header_text == D._float_cache_header then T_mark("  hdr:cached"); return end
 
   D._float_cache_leftcol = leftcol
   D._float_cache_width = win_width
   D._float_cache_header = tab.header_text
 
+  T_mark("  hdr:slice_to_win")
   local padded = "  " .. tab.header_text
   local index = tab.header_index or build_header_index(padded)
   local text = slice_header_to_win(leftcol, win_width, padded, index)
@@ -92,15 +122,19 @@ function M.update_header_float()
   local float_win = D.float_win
 
   if float_buf and vim.api.nvim_buf_is_valid(float_buf) then
+    T_mark("  hdr:set_lines")
     vim.api.nvim_set_option_value("modifiable", true, { buf = float_buf })
     vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, { text })
     vim.api.nvim_set_option_value("modifiable", false, { buf = float_buf })
+    T_mark("  hdr:set_config")
     if float_win and vim.api.nvim_win_is_valid(float_win) then
       vim.api.nvim_win_set_config(float_win, { width = win_width })
+      T_mark("  hdr:done")
       return
     end
   end
 
+  T_mark("  hdr:create_float")
   D.close_header_float()
   D.float_buf = vim.api.nvim_create_buf(false, true)
   vim.bo[D.float_buf].buftype = "nofile"
@@ -122,11 +156,15 @@ function M.update_header_float()
     zindex = 40,
   })
   vim.wo[D.float_win].winhighlight = "Normal:PosteSqlHeader"
+  T_mark("  hdr:done")
 end
 
 function M.move_cell(drow, dcol)
   local tab = D.T()
   if not tab or not tab.meta or tab.meta.type ~= "resultset" then return end
+
+  if state.sql._trace then T_clear() end
+  T_mark("move_cell")
 
   local row = state.sql.cell.row + drow
   local col = state.sql.cell.col + dcol
@@ -137,11 +175,16 @@ function M.move_cell(drow, dcol)
   state.sql.cell.row = row
   state.sql.cell.col = col
 
+  T_mark("position_cursor")
   local line = M.position_cursor(row, col)
+  T_mark("highlight_cell")
   sql_highlights.highlight_cell(D.dataset_buffer, row, col, tab.meta, line)
+  T_mark("update_header_float")
   if dcol ~= 0 then
     M.update_header_float()
   end
+  T_mark("done")
+  T_report()
 end
 
 function M.goto_first_col()
@@ -188,13 +231,17 @@ function M.position_cursor(row, col)
   local line_idx = (tab.meta.data_start_line or 1) + row - 1
   local buf = vim.api.nvim_win_get_buf(D.dataset_window)
 
+  T_mark("  pos:get_line")
   local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
+  T_mark("  pos:find_cell_ranges")
   local last_col = tab.meta.col_count or 0
   local ranges = sql_highlights.find_cell_ranges(line, col + 1, last_col + 1)
 
   local target_col = ranges and ranges.target.cursor_col or 0
+  T_mark("  pos:strdisp_target")
   local target_disp = vim.fn.strdisplaywidth(line:sub(1, target_col))
 
+  T_mark("  pos:winsaveview")
   local saved_leftcol = vim.api.nvim_win_call(D.dataset_window, function()
     return vim.fn.winsaveview().leftcol
   end)
@@ -207,10 +254,12 @@ function M.position_cursor(row, col)
 
   local last_col_fits = true
   if last_col > 0 and ranges and ranges.last then
+    T_mark("  pos:strdisp_last")
     local last_right_disp = vim.fn.strdisplaywidth(line:sub(1, ranges.last.ext_end + 3))
     last_col_fits = last_right_disp <= saved_leftcol + win_width
   end
 
+  T_mark("  pos:cursor_set")
   if target_on_screen then
     local saved_sso = vim.api.nvim_get_option_value("sidescrolloff", { win = D.dataset_window })
     if saved_sso > 0 then
@@ -228,12 +277,14 @@ function M.position_cursor(row, col)
   else
     pcall(vim.api.nvim_win_set_cursor, D.dataset_window, { line_idx, target_col })
     if not last_col_fits then
+      T_mark("  pos:zs")
       pcall(vim.api.nvim_win_call, D.dataset_window, function()
         vim.cmd("normal! zs")
       end)
     end
   end
 
+  T_mark("  pos:done")
   return line
 end
 
@@ -499,6 +550,27 @@ function M.toggle_cell_highlight()
     sql_highlights.clear_cell_highlight(D.dataset_buffer)
   end
   vim.notify(string.format("Cell highlight: %s", state.sql.highlight_cell and "ON" or "OFF"),
+    vim.log.levels.INFO, { title = "Poste SQL" })
+end
+
+function M.toggle_header_float()
+  state.sql._hide_header_float = not state.sql._hide_header_float
+  if state.sql._hide_header_float then
+    D.close_header_float()
+  else
+    M.update_header_float()
+  end
+  vim.notify(string.format("Header float: %s", state.sql._hide_header_float and "OFF" or "ON"),
+    vim.log.levels.INFO, { title = "Poste SQL" })
+end
+
+function M.toggle_row_numbers()
+  state.sql._hide_row_numbers = not state.sql._hide_row_numbers
+  local tab = D.T()
+  if tab and tab.padded and tab.meta then
+    sql_highlights.apply_dataset_highlights(D.dataset_buffer, tab.padded, tab.meta)
+  end
+  vim.notify(string.format("Row numbers: %s", state.sql._hide_row_numbers and "OFF" or "ON"),
     vim.log.levels.INFO, { title = "Poste SQL" })
 end
 

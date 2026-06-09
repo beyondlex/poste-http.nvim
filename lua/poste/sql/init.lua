@@ -805,6 +805,100 @@ function M.show_table_ddl()
     return
   end
 
+  -- Check if cursor is on a -- @database <name> line → list tables
+  local buf = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local line_num = cursor[1]
+  local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
+  local db_match = line_text:match("^%s*--%s*@database%s+(.+)")
+  if db_match then
+    local db_name = vim.trim(db_match)
+    local ctx = require("poste.sql.context").resolve_full_context(buf, line_num)
+    local conn = ctx.connection
+    if not conn then
+      vim.notify("No connection context for database '" .. db_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
+      return
+    end
+    local file = vim.api.nvim_buf_get_name(buf)
+    if file == "" then file = vim.fn.getcwd() .. "/query.sql" end
+    local search_dir = vim.fn.fnamemodify(file, ":h")
+    local cmd = string.format("%s introspect %s --type tables --database %s --env %s --path %s",
+      vim.fn.shellescape(binary),
+      vim.fn.shellescape(conn),
+      vim.fn.shellescape(db_name),
+      vim.fn.shellescape(state.current_env),
+      vim.fn.shellescape(search_dir))
+    vim.fn.jobstart(cmd, {
+      stdout_buffered = true,
+      stderr_buffered = true,
+      on_stdout = function(_, data)
+        if not data then return end
+        while #data > 0 and data[#data] == "" do data[#data] = nil end
+        if #data == 0 then return end
+        local output = table.concat(data, "\n")
+        vim.schedule(function()
+          local ok, parsed = pcall(vim.json.decode, output)
+          if not ok or type(parsed) ~= "table" then
+            vim.notify("Failed to list tables", vim.log.levels.ERROR, { title = "Poste SQL" })
+            return
+          end
+          local items = parsed.items
+          if not items or #items == 0 then
+            vim.notify("No tables found in database '" .. db_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
+            return
+          end
+          local lines = {}
+          for _, t in ipairs(items) do
+            table.insert(lines, "  " .. t.name .. "  (" .. t.type .. ")")
+          end
+          show_float(lines, "Tables: " .. db_name)
+        end)
+      end,
+      on_stderr = function(_, data)
+        if not data then return end
+        for _, l in ipairs(data) do
+          if l ~= "" then state.log("ERROR", "introspect stderr: " .. l) end
+        end
+      end,
+      on_exit = function(_, code)
+        if code ~= 0 then
+          vim.schedule(function()
+            vim.notify("Table listing failed with exit code " .. code, vim.log.levels.ERROR, { title = "Poste SQL" })
+          end)
+        end
+      end,
+    })
+    return
+  end
+
+  -- Check if cursor is on a -- @connection <name> line → show config
+  local conn_match = line_text:match("^%s*--%s*@connection%s+(.+)")
+  if conn_match then
+    local conn_name = vim.trim(conn_match)
+    local config = require("poste.sql.connections").get_connection_config(conn_name)
+    if not config then
+      vim.notify("Connection '" .. conn_name .. "' not found in connections.json", vim.log.levels.WARN, { title = "Poste SQL" })
+      return
+    end
+    local lines = {}
+    local label_width = 10
+    local fields = {
+      { "Dialect", config.dialect },
+      { "Host", config.host },
+      { "Port", config.port },
+      { "Database", config.database },
+      { "User", config.user },
+      { "Socket", config.path },
+    }
+    for _, f in ipairs(fields) do
+      if f[2] and f[2] ~= "" then
+        table.insert(lines, string.format("  %s%s  %s", string.rep(" ", label_width - #f[1]), f[1], f[2]))
+      end
+    end
+    show_float(lines, "Connection: " .. conn_name)
+    return
+  end
+
   local cword = vim.fn.expand("<cword>")
   if not cword or cword == "" then
     vim.notify("No word under cursor", vim.log.levels.WARN, { title = "Poste SQL" })

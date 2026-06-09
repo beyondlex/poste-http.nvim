@@ -463,12 +463,6 @@ function M.goto_definition()
             local cmd = string.format("%s context detect %d%s",
               vim.fn.shellescape(bin), offset, dialect_flag)
             local output = vim.fn.system(cmd, sql_text)
-
-            -- [gd-debug] Show what Rust returned so we can fix it
-            local debug_info = string.format("gd ctx: bin=%s offset=%d exit=%d out=%s",
-              bin, offset, vim.v.shell_error, output:sub(1, 200))
-            vim.notify(debug_info, vim.log.levels.INFO)
-
             if vim.v.shell_error == 0 then
               local ok, parsed = pcall(vim.json.decode, output)
               if ok and parsed then
@@ -485,15 +479,17 @@ function M.goto_definition()
                 if ct == "dot_column" and parsed.ctx_data then
                   table_name = parsed.ctx_data
                   column_name = vim.fn.expand("<cword>")
-                elseif ct == "column" and parsed.tables and #parsed.tables > 0 then
-                  local tname = parsed.tables[1].name or parsed.tables[1].alias
-                  if tname then
-                    table_name = tname
-                    column_name = vim.fn.expand("<cword>")
-                  end
                 elseif ct == "insert_column" and parsed.ctx_data then
                   table_name = parsed.ctx_data
                   column_name = vim.fn.expand("<cword>")
+                elseif (ct == "column" or ct == "keyword") and parsed.tables and #parsed.tables > 0 then
+                  -- Rust returns "keyword" for bare column names in SELECT lists,
+                  -- but provides correct tables. Use first non-cte table.
+                  local target = parsed.tables[1].name or parsed.tables[1].alias
+                  if target then
+                    table_name = target
+                    column_name = vim.fn.expand("<cword>")
+                  end
                 end
               end
             end

@@ -813,7 +813,7 @@ function M.show_table_ddl()
   local keywords = {}
   local kw_list = { "select","from","where","join","on",
                      "and","or","set","insert","into",
-                     "values","update","delete","create",
+                     "values","update","delete","create","modify",
                      "table","index","drop","alter","add",
                      "column","primary","key","foreign",
                      "references","not","null","default",

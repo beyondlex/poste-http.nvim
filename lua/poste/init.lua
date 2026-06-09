@@ -543,10 +543,39 @@ function M.goto_definition()
                       table_name = matched.name or matched.alias
                       column_name = nil
                     else
-                      local target = parsed.tables[1].name or parsed.tables[1].alias
-                      if target then
-                        table_name = target
+                      -- Check if cword is part of alias.column pattern
+                      local alias = nil
+                      local ws = col -- 0-indexed
+                      while ws > 0 do
+                        if not line_text:sub(ws + 1, ws + 1):match("[%w_]") then break end
+                        ws = ws - 1
+                      end
+                      if ws >= 0 and line_text:sub(ws + 1, ws + 1) == "." then
+                        local ae = ws - 1
+                        local ap = ae
+                        while ap >= 0 do
+                          if not line_text:sub(ap + 1, ap + 1):match("[%w_]") then break end
+                          ap = ap - 1
+                        end
+                        if ap + 1 <= ae then alias = line_text:sub(ap + 2, ae + 1) end
+                      end
+                      local resolved = nil
+                      if alias then
+                        for _, t in ipairs(parsed.tables) do
+                          if t.alias and t.alias:lower() == alias:lower() then
+                            resolved = t.name or t.alias; break
+                          end
+                        end
+                      end
+                      if resolved then
+                        table_name = resolved
                         column_name = cword
+                      else
+                        local target = parsed.tables[1].name or parsed.tables[1].alias
+                        if target then
+                          table_name = target
+                          column_name = cword
+                        end
                       end
                     end
                   end

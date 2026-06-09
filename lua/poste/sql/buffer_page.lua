@@ -16,10 +16,14 @@ function M.refresh_page()
   -- Layout-aware path: render page from layout (no padded_full needed)
   if tab.layout then
     local fmt = require("poste.sql.format")
-    local total_rows = tab.layout.total_rows or #tab.layout.rows
-    local lines, meta
+    local total_rows
+    if tab.view_indices then
+      total_rows = #tab.view_indices
+    else
+      total_rows = tab.layout.total_rows or #tab.layout.rows
+    end
 
-    if tab.pagination_enabled and total_rows > tab.page_size then
+    if total_rows and tab.pagination_enabled and total_rows > tab.page_size then
       tab.num_pages = math.ceil(total_rows / tab.page_size)
       tab.page = math.min(tab.page or 1, tab.num_pages)
       local page_rows = math.min(tab.page_size, total_rows - (tab.page - 1) * tab.page_size)
@@ -43,9 +47,8 @@ function M.refresh_page()
         tab.cursor.row = page_rows
       end
     else
-      -- All rows (pagination disabled or small dataset)
-      tab.visible_rows = total_rows
-      local page_size = total_rows
+      tab.visible_rows = total_rows or 0
+      local page_size = total_rows or 0
       if tab.view_indices then
         lines, meta = fmt.render_view(tab.layout, tab.view_indices, 1, page_size,
           { row_number_mode = tab.row_number_mode or "source" })

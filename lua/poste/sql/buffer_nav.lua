@@ -457,35 +457,35 @@ function M.sort_by_current_col()
   end
 
   if is_reset then
-    res.rows = tab.original_rows; tab.sort = nil
+    tab.sort = nil
   else
     tab.sort = { col = col, ascending = ascending }
-    if not tab.original_rows then
-      tab.original_rows = {}
-      for i, row in ipairs(res.rows) do tab.original_rows[i] = row end
-    end
-    table.sort(res.rows, function(a, b)
-      local va, vb = a[col], b[col]
-      if va == nil or va == vim.NIL then return false end
-      if vb == nil or vb == vim.NIL then return true end
-      local ta, tb = type(va), type(vb)
-      if ta == "number" and tb == "number" then
-        if ascending then return va < vb else return va > vb end
-      end
-      if ta == "boolean" and tb == "boolean" then
-        if ascending then return not va and vb else return va and not vb end
-      end
-      local sa, sb = tostring(va), tostring(vb)
-      if ascending then return sa < sb else return sa > sb end
-    end)
   end
 
+  tab.rows_source = tab.rows_source or res.rows
+  D.compute_view_indices(tab)
+
   tab.is_sorting = true
-  local new_data = vim.deepcopy(data)
   local sql_format = require("poste.sql.format")
-  local lines, meta = sql_format.format_resultset(new_data)
-  local buffer = require("poste.sql.buffer")
-  buffer.render_dataset(lines, meta, { keep_tabs = true, tab_index = D.active_tab_idx })
+  local layout = tab.layout
+  if layout then
+    local lines, meta = sql_format.render_view(
+      layout, tab.view_indices, tab.page, tab.page_size,
+      { row_number_mode = tab.row_number_mode or "source" }
+    )
+    local buffer = require("poste.sql.buffer")
+    buffer.render_dataset(lines, meta, {
+      keep_tabs = true,
+      tab_index = D.active_tab_idx,
+      layout = layout,
+      view_indices = tab.view_indices,
+    })
+  else
+    local new_data = vim.deepcopy(data)
+    local lines, meta = sql_format.format_resultset(new_data)
+    local buffer = require("poste.sql.buffer")
+    buffer.render_dataset(lines, meta, { keep_tabs = true, tab_index = D.active_tab_idx })
+  end
   tab.is_sorting = false
   M.move_cell(0, 0)
 end

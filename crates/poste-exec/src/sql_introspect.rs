@@ -292,7 +292,8 @@ async fn introspect_mysql(params: &IntrospectParams) -> Result<Value> {
             let rows = sqlx::query(&sql).fetch_all(&pool).await?;
             // Fetch FK reference info
             let fk_sql = format!(
-                "SELECT kcu.column_name, kcu.referenced_table_name, kcu.referenced_column_name \
+                "SELECT kcu.COLUMN_NAME AS col, kcu.REFERENCED_TABLE_NAME AS ref_table, \
+                        kcu.REFERENCED_COLUMN_NAME AS ref_col \
                  FROM information_schema.key_column_usage kcu \
                  WHERE kcu.table_schema = DATABASE() AND kcu.table_name = '{}' \
                    AND kcu.referenced_table_name IS NOT NULL",
@@ -300,9 +301,9 @@ async fn introspect_mysql(params: &IntrospectParams) -> Result<Value> {
             );
             let fk_rows = sqlx::query(&fk_sql).fetch_all(&pool).await.unwrap_or_default();
             let fk_map: std::collections::HashMap<String, (String, String)> = fk_rows.iter().map(|r| {
-                (col(r, "column_name"), (
-                    col(r, "referenced_table_name"),
-                    col(r, "referenced_column_name"),
+                (col(r, "col"), (
+                    col(r, "ref_table"),
+                    col(r, "ref_col"),
                 ))
             }).collect();
             rows.iter()
@@ -339,7 +340,7 @@ async fn introspect_mysql(params: &IntrospectParams) -> Result<Value> {
             for row in &rows {
                 let key_name = col(row, "Key_name");
                 let column_name = col(row, "Column_name");
-                let is_unique = col(row, "Non_unique") == "0";
+                let is_unique = row.try_get::<i32, _>("Non_unique").unwrap_or(1) == 0;
                 let entry = index_map.entry(key_name).or_default();
                 entry.0.push(column_name);
                 if is_unique { entry.1 = true; }

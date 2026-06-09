@@ -6,7 +6,7 @@ local M = {}
 -- Configuration (defaults; replaced wholesale in setup via vim.tbl_deep_extend)
 ---------------------------------------------------------------------------
 M.config = {
-  poste_binary = vim.fn.exepath("poste"),
+  poste_binary = vim.fn.stdpath("data") .. "/poste/bin/poste",
   default_env = "dev",
   split_direction = "vertical",
   split_size = 80,

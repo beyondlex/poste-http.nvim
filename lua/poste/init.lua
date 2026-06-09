@@ -463,6 +463,12 @@ function M.goto_definition()
             local cmd = string.format("%s context detect %d%s",
               vim.fn.shellescape(bin), offset, dialect_flag)
             local output = vim.fn.system(cmd, sql_text)
+
+            -- [gd-debug] Show what Rust returned so we can fix it
+            local debug_info = string.format("gd ctx: bin=%s offset=%d exit=%d out=%s",
+              bin, offset, vim.v.shell_error, output:sub(1, 200))
+            vim.notify(debug_info, vim.log.levels.INFO)
+
             if vim.v.shell_error == 0 then
               local ok, parsed = pcall(vim.json.decode, output)
               if ok and parsed then

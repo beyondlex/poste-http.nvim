@@ -406,64 +406,58 @@ function M.goto_definition()
       require("poste.sql.db_browser").navigate_to(conn, db_name)
       return
     end
-    -- Fallback: use Rust context detection to determine if cursor is on column or table
+    -- Fallback: determine if cursor is on column or table using SQL pattern analysis
     local table_name = vim.fn.expand("<cword>")
     if table_name and table_name ~= "" then
       local ctx = require("poste.sql.context")
       local full_ctx = ctx.resolve_full_context(buf, line_num)
       if full_ctx.connection then
-        -- Try context detection via Rust CLI to determine column vs table
-        local data = require("poste.sql.completion_data")
-        local binary = data.find_binary()
         local column_name = nil
-
-        if binary then
-          local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-          local block_start = 1
-          if line_num > 1 then
-            for i = line_num - 1, 1, -1 do
-              if all_lines[i] and all_lines[i]:match("^###") then
-                block_start = i + 1; break
-              end
-            end
+        local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        local block_start = 1
+        if line_num > 1 then
+          for i = line_num - 1, 1, -1 do
+            if all_lines[i] and all_lines[i]:match("^###") then block_start = i + 1; break end
           end
-          local block_end = #all_lines
-          for i = line_num + 1, #all_lines do
-            if all_lines[i] and all_lines[i]:match("^###") then
-              block_end = i - 1; break
-            end
-          end
+        end
+        local block_end = #all_lines
+        for i = line_num + 1, #all_lines do
+          if all_lines[i] and all_lines[i]:match("^###") then block_end = i - 1; break end
+        end
 
-          if block_start <= line_num and line_num <= block_end then
-            local before_parts = {}
-            for i = block_start, line_num - 1 do
-              table.insert(before_parts, all_lines[i] or "")
-            end
-            table.insert(before_parts, (all_lines[line_num] or ""):sub(1, cursor[2]))
-            local offset = #table.concat(before_parts, "\n")
+        -- Build full block text, strip comments
+        local block_lines = {}
+        for i = block_start, block_end do
+          table.insert(block_lines, all_lines[i] or "")
+        end
+        local block_text = table.concat(block_lines, "\n")
+        local clean = block_text:gsub("--[^\n]*", ""):gsub("/%*.-%*/", "")
 
-            local block_parts = {}
-            for i = block_start, block_end do
-              table.insert(block_parts, all_lines[i] or "")
-            end
-            local sql_text = table.concat(block_parts, "\n")
+        -- 1. dot_column: "table.col" with cursor on "col"
+        local line_text = all_lines[line_num] or ""
+        local before_cursor = line_text:sub(1, cursor[2])
+        local dot_prefix = before_cursor:match("([%w_]+)%s*%.%s*$")
+        if dot_prefix then
+          table_name = dot_prefix
+          column_name = vim.fn.expand("<cword>")
+        end
 
-            local cmd = string.format("%s context detect %d", vim.fn.shellescape(binary), offset)
-            local output = vim.fn.system(cmd, sql_text)
-            if vim.v.shell_error == 0 then
-              local ok, parsed = pcall(vim.json.decode, output)
-              if ok and parsed then
-                local ct = parsed.ctx_type
-                if ct == "dot_column" and parsed.ctx_data then
-                  table_name = parsed.ctx_data
-                  column_name = vim.fn.expand("<cword>")
-                elseif ct == "column" and parsed.tables and #parsed.tables > 0 then
-                  table_name = parsed.tables[1].name
-                  column_name = vim.fn.expand("<cword>")
-                elseif ct == "insert_column" and parsed.ctx_data then
-                  table_name = parsed.ctx_data
-                  column_name = vim.fn.expand("<cword>")
-                end
+        -- 2. column in SELECT list: cword appears between SELECT and FROM
+        if not column_name then
+          local select_end = clean:find("[Ss][Ee][Ll][Ee][Cc][Tt]%s+")
+          local from_start = clean:find("[Ff][Rr][Oo][Mm]%s+")
+          if select_end and from_start and select_end < from_start then
+            local select_list = clean:sub(select_end, from_start - 1)
+            if select_list:match("[^%w_]" .. vim.pesc(table_name) .. "[^%w_]")
+               or select_list:match("^" .. vim.pesc(table_name) .. "[^%w_]")
+               or select_list:match("[^%w_]" .. vim.pesc(table_name) .. "$")
+               or select_list == table_name then
+              -- Extract first table name from FROM clause
+              local after_from = clean:sub(from_start + 4)
+              local first = after_from:match("^%s*([%w_]+)")
+              if first then
+                table_name = first
+                column_name = vim.fn.expand("<cword>")
               end
             end
           end

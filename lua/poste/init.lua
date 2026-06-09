@@ -483,12 +483,23 @@ function M.goto_definition()
                   table_name = parsed.ctx_data
                   column_name = vim.fn.expand("<cword>")
                 elseif (ct == "column" or ct == "keyword") and parsed.tables and #parsed.tables > 0 then
-                  -- Rust returns "keyword" for bare column names in SELECT lists,
-                  -- but provides correct tables. Use first non-cte table.
-                  local target = parsed.tables[1].name or parsed.tables[1].alias
-                  if target then
-                    table_name = target
-                    column_name = vim.fn.expand("<cword>")
+                  local cword = vim.fn.expand("<cword>")
+                  local cword_lower = cword:lower()
+                  local matched = nil
+                  for _, t in ipairs(parsed.tables) do
+                    local tn = (t.name or ""):lower()
+                    local ta = (t.alias or ""):lower()
+                    if tn == cword_lower or ta == cword_lower then matched = t; break end
+                  end
+                  if matched then
+                    table_name = matched.name or matched.alias
+                    column_name = nil
+                  else
+                    local target = parsed.tables[1].name or parsed.tables[1].alias
+                    if target then
+                      table_name = target
+                      column_name = cword
+                    end
                   end
                 end
               end

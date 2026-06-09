@@ -33,9 +33,12 @@ local ICONS = {
   column_pk  = "\239\130\132",  --  nf-fa-key
   column_fk  = "\239\131\129",  --  nf-fa-link
   index      = "#",
-  key_group  = "\239\130\132",  -- nf-fa-key, for the "keys" section header
-  fk_group   = "\239\131\129",  -- nf-fa-link, for the "foreign keys" section header
+  key_group   = "\239\130\132",  -- nf-fa-key, for the "keys" section header
+  fk_group    = "\239\131\129",  -- nf-fa-link, for the "foreign keys" section header
   index_group = "#",
+  key_item    = "\239\130\132",  -- nf-fa-key (overridden by is_pk check)
+  fk_item     = "\239\131\129",  -- nf-fa-link
+  index_item  = "#",
 }
 
 -- Map dialect names to their icons
@@ -578,15 +581,19 @@ local function flatten_tree(nodes, depth)
     if node.node_type == "column" and node.meta and node.meta.icon then
       icon = node.meta.icon
     end
+    -- Override for grouped leaf items
+    if node.node_type == "key_item" and node.meta and not node.meta.is_pk then
+      icon = ICONS.index  -- unique index → #
+    end
+    if node.node_type == "index_item" and node.meta and node.meta.is_pk then
+      icon = ICONS.column_pk  -- PRIMARY → key icon
+    end
 
     local marker
     if node.node_type == "column" or node.node_type == "index"
         or node.node_type == "key_item" or node.node_type == "fk_item"
         or node.node_type == "index_item" then
       marker = "  "  -- leaf: no expand marker
-    elseif node.node_type == "key_group" or node.node_type == "fk_group"
-        or node.node_type == "index_group" then
-      marker = "  "  -- group headers: no expand marker, always open
     elseif node.loading then
       marker = MARKER_LOADING .. " "
     elseif node.expanded then
@@ -676,6 +683,9 @@ local function apply_highlights(buf, line_count, count_ranges)
     key_group   = "PosteSqlBrowserIconPk",
     fk_group    = "PosteSqlBrowserIconFk",
     index_group = "PosteSqlBrowserCount",
+    key_item    = "PosteSqlBrowserCount",
+    fk_item     = "PosteSqlBrowserIconFk",
+    index_item  = "PosteSqlBrowserCount",
   }
 
   for i = HEADER_LINES + 1, line_count do
@@ -834,12 +844,10 @@ local function toggle_node(buf_line)
   local node = get_node_at_line(buf_line)
   if not node then return end
 
-  -- Leaf nodes and always-open groups: no toggle
+  -- Leaf nodes: no toggle
   if node.node_type == "column" or node.node_type == "index"
       or node.node_type == "key_item" or node.node_type == "fk_item"
-      or node.node_type == "index_item"
-      or node.node_type == "key_group" or node.node_type == "fk_group"
-      or node.node_type == "index_group" then
+      or node.node_type == "index_item" then
     return
   end
 
@@ -869,9 +877,7 @@ local function refresh_node(buf_line)
   if not node then return end
   if node.node_type == "column" or node.node_type == "index"
       or node.node_type == "key_item" or node.node_type == "fk_item"
-      or node.node_type == "index_item"
-      or node.node_type == "key_group" or node.node_type == "fk_group"
-      or node.node_type == "index_group" then
+      or node.node_type == "index_item" then
     return
   end
 

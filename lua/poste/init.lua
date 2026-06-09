@@ -474,6 +474,12 @@ function M.goto_definition()
                   end
                 end
                 clean(parsed)
+                local d = string.format("gd ct=%s cd=%s pre=%s tbl=%s",
+                  tostring(parsed.ctx_type),
+                  tostring(parsed.ctx_data),
+                  tostring(parsed.prefix),
+                  vim.inspect(parsed.tables))
+                vim.notify(d, vim.log.levels.INFO)
 
                 local ct = parsed.ctx_type
                 if ct == "dot_column" and parsed.ctx_data then

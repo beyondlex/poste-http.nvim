@@ -1,6 +1,6 @@
 --- Response buffer/window management and winbar tab indicators.
 local state = require("poste.state")
-local format = require("poste.format")
+local format = require("poste.http.format")
 
 local M = {}
 

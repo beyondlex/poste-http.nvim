@@ -9,7 +9,7 @@
 ---   - Pre-request script keywords (request.variables, client.global, ...)
 ---   - Post-request assertion keywords (client.test, client.assert, response, ...)
 ---
---- For blink.cmp: this module IS the source (blink.cmp calls require("poste.completion").new())
+--- For blink.cmp: this module IS the source (blink.cmp calls require("poste.http.completion").new())
 --- For nvim-cmp:  use M.source subtable + M.register()
 
 local M = {}
@@ -1017,7 +1017,7 @@ M.profile = profile_completion
 ---------------------------------------------------------------------------
 -- blink.cmp source (module-level interface)
 ---------------------------------------------------------------------------
--- blink.cmp calls require("poste.completion").new() to create a source.
+-- blink.cmp calls require("poste.http.completion").new() to create a source.
 
 --- Constructor called by blink.cmp.
 function M.new(opts, config)
@@ -1207,7 +1207,7 @@ local registered = false
 local function register_blink()
   local blink = require("blink.cmp")
   blink.add_source_provider("poste", {
-    module = "poste.completion",
+    module = "poste.http.completion",
     name = "Poste",
     score_offset = 100,
   })

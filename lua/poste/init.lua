@@ -1,36 +1,17 @@
 --- Poste: HTTP/Redis client for Neovim.
 --- This is the orchestrator module — all subsystems live in separate modules.
 local state = require("poste.state")
-local highlights = require("poste.highlights")  -- auto-registers autocmds on require
+local highlights = require("poste.http.highlights")  -- auto-registers autocmds on require
 local indicators = require("poste.indicators")
-local format = require("poste.format")
-local buffer = require("poste.buffer")
-local assertions = require("poste.assertions")
-local scripts = require("poste.scripts")
-local request_vars = require("poste.request_vars")
-local completion = require("poste.completion")
-local symbols = require("poste.symbols")
+local format = require("poste.http.format")
+local buffer = require("poste.http.buffer")
+local assertions = require("poste.http.assertions")
+local scripts = require("poste.http.scripts")
+local request_vars = require("poste.http.request_vars")
+local completion = require("poste.http.completion")
+local symbols = require("poste.http.symbols")
 
 local M = {}
-
----------------------------------------------------------------------------
--- Binary discovery
----------------------------------------------------------------------------
-local function find_poste_binary()
-  if state.config.poste_binary ~= "" and vim.fn.filereadable(state.config.poste_binary) == 1 then
-    return vim.fn.fnamemodify(state.config.poste_binary, ":p")
-  end
-  local local_paths = {
-    "./target/debug/poste",
-    "./target/release/poste",
-  }
-  for _, path in ipairs(local_paths) do
-    if vim.fn.filereadable(path) == 1 then
-      return vim.fn.fnamemodify(path, ":p")
-    end
-  end
-  return vim.fn.exepath("poste")
-end
 
 ---------------------------------------------------------------------------
 -- View switching
@@ -75,7 +56,7 @@ function M.run_request()
     return
   end
 
-  local binary = find_poste_binary()
+  local binary = state.find_poste_binary()
   if not binary then
     vim.notify("Poste binary not found. Make sure it's in PATH or built locally.", vim.log.levels.ERROR)
     return
@@ -1030,11 +1011,11 @@ function M.setup(opts)
     vim.keymap.set("n", "]q", function() vim.cmd("cnext") end, keymap_opts)
     vim.keymap.set("n", "[q", function() vim.cmd("cprev") end, keymap_opts)
     vim.keymap.set("n", "<leader>rp", function()
-      local curl = require("poste.curl")
+      local curl = require("poste.http.curl")
       curl.paste_curl("+")
     end, keymap_opts)
     vim.keymap.set("n", "<leader>rc", function()
-      local copy = require("poste.copy")
+      local copy = require("poste.http.copy")
       copy.copy_to_clipboard("+")
     end, keymap_opts)
     vim.keymap.set("n", "gs", function()
@@ -1070,12 +1051,12 @@ function M.setup(opts)
   })
 
   vim.api.nvim_create_user_command("PostePasteCurl", function()
-    local curl = require("poste.curl")
-    curl.paste_curl("+")
-  end, { desc = "Paste curl command from clipboard as HTTP request" })
+      local curl = require("poste.http.curl")
+      curl.paste_curl("+")
+    end, { desc = "Paste curl command from clipboard as HTTP request" })
 
-  vim.api.nvim_create_user_command("PosteCopyAsCurl", function()
-    local copy = require("poste.copy")
+    vim.api.nvim_create_user_command("PosteCopyAsCurl", function()
+      local copy = require("poste.http.copy")
     copy.copy_to_clipboard("+")
   end, { desc = "Copy current request as curl command to clipboard" })
 

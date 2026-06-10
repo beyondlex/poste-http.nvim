@@ -1,7 +1,7 @@
 -- Unit tests for detect_context()
 -- Tests all completion context types: method, method_or_header, header_value, variable, nil
 
-local completion = require("poste.completion")
+local completion = require("poste.http.completion")
 local detect_context = completion._test.detect_context
 
 describe("detect_context", function()

@@ -1,7 +1,7 @@
 -- Integration tests for completion module
 -- Tests the full completion flow through get_completions() and get_items_for_context()
 
-local completion = require("poste.completion")
+local completion = require("poste.http.completion")
 local get_items_for_context = completion._test.get_items_for_context
 
 describe("get_items_for_context", function()

@@ -1,7 +1,7 @@
 -- Unit tests for build_items()
 -- Tests completion item generation from word lists
 
-local completion = require("poste.completion")
+local completion = require("poste.http.completion")
 local build_items = completion._test.build_items
 
 describe("build_items", function()

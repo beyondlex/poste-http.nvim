@@ -1,0 +1,182 @@
+use super::detectors::{
+    try_bare_set, try_directive, try_dot_column, try_for_update_of,
+    try_grant_revoke, try_insert_column, try_show_statement,
+};
+use super::scanner::detect_scan_backward;
+use super::tokenizer::{
+    extract_prefix, find_token_at_offset, tokenize, Token, TokenKind,
+};
+use super::{
+    functions, tables, ContextResult, ContextType, SqlDialect,
+};
+
+pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
+    detect_context_with_dialect(sql, offset, SqlDialect::Generic)
+}
+
+pub fn detect_context_with_dialect(
+    sql: &str, offset: usize, dialect: SqlDialect,
+) -> Option<ContextResult> {
+    let tokens = tokenize(sql);
+    if tokens.is_empty() {
+        return Some(ContextResult {
+            context_type: ContextType::Keyword,
+            tables: vec![],
+            prefix: String::new(),
+            functions: functions::known_functions_for_dialect(dialect),
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
+    let cursor_idx_raw = find_token_at_offset(&tokens, offset).unwrap_or(0);
+    let cursor_idx = if cursor_idx_raw + 1 < tokens.len() && offset > tokens[cursor_idx_raw].end {
+        cursor_idx_raw + 1
+    } else {
+        cursor_idx_raw
+    };
+    let cursor_tok = &tokens[cursor_idx];
+
+    let in_string = cursor_tok.kind == TokenKind::StrLit;
+    let in_comment = matches!(cursor_tok.kind, TokenKind::LineComment | TokenKind::BlockComment);
+    if in_string || in_comment {
+        return None;
+    }
+
+    let prefix = extract_prefix(sql, offset, &tokens, cursor_idx);
+
+    let (stmt_start, stmt_end) = find_statement_token_range(&tokens, cursor_idx);
+    let stmt_tokens = &tokens[stmt_start..stmt_end];
+
+    if let Some(ctx) = try_dot_column(&tokens, cursor_idx, sql) {
+        let tables = tables::extract_tables(stmt_tokens, sql);
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ctx,
+            tables,
+            prefix,
+            functions: funcs,
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
+    if let Some(ctx) = try_insert_column(&tokens, cursor_idx, sql) {
+        let tables = tables::extract_tables(stmt_tokens, sql);
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ctx,
+            tables,
+            prefix,
+            functions: funcs,
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
+    if let Some(ctx) = try_directive(&tokens, cursor_idx, sql) {
+        let tables = tables::extract_tables(stmt_tokens, sql);
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ctx,
+            tables,
+            prefix,
+            functions: funcs,
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
+    if let Some(ctx) = try_show_statement(&tokens, cursor_idx, sql) {
+        let tables = tables::extract_tables(stmt_tokens, sql);
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ctx,
+            tables,
+            prefix,
+            functions: funcs,
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
+    if let Some(ctx) = try_grant_revoke(&tokens, cursor_idx, sql) {
+        let tables = tables::extract_tables(stmt_tokens, sql);
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ctx,
+            tables,
+            prefix,
+            functions: funcs,
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
+    if let Some(ctx) = try_for_update_of(&tokens, cursor_idx, sql) {
+        let tables = tables::extract_tables(stmt_tokens, sql);
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ctx,
+            tables,
+            prefix,
+            functions: funcs,
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
+    if let Some(ctx) = try_bare_set(&tokens, cursor_idx, sql) {
+        let tables = tables::extract_tables(stmt_tokens, sql);
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ctx,
+            tables,
+            prefix,
+            functions: funcs,
+            in_string: false,
+            in_comment: false,
+        });
+    }
+
+    let cursor_on_ident = matches!(cursor_tok.kind,
+        TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At)
+        || (matches!(cursor_tok.kind, TokenKind::Whitespace)
+            && offset > 0
+            && offset <= sql.len()
+            && sql[..offset].chars().next_back().map_or(false, |c| c.is_alphanumeric() || c == '_'));
+    let context_type = detect_scan_backward(&tokens, cursor_idx, sql, cursor_on_ident);
+
+    let tables = tables::extract_tables(stmt_tokens, sql);
+    let functions = functions::known_functions_for_dialect(dialect);
+    Some(ContextResult {
+        context_type,
+        tables,
+        prefix,
+        functions,
+        in_string: false,
+        in_comment: false,
+    })
+}
+
+fn find_statement_token_range(tokens: &[Token], cursor_idx: usize) -> (usize, usize) {
+    let mut start = 0;
+    let mut i = cursor_idx;
+    while i > 0 {
+        i -= 1;
+        if tokens[i].kind == TokenKind::Semi {
+            start = i + 1;
+            break;
+        }
+    }
+    let mut end = tokens.len();
+    let mut i = cursor_idx;
+    while i < tokens.len() {
+        if tokens[i].kind == TokenKind::Semi {
+            end = i;
+            break;
+        }
+        i += 1;
+    }
+    (start, end)
+}

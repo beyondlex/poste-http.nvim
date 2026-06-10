@@ -72,18 +72,6 @@ end
 -- Binary discovery
 --------------------------------------------------------------------------------
 
-local function find_poste_binary()
-  if state.config.poste_binary ~= "" and vim.fn.filereadable(state.config.poste_binary) == 1 then
-    return vim.fn.fnamemodify(state.config.poste_binary, ":p")
-  end
-  for _, path in ipairs({ "./target/debug/poste", "./target/release/poste" }) do
-    if vim.fn.filereadable(path) == 1 then
-      return vim.fn.fnamemodify(path, ":p")
-    end
-  end
-  return vim.fn.exepath("poste")
-end
-
 --------------------------------------------------------------------------------
 -- Statement extraction
 --------------------------------------------------------------------------------
@@ -115,7 +103,7 @@ end
 --- Try to find statement boundaries using the Rust binary.
 --- Returns {start_line, end_line} as 1-based buffer line numbers, or nil.
 local function try_rust_stmt_span(buf_lines, cursor_line)
-  local binary = find_poste_binary()
+  local binary = state.find_poste_binary()
   if not binary then return nil end
 
   -- Find the current ### block to limit the scope
@@ -461,7 +449,7 @@ function M.run_sql_request()
   -- Clear old dataset content before new async execution
   sql_buffer.clear_panel(current_seq)
 
-  local binary = find_poste_binary()
+  local binary = state.find_poste_binary()
   if not binary then
     vim.notify("Poste binary not found.", vim.log.levels.ERROR)
     return
@@ -799,7 +787,7 @@ end
 
 --- Show DDL for the table under the cursor in a floating window.
 function M.show_table_ddl()
-  local binary = find_poste_binary()
+  local binary = state.find_poste_binary()
   if not binary then
     vim.notify("Poste binary not found.", vim.log.levels.ERROR, { title = "Poste SQL" })
     return

@@ -51,6 +51,19 @@ M.sql = {
 }
 
 ---------------------------------------------------------------------------
+-- Binary discovery
+function M.find_poste_binary()
+  if M.config.poste_binary ~= "" and vim.fn.filereadable(M.config.poste_binary) == 1 then
+    return vim.fn.fnamemodify(M.config.poste_binary, ":p")
+  end
+  for _, path in ipairs({ "./target/debug/poste", "./target/release/poste" }) do
+    if vim.fn.filereadable(path) == 1 then
+      return vim.fn.fnamemodify(path, ":p")
+    end
+  end
+  return vim.fn.exepath("poste")
+end
+
 -- Logging
 ---------------------------------------------------------------------------
 function M.log(level, msg)

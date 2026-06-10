@@ -4,7 +4,7 @@
 //! Returns structured JSON responses compatible with the Lua-side
 //! dataset renderer.
 
-use poste_core::{Protocol, Request};
+use poste_core::{replace_database_in_url, Protocol, Request};
 use poste_core::sql_parser;
 use crate::response::Response;
 use crate::sql_dialect;
@@ -858,24 +858,6 @@ fn build_response(
     };
 
     Ok(make_response(protocol, connection, body, status_text))
-}
-
-/// Replace the database name in a connection URL.
-/// Used to handle USE statements by reconnecting to the target database.
-fn replace_database_in_url(url: &str, new_db: &str) -> String {
-    // Find the scheme separator
-    if let Some(scheme_end) = url.find("://") {
-        let after_scheme = &url[scheme_end + 3..];
-        // Find the last '/' which separates host:port from database
-        if let Some(last_slash) = after_scheme.rfind('/') {
-            let base = &url[..scheme_end + 3 + last_slash + 1];
-            return format!("{}{}", base, new_db);
-        }
-        // No database part yet — append /newdb
-        return format!("{}/{}", url, new_db);
-    }
-    // Not a standard URL — return as-is
-    url.to_string()
 }
 
 #[cfg(test)]

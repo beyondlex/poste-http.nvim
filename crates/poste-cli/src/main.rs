@@ -211,7 +211,7 @@ async fn main() -> Result<()> {
             // Override database from --database flag (USE statement context from editor)
             if let Some(ref db) = database {
                 if is_sql_protocol(&request.protocol) && !request.connection.is_empty() {
-                    request.connection = replace_database_in_url(&request.connection, db);
+                    request.connection = poste_core::replace_database_in_url(&request.connection, db);
                 }
             }
 
@@ -277,25 +277,6 @@ async fn main() -> Result<()> {
 /// Check if a protocol is SQL-based.
 fn is_sql_protocol(protocol: &poste_core::Protocol) -> bool {
     matches!(protocol, poste_core::Protocol::Postgres | poste_core::Protocol::Mysql | poste_core::Protocol::Sqlite)
-}
-
-/// Replace the database name in a connection URL.
-/// Input: "postgres://user:pass@host:5432/olddb" → "postgres://user:pass@host:5432/newdb"
-/// Handles URLs with or without auth, port, and existing database.
-fn replace_database_in_url(url: &str, new_db: &str) -> String {
-    // Find the scheme separator
-    if let Some(scheme_end) = url.find("://") {
-        let after_scheme = &url[scheme_end + 3..];
-        // Find the last '/' which separates host:port from database
-        if let Some(last_slash) = after_scheme.rfind('/') {
-            let base = &url[..scheme_end + 3 + last_slash + 1];
-            return format!("{}{}", base, new_db);
-        }
-        // No database part yet — append /newdb
-        return format!("{}/{}", url, new_db);
-    }
-    // Not a standard URL — return as-is
-    url.to_string()
 }
 
 /// Check if a connection string looks like a URL (not a name).
@@ -480,11 +461,11 @@ async fn handle_connection_command(action: ConnectionAction) -> Result<()> {
 
             // Resolve variables
             let mut resolved = config.clone();
-            resolved.host = resolved.host.map(|s| substitute_vars_cli(&s, &env_vars));
-            resolved.password = resolved.password.map(|s| substitute_vars_cli(&s, &env_vars));
-            resolved.user = resolved.user.map(|s| substitute_vars_cli(&s, &env_vars));
-            resolved.database = resolved.database.map(|s| substitute_vars_cli(&s, &env_vars));
-            resolved.path = resolved.path.map(|s| substitute_vars_cli(&s, &env_vars));
+            resolved.host = resolved.host.map(|s| poste_core::substitute_vars(&s, &env_vars));
+            resolved.password = resolved.password.map(|s| poste_core::substitute_vars(&s, &env_vars));
+            resolved.user = resolved.user.map(|s| poste_core::substitute_vars(&s, &env_vars));
+            resolved.database = resolved.database.map(|s| poste_core::substitute_vars(&s, &env_vars));
+            resolved.path = resolved.path.map(|s| poste_core::substitute_vars(&s, &env_vars));
 
             print!("Testing connection '{}' ... ", name);
             std::io::Write::flush(&mut std::io::stdout())?;
@@ -524,19 +505,6 @@ fn load_env_vars(search_dir: &std::path::Path, env_name: &str) -> std::collectio
     std::collections::HashMap::new()
 }
 
-/// Substitute {{var}} references for CLI display.
-fn substitute_vars_cli(input: &str, vars: &std::collections::HashMap<String, String>) -> String {
-    use regex::Regex;
-    let re = Regex::new(r"\{\{([^}]+)\}\}").unwrap();
-    re.replace_all(input, |caps: &regex::Captures| {
-        let var_name = &caps[1];
-        vars.get(var_name)
-            .cloned()
-            .unwrap_or_else(|| caps[0].to_string())
-    })
-    .to_string()
-}
-
 async fn handle_introspect_command(
     conn_name: String,
     introspect_type: String,
@@ -564,18 +532,18 @@ async fn handle_introspect_command(
 
     // Resolve variables and build URL
     let mut resolved = config.clone();
-    resolved.host = resolved.host.map(|s| substitute_vars_cli(&s, &env_vars));
-    resolved.password = resolved.password.map(|s| substitute_vars_cli(&s, &env_vars));
-    resolved.user = resolved.user.map(|s| substitute_vars_cli(&s, &env_vars));
-    resolved.database = resolved.database.map(|s| substitute_vars_cli(&s, &env_vars));
-    resolved.path = resolved.path.map(|s| substitute_vars_cli(&s, &env_vars));
+    resolved.host = resolved.host.map(|s| poste_core::substitute_vars(&s, &env_vars));
+    resolved.password = resolved.password.map(|s| poste_core::substitute_vars(&s, &env_vars));
+    resolved.user = resolved.user.map(|s| poste_core::substitute_vars(&s, &env_vars));
+    resolved.database = resolved.database.map(|s| poste_core::substitute_vars(&s, &env_vars));
+    resolved.path = resolved.path.map(|s| poste_core::substitute_vars(&s, &env_vars));
 
     let mut connection_url = resolved.to_url();
     let dialect_name = resolved.dialect.clone();
 
     // Override database if --database flag is provided
     if let Some(ref db) = database {
-        connection_url = replace_database_in_url(&connection_url, db);
+        connection_url = poste_core::replace_database_in_url(&connection_url, db);
     }
 
     let params = IntrospectParams {

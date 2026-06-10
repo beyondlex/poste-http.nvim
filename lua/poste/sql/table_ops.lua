@@ -9,18 +9,6 @@ local M = {}
 -- Helpers
 ---------------------------------------------------------------------------
 
-local function find_poste_binary()
-  if state.config.poste_binary ~= "" and vim.fn.filereadable(state.config.poste_binary) == 1 then
-    return vim.fn.fnamemodify(state.config.poste_binary, ":p")
-  end
-  for _, path in ipairs({ "./target/debug/poste", "./target/release/poste" }) do
-    if vim.fn.filereadable(path) == 1 then
-      return vim.fn.fnamemodify(path, ":p")
-    end
-  end
-  return vim.fn.exepath("poste")
-end
-
 --- Insert DDL lines into the source buffer and notify.
 local function insert_ddl(source_buf, ddl, label)
   if not source_buf or not vim.api.nvim_buf_is_valid(source_buf) then

@@ -4,7 +4,7 @@
 //! up the directory tree from the SQL file's location (same as env.json).
 
 use anyhow::Result;
-use regex::Regex;
+use poste_core::substitute_vars;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -98,6 +98,14 @@ impl ConnectionStore {
     pub fn empty() -> Self {
         Self {
             connections: HashMap::new(),
+            source_path: None,
+        }
+    }
+
+    /// Create a store from pre-loaded connections (no I/O, for testing).
+    pub fn for_test(connections: HashMap<String, ConnectionConfig>) -> Self {
+        Self {
+            connections,
             source_path: None,
         }
     }
@@ -199,18 +207,6 @@ fn find_connections_json(search_dir: &Path) -> Option<PathBuf> {
             return None;
         }
     }
-}
-
-/// Substitute {{var}} references in a string using the provided variables.
-fn substitute_vars(input: &str, vars: &HashMap<String, String>) -> String {
-    let re = Regex::new(r"\{\{([^}]+)\}\}").unwrap();
-    re.replace_all(input, |caps: &regex::Captures| {
-        let var_name = &caps[1];
-        vars.get(var_name)
-            .cloned()
-            .unwrap_or_else(|| caps[0].to_string())
-    })
-    .to_string()
 }
 
 /// Test a connection by attempting to connect.

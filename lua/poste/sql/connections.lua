@@ -56,17 +56,6 @@ end
 ---------------------------------------------------------------------------
 -- Binary discovery
 ---------------------------------------------------------------------------
-local function find_poste_binary()
-  if state.config.poste_binary ~= "" and vim.fn.filereadable(state.config.poste_binary) == 1 then
-    return vim.fn.fnamemodify(state.config.poste_binary, ":p")
-  end
-  for _, path in ipairs({ "./target/debug/poste", "./target/release/poste" }) do
-    if vim.fn.filereadable(path) == 1 then
-      return vim.fn.fnamemodify(path, ":p")
-    end
-  end
-  return vim.fn.exepath("poste")
-end
 
 ---------------------------------------------------------------------------
 -- List connections
@@ -75,7 +64,7 @@ end
 --- Fetch connections from CLI and parse JSON.
 --- @param callback function(connections: table[]) Called with parsed connection list
 function M.list_connections(callback)
-  local binary = find_poste_binary()
+  local binary = state.find_poste_binary()
   if not binary then
     vim.notify("Poste binary not found", vim.log.levels.ERROR)
     callback({})
@@ -249,7 +238,7 @@ end
 
 --- Run the test for a specific connection.
 function M.run_test(conn)
-  local binary = find_poste_binary()
+  local binary = state.find_poste_binary()
   if not binary then
     vim.notify("Poste binary not found", vim.log.levels.ERROR)
     return

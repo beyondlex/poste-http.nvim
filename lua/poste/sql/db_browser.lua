@@ -69,21 +69,6 @@ local line_to_node = {}
 -- Source buffer handle (the SQL file active when browser opened)
 local source_buf = nil
 
----------------------------------------------------------------------------
--- Binary discovery (same pattern as connections.lua)
----------------------------------------------------------------------------
-
-local function find_poste_binary()
-  if state.config.poste_binary ~= "" and vim.fn.filereadable(state.config.poste_binary) == 1 then
-    return vim.fn.fnamemodify(state.config.poste_binary, ":p")
-  end
-  for _, path in ipairs({ "./target/debug/poste", "./target/release/poste" }) do
-    if vim.fn.filereadable(path) == 1 then
-      return vim.fn.fnamemodify(path, ":p")
-    end
-  end
-  return vim.fn.exepath("poste")
-end
 
 local function get_search_dir()
   if source_buf and vim.api.nvim_buf_is_valid(source_buf) then
@@ -211,7 +196,7 @@ end
 --- @param database string|nil Database name (overrides connection default)
 --- @param callback function(result: table|nil) Called with parsed JSON or nil
 local function run_introspect(conn_name, introspect_type, schema, table_name, database, callback)
-  local binary = find_poste_binary()
+  local binary = state.find_poste_binary()
   if not binary then
     vim.notify("Poste binary not found", vim.log.levels.ERROR)
     callback(nil)
@@ -1115,7 +1100,7 @@ end
 ---------------------------------------------------------------------------
 
 local function load_connections(callback)
-  local binary = find_poste_binary()
+  local binary = state.find_poste_binary()
   if not binary then
     state.log("ERROR", "DB Browser: poste binary not found")
     vim.notify("Poste binary not found", vim.log.levels.ERROR)

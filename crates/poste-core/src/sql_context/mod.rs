@@ -750,15 +750,6 @@ fn detect_scan_backward(tokens: &[Token], cursor_idx: usize, sql: &str, cursor_o
             TokenKind::Keyword => {
                 let kw = tok.text(sql).to_ascii_lowercase();
                 if is_table_keyword(&kw) {
-                    // If we already skipped an ident (the table name), the
-                    // table has been provided. If the user is still typing
-                    // (has_prefix), suggest tables; otherwise keywords.
-                    if !skip_one_ident {
-                        if cursor_on_ident {
-                            return ContextType::Table;
-                        }
-                        return ContextType::Keyword;
-                    }
                     return ContextType::Table;
                 }
                 if is_column_keyword(&kw) {
@@ -1117,6 +1108,22 @@ mod tests {
     fn test_detect_keyword_by_default() {
         let result = detect_context("", 0).unwrap();
         assert_eq!(result.context_type, ContextType::Keyword);
+    }
+
+    #[test]
+    fn test_detect_table_after_from_ident_trailing_ws() {
+        let result = detect_context("SELECT * FROM a", 15).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+        assert_eq!(result.tables.len(), 1);
+        assert_eq!(result.prefix, "a");
+    }
+
+    #[test]
+    fn test_detect_table_after_from_comments_and_trailing_ws() {
+        let sql = "-- @connection my-blog\n-- @database blog\n\nSELECT * FROM a";
+        let result = detect_context(sql, 59).unwrap();
+        assert_eq!(result.context_type, ContextType::Table);
+        assert_eq!(result.prefix, "a");
     }
 
     #[test]
@@ -2371,5 +2378,79 @@ mod tests {
         let sql = "ALTER TABLE posts MODIFY COLUMN age ";
         let result = detect_context(sql, 36).unwrap();
         assert_eq!(result.context_type, ContextType::DataType, "MODIFY COLUMN colname should suggest data types");
+    }
+
+    // ---- Lua offset regression (cursor_line +1 bug) ----
+    //
+    // When blink.cmp dispatches get_completions after cursor moves to
+    // SELECT | FROM authors..., the Lua code should NOT add 1 to
+    // ctx.cursor[1] (already 1-indexed from nvim_win_get_cursor).
+    // If it does, the offset lands past end of sql_text, causing
+    // find_token_at_offset to fall back to ';' → false Keyword.
+    //
+    // These tests ensure both correct-position and out-of-bounds
+    // scenarios are handled gracefully.
+
+    #[test]
+    fn test_detect_select_then_from_with_cursor_on_ws() {
+        // SELECT[space][space]FROM... cursor on byte 7 = second space
+        let sql = "SELECT  FROM authors WHERE id > 1;";
+        let result = detect_context(sql, 7).unwrap();
+        assert_eq!(
+            result.context_type,
+            ContextType::Column,
+            "cursor on whitespace after SELECT, before FROM → Column"
+        );
+        assert!(
+            result.tables.iter().any(|t| t.name == "authors"),
+            "tables extracted from the FROM clause: {:?}",
+            result.tables,
+        );
+    }
+
+    #[test]
+    fn test_detect_select_then_from_with_cursor_on_from() {
+        // SELECT  [F]ROM... cursor on byte 8 = 'F' of FROM
+        let sql = "SELECT  FROM authors WHERE id > 1;";
+        let result = detect_context(sql, 8).unwrap();
+        assert_eq!(
+            result.context_type,
+            ContextType::Table,
+            "cursor on FROM itself → Table context"
+        );
+    }
+
+    #[test]
+    fn test_detect_offset_past_end_falls_to_last_semantic_token() {
+        // When Lua passes an offset beyond the SQL text (cursor_line +1 bug),
+        // Rust must not panic, and should degrade to a reasonable context.
+        let sql = "SELECT  FROM authors WHERE id > 1;";
+        let result = detect_context(sql, 99).unwrap();
+        // The fallback lands on ';' → scan backward → finds WHERE →
+        // cursor_on_ident is false (on Semi) → Keyword
+        assert_eq!(
+            result.context_type,
+            ContextType::Keyword,
+            "out-of-bounds offset should return Keyword, not panic",
+        );
+    }
+
+    /// Full-blown reproduction: directive lines + SQL + cursor byte offset
+    /// computed the same way try_rust_context would (before the +1 fix).
+    #[test]
+    fn test_detect_with_directives_like_lua_offset() {
+        let sql = "-- @connection my-blog\n-- @database blog\n\nSELECT  FROM authors WHERE id > 1;";
+        // offset = #("-- @connection my-blog\n-- @database blog\n\nSELECT ") = 49
+        let result = detect_context(sql, 49).unwrap();
+        assert_eq!(
+            result.context_type,
+            ContextType::Column,
+            "full-directive reproduction: cursor on whitespace after SELECT → Column"
+        );
+        assert!(
+            result.tables.iter().any(|t| t.name == "authors"),
+            "authors table extracted despite directives: {:?}",
+            result.tables,
+        );
     }
 }

@@ -7,6 +7,7 @@
 local state = require("poste.state")
 local data = require("poste.sql.completion_data")
 local ctx = require("poste.sql.completion_ctx")
+local debug = require("poste.sql.completion_debug")
 
 local M = {}
 
@@ -98,6 +99,8 @@ local function try_rust_context(bufnr, line_before, cursor_line)
     return nil
   end
 
+  debug.set_rust_raw(output)
+
   -- Normalize vim.NIL → nil (JSON null becomes vim.NIL userdata in Neovim)
   local function deep_clean(t)
     for k, v in pairs(t) do
@@ -128,6 +131,16 @@ end
 
 local function get_items(bufnr, line_before, cursor_line, callback)
   local prefix = line_before:match("[%w_]*$") or ""
+
+  debug.begin()
+  debug.set("line_before", line_before)
+  debug.set("prefix", prefix)
+  local _cb = callback
+  callback = function(items)
+    debug.set("items", items)
+    debug.flush()
+    _cb(items)
+  end
 
   -- Directive lines: handle immediately, bypass Rust path entirely
   if line_before:match("^%s*%-%-%s*@connection") then
@@ -203,6 +216,12 @@ local function get_items(bufnr, line_before, cursor_line, callback)
   if vim.g.poste_sql_debug then
     state.log("INFO", string.format("DEBUG get_items: ctx=%s, prefix='%s', line='%s'",
       ctx_type, prefix, line_before))
+  end
+
+  debug.set("ctx_type", ctx_type)
+  debug.set("ctx_data", ctx_data)
+  if rust_ctx and rust_ctx.tables then
+    debug.set("tables", rust_ctx.tables)
   end
 
   if ctx_type == "connection" then
@@ -482,10 +501,7 @@ function M:enabled()
 end
 
 function M:get_trigger_characters()
-    -- Empty = trigger on every keystroke via keyword-length mechanism.
-    -- Non-empty would LIMIT triggering to only these chars, preventing
-    -- auto-completion for basic typing like `s` → SELECT or `f` → FROM.
-    return {}
+    return { ".", " ", "@", "(", "," }
 end
 
 function M:get_keyword_length(ctx)
@@ -514,11 +530,8 @@ function M:get_completions(ctx, callback)
     cursor_col = vim.fn.col(".")
     line = vim.api.nvim_get_current_line()
   end
-  -- blink.cmp passes cursor_line as 0-indexed; normalize to 1-indexed
-  -- for use in try_rust_context and extract_from_tables.
-  if ctx and ctx.cursor then
-    cursor_line = cursor_line + 1
-  end
+  -- blink.cmp's ctx.cursor[1] is from nvim_win_get_cursor (1-indexed).
+  -- No normalization needed — already 1-indexed.
   local line_before = line:sub(1, cursor_col)
 
   if vim.g.poste_sql_debug then
@@ -538,6 +551,9 @@ function M:get_completions(ctx, callback)
     if vim.g.poste_sql_debug then
       state.log("INFO", string.format("SQL completion: %d items (deduped from %d)", #deduped, #items))
     end
+    debug.set("blink_items", #deduped)
+    debug.set("blink_incomplete", true)
+    debug.flush()
     callback({ is_incomplete_forward = true, is_incomplete_backward = true, items = deduped })
   end)
 end
@@ -609,11 +625,14 @@ function M.source:complete(params, callback)
         table.insert(deduped, item)
       end
     end
+    debug.set("cmp_items", #deduped)
+    debug.flush()
     callback({ items = deduped, isIncomplete = false })
   end)
 end
 
 ---------------------------------------------------------------------------
+
 -- Registration
 ---------------------------------------------------------------------------
 

@@ -1329,6 +1329,10 @@ function M.setup(opts)
     end
   end, { desc = "Test SQL completion at cursor" })
 
+  vim.api.nvim_create_user_command("PosteSQLCmpDebug", function()
+    require("poste.sql.completion_debug").toggle()
+  end, { desc = "Toggle SQL completion debug floating window" })
+
   vim.api.nvim_create_user_command("PosteSymbols", function()
     symbols.show_symbols()
   end, { desc = "Show symbol outline (all HTTP requests)" })

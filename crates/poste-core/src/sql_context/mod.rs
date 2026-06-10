@@ -274,7 +274,11 @@ pub fn detect_context_with_dialect(sql: &str, offset: usize, dialect: SqlDialect
 
     // General case: scan backward for context keyword
     let cursor_on_ident = matches!(cursor_tok.kind,
-        TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At);
+        TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At)
+        || (matches!(cursor_tok.kind, TokenKind::Whitespace)
+            && offset > 0
+            && offset <= sql.len()
+            && sql[..offset].chars().next_back().map_or(false, |c| c.is_alphanumeric() || c == '_'));
     let context_type = detect_scan_backward(&tokens, cursor_idx, sql, cursor_on_ident);
 
     let tables = extract_tables(stmt_tokens, sql);
@@ -2454,3 +2458,14 @@ mod tests {
         );
     }
 }
+    #[test]
+    fn test_where_with_prefix_returns_column() {
+        let sql = "SELECT * FROM authors WHERE e";
+        let result = detect_context(sql, 29).unwrap();
+        assert_eq!(
+            result.context_type,
+            ContextType::Column,
+            "typing column prefix after WHERE → Column, got {:?}",
+            result.context_type,
+        );
+    }

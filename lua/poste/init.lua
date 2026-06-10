@@ -1,6 +1,7 @@
 --- Poste: HTTP/Redis client for Neovim.
 --- This is the orchestrator module — all subsystems live in separate modules.
 local state = require("poste.state")
+local util = require("poste.util")
 local highlights = require("poste.http.highlights")  -- auto-registers autocmds on require
 local indicators = require("poste.indicators")
 local format = require("poste.http.format")
@@ -185,10 +186,7 @@ function M.run_request()
         stdout_buffered = true,
         stderr_buffered = true,
         on_stdout = function(_, data)
-          if not data then return end
-          while #data > 0 and data[#data] == "" do
-            data[#data] = nil
-          end
+          data = util.ensure_job_data(data)
           if #data == 0 then return end
 
           local output = table.concat(data, "\n")
@@ -249,10 +247,7 @@ function M.run_request()
           end)
         end,
         on_stderr = function(_, data)
-          if not data then return end
-          while #data > 0 and data[#data] == "" do
-            data[#data] = nil
-          end
+          data = util.ensure_job_data(data)
           if #data == 0 then return end
           for _, l in ipairs(data) do
             table.insert(stderr_buf, l)
@@ -447,14 +442,7 @@ function M.goto_definition()
             if vim.v.shell_error == 0 then
               local ok, parsed = pcall(vim.json.decode, output)
               if ok and parsed then
-                -- Clean vim.NIL values from JSON nulls
-                local function clean(t)
-                  for k, v in pairs(t) do
-                    if v == vim.NIL then t[k] = nil
-                    elseif type(v) == "table" then clean(v) end
-                  end
-                end
-                clean(parsed)
+                util.clean_nil(parsed)
 
                 local ct = parsed.ctx_type
                 if ct == "dot_column" and parsed.ctx_data then
@@ -666,18 +654,7 @@ function M.goto_definition()
 
   -- Search for env.json: start from buffer directory, walk up
   local search_dir = vim.fn.fnamemodify(buf_path, ":h")
-  local env_file = nil
-
-  while search_dir and search_dir ~= "" and search_dir ~= "/" do
-    local candidate = search_dir .. "/env.json"
-    if vim.fn.filereadable(candidate) == 1 then
-      env_file = candidate
-      break
-    end
-    local parent = vim.fn.fnamemodify(search_dir, ":h")
-    if parent == search_dir then break end
-    search_dir = parent
-  end
+  local env_file = util.find_file_upwards("env.json", search_dir)
 
   if not env_file then
     vim.notify("Definition not found: " .. req_name, vim.log.levels.WARN)

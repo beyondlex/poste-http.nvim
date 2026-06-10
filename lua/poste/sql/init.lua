@@ -2,6 +2,7 @@
 --- and multi-statement (visual selection) execution.
 --- Each statement result goes into its own dataset tab.
 local state = require("poste.state")
+local util = require("poste.util")
 local indicators = require("poste.indicators")
 local sql_format = require("poste.sql.format")
 local sql_buffer = require("poste.sql.buffer")
@@ -981,12 +982,7 @@ function M.show_table_ddl()
       if vim.v.shell_error == 0 and out and out ~= "" then
         local ok, parsed = pcall(vim.json.decode, out)
         if ok and parsed then
-          local function cclean(t)
-            for k, v in pairs(t) do
-              if v == vim.NIL then t[k] = nil elseif type(v) == "table" then cclean(v) end
-            end
-          end
-          cclean(parsed)
+          util.clean_nil(parsed)
           local pt = nil
           local prefix = parsed.ctx_data or cword
           if parsed.tables then
@@ -1037,13 +1033,7 @@ function M.show_table_ddl()
     if vim.v.shell_error == 0 and out and out ~= "" then
       local ok, parsed = pcall(vim.json.decode, out)
       if ok and parsed then
-        local function clean(t)
-          for k, v in pairs(t) do
-            if v == vim.NIL then t[k] = nil
-            elseif type(v) == "table" then clean(v) end
-          end
-        end
-        clean(parsed)
+        util.clean_nil(parsed)
 
         local ct = parsed.ctx_type
         local tables = parsed.tables

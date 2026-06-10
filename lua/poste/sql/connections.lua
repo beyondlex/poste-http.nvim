@@ -1,6 +1,7 @@
 --- SQL connection management UI.
 --- Provides :PosteConnection command to list, select, and test connections.
 local state = require("poste.state")
+local util = require("poste.util")
 local select_mod = require("poste.select")
 
 local M = {}
@@ -24,18 +25,7 @@ end
 --- @param search_dir string Directory to start from
 --- @return string|nil Path to connections.json
 function M.find_connections_json(search_dir)
-  local dir = search_dir
-  while true do
-    local candidate = dir .. "/connections.json"
-    if vim.fn.filereadable(candidate) == 1 then
-      return candidate
-    end
-    local parent = vim.fn.fnamemodify(dir, ":h")
-    if parent == dir then
-      return nil
-    end
-    dir = parent
-  end
+  return util.find_file_upwards("connections.json", search_dir)
 end
 
 --- Get the config for a named connection by reading connections.json directly.

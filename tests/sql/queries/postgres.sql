@@ -1,4 +1,5 @@
 -- @connection pg-ecommerce
+-- @database ecommerce
 
 
 

@@ -99,6 +99,17 @@ fn test_detect_table_after_from_ident_trailing_ws() {
 }
 
 #[test]
+fn test_detect_keyword_after_table_name_with_trailing_ws() {
+    // SELECT * FROM posts<space> — cursor is past the table name on whitespace,
+    // should suggest keywords (WHERE, GROUP BY, ORDER BY, etc.), not tables.
+    let result = detect_context("SELECT * FROM posts ", 20).unwrap();
+    assert_eq!(result.context_type, ContextType::Keyword,
+        "After table name with trailing space, should suggest keywords, got {:?}",
+        result.context_type);
+    assert_eq!(result.prefix, "", "no prefix when cursor is on whitespace after table");
+}
+
+#[test]
 fn test_detect_table_after_from_comments_and_trailing_ws() {
     let sql = "-- @connection my-blog\n-- @database blog\n\nSELECT * FROM a";
     let result = detect_context(sql, 59).unwrap();

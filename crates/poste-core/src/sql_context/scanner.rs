@@ -22,6 +22,13 @@ pub(crate) fn detect_scan_backward(
             TokenKind::Keyword => {
                 let kw = tok.text(sql).to_ascii_lowercase();
                 if is_table_keyword(&kw) {
+                    if !skip_one_ident && !cursor_on_ident {
+                        // We already passed a table name after the keyword
+                        // and the cursor is not on an identifier — the user
+                        // finished the table reference, so suggest keywords
+                        // (WHERE, GROUP BY, ORDER BY, etc.) instead of tables.
+                        return ContextType::Keyword;
+                    }
                     return ContextType::Table;
                 }
                 if is_column_keyword(&kw) {

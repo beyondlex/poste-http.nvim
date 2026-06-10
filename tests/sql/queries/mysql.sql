@@ -1,6 +1,9 @@
 -- @connection my-blog
 -- @database blog
 
+SELECT * FROM posts;
+
+
 select id, slug FROM posts;
 
 -- SELECT p.slug, a. FROM posts p LEFT JOIN authors a on a.id = p.author_id;

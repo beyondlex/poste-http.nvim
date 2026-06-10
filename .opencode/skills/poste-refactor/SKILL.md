@@ -4,6 +4,14 @@ description: >
   Guide for safe, behavior-preserving refactoring of Poste code (Rust + Lua).
   Covers core principles, step-by-step workflow, test preservation, and common
   pitfalls to avoid when restructuring code without changing observable behavior.
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+metadata:
+  trigger: refactor|restructure|rename|extract|split module|deduplicate|remove dead code|upgrade dependency
 ---
 
 # Poste Refactoring Skill

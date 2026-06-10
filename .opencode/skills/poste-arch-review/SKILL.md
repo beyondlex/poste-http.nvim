@@ -6,6 +6,14 @@ description: >
   technical debt, boundary violations, and systemic risks across Rust crates,
   Lua modules, and their integration. Produces structured findings with
   refactoring cost estimates.
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+metadata:
+  trigger: architecture review|design review|technical debt|boundary|crate structure|rust/lua boundary
 ---
 
 # Poste Architecture Review Skill

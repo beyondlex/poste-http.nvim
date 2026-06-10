@@ -6,6 +6,14 @@ description: >
   modules as senior Neovim plugin developers, preserve user interaction and UI
   behavior, identify hot paths, propose measured optimizations, and produce a
   staged refactoring plan for high-performance Neovim code.
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+metadata:
+  trigger: performance|slow|latency|stall|optimize|hot path|profiling|vim.fn.system|jobstart
 ---
 
 # Poste Neovim Performance Skill

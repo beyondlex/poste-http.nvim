@@ -5,6 +5,14 @@ description: >
   analysis in the Poste project. Covers the current Rust + Lua architecture,
   source-of-truth rules, schema/alias propagation, dialect considerations,
   testing requirements, and common pitfalls.
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - AskUserQuestion
+metadata:
+  trigger: sql completion|context detect|tokenizer|sql_context|completion.lua|keyword|table extraction|alias|schema
 ---
 
 # SQL Completion & Context Analysis — Agent Skill

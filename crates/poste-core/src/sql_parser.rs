@@ -79,7 +79,7 @@ pub fn split_statements(body: &str) -> Vec<String> {
                             current.push('\'');
                             // Check for escaped quote ''
                             if chars.peek() == Some(&'\'') {
-                                current.push(chars.next().unwrap());
+                                current.push(chars.next().expect("peek confirmed quote exists"));
                             } else {
                                 break;
                             }
@@ -98,7 +98,7 @@ pub fn split_statements(body: &str) -> Vec<String> {
                             current.push('"');
                             // Check for escaped quote ""
                             if chars.peek() == Some(&'"') {
-                                current.push(chars.next().unwrap());
+                                current.push(chars.next().expect("peek confirmed double-quote exists"));
                             } else {
                                 break;
                             }

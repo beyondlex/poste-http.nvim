@@ -773,27 +773,27 @@ mod tests {
     #[test]
     fn test_introspect_type_from_str() {
         assert_eq!(
-            IntrospectType::from_str("databases").unwrap(),
+            IntrospectType::parse_str("databases").unwrap(),
             IntrospectType::Databases
         );
         assert_eq!(
-            IntrospectType::from_str("SCHEMAS").unwrap(),
+            IntrospectType::parse_str("SCHEMAS").unwrap(),
             IntrospectType::Schemas
         );
         assert_eq!(
-            IntrospectType::from_str("Tables").unwrap(),
+            IntrospectType::parse_str("Tables").unwrap(),
             IntrospectType::Tables
         );
         assert_eq!(
-            IntrospectType::from_str("columns").unwrap(),
+            IntrospectType::parse_str("columns").unwrap(),
             IntrospectType::Columns
         );
         assert_eq!(
-            IntrospectType::from_str("indexes").unwrap(),
+            IntrospectType::parse_str("indexes").unwrap(),
             IntrospectType::Indexes
         );
-        assert!(IntrospectType::from_str("invalid").is_err());
-        assert!(IntrospectType::from_str("").is_err());
+        assert!(IntrospectType::parse_str("invalid").is_err());
+        assert!(IntrospectType::parse_str("").is_err());
     }
 
     #[test]
@@ -809,11 +809,11 @@ mod tests {
     #[test]
     fn test_introspect_type_ddl_from_str() {
         assert_eq!(
-            IntrospectType::from_str("ddl").unwrap(),
+            IntrospectType::parse_str("ddl").unwrap(),
             IntrospectType::Ddl
         );
         assert_eq!(
-            IntrospectType::from_str("DDL").unwrap(),
+            IntrospectType::parse_str("DDL").unwrap(),
             IntrospectType::Ddl
         );
     }

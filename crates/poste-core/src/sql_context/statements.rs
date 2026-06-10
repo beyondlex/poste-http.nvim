@@ -8,9 +8,11 @@ pub fn find_statement_span(lines: &[&str], cursor_line: usize) -> Option<(usize,
 
     let line_offsets: Vec<usize> = {
         let mut offsets = Vec::with_capacity(lines.len() + 1);
-        offsets.push(0);
+        let mut offset = 0;
+        offsets.push(offset);
         for l in lines {
-            offsets.push(offsets.last().unwrap() + l.len() + 1);
+            offset += l.len() + 1;
+            offsets.push(offset);
         }
         offsets.pop();
         offsets.push(text.len());

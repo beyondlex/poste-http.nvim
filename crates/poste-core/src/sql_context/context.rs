@@ -144,7 +144,7 @@ pub fn detect_context_with_dialect(
         || (matches!(cursor_tok.kind, TokenKind::Whitespace)
             && offset > 0
             && offset <= sql.len()
-            && sql[..offset].chars().next_back().map_or(false, |c| c.is_alphanumeric() || c == '_'));
+            && sql[..offset].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_'));
     let context_type = detect_scan_backward(&tokens, cursor_idx, sql, cursor_on_ident);
 
     let tables = tables::extract_tables(stmt_tokens, sql);

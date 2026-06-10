@@ -308,10 +308,10 @@ pub(crate) fn extract_prefix(sql: &str, offset: usize, tokens: &[Token], idx: us
         let prev = idx - 1;
         if prev < tokens.len() {
             match tokens[prev].kind {
-                TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit => {
-                    if tokens[prev].end == offset {
-                        return tokens[prev].text(sql).to_string();
-                    }
+                TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit
+                    if tokens[prev].end == offset =>
+                {
+                    return tokens[prev].text(sql).to_string();
                 }
                 _ => {}
             }

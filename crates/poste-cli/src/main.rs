@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::Serialize;
 use std::io::Read;
 
@@ -161,7 +161,7 @@ async fn main() -> Result<()> {
                     .and_then(|e| e.to_str())
                     .unwrap_or("http")
                     .to_string();
-                let dir = canonical.parent().unwrap().to_path_buf();
+                let dir = canonical.parent().context("File path resolves to root")?.to_path_buf();
                 (dir, ext)
             };
 
@@ -170,7 +170,7 @@ async fn main() -> Result<()> {
             let env_vars = loop {
                 let candidate = dir.join("env.json");
                 if candidate.exists() {
-                    let env_file = poste_core::Environment::load(candidate.to_str().unwrap())?;
+                    let env_file = poste_core::Environment::load(candidate.to_str().context("env.json path is not valid UTF-8")?)?;
                     let vars = env_file.envs.get(&env).cloned().unwrap_or_default();
                     break vars;
                 }
@@ -490,7 +490,7 @@ fn load_env_vars(search_dir: &std::path::Path, env_name: &str) -> std::collectio
     loop {
         let candidate = dir.join("env.json");
         if candidate.exists() {
-            if let Ok(env_file) = poste_core::Environment::load(candidate.to_str().unwrap()) {
+            if let Ok(env_file) = poste_core::Environment::load(candidate.to_str().expect("env.json path must be valid UTF-8")) {
                 if let Some(vars) = env_file.envs.get(env_name) {
                     return vars.clone();
                 }

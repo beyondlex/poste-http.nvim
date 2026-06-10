@@ -45,7 +45,7 @@ pub fn detect_context_with_dialect(
 
     let prefix = extract_prefix(sql, offset, &tokens, cursor_idx);
 
-    let (stmt_start, stmt_end) = find_statement_token_range(&tokens, cursor_idx);
+    let (stmt_start, stmt_end) = find_statement_token_range(&tokens, cursor_idx, sql);
     let stmt_tokens = &tokens[stmt_start..stmt_end];
 
     if let Some(ctx) = try_dot_column(&tokens, cursor_idx, sql) {
@@ -159,12 +159,28 @@ pub fn detect_context_with_dialect(
     })
 }
 
-fn find_statement_token_range(tokens: &[Token], cursor_idx: usize) -> (usize, usize) {
+/// Check if a Whitespace token contains a blank line (at least two newlines).
+///
+/// Blank lines are used as soft statement delimiters in addition to semicolons.
+/// This prevents tables from a subsequent statement (e.g. `SELECT * FROM posts`
+/// below a `UPDATE authors SET ...`) from leaking into the current statement's
+/// table context.
+fn is_blank_line_separator(tok: &Token, sql: &str) -> bool {
+    if tok.kind != TokenKind::Whitespace {
+        return false;
+    }
+    let text = &sql[tok.start..tok.end];
+    text.bytes().filter(|&b| b == b'\n').count() >= 2
+}
+
+fn find_statement_token_range(
+    tokens: &[Token], cursor_idx: usize, sql: &str,
+) -> (usize, usize) {
     let mut start = 0;
     let mut i = cursor_idx;
     while i > 0 {
         i -= 1;
-        if tokens[i].kind == TokenKind::Semi {
+        if tokens[i].kind == TokenKind::Semi || is_blank_line_separator(&tokens[i], sql) {
             start = i + 1;
             break;
         }
@@ -172,7 +188,7 @@ fn find_statement_token_range(tokens: &[Token], cursor_idx: usize) -> (usize, us
     let mut end = tokens.len();
     let mut i = cursor_idx;
     while i < tokens.len() {
-        if tokens[i].kind == TokenKind::Semi {
+        if tokens[i].kind == TokenKind::Semi || is_blank_line_separator(&tokens[i], sql) {
             end = i;
             break;
         }

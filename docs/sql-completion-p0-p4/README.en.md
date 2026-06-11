@@ -27,7 +27,7 @@ Out of scope:
 
 - Do not change HTTP completion: `lua/poste/http/*`, `lua/poste/completion.lua`.
 - Do not change SQL executor behavior unless a stage explicitly needs metadata/cache support.
-- Do not delegate `###`, `-- @connection`, or `-- @database` semantics to a generic SQL parser. They are part of the Poste file format.
+- Do not delegate `-- @connection` or `-- @database` semantics to a generic SQL parser. They are part of the Poste file format.
 
 ## P0: Define Poste SQL File Syntax And Context Contract
 
@@ -41,22 +41,18 @@ Add documentation:
 Minimum content:
 
 1. File structure
-   - File header: directive area before the first `###`.
-   - Request block: after a `###` line until the next `###` or EOF.
-   - The `###` line itself is not part of the SQL body.
-   - `.sql`, `.mysql`, and `.sqlite` follow the same Poste block rules. Dialect only affects SQL context and metadata.
+   - Directives + SQL statements (separated by `;`). Directives can appear at the file top or inline between statements.
+   - `.sql`, `.mysql`, and `.sqlite` share the same file structure. Dialect only affects SQL context and metadata.
 
 2. Directive rules
-   - `-- @connection <name-or-url>` is allowed in file header or inside a block.
-   - `-- @database <name>` is allowed in file header or inside a block.
-   - Block-level directives override file-level directives.
+   - File-level directives at the top of the file apply to all statements.
+   - Inline directives between statements switch connection/database from that point, staying active for subsequent statements until the next same-typed directive.
    - Directive lines are excluded from SQL statement parsing and must not trigger SQL keyword/table/column completion.
    - Cursor after `-- @connection ` completes connections.
    - Cursor after `-- @database ` completes databases/schemas.
 
 3. Statement boundaries
    - Hard boundary: `;`, except inside strings/comments/dollar quotes.
-   - Hard boundary: `###` block boundary.
    - EOF ends the current statement.
    - Decide and document whether blank lines are soft boundaries. Current Rust `detect_context` has a blank-line separator for token ranges, while `find_statement_span()` is mainly semicolon-based. Recommendation: completion context may treat consecutive blank lines as a soft boundary; execution statement extraction should not split solely on a single blank line.
 
@@ -498,7 +494,7 @@ When changing tests, explain why the old test no longer represented correct beha
   - Guardrail: test the Rust line protocol; test Lua client wrapper/fallback without relying on real async timing.
 
 - Risk: Poste file syntax gets mixed with SQL grammar.
-  - Guardrail: P0 must state that `###` and directives are processed before SQL parsing.
+  - Guardrail: P0 must state that directive lines are processed before SQL parsing.
 
 ## Target End State
 

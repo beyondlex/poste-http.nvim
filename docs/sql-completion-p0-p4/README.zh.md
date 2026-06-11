@@ -27,7 +27,7 @@
 
 - 不改 HTTP completion：`lua/poste/http/*`、`lua/poste/completion.lua`。
 - 不改 SQL executor 行为，除非某阶段明确需要 metadata/cache 支持。
-- 不把 `###`、`-- @connection`、`-- @database` 语义交给通用 SQL parser；这是 Poste 文件格式的一部分。
+- 不把 `-- @connection`、`-- @database` 语义交给通用 SQL parser；这是 Poste 文件格式的一部分。
 
 ## P0：定义 Poste SQL 文件语法和上下文契约
 
@@ -41,22 +41,18 @@
 最少要定义：
 
 1. 文件结构
-   - 文件头：第一个 `###` 前的 directive 区域。
-   - request block：`###` 行之后，到下一个 `###` 前或 EOF。
-   - `###` 行本身不属于 SQL body。
-   - `.sql`/`.mysql`/`.sqlite` 都遵循同一 Poste block 规则，dialect 只影响 SQL context 和 metadata。
+   - 指令 + SQL 语句（`;` 分隔）。指令可在文件顶部或语句间内联出现。
+   - `.sql`/`.mysql`/`.sqlite` 共享同一文件结构，dialect 只影响 SQL context 和 metadata。
 
 2. directive 规则
-   - `-- @connection <name-or-url>`：文件头或 block 内均允许。
-   - `-- @database <name>`：文件头或 block 内均允许。
-   - block 内 directive 覆盖文件级 directive。
+   - 文件级指令在文件顶部，对所有语句生效。
+   - 内联指令在语句之间，从该位置起切换连接/数据库，后续语句持续生效，直到下一个同类型指令。
    - directive 行不参与 SQL statement 解析，不提供 SQL keyword/table/column completion。
    - cursor 在 `-- @connection ` 后补 connection。
    - cursor 在 `-- @database ` 后补 database/schema。
 
 3. statement 边界
    - 强边界：`;`，但 string/comment/dollar quote 内的 `;` 不算。
-   - 强边界：`###` block boundary。
    - EOF 是当前 statement 的结束。
    - 是否把空行作为软边界必须明确。当前 Rust `detect_context` 对 token range 有 blank-line separator 逻辑，但 `find_statement_span()` 主要基于 semicolon。P0 要决定并写清楚。建议：completion context 可把连续空行作为软边界，execution statement extraction 不应仅因单个空行分割。
 
@@ -499,7 +495,7 @@ tests/run.sh
   - 防护：Rust 测 line protocol；Lua 测 client wrapper 和 fallback，不依赖真实异步时序。
 
 - 风险：把 Poste file syntax 和 SQL grammar 混在一起。
-  - 防护：P0 文档明确 `###`/directive 在 SQL parser 之前处理。
+  - 防护：P0 文档明确 directive 行在 SQL parser 之前处理。
 
 ## 最终目标状态
 

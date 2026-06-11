@@ -10,17 +10,17 @@
 
 | 顺序 | 文件 | 读完应理解 |
 |------|------|-----------|
-| ① | `p0/poste-sql-file-syntax.md` | 文件结构、指令规则、语句边界、JSON 契约、上下文类型语义（共 8 节） |
-| ② | `plan.md` | 各阶段步骤清单、验收命令、提交清单 |
+| ① | `p0/poste-sql-file-syntax.en.md` (EN) / `p0/poste-sql-file-syntax.zh.md` (ZH) | 文件结构、指令规则、语句边界、JSON 契约、上下文类型语义（共 8 节） |
+| ② | `plan.en.md` (EN) / `plan.zh.md` (ZH) | 各阶段步骤清单、验收命令、提交清单 |
 
 读完后可参考：
 
 | 参考 | 文件 | 何时看 |
 |------|------|--------|
-| 设计决策 D1-D10 的权衡分析 | `p0/design-decisions.md` | 遇到边界情况或质疑当前选择时 |
-| 会议辩论记录 + 后续决策 | `p0/meeting-minutes.md` | 想理解某个决策为什么会这样定 |
+| 设计决策 D1-D10 的权衡分析 | `p0/design-decisions.en.md` (EN) / `p0/design-decisions.zh.md` (ZH) | 遇到边界情况或质疑当前选择时 |
+| 会议辩论记录 + 后续决策 | `p0/meeting-minutes.zh.md` (仅中文) | 想理解某个决策为什么会这样定 |
 
-**不需要读**：`README.md`（原始计划，已被 `plan.md` 替代）、`p0/meeting-agenda.md`（历史会议议程）。
+**不需要读**：`README.en.md` / `README.zh.md`（原始计划，已被 `plan.*.md` 替代）、`p0/meeting-agenda.*.md`（历史会议议程）。
 
 ---
 
@@ -66,10 +66,10 @@ cargo clippy -p poste-core -p poste-cli -p poste-exec -- -D warnings
 
 ### 2.4 进度跟踪
 
-每次实施后更新 `plan.md` 顶部的进度条和勾选项：
+每次实施后更新 `plan.en.md` / `plan.zh.md` 顶部的进度条和勾选项：
 
 ```markdown
-> **进度**: P0 ✅ | P1 ⬜/⬜/⬜/⬜ | P2 ⬜ | P3 ⬜ | P4 ⬜
+> **Progress**: P0 ✅ | P1 ⬜/⬜/⬜/⬜ | P2 ⬜ | P3 ⬜ | P4 ⬜
 ```
 
 用 `[x]` 标记已完成的复选框，`⬜` 表示尚未开始，半进度可用 `⬜/⬜/⬜/⬜` 表示子步骤完成数。
@@ -86,9 +86,10 @@ cargo clippy -p poste-core -p poste-cli -p poste-exec -- -D warnings
 
 | 需要 | 路径 |
 |------|------|
-| 当前实施步骤 | `plan.md` — 找到第一个未勾选的 `[ ]` |
-| 上下文类型完整表（14 种 + 42 种边缘情况） | `poste-sql-file-syntax.md` §5 |
-| JSON 契约字段定义 | `poste-sql-file-syntax.md` §4 |
-| 语句边界规则 | `poste-sql-file-syntax.md` §3 |
-| 每阶段改动文件清单 | `plan.md` 底部表格 |
-| 提交顺序 | `plan.md` §提交序列 |
+| 当前实施步骤 | `plan.en.md` / `plan.zh.md` — 找到第一个未勾选的 `[ ]` |
+| 上下文类型完整表（14 种 + 42 种边缘情况） | `p0/poste-sql-file-syntax.*.md` §5 |
+| JSON 契约字段定义 | `p0/poste-sql-file-syntax.*.md` §4 |
+| 语句边界规则 | `p0/poste-sql-file-syntax.*.md` §3 |
+| 每阶段改动文件清单 | `plan.*.md` — 各 P1-P4 步骤内标注的 "Files:" 列表 |
+| 全局提交清单 | `plan.*.md` §Global Commit Checklist（文件末尾） |
+

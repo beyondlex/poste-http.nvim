@@ -1,5 +1,6 @@
 --- Persistent context client — manages a `poste context serve` subprocess.
---- Replaces per-keystroke `vim.fn.system()` with line-delimited JSON over stdin/stdout.
+--- Designed for non-critical background I/O (introspection, data pre-fetching).
+--- NOT used on the completion hot path — that uses `vim.fn.system()`.
 local state = require("poste.state")
 
 local M = {}
@@ -9,6 +10,11 @@ local _next_id = 1
 local _callbacks = {}
 local _buf = ""
 local _stopped = false
+local _restart_attempts = 0
+local _restart_timer = nil
+
+local MAX_RESTART_DELAY_MS = 5000
+local RESTART_BASE_DELAY_MS = 200
 
 local function find_binary()
   if state.config and state.config.poste_binary ~= ""
@@ -31,16 +37,32 @@ local function find_binary()
   return vim.fn.exepath("poste")
 end
 
+local function schedule_restart()
+  if _stopped or _restart_timer then return end
+  _restart_attempts = _restart_attempts + 1
+  local delay = math.min(
+    RESTART_BASE_DELAY_MS * (2 ^ (_restart_attempts - 1)),
+    MAX_RESTART_DELAY_MS
+  )
+  _restart_timer = vim.defer_fn(function()
+    _restart_timer = nil
+    start()
+  end, delay)
+end
+
 local function start()
   if _stopped then return false end
-  if _job_id and vim.fn.jobwait({ _job_id }, 0) == -1 then
-    return true
+
+  if _job_id then
+    local running = vim.fn.jobwait({ _job_id }, 0) == -1
+    if running then return true end
+    _job_id = nil
   end
 
   local binary = find_binary()
   if not binary or binary == "" then return false end
 
-  _job_id = vim.fn.jobstart({ binary, "context", "serve" }, {
+  local ok, new_id = pcall(vim.fn.jobstart, { binary, "context", "serve" }, {
     stdin = "pipe",
     stdout_buffered = false,
     stderr_buffered = true,
@@ -57,8 +79,8 @@ local function start()
         local line = _buf:sub(1, nl - 1)
         _buf = _buf:sub(nl + 1)
         if line ~= "" then
-          local ok, parsed = pcall(vim.json.decode, line)
-          if ok and parsed and type(parsed) == "table" and parsed.id then
+          local ok_p, parsed = pcall(vim.json.decode, line)
+          if ok_p and parsed and type(parsed) == "table" and parsed.id then
             local cb = _callbacks[parsed.id]
             _callbacks[parsed.id] = nil
             if cb then
@@ -79,8 +101,8 @@ local function start()
       end
     end,
     on_exit = function(_, _code, _event_type)
+      _restart_attempts = _restart_attempts + 1
       _job_id = nil
-      -- Flush pending callbacks with nil results (server died)
       local pending = _callbacks
       _callbacks = {}
       vim.schedule(function()
@@ -88,28 +110,30 @@ local function start()
           cb(nil)
         end
       end)
-      -- Auto-restart (unless explicitly stopped)
       if not _stopped then
-        vim.defer_fn(function()
-          start()
-        end, 100)
+        schedule_restart()
       end
     end,
   })
 
-  if _job_id <= 0 then
-    _job_id = nil
-    return false
-  end
+  if not ok or new_id <= 0 then return false end
+
+  _job_id = new_id
+  _restart_attempts = 0
   return true
 end
 
 function M.stop()
   _stopped = true
   _callbacks = {}
+  if _restart_timer then
+    vim.fn.timer_stop(_restart_timer)
+    _restart_timer = nil
+  end
   if _job_id then
-    vim.fn.jobstop(_job_id)
+    local jid = _job_id
     _job_id = nil
+    pcall(vim.fn.jobstop, jid)
   end
 end
 

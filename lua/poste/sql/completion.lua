@@ -116,54 +116,28 @@ local function try_rust_context(bufnr, line_before, cursor_line)
 
   local dialect = get_dialect_flag()
 
-  -- Try persistent client first
-  local client_ok, client = pcall(require, "poste.sql.context_client")
-  local result = nil
-  local done = false
+  local binary = data.find_binary()
+  if not binary then return nil end
 
-  if client_ok and client then
-    client.detect(sql_text, offset, dialect, function(resp)
-      if resp and resp.ok and resp.result then
-        deep_clean(resp.result)
-        result = resp.result
-        if vim.g.poste_sql_debug then
-          state.log("INFO", string.format("Rust context (persistent): type=%s, prefix='%s', tables=%d",
-            tostring(result.ctx_type), tostring(result.prefix or ""),
-            result.tables and #result.tables or 0))
-        end
-      end
-      done = true
-    end)
-    -- Wait up to 50ms for response (P4j)
-    vim.wait(50, function() return done end, 5)
+  local dialect_flag = dialect ~= "generic" and (" --dialect " .. dialect) or ""
+  local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset, dialect_flag)
+  local output = vim.fn.system(cmd, sql_text)
+  if vim.v.shell_error ~= 0 then return nil end
+
+  local ok, parsed = pcall(vim.json.decode, output)
+  if not ok or not parsed or type(parsed) ~= "table" then return nil end
+
+  debug.set_rust_raw(output)
+  deep_clean(parsed)
+
+  if vim.g.poste_sql_debug then
+    state.log("INFO", string.format("Rust context: type=%s, prefix='%s', tables=%d",
+      tostring(parsed.ctx_type), tostring(parsed.prefix or ""),
+      parsed.tables and #parsed.tables or 0))
   end
 
-  -- Persistent client failed or timed out: fall back to vim.fn.system()
-  if not result then
-    local binary = data.find_binary()
-    if not binary then return nil end
-
-    local dialect_flag = dialect ~= "generic" and (" --dialect " .. dialect) or ""
-    local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset, dialect_flag)
-    local output = vim.fn.system(cmd, sql_text)
-    if vim.v.shell_error ~= 0 then return nil end
-
-    local ok, parsed = pcall(vim.json.decode, output)
-    if not ok or not parsed or type(parsed) ~= "table" then return nil end
-
-    debug.set_rust_raw(output)
-    deep_clean(parsed)
-    result = parsed
-
-    if vim.g.poste_sql_debug then
-      state.log("INFO", string.format("Rust context (system): type=%s, prefix='%s', tables=%d",
-        tostring(result.ctx_type), tostring(result.prefix or ""),
-        result.tables and #result.tables or 0))
-    end
-  end
-
-  _ctx_cache[ckey] = result
-  return result
+  _ctx_cache[ckey] = parsed
+  return parsed
 end
 
 ---------------------------------------------------------------------------

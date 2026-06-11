@@ -36,7 +36,7 @@ mod tests;
 pub(crate) use tokenizer::*;
 
 pub use context::{detect_context, detect_context_with_dialect};
-pub use statements::find_statement_span;
+pub use statements::{find_statement_span, find_all_statement_ranges};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SqlDialect {

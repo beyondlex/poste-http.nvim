@@ -94,7 +94,15 @@ local function fetch_and_highlight(buf, cursor_line)
   -- Primary: Rust semantic boundary detection
   local s, e = try_rust_span(lines, cursor_line)
   if s and e then
-    apply_range(buf, s - 1, e - 1) -- convert 1-based → 0-based for extmark
+    -- If the span is a single blank line, don't highlight (nothing to show)
+    if s == e then
+      local line_text = lines[s] or ""
+      if line_text:match("^%s*$") then
+        clear_prev()
+        return
+      end
+    end
+    apply_range(buf, s - 1, e - 1)
     return
   end
 

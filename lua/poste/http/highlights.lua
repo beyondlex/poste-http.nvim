@@ -118,7 +118,7 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteSqlAdded",        { bg = 0x003d00 })                 -- green tint
 
   -- Statement boundary indicator (subtle background for current statement)
-  vim.api.nvim_set_hl(0, "PosteSqlBoundary", { bg = 0x2d3a4a })                    -- subtle blue-gray
+  vim.api.nvim_set_hl(0, "PosteSqlBoundary", { bg = 0x43265e })                    -- subtle blue-gray
 end
 
 -- Apply highlights immediately on require

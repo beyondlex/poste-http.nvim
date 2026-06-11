@@ -139,6 +139,7 @@ function M.run_sql_request()
   else
     local line = vim.fn.line(".")
     buf_content, adjusted_line, stmt_start = statement.extract_stmt_at_cursor(buf_lines, line)
+    if not buf_content then return end
     stmt_lines = { stmt_start or 1 }
   end
 

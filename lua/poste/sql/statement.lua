@@ -75,6 +75,54 @@ function M.try_rust_stmt_span(buf_lines, cursor_line)
   return { abs_start, abs_end }
 end
 
+--- Try to find ALL statement boundaries using the Rust binary.
+--- Calls `poste context stmt-ranges` which returns semantic boundaries
+--- without relying on ';'.
+--- Returns number[] of 1-based buffer statement start lines, or nil.
+function M.try_rust_stmt_ranges(buf_lines, start_line, end_line)
+  local binary = state.find_poste_binary()
+  if not binary then return nil end
+
+  -- Extract the range of lines
+  local range_lines = {}
+  for i = start_line, end_line do
+    range_lines[#range_lines + 1] = buf_lines[i] or ""
+  end
+
+  local cmd = string.format("%s context stmt-ranges", vim.fn.shellescape(binary))
+  local input = table.concat(range_lines, "\n")
+  local output = vim.fn.system(cmd, input)
+  if vim.v.shell_error ~= 0 then return nil end
+
+  local ok, parsed = pcall(vim.json.decode, output)
+  if not ok or type(parsed) ~= "table" or #parsed == 0 then return nil end
+
+  -- parsed is [[start0, end0], [start1, end1], ...] (0-based, relative to range)
+  local stmt_lines = {}
+  for _, pair in ipairs(parsed) do
+    local rs
+    if type(pair[1]) == "number" then
+      rs = pair[1]
+    elseif type(pair.start_line) == "number" then
+      rs = pair.start_line
+    else
+      goto continue_range
+    end
+    local abs_start = start_line + rs
+    local line_text = buf_lines[abs_start] or ""
+    local trimmed = line_text:match("^%s*(.*)$")
+    -- Filter out blank, directive, ###, USE, and comment lines
+    if trimmed ~= "" and not trimmed:match("^%-%-%s*@")
+        and not trimmed:match("^%s*###") and not trimmed:upper():match("^USE ")
+        and not trimmed:match("^%-%-") then
+      table.insert(stmt_lines, abs_start)
+    end
+    ::continue_range::
+  end
+
+  return #stmt_lines > 0 and stmt_lines or nil
+end
+
 ---------------------------------------------------------------------------
 -- Single-statement extraction
 ---------------------------------------------------------------------------
@@ -106,13 +154,14 @@ function M.extract_stmt_at_cursor(buf_lines, cursor_line)
     -- If cursor is on a blank line, skip forward past empty lines
     -- to find the next statement start.
     if (buf_lines[cursor_line] or ""):match("^%s*$") then
+      -- Cursor on blank line: skip forward past empty lines from the
+      -- Rust result, and show the statement above the blank lines.
       while stmt_start <= #buf_lines and (buf_lines[stmt_start] or ""):match("^%s*$") do
         stmt_start = stmt_start + 1
       end
     end
     -- Skip past directive lines (-- @connection, -- @database), ### markers,
-    -- and blank lines before the cursor — Rust's find_statement_span only
-    -- uses ; boundaries, so it doesn't know about these SQL-file-specific constructs.
+    -- and blank lines before the cursor.
     while stmt_start < cursor_line and stmt_start <= #buf_lines do
       local l = buf_lines[stmt_start] or ""
       if l:match("^%s*$") or l:match("^%s*%-%-") or l:match("^%s*###") then
@@ -166,12 +215,24 @@ function M.extract_stmt_at_cursor(buf_lines, cursor_line)
     table.insert(stmt_lines, buf_lines[i] or "")
   end
 
+  -- If the detected statement is all blank/empty lines, nothing to execute
+  local all_blank = true
+  for _, l in ipairs(stmt_lines) do
+    if not l:match("^%s*$") then all_blank = false; break end
+  end
+  if all_blank then
+    return nil, nil, stmt_start
+  end
+
   local parts = {}
   for _, l in ipairs(directives) do table.insert(parts, l) end
   table.insert(parts, "###")
   for _, l in ipairs(stmt_lines) do table.insert(parts, l) end
 
-  local adjusted_line = #directives + 1 + ((cursor_line >= stmt_start and cursor_line or stmt_start) - stmt_start + 1)
+  -- When cursor is below the statement (e.g. on blank lines below), clamp
+  -- adjusted_line to stmt_end so it doesn't exceed the synthetic ### block.
+  local cursor_ref = (cursor_line >= stmt_start) and math.min(cursor_line, stmt_end) or stmt_start
+  local adjusted_line = #directives + 1 + (cursor_ref - stmt_start + 1)
   return table.concat(parts, "\n"), adjusted_line, stmt_start
 end
 
@@ -188,6 +249,11 @@ end
 --- @param end_line   number  1-indexed end of range
 --- @return number[]  buffer line numbers of each statement's first content line
 function M.find_stmt_lines(buf_lines, start_line, end_line)
+  -- Try Rust semantic boundary detection first
+  local rust_lines = M.try_rust_stmt_ranges(buf_lines, start_line, end_line)
+  if rust_lines then return rust_lines end
+
+  -- Fallback: Lua ;-scan
   local stmt_lines = {}
   local current_stmt = nil
 
@@ -330,6 +396,7 @@ M._test = {
   find_stmt_lines = M.find_stmt_lines,
   extract_visual_block = M.extract_visual_block,
   try_rust_stmt_span = M.try_rust_stmt_span,
+  try_rust_stmt_ranges = M.try_rust_stmt_ranges,
   find_block_for_line = M.find_block_for_line,
 }
 

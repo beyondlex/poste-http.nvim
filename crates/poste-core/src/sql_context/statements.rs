@@ -62,23 +62,36 @@ pub(crate) fn find_statement_token_range(
 ) -> (usize, usize) {
     let depths = compute_paren_depths(tokens);
 
-    // -- backward scan: find statement start and its keyword --
+    // -- check if cursor is ON a stmt-start keyword (e.g. SELECT, INSERT) --
+    // When the cursor is on the keyword itself, that IS the statement start.
+    // Otherwise scan backward to find the most recent boundary.
     let mut start = 0;
     let mut stmt_kw = String::new();
-    for i in (0..cursor_idx).rev() {
-        if depths[i] != 0 {
-            continue;
+    if cursor_idx < tokens.len()
+        && depths[cursor_idx] == 0
+        && tokens[cursor_idx].kind == TokenKind::Keyword
+    {
+        let kw = tokens[cursor_idx].text(sql).to_ascii_lowercase();
+        if is_statement_start_keyword(&kw) {
+            start = cursor_idx;
+            stmt_kw = kw;
         }
-        if tokens[i].kind == TokenKind::Semi {
-            start = i + 1;
-            break;
-        }
-        if tokens[i].kind == TokenKind::Keyword {
-            let kw = tokens[i].text(sql).to_ascii_lowercase();
-            if is_statement_start_keyword(&kw) {
-                start = i;
-                stmt_kw = kw;
+    }
+    if start == 0 {
+        // -- backward scan: find statement start --
+        for i in (0..cursor_idx).rev() {
+            if depths[i] != 0 { continue; }
+            if tokens[i].kind == TokenKind::Semi {
+                start = i + 1;
                 break;
+            }
+            if tokens[i].kind == TokenKind::Keyword {
+                let kw = tokens[i].text(sql).to_ascii_lowercase();
+                if is_statement_start_keyword(&kw) {
+                    start = i;
+                    stmt_kw = kw;
+                    break;
+                }
             }
         }
     }
@@ -200,12 +213,103 @@ pub fn find_statement_span(lines: &[&str], cursor_line: usize) -> Option<(usize,
         return Some((cursor_line, cursor_line));
     }
 
+    // Skip trailing whitespace/comments so we don't bleed into the next line
+    let mut last_tok = end_tok.saturating_sub(1);
+    while last_tok > start_tok && matches!(
+        tokens[last_tok].kind,
+        TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment
+    ) {
+        last_tok = last_tok.saturating_sub(1);
+    }
+
     let start_line = byte_to_line(&line_offsets, tokens[start_tok].start);
-    let last_tok = end_tok.saturating_sub(1);
+
     let end_byte = tokens[last_tok].end;
     let end_line = byte_to_line(&line_offsets, end_byte);
 
     Some((start_line, end_line))
+}
+
+/// Find ALL statement line ranges in the given lines.
+pub fn find_all_statement_ranges(lines: &[&str]) -> Vec<(usize, usize)> {
+    if lines.is_empty() {
+        return vec![];
+    }
+    if lines.len() == 1 {
+        return vec![(0, 0)];
+    }
+
+    let text = lines.join("\n");
+    let tokens = tokenize(&text);
+    if tokens.is_empty() {
+        return vec![(0, lines.len() - 1)];
+    }
+
+    let line_offsets: Vec<usize> = {
+        let mut offsets = Vec::with_capacity(lines.len() + 1);
+        let mut offset = 0;
+        offsets.push(offset);
+        for l in lines {
+            offset += l.len() + 1;
+            offsets.push(offset);
+        }
+        offsets.pop();
+        offsets
+    };
+
+    let depths = compute_paren_depths(&tokens);
+
+    let mut result: Vec<(usize, usize)> = Vec::new();
+    let mut stmt_start = 0usize;
+    let mut in_with = false;
+
+    for (i, t) in tokens.iter().enumerate() {
+        if depths[i] != 0 { continue; }
+        if t.kind == TokenKind::Semi {
+            result.push((stmt_start, i));
+            stmt_start = i + 1;
+            in_with = false;
+            continue;
+        }
+        if t.kind == TokenKind::Keyword {
+            let kw = t.text(&text).to_ascii_lowercase();
+            if is_statement_start_keyword(&kw) {
+                let contained = kw == "update"
+                    && stmt_start > 0
+                    && tokens[stmt_start..i].iter().any(|tt| {
+                        let ttxt = tt.text(&text).to_ascii_lowercase();
+                        is_statement_start_keyword(&ttxt) && kw_contains(&ttxt, &kw)
+                    });
+                if in_with || contained {
+                    in_with = false;
+                    continue;
+                }
+                if i > stmt_start {
+                    result.push((stmt_start, i));
+                }
+                stmt_start = i;
+                in_with = kw == "with";
+            }
+        }
+    }
+
+    if stmt_start < tokens.len() {
+        result.push((stmt_start, tokens.len()));
+    }
+
+    // Convert token ranges → line ranges
+    let out: Vec<(usize, usize)> = result.iter().map(|&(s, e)| {
+        let start_line = byte_to_line(&line_offsets, tokens[s].start);
+        if e == 0 || e > tokens.len() {
+            (start_line, lines.len() - 1)
+        } else {
+            let last = e.saturating_sub(1);
+            let end_line = byte_to_line(&line_offsets, tokens[last].end);
+            (start_line, end_line)
+        }
+    }).collect();
+
+    out
 }
 
 fn byte_to_line(offsets: &[usize], byte: usize) -> usize {

@@ -84,6 +84,8 @@ enum ContextAction {
         /// Cursor line number (0-based)
         cursor_line: usize,
     },
+    /// Find ALL statement boundary line ranges in the given text
+    StmtRanges,
     /// Persistent server mode: read line-delimited JSON requests from stdin
     Serve,
 }
@@ -392,6 +394,13 @@ fn handle_context_command(action: ContextAction) -> Result<()> {
                 None => ContextStmtResponse { start_line: 0, end_line: 0 },
             };
             println!("{}", serde_json::to_string(&response)?);
+        }
+        ContextAction::StmtRanges => {
+            let mut input = String::new();
+            std::io::stdin().read_to_string(&mut input)?;
+            let lines: Vec<&str> = input.lines().collect();
+            let ranges = poste_core::sql_context::find_all_statement_ranges(&lines);
+            println!("{}", serde_json::to_string(&ranges)?);
         }
         ContextAction::Serve => {
             handle_serve()?;

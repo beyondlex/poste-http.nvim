@@ -1,3 +1,5 @@
+local state = require("poste.state")
+
 local ICONS = {
   connection = "\239\136\179",
   mysql      = "\238\156\132",
@@ -78,6 +80,14 @@ local function setup_highlights()
     vim.api.nvim_set_hl(0, "PosteSqlBrowserIconPk", { fg = "#8c6c3e" })
     vim.api.nvim_set_hl(0, "PosteSqlBrowserIconFk", { fg = "#1880a8" })
   end
+
+  state.apply_highlight_overrides({
+    "PosteSqlBrowserHeader", "PosteSqlBrowserSeparator", "PosteSqlBrowserMarker",
+    "PosteSqlBrowserTable", "PosteSqlBrowserType", "PosteSqlBrowserCount",
+    "PosteSqlBrowserIconConn", "PosteSqlBrowserIconDb", "PosteSqlBrowserIconSchema",
+    "PosteSqlBrowserIconTable", "PosteSqlBrowserIconCol",
+    "PosteSqlBrowserIconPk", "PosteSqlBrowserIconFk",
+  })
 end
 
 setup_highlights()

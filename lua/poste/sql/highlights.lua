@@ -144,6 +144,18 @@ function M.setup()
     bold = true,
     underline = true,
   })
+
+  state.apply_highlight_overrides({
+    "PosteSqlModified", "PosteSqlDeleted", "PosteSqlAdded",
+    "PosteSqlCellText", "PosteSqlSep", "PosteSqlBorder",
+    "PosteSqlHeader", "PosteSqlWinbarBorder", "PosteSqlWinbarSep",
+    "PosteSqlMeta", "PosteSqlMetaDim", "PosteSqlNull",
+    "PosteSqlNumber", "PosteSqlBool", "PosteSqlSortIndicator",
+    "PosteSqlRowNum", "PosteSqlCellSelected",
+    "PosteSearchMatch", "PosteSearchCurrent",
+    "PosteFilterActive", "PosteSearchActive",
+    "PosteInsertHint",
+  })
 end
 
 -- Apply highlights on require

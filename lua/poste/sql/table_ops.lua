@@ -193,25 +193,37 @@ end
 function M.register_keymaps(browser_buf, get_table_context)
   local opts = { buffer = browser_buf, noremap = true, silent = true }
 
-  vim.keymap.set("n", "ma", function()
-    local ctx = get_table_context()
-    if ctx then M.add_column(ctx.table_name, ctx.dialect, ctx.source_buf) end
-  end, vim.tbl_extend("force", opts, { desc = "Add column" }))
+  local k = state.get_keymap("sql_table_ops", "select_all", "ma")
+  if k then
+    vim.keymap.set("n", k, function()
+      local ctx = get_table_context()
+      if ctx then M.add_column(ctx.table_name, ctx.dialect, ctx.source_buf) end
+    end, vim.tbl_extend("force", opts, { desc = "Add column" }))
+  end
 
-  vim.keymap.set("n", "mr", function()
-    local ctx = get_table_context()
-    if ctx then M.rename_column(ctx.table_name, ctx.dialect, ctx.source_buf) end
-  end, vim.tbl_extend("force", opts, { desc = "Rename column" }))
+  k = state.get_keymap("sql_table_ops", "refresh_all", "mr")
+  if k then
+    vim.keymap.set("n", k, function()
+      local ctx = get_table_context()
+      if ctx then M.rename_column(ctx.table_name, ctx.dialect, ctx.source_buf) end
+    end, vim.tbl_extend("force", opts, { desc = "Rename column" }))
+  end
 
-  vim.keymap.set("n", "md", function()
-    local ctx = get_table_context()
-    if ctx then M.drop_column(ctx.table_name, ctx.dialect, ctx.source_buf) end
-  end, vim.tbl_extend("force", opts, { desc = "Drop column" }))
+  k = state.get_keymap("sql_table_ops", "describe_all", "md")
+  if k then
+    vim.keymap.set("n", k, function()
+      local ctx = get_table_context()
+      if ctx then M.drop_column(ctx.table_name, ctx.dialect, ctx.source_buf) end
+    end, vim.tbl_extend("force", opts, { desc = "Drop column" }))
+  end
 
-  vim.keymap.set("n", "mt", function()
-    local ctx = get_table_context()
-    if ctx then M.alter_type(ctx.table_name, ctx.dialect, ctx.source_buf) end
-  end, vim.tbl_extend("force", opts, { desc = "Alter column type" }))
+  k = state.get_keymap("sql_table_ops", "toggle_menu", "mt")
+  if k then
+    vim.keymap.set("n", k, function()
+      local ctx = get_table_context()
+      if ctx then M.alter_type(ctx.table_name, ctx.dialect, ctx.source_buf) end
+    end, vim.tbl_extend("force", opts, { desc = "Alter column type" }))
+  end
 end
 
 return M

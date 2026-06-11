@@ -65,8 +65,10 @@ function M.show_float(lines, title, ft)
   local close_fn = function()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
   end
-  vim.keymap.set("n", "q", close_fn, sopts)
-  vim.keymap.set("n", "<Esc>", close_fn, sopts)
+  local ck = state.get_keymap("introspect_float", "close", "q")
+  if ck then vim.keymap.set("n", ck, close_fn, sopts) end
+  ck = state.get_keymap("introspect_float", "close_alt", "<Esc>")
+  if ck then vim.keymap.set("n", ck, close_fn, sopts) end
 end
 
 ---------------------------------------------------------------------------

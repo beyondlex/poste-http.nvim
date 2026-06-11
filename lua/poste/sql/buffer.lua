@@ -25,39 +25,72 @@ function M.get_dataset_buffer()
 
   local opts = { buffer = D.dataset_buffer, noremap = true, silent = true }
 
-  vim.keymap.set("n", "q", function() M.close() end, opts)
-  vim.keymap.set("n", "h", function() require("poste.sql.buffer_nav").move_cell(0, -1) end, opts)
-  vim.keymap.set("n", "j", function() require("poste.sql.buffer_nav").move_cell(1, 0) end, opts)
-  vim.keymap.set("n", "k", function() require("poste.sql.buffer_nav").move_cell(-1, 0) end, opts)
-  vim.keymap.set("n", "l", function() require("poste.sql.buffer_nav").move_cell(0, 1) end, opts)
-  vim.keymap.set("n", "H", function() require("poste.sql.buffer_page").prev_page() end, opts)
-  vim.keymap.set("n", "L", function() require("poste.sql.buffer_page").next_page() end, opts)
-  vim.keymap.set("n", "0", function() require("poste.sql.buffer_nav").goto_first_col() end, opts)
-  vim.keymap.set("n", "$", function() require("poste.sql.buffer_nav").goto_last_col() end, opts)
-  vim.keymap.set("n", "gg", function() require("poste.sql.buffer_nav").goto_first_row() end, opts)
-  vim.keymap.set("n", "G", function() require("poste.sql.buffer_nav").goto_last_row() end, opts)
-  vim.keymap.set("n", "K", function() require("poste.sql.buffer_nav").preview_cell() end, opts)
-  vim.keymap.set("n", "yy", function() require("poste.sql.buffer_nav").yank_cell() end, opts)
-  vim.keymap.set("n", "yc", function() require("poste.sql.buffer_nav").yank_column() end, opts)
-  vim.keymap.set("n", "s", function() require("poste.sql.buffer_nav").sort_by_current_col() end, opts)
-  vim.keymap.set("n", "zh", function() require("poste.sql.buffer_nav").toggle_cell_highlight() end, opts)
-  vim.keymap.set("n", "zH", function() require("poste.sql.buffer_nav").toggle_header_float() end, opts)
-  vim.keymap.set("n", "zN", function() require("poste.sql.buffer_nav").toggle_row_numbers() end, opts)
-  vim.keymap.set("n", "<leader>gp", function() require("poste.sql.buffer_nav").toggle_raw_mode() end, opts)
-  vim.keymap.set("n", "<Tab>", function() M.next_tab() end, opts)
-  vim.keymap.set("n", "<S-Tab>", function() M.prev_tab() end, opts)
-  vim.keymap.set("n", "R", function()
-    vim.schedule(function() require("poste.sql.init").run_sql_request() end)
-  end, opts)
-  vim.keymap.set("n", "<leader>hh", function() require("poste.sql.buffer_page").goto_first_page() end, opts)
-  vim.keymap.set("n", "<leader>ll", function() require("poste.sql.buffer_page").goto_last_page() end, opts)
-  vim.keymap.set("n", "<leader>pa", function() require("poste.sql.buffer_page").toggle_pagination() end, opts)
-  vim.keymap.set("n", "<leader>fc", function() require("poste.sql.buffer_search").find_column() end, opts)
-  vim.keymap.set("n", "<leader>ce", function() require("poste.sql.buffer_search").filter_by_current_cell() end, opts)
-  vim.keymap.set("n", "<leader>/", function() require("poste.sql.buffer_search").show_search() end, opts)
-  vim.keymap.set("n", "<leader>cr", function() require("poste.sql.buffer_search").clear_filter_search() end, opts)
-  vim.keymap.set("n", "n", function() require("poste.sql.buffer_search").next_search_match() end, opts)
-  vim.keymap.set("n", "N", function() require("poste.sql.buffer_search").prev_search_match() end, opts)
+  local k = state.get_keymap("sql_dataset", "close", "q")
+  if k then vim.keymap.set("n", k, function() M.close() end, opts) end
+  k = state.get_keymap("sql_dataset", "move_left", "h")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").move_cell(0, -1) end, opts) end
+  k = state.get_keymap("sql_dataset", "move_down", "j")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").move_cell(1, 0) end, opts) end
+  k = state.get_keymap("sql_dataset", "move_up", "k")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").move_cell(-1, 0) end, opts) end
+  k = state.get_keymap("sql_dataset", "move_right", "l")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").move_cell(0, 1) end, opts) end
+  k = state.get_keymap("sql_dataset", "prev_page", "H")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_page").prev_page() end, opts) end
+  k = state.get_keymap("sql_dataset", "next_page", "L")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_page").next_page() end, opts) end
+  k = state.get_keymap("sql_dataset", "first_col", "0")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").goto_first_col() end, opts) end
+  k = state.get_keymap("sql_dataset", "last_col", "$")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").goto_last_col() end, opts) end
+  k = state.get_keymap("sql_dataset", "first_row", "gg")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").goto_first_row() end, opts) end
+  k = state.get_keymap("sql_dataset", "last_row", "G")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").goto_last_row() end, opts) end
+  k = state.get_keymap("sql_dataset", "preview_cell", "K")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").preview_cell() end, opts) end
+  k = state.get_keymap("sql_dataset", "yank_cell", "yy")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").yank_cell() end, opts) end
+  k = state.get_keymap("sql_dataset", "yank_column", "yc")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").yank_column() end, opts) end
+  k = state.get_keymap("sql_dataset", "sort_column", "s")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").sort_by_current_col() end, opts) end
+  k = state.get_keymap("sql_dataset", "toggle_cell_highlight", "zh")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").toggle_cell_highlight() end, opts) end
+  k = state.get_keymap("sql_dataset", "toggle_header_float", "zH")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").toggle_header_float() end, opts) end
+  k = state.get_keymap("sql_dataset", "toggle_row_numbers", "zN")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").toggle_row_numbers() end, opts) end
+  k = state.get_keymap("sql_dataset", "toggle_raw_mode", "<leader>gp")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_nav").toggle_raw_mode() end, opts) end
+  k = state.get_keymap("sql_dataset", "next_tab", "<Tab>")
+  if k then vim.keymap.set("n", k, function() M.next_tab() end, opts) end
+  k = state.get_keymap("sql_dataset", "prev_tab", "<S-Tab>")
+  if k then vim.keymap.set("n", k, function() M.prev_tab() end, opts) end
+  k = state.get_keymap("sql_dataset", "rerun", "R")
+  if k then
+    vim.keymap.set("n", k, function()
+      vim.schedule(function() require("poste.sql.init").run_sql_request() end)
+    end, opts)
+  end
+  k = state.get_keymap("sql_dataset", "goto_first_page", "<leader>hh")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_page").goto_first_page() end, opts) end
+  k = state.get_keymap("sql_dataset", "goto_last_page", "<leader>ll")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_page").goto_last_page() end, opts) end
+  k = state.get_keymap("sql_dataset", "toggle_pagination", "<leader>pa")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_page").toggle_pagination() end, opts) end
+  k = state.get_keymap("sql_dataset", "find_column", "<leader>fc")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_search").find_column() end, opts) end
+  k = state.get_keymap("sql_dataset", "filter_by_cell", "<leader>ce")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_search").filter_by_current_cell() end, opts) end
+  k = state.get_keymap("sql_dataset", "show_search", "<leader>/")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_search").show_search() end, opts) end
+  k = state.get_keymap("sql_dataset", "clear_filter_search", "<leader>cr")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_search").clear_filter_search() end, opts) end
+  k = state.get_keymap("sql_dataset", "next_search", "n")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_search").next_search_match() end, opts) end
+  k = state.get_keymap("sql_dataset", "prev_search", "N")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_search").prev_search_match() end, opts) end
 
   return D.dataset_buffer
 end

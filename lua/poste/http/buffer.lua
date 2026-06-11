@@ -89,20 +89,41 @@ local function get_response_buffer()
   local opts = { buffer = response_buffer, noremap = true, silent = true }
 
   -- Close window
-  vim.keymap.set("n", "q", function()
-    if response_window and vim.api.nvim_win_is_valid(response_window) then
-      vim.api.nvim_win_close(response_window, true)
-      response_window = nil
-    end
-  end, opts)
+  local k = state.get_keymap("http_response", "close", "q")
+  if k then
+    vim.keymap.set("n", k, function()
+      if response_window and vim.api.nvim_win_is_valid(response_window) then
+        vim.api.nvim_win_close(response_window, true)
+        response_window = nil
+      end
+    end, opts)
+  end
 
   -- Tab switching keymaps — delegate to on_show_view callback
-  vim.keymap.set("n", "B", function() if M.on_show_view then M.on_show_view("body") end end, opts)
-  vim.keymap.set("n", "I", function() if M.on_show_view then M.on_show_view("verbose") end end, opts)
-  vim.keymap.set("n", "A", function() if M.on_show_view then M.on_show_view("assertions") end end, opts)
-  vim.keymap.set("n", "S", function() if M.on_show_view then M.on_show_view("script_logs") end end, opts)
-  vim.keymap.set("n", "<Tab>", function() M.cycle_tab(1) end, opts)
-  vim.keymap.set("n", "<S-Tab>", function() M.cycle_tab(-1) end, opts)
+  k = state.get_keymap("http_response", "view_body", "B")
+  if k then
+    vim.keymap.set("n", k, function() if M.on_show_view then M.on_show_view("body") end end, opts)
+  end
+  k = state.get_keymap("http_response", "view_verbose", "I")
+  if k then
+    vim.keymap.set("n", k, function() if M.on_show_view then M.on_show_view("verbose") end end, opts)
+  end
+  k = state.get_keymap("http_response", "view_assertions", "A")
+  if k then
+    vim.keymap.set("n", k, function() if M.on_show_view then M.on_show_view("assertions") end end, opts)
+  end
+  k = state.get_keymap("http_response", "view_script_logs", "S")
+  if k then
+    vim.keymap.set("n", k, function() if M.on_show_view then M.on_show_view("script_logs") end end, opts)
+  end
+  k = state.get_keymap("http_response", "next_tab", "<Tab>")
+  if k then
+    vim.keymap.set("n", k, function() M.cycle_tab(1) end, opts)
+  end
+  k = state.get_keymap("http_response", "prev_tab", "<S-Tab>")
+  if k then
+    vim.keymap.set("n", k, function() M.cycle_tab(-1) end, opts)
+  end
 
   return response_buffer
 end

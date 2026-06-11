@@ -11,6 +11,96 @@ M.config = {
   split_direction = "vertical",
   split_size = 80,
   log_file = vim.fn.stdpath("cache") .. "/poste.log",
+
+  -- User-overridable keymaps. Set to false to disable a keymap.
+  -- Each section maps action names → key strings.
+  keymaps = {
+    source_buffer = {
+      run = "<CR>",
+      jump_next = "]]",
+      jump_prev = "[[",
+      goto_definition = "gd",
+      goto_references = "grr",
+      quickfix_next = "]q",
+      quickfix_prev = "[q",
+      paste_curl = "<leader>rp",
+      copy_as_curl = "<leader>rc",
+      show_symbols = "gs",
+    },
+    http_response = {
+      close = "q",
+      view_body = "B",
+      view_verbose = "I",
+      view_assertions = "A",
+      view_script_logs = "S",
+      next_tab = "<Tab>",
+      prev_tab = "<S-Tab>",
+    },
+    sql_source = {
+      run = "<CR>",
+      show_ddl = "K",
+      clear_filter = "<leader>cr",
+      toggle_db_browser = "<leader>db",
+      trigger_completion = "<C-Space>",
+    },
+    sql_dataset = {
+      close = "q",
+      move_left = "h",
+      move_down = "j",
+      move_up = "k",
+      move_right = "l",
+      prev_page = "H",
+      next_page = "L",
+      first_col = "0",
+      last_col = "$",
+      first_row = "gg",
+      last_row = "G",
+      preview_cell = "K",
+      yank_cell = "yy",
+      yank_column = "yc",
+      sort_column = "s",
+      toggle_cell_highlight = "zh",
+      toggle_header_float = "zH",
+      toggle_row_numbers = "zN",
+      toggle_raw_mode = "<leader>gp",
+      next_tab = "<Tab>",
+      prev_tab = "<S-Tab>",
+      rerun = "R",
+      goto_first_page = "<leader>hh",
+      goto_last_page = "<leader>ll",
+      toggle_pagination = "<leader>pa",
+      find_column = "<leader>fc",
+      filter_by_cell = "<leader>ce",
+      show_search = "<leader>/",
+      clear_filter_search = "<leader>cr",
+      next_search = "n",
+      prev_search = "N",
+    },
+    sql_table_ops = {
+      select_all = "ma",
+      refresh_all = "mr",
+      describe_all = "md",
+      toggle_menu = "mt",
+    },
+    db_browser = {
+      toggle_node = "<CR>",
+      refresh_node = "r",
+      search_filter = "/",
+      select_query = "s",
+      describe_query = "d",
+      close = "q",
+    },
+    introspect_float = {
+      close = "q",
+      close_alt = "<Esc>",
+    },
+  },
+
+  -- User-overridable highlight groups. Each key is a group name; value is
+  -- a table of attributes (fg, bg, bold, italic, link, etc.) passed to
+  -- vim.api.nvim_set_hl. Overrides are applied after default setup, so
+  -- users only need to specify the attributes they want to change.
+  highlights = {},
 }
 
 ---------------------------------------------------------------------------
@@ -51,6 +141,25 @@ M.sql = {
 }
 
 ---------------------------------------------------------------------------
+-- Keymap lookup helper
+---------------------------------------------------------------------------
+--- Look up a user-configured keymap from state.config.keymaps.
+--- @param section string  e.g. "source_buffer", "sql_dataset"
+--- @param action  string  e.g. "run", "close"
+--- @param default string  fallback key if not configured
+--- @return string|nil  the key to use, or nil if disabled (set to false)
+function M.get_keymap(section, action, default)
+  local km = M.config.keymaps
+  if not km then return default end
+  local sec = km[section]
+  if not sec then return default end
+  local key = sec[action]
+  if key == nil then return default end
+  if key == false then return nil end
+  return key
+end
+
+---------------------------------------------------------------------------
 -- Binary discovery
 function M.find_poste_binary()
   if M.config.poste_binary ~= "" and vim.fn.filereadable(M.config.poste_binary) == 1 then
@@ -62,6 +171,22 @@ function M.find_poste_binary()
     end
   end
   return vim.fn.exepath("poste")
+end
+
+-- Highlight overrides from user config
+---------------------------------------------------------------------------
+--- Apply user highlight overrides from state.config.highlights.
+--- Call this at the end of each highlight setup() function.
+--- @param group_names string[] List of group names to check for overrides
+function M.apply_highlight_overrides(group_names)
+  local overrides = M.config.highlights
+  if not overrides or vim.tbl_isempty(overrides) then return end
+  for _, name in ipairs(group_names) do
+    local attr = overrides[name]
+    if attr then
+      vim.api.nvim_set_hl(0, name, attr)
+    end
+  end
 end
 
 -- Logging

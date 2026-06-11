@@ -1,5 +1,6 @@
 --- Highlight group definitions for the Poste plugin.
 --- Called at module-load time and on ColorScheme/VimEnter autocmds.
+local state = require("poste.state")
 local M = {}
 
 --- Resolve highlight group links fully (follow chains of `link`).
@@ -119,6 +120,27 @@ function M.setup()
 
   -- Statement boundary indicator (subtle background for current statement)
   vim.api.nvim_set_hl(0, "PosteSqlBoundary", { bg = 0x43265e })                    -- subtle blue-gray
+
+  state.apply_highlight_overrides({
+    "PosteLatency", "PosteSpinner", "PosteSuccess", "PosteError",
+    "PosteSeparator", "PosteRequestName", "PosteVarRef", "PosteMagicVar",
+    "PosteMethodGET", "PosteMethodPOST", "PosteMethodPUT", "PosteMethodDELETE",
+    "PosteMethodPATCH", "PosteMethodHEAD", "PosteMethodOPTIONS", "PosteMethodOther",
+    "PosteUrl", "PosteHttpVersion", "PosteHeaderKey", "PosteDirective",
+    "PostePreScript", "PosteAssertion", "PosteScriptMarker", "PosteExternalScript",
+    "PosteFileInclude",
+    "PosteJsonString", "PosteJsonNumber", "PosteJsonBoolean", "PosteJsonNull",
+    "PosteJsonBraces", "PosteJsonBrackets", "PosteJsonColon", "PosteJsonComma",
+    "PosteJsonEscape",
+    "PosteSymbolCurrent", "PosteSymbolMethod",
+    "PosteRedisString", "PosteRedisHash", "PosteRedisList", "PosteRedisSet",
+    "PosteRedisZset", "PosteRedisStream", "PosteRedisMeta", "PosteRedisError",
+    "PosteRedisOk", "PosteRedisNil", "PosteRedisSep", "PosteRedisIndex",
+    "PosteRedisField", "PosteRedisScore",
+    "PosteSqlHeader", "PosteSqlNull", "PosteSqlMeta", "PosteSqlBorder",
+    "PosteSqlCellSelected", "PosteSqlModified", "PosteSqlDeleted", "PosteSqlAdded",
+    "PosteSqlBoundary",
+  })
 end
 
 -- Apply highlights immediately on require

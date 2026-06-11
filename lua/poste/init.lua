@@ -980,24 +980,42 @@ function M.setup(opts)
 
   local function setup_buffer_keymaps(buf)
     local keymap_opts = { buffer = buf, noremap = true, silent = true }
-    vim.keymap.set("n", "<CR>", M.run_request, keymap_opts)
-    vim.keymap.set("n", "]]", M.jump_next, keymap_opts)
-    vim.keymap.set("n", "[[", M.jump_prev, keymap_opts)
-    vim.keymap.set("n", "gd", M.goto_definition, keymap_opts)
-    vim.keymap.set("n", "grr", M.goto_references, keymap_opts)
-    vim.keymap.set("n", "]q", function() vim.cmd("cnext") end, keymap_opts)
-    vim.keymap.set("n", "[q", function() vim.cmd("cprev") end, keymap_opts)
-    vim.keymap.set("n", "<leader>rp", function()
-      local curl = require("poste.http.curl")
-      curl.paste_curl("+")
-    end, keymap_opts)
-    vim.keymap.set("n", "<leader>rc", function()
-      local copy = require("poste.http.copy")
-      copy.copy_to_clipboard("+")
-    end, keymap_opts)
-    vim.keymap.set("n", "gs", function()
-      symbols.show_symbols()
-    end, keymap_opts)
+    local km = state.get_keymap
+
+    local k = km("source_buffer", "run", "<CR>")
+    if k then vim.keymap.set("n", k, M.run_request, keymap_opts) end
+    k = km("source_buffer", "jump_next", "]]")
+    if k then vim.keymap.set("n", k, M.jump_next, keymap_opts) end
+    k = km("source_buffer", "jump_prev", "[[")
+    if k then vim.keymap.set("n", k, M.jump_prev, keymap_opts) end
+    k = km("source_buffer", "goto_definition", "gd")
+    if k then vim.keymap.set("n", k, M.goto_definition, keymap_opts) end
+    k = km("source_buffer", "goto_references", "grr")
+    if k then vim.keymap.set("n", k, M.goto_references, keymap_opts) end
+    k = km("source_buffer", "quickfix_next", "]q")
+    if k then vim.keymap.set("n", k, function() vim.cmd("cnext") end, keymap_opts) end
+    k = km("source_buffer", "quickfix_prev", "[q")
+    if k then vim.keymap.set("n", k, function() vim.cmd("cprev") end, keymap_opts) end
+    k = km("source_buffer", "paste_curl", "<leader>rp")
+    if k then
+      vim.keymap.set("n", k, function()
+        local curl = require("poste.http.curl")
+        curl.paste_curl("+")
+      end, keymap_opts)
+    end
+    k = km("source_buffer", "copy_as_curl", "<leader>rc")
+    if k then
+      vim.keymap.set("n", k, function()
+        local copy = require("poste.http.copy")
+        copy.copy_to_clipboard("+")
+      end, keymap_opts)
+    end
+    k = km("source_buffer", "show_symbols", "gs")
+    if k then
+      vim.keymap.set("n", k, function()
+        symbols.show_symbols()
+      end, keymap_opts)
+    end
 
     -- Clear indicators when buffer content changes (dd, x, etc.)
     local indicator_ns = vim.api.nvim_create_namespace("poste_indicator")
@@ -1009,6 +1027,16 @@ function M.setup(opts)
         vim.api.nvim_buf_clear_namespace(buf, indicator_ns, 0, -1)
       end,
     })
+  end
+
+  -- Helper to install the DB browser keymap on SQL buffers
+  local function setup_db_browser_keymap(buf)
+    local k = state.get_keymap("sql_source", "toggle_db_browser", "<leader>db")
+    if k then
+      vim.keymap.set("n", k, function()
+        require("poste.sql.db_browser").toggle()
+      end, { buffer = buf, noremap = true, silent = true, desc = "Toggle DB Browser" })
+    end
   end
 
   -- Commands
@@ -1344,19 +1372,19 @@ function M.setup(opts)
       end
       setup_buffer_keymaps(0)
       require("poste.sql.init").ensure_sql_keymaps(0)
-      vim.keymap.set("n", "<leader>db", function()
-        require("poste.sql.db_browser").toggle()
-      end, { buffer = 0, noremap = true, silent = true, desc = "Toggle DB Browser" })
+      setup_db_browser_keymap(0)
       
-      -- Manual completion trigger for testing
-      vim.keymap.set("i", "<C-Space>", function()
-        local blink_ok, blink = pcall(require, "blink.cmp")
-        if blink_ok and blink.show then
-          blink.show()
-        else
-          vim.notify("blink.cmp not available", vim.log.levels.WARN)
-        end
-      end, { buffer = 0, noremap = true, silent = true, desc = "Trigger completion" })
+      k = state.get_keymap("sql_source", "trigger_completion", "<C-Space>")
+      if k then
+        vim.keymap.set("i", k, function()
+          local blink_ok, blink = pcall(require, "blink.cmp")
+          if blink_ok and blink.show then
+            blink.show()
+          else
+            vim.notify("blink.cmp not available", vim.log.levels.WARN)
+          end
+        end, { buffer = 0, noremap = true, silent = true, desc = "Trigger completion" })
+      end
       
       -- Trigger completion after SQL keywords via CursorMovedI
       -- (Space keymap is intercepted by blink.cmp before buffer-local keymaps fire,
@@ -1417,16 +1445,12 @@ function M.setup(opts)
       vim.api.nvim_buf_set_option(buf, "filetype", "poste_sqlite")
       setup_buffer_keymaps(buf)
       require("poste.sql.init").ensure_sql_keymaps(buf)
-      vim.keymap.set("n", "<leader>db", function()
-        require("poste.sql.db_browser").toggle()
-      end, { buffer = buf, noremap = true, silent = true, desc = "Toggle DB Browser" })
+      setup_db_browser_keymap(buf)
     elseif name:match("%.sql$") then
       vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
       setup_buffer_keymaps(buf)
       require("poste.sql.init").ensure_sql_keymaps(buf)
-      vim.keymap.set("n", "<leader>db", function()
-        require("poste.sql.db_browser").toggle()
-      end, { buffer = buf, noremap = true, silent = true, desc = "Toggle DB Browser" })
+      setup_db_browser_keymap(buf)
     end
   end
 

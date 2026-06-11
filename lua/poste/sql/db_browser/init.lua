@@ -41,22 +41,40 @@ local function setup_browser_buffer()
   vim.api.nvim_buf_set_name(browser_buf, "poste://db_browser")
 
   local opts = { buffer = browser_buf, noremap = true, silent = true }
-  vim.keymap.set("n", "<CR>", function()
-    actions.toggle_node(vim.fn.line("."), make_context())
-  end, opts)
-  vim.keymap.set("n", "r", function()
-    actions.refresh_node(vim.fn.line("."), make_context())
-  end, opts)
-  vim.keymap.set("n", "/", function()
-    actions.search_filter(vim.fn.line("."), make_context())
-  end, opts)
-  vim.keymap.set("n", "s", function()
-    actions.generate_select_query(vim.fn.line("."), make_context())
-  end, opts)
-  vim.keymap.set("n", "d", function()
-    actions.generate_describe_query(vim.fn.line("."), make_context())
-  end, opts)
-  vim.keymap.set("n", "q", function() M.close() end, opts)
+  local k = state.get_keymap("db_browser", "toggle_node", "<CR>")
+  if k then
+    vim.keymap.set("n", k, function()
+      actions.toggle_node(vim.fn.line("."), make_context())
+    end, opts)
+  end
+  k = state.get_keymap("db_browser", "refresh_node", "r")
+  if k then
+    vim.keymap.set("n", k, function()
+      actions.refresh_node(vim.fn.line("."), make_context())
+    end, opts)
+  end
+  k = state.get_keymap("db_browser", "search_filter", "/")
+  if k then
+    vim.keymap.set("n", k, function()
+      actions.search_filter(vim.fn.line("."), make_context())
+    end, opts)
+  end
+  k = state.get_keymap("db_browser", "select_query", "s")
+  if k then
+    vim.keymap.set("n", k, function()
+      actions.generate_select_query(vim.fn.line("."), make_context())
+    end, opts)
+  end
+  k = state.get_keymap("db_browser", "describe_query", "d")
+  if k then
+    vim.keymap.set("n", k, function()
+      actions.generate_describe_query(vim.fn.line("."), make_context())
+    end, opts)
+  end
+  k = state.get_keymap("db_browser", "close", "q")
+  if k then
+    vim.keymap.set("n", k, function() M.close() end, opts)
+  end
 
   local table_ops = require("poste.sql.table_ops")
   table_ops.register_keymaps(browser_buf, function()

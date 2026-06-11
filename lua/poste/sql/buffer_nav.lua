@@ -621,7 +621,10 @@ function M.toggle_raw_mode()
   vim.api.nvim_set_option_value("modifiable", true, { buf = raw_buffer })
   vim.api.nvim_buf_set_lines(raw_buffer, 0, -1, false, lines)
   vim.api.nvim_set_option_value("modifiable", false, { buf = raw_buffer })
-  vim.keymap.set("n", "<leader>gp", function() M.toggle_raw_mode() end, { buffer = raw_buffer, noremap = true, silent = true })
+  local rk = state.get_keymap("sql_dataset", "toggle_raw_mode", "<leader>gp")
+  if rk then
+    vim.keymap.set("n", rk, function() M.toggle_raw_mode() end, { buffer = raw_buffer, noremap = true, silent = true })
+  end
   state.sql._raw_mode = true
 
   vim.api.nvim_win_set_buf(win, raw_buffer)

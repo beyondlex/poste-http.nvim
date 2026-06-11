@@ -26,26 +26,35 @@ local function ensure_sql_keymaps(buf)
   local keymap_opts = { buffer = buf, noremap = true, silent = true }
 
   -- Normal mode: execute statement at cursor
-  vim.keymap.set("n", "<CR>", function()
-    M.run_sql_request()
-  end, keymap_opts)
+  local k = state.get_keymap("sql_source", "run", "<CR>")
+  if k then
+    vim.keymap.set("n", k, function()
+      M.run_sql_request()
+    end, keymap_opts)
+  end
 
   -- K: show DDL for table under cursor
-  vim.keymap.set("n", "K", function()
-    M.show_table_ddl()
-  end, keymap_opts)
+  k = state.get_keymap("sql_source", "show_ddl", "K")
+  if k then
+    vim.keymap.set("n", k, function()
+      M.show_table_ddl()
+    end, keymap_opts)
+  end
 
-  -- Visual mode: execute selected statements
-  vim.keymap.set("x", "<CR>", function()
-    _vis_start = vim.fn.line("v")
-    _vis_end = vim.fn.line(".")
-    _vis_active = true
-    vim.api.nvim_feedkeys(
-      vim.api.nvim_replace_termcodes("<Esc>", true, false, true),
-      "n", false
-    )
-    M.run_sql_request()
-  end, keymap_opts)
+  -- Visual mode: execute selected statements (uses same key as normal run)
+  k = state.get_keymap("sql_source", "run", "<CR>")
+  if k then
+    vim.keymap.set("x", k, function()
+      _vis_start = vim.fn.line("v")
+      _vis_end = vim.fn.line(".")
+      _vis_active = true
+      vim.api.nvim_feedkeys(
+        vim.api.nvim_replace_termcodes("<Esc>", true, false, true),
+        "n", false
+      )
+      M.run_sql_request()
+    end, keymap_opts)
+  end
 
   -- CursorMoved: update context indicator in statusline + statement highlight
   local augroup = "PosteSQLContext_" .. buf
@@ -70,12 +79,15 @@ M.ensure_sql_keymaps = ensure_sql_keymaps
 require("poste.sql.insert_hint").setup()
 
 -- Global: clear filter/search from any buffer
-vim.keymap.set("n", "<leader>cr", function()
-  local sql_buffer = require("poste.sql.buffer")
-  if sql_buffer.is_open() then
-    sql_buffer.clear_filter_search()
-  end
-end, { noremap = true, silent = true, desc = "Poste: clear filter/search" })
+local ck = state.get_keymap("sql_source", "clear_filter", "<leader>cr")
+if ck then
+  vim.keymap.set("n", ck, function()
+    local sql_buffer = require("poste.sql.buffer")
+    if sql_buffer.is_open() then
+      sql_buffer.clear_filter_search()
+    end
+  end, { noremap = true, silent = true, desc = "Poste: clear filter/search" })
+end
 
 --------------------------------------------------------------------------------
 -- Main entry point

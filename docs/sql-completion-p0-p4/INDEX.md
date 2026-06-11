@@ -1,6 +1,6 @@
 # Poste SQL Completion — Agent Entry Point
 
-> **Status**: P0 complete ✅ | Ready for P1-P4 implementation
+> **Status**: P0 ✅ | P1 ✅ | P2 ✅ | Ready for P3-P4
 
 如果你是第一次接触这个项目的 AI agent，按以下顺序阅读和执行。
 

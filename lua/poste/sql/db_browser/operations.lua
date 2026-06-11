@@ -13,6 +13,11 @@ local M = {}
 -- Helpers
 ---------------------------------------------------------------------------
 
+local function safe_str(v)
+  if v == nil or v == vim.NULL or type(v) == "userdata" then return "" end
+  return tostring(v)
+end
+
 local function get_dialect(node, context)
   if node.meta and node.meta.dialect then return node.meta.dialect end
   local conn_name = node.meta and node.meta.connection or state.sql.db_browser.connection
@@ -395,7 +400,7 @@ function M.modify_col(node, context)
   local fields = {
     { label = "Type",     key = "col_type", value = node.meta and node.meta.col_type or "", kind = "text" },
     { label = "Nullable", key = "nullable", value = not not (node.meta and node.meta.nullable), kind = "bool" },
-    { label = "Default",  key = "default",  value = node.meta and node.meta.default or "", kind = "text" },
+    { label = "Default",  key = "default",  value = safe_str(node.meta and node.meta.default), kind = "text" },
   }
 
   forms.open("Modify Column: " .. table_node.name .. "." .. node.name, fields, function(updated)

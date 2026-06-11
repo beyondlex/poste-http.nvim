@@ -3,47 +3,58 @@
 --- fields: { { label, key, value, kind }, ... }  kind = "text" | "bool"
 local M = {}
 
+local state = require("poste.state")
+
 local ns_form = vim.api.nvim_create_namespace("poste_db_form")
 
---- Find max display width across labels and values.
-local function max_field_width(fields)
-  local w = 0
-  for _, f in ipairs(fields) do
-    w = math.max(w, #f.label)
-    if f.kind == "text" then
-      w = math.max(w, #(tostring(f.value or "")))
-    end
+-- Form visual highlight groups — applied at load and on ColorScheme change
+local function setup_hl()
+  vim.api.nvim_set_hl(0, "PosteFormBorder",    { fg = 0x7aa2f7, bold = true })
+  vim.api.nvim_set_hl(0, "PosteFormTitle",     { fg = 0xe0af68, bold = true })
+  vim.api.nvim_set_hl(0, "PosteFormSubmit",    { fg = 0x98c379, bold = true })
+  vim.api.nvim_set_hl(0, "PosteFormCancel",    { fg = 0x5c6370 })
+  state.apply_highlight_overrides({
+    "PosteFormBorder", "PosteFormTitle", "PosteFormSubmit", "PosteFormCancel",
+  })
+end
+setup_hl()
+vim.api.nvim_create_autocmd("ColorScheme", { callback = setup_hl })
+
+--- Convert a field value to a displayable string, handling vim.NULL.
+local function to_display(f)
+  if f.kind == "bool" then
+    return f.value and "✓" or "✗"
   end
-  return w
+  local v = f.value
+  if v == nil or v == vim.NULL or type(v) == "userdata" then return "" end
+  return tostring(v)
 end
 
 --- Render form lines into a buffer. Returns { lines, field_rows } where
 --- field_rows[i] = line number of field i (1-indexed within buffer).
 local function render_form(buf, title, fields, current_idx)
-  local label_width = 0
+  local label_dw = 4
   for _, f in ipairs(fields) do
-    label_width = math.max(label_width, #f.label)
+    label_dw = math.max(label_dw, vim.fn.strdisplaywidth(f.label))
   end
-  label_width = math.max(label_width, 4)
 
-  local content_width = label_width + 4 + 20  -- "  Label: " + value area
-  local width = math.max(#title + 4, content_width)
+  local content_width = label_dw + 4 + 24  -- "  Label: " + value area
+  local title_dw = vim.fn.strdisplaywidth(title)
+  -- Top border: "┌ " (2) + title + " " (1) + pad + "┐" (1) = title_dw + 4 + pad
+  -- So pad = width - title_dw - 4
+  local width = math.max(title_dw + 6, content_width)
 
   local lines = {}
   local field_rows = {}
 
-  table.insert(lines, "┌ " .. title .. " " .. string.rep("─", width - #title - 2) .. "┐")
+  local top_pad = width - title_dw - 4
+  if top_pad < 0 then top_pad = 0 end
+  table.insert(lines, "┌ " .. title .. " " .. string.rep("─", top_pad) .. "┐")
   table.insert(lines, "")
-  local header_end = #lines
 
   for i, f in ipairs(fields) do
-    local pad = label_width - #f.label
-    local display_val
-    if f.kind == "bool" then
-      display_val = f.value and "✓" or "✗"
-    else
-      display_val = f.value or ""
-    end
+    local pad = label_dw - vim.fn.strdisplaywidth(f.label)
+    local display_val = to_display(f)
     local line = "  " .. f.label .. ": " .. string.rep(" ", pad) .. display_val
     table.insert(lines, line)
     field_rows[i] = #lines
@@ -51,10 +62,12 @@ local function render_form(buf, title, fields, current_idx)
 
   table.insert(lines, "")
   local submit_row = #lines + 1
-  table.insert(lines, "  [<CR> Submit]  [q Cancel]")
+  table.insert(lines, "  [s Submit]  [q Cancel]")
 
-  table.insert(lines, "")
-  table.insert(lines, "└" .. string.rep("─", width) .. "┘")
+  table.insert(lines, "  j/k:move  Enter:edit  Space:toggle  s:submit  q:close")
+  local hints_row = #lines
+
+  table.insert(lines, "└" .. string.rep("─", width - 2) .. "┘")  -- -2 for └ and ┘
 
   vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -66,6 +79,17 @@ local function render_form(buf, title, fields, current_idx)
     vim.api.nvim_buf_add_highlight(buf, ns_form, "Visual",
       field_rows[current_idx] - 1, 0, -1)
   end
+  -- Hints row in subtle color
+  vim.api.nvim_buf_add_highlight(buf, ns_form, "Comment", hints_row - 1, 0, -1)
+  -- Submit / Cancel buttons with distinct colors
+  vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormSubmit", submit_row - 1, 2, 13)
+  vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormCancel", submit_row - 1, 15, 26)
+  -- Top border + title
+  vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormBorder", 0, 0, -1)
+  vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormTitle", 0, 4, 4 + #title)
+  -- Bottom border
+  local last_line = #lines - 1
+  vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormBorder", last_line, 0, -1)
 
   return field_rows, submit_row
 end
@@ -80,14 +104,14 @@ function M.open(title, fields, on_submit)
   local current_idx = 1
 
   local function calc_size()
-    local label_width = 0
+    local label_dw = 4
     for _, f in ipairs(fields) do
-      label_width = math.max(label_width, #f.label)
+      label_dw = math.max(label_dw, vim.fn.strdisplaywidth(f.label))
     end
-    label_width = math.max(label_width, 4)
-    local content_width = label_width + 4 + 20
-    local width = math.max(#title + 4, content_width)
-    local height = #fields + 6  -- borders + padding + submit row
+    local content_width = label_dw + 4 + 24
+    local title_dw = vim.fn.strdisplaywidth(title)
+    local width = math.max(title_dw + 6, content_width)
+    local height = #fields + 6  -- borders + padding + submit + hints
     return width, height
   end
 
@@ -154,7 +178,8 @@ function M.open(title, fields, on_submit)
     end
 
     -- Text field: open vim.ui.input
-    local current_val = tostring(f.value or "")
+    local v = f.value
+    local current_val = (v == nil or v == vim.NULL or type(v) == "userdata") and "" or tostring(v)
     vim.ui.input({
       prompt = f.label .. ": ",
       default = current_val,
@@ -190,6 +215,10 @@ function M.open(title, fields, on_submit)
       end
       edit_current()
     end
+  end, opts)
+  vim.keymap.set("n", "s", function()
+    close()
+    vim.schedule(function() on_submit(fields) end)
   end, opts)
   vim.keymap.set("n", "<Space>", function()
     local f = fields[current_idx]

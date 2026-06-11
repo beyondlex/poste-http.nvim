@@ -13,28 +13,45 @@ local M = {}
 
 -- Cache last context detect result to avoid re-spawning the binary
 -- when the SQL text + offset + dialect haven't changed.
-local _ctx_cache_key = nil
-local _ctx_cache_result = nil
+-- Keyed by bufnr|changedtick|offset|dialect for automatic invalidation.
+local _ctx_cache = {}
 
 ---------------------------------------------------------------------------
--- Rust context detection
+-- Deep clean helper (vim.NIL → nil)
 ---------------------------------------------------------------------------
 
---- Try to detect completion context using the Rust binary.
---- Sends the full ### block (before + after cursor) so extract_tables
---- can see FROM/JOIN clauses after the cursor position.
---- Returns a context dict or nil (fall back to Lua).
-local function try_rust_context(bufnr, line_before, cursor_line)
-  local ok_ft, ft = pcall(vim.api.nvim_buf_get_option, bufnr, "filetype")
-  if not ok_ft or (ft ~= "poste_sql" and ft ~= "poste_sqlite") then return nil end
+local function deep_clean(t)
+  for k, v in pairs(t) do
+    if v == vim.NIL then
+      t[k] = nil
+    elseif type(v) == "table" then
+      deep_clean(v)
+    end
+  end
+end
 
-  local binary = data.find_binary()
-  if not binary then return nil end
+---------------------------------------------------------------------------
+-- Block extraction (shared by persistent client and system fallback)
+---------------------------------------------------------------------------
 
+local function get_dialect_flag()
+  local ok_ctx, ctx = pcall(data.resolve_current_context)
+  if ok_ctx and ctx and ctx.connection then
+    local ok_conn, conn_mod = pcall(require, "poste.sql.connections")
+    if ok_conn then
+      local conn = conn_mod.get_connection_config(ctx.connection)
+      if conn and conn.dialect then
+        return conn.dialect
+      end
+    end
+  end
+  return "generic"
+end
+
+local function extract_sql_block(bufnr, line_before, cursor_line)
   local total_lines = vim.api.nvim_buf_line_count(bufnr)
   local all_lines = vim.api.nvim_buf_get_lines(bufnr, 0, total_lines, false)
 
-  -- Find block boundaries
   local block_start = 1
   if cursor_line > 1 then
     for i = cursor_line - 1, 1, -1 do
@@ -70,59 +87,83 @@ local function try_rust_context(bufnr, line_before, cursor_line)
   table.insert(before_parts, line_before)
   local offset = #table.concat(before_parts, "\n")
 
-  local dialect_flag = ""
-  local ok_ctx, ctx = pcall(data.resolve_current_context)
-  if ok_ctx and ctx and ctx.connection then
-    local ok_conn, conn_mod = pcall(require, "poste.sql.connections")
-    if ok_conn then
-      local conn = conn_mod.get_connection_config(ctx.connection)
-      if conn and conn.dialect then
-        dialect_flag = " --dialect " .. conn.dialect
+  return sql_text, offset
+end
+
+local function cache_key(bufnr, cursor_line, line_before)
+  local changedtick = vim.api.nvim_buf_get_var(bufnr, "changedtick")
+  local dialect = get_dialect_flag()
+  return string.format("%d|%d|%d|%s", bufnr, changedtick, #(line_before or ""), dialect)
+end
+
+---------------------------------------------------------------------------
+-- Rust context detection via persistent client (preferred)
+---------------------------------------------------------------------------
+
+--- Try to detect context via the persistent context_client (poste context serve).
+--- Falls back to vim.fn.system() if persistent client is unavailable or times out.
+local function try_rust_context(bufnr, line_before, cursor_line)
+  local ok_ft, ft = pcall(vim.api.nvim_buf_get_option, bufnr, "filetype")
+  if not ok_ft or (ft ~= "poste_sql" and ft ~= "poste_sqlite") then return nil end
+
+  local sql_text, offset = extract_sql_block(bufnr, line_before, cursor_line)
+  if not sql_text then return nil end
+
+  local ckey = cache_key(bufnr, cursor_line, line_before)
+  if _ctx_cache[ckey] then
+    return _ctx_cache[ckey]
+  end
+
+  local dialect = get_dialect_flag()
+
+  -- Try persistent client first
+  local client_ok, client = pcall(require, "poste.sql.context_client")
+  local result = nil
+  local done = false
+
+  if client_ok and client then
+    client.detect(sql_text, offset, dialect, function(resp)
+      if resp and resp.ok and resp.result then
+        deep_clean(resp.result)
+        result = resp.result
+        if vim.g.poste_sql_debug then
+          state.log("INFO", string.format("Rust context (persistent): type=%s, prefix='%s', tables=%d",
+            tostring(result.ctx_type), tostring(result.prefix or ""),
+            result.tables and #result.tables or 0))
+        end
       end
+      done = true
+    end)
+    -- Wait up to 50ms for response (P4j)
+    vim.wait(50, function() return done end, 5)
+  end
+
+  -- Persistent client failed or timed out: fall back to vim.fn.system()
+  if not result then
+    local binary = data.find_binary()
+    if not binary then return nil end
+
+    local dialect_flag = dialect ~= "generic" and (" --dialect " .. dialect) or ""
+    local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset, dialect_flag)
+    local output = vim.fn.system(cmd, sql_text)
+    if vim.v.shell_error ~= 0 then return nil end
+
+    local ok, parsed = pcall(vim.json.decode, output)
+    if not ok or not parsed or type(parsed) ~= "table" then return nil end
+
+    debug.set_rust_raw(output)
+    deep_clean(parsed)
+    result = parsed
+
+    if vim.g.poste_sql_debug then
+      state.log("INFO", string.format("Rust context (system): type=%s, prefix='%s', tables=%d",
+        tostring(result.ctx_type), tostring(result.prefix or ""),
+        result.tables and #result.tables or 0))
     end
   end
-  local cache_key = sql_text .. "|" .. offset .. "|" .. dialect_flag
-  if cache_key == _ctx_cache_key then
-    return _ctx_cache_result
-  end
 
-  local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset, dialect_flag)
-  local output = vim.fn.system(cmd, sql_text)
-  if vim.v.shell_error ~= 0 then
-    _ctx_cache_key, _ctx_cache_result = nil, nil
-    return nil
-  end
-
-  local ok, parsed = pcall(vim.json.decode, output)
-  if not ok or not parsed or type(parsed) ~= "table" then
-    _ctx_cache_key, _ctx_cache_result = nil, nil
-    return nil
-  end
-
-  debug.set_rust_raw(output)
-
-  -- Normalize vim.NIL → nil (JSON null becomes vim.NIL userdata in Neovim)
-  local function deep_clean(t)
-    for k, v in pairs(t) do
-      if v == vim.NIL then
-        t[k] = nil
-      elseif type(v) == "table" then
-        deep_clean(v)
-      end
-    end
-  end
-  deep_clean(parsed)
-
-  if vim.g.poste_sql_debug then
-    state.log("INFO", string.format("Rust context: type=%s, prefix='%s', tables=%d, in_string=%s, in_comment=%s",
-      tostring(parsed.ctx_type), tostring(parsed.prefix or ""),
-      parsed.tables and #parsed.tables or 0,
-      tostring(parsed.in_string), tostring(parsed.in_comment)))
-  end
-
-  _ctx_cache_key = cache_key
-  _ctx_cache_result = parsed
-  return parsed
+  _ctx_cache[ckey] = result
+  return result
 end
 
 ---------------------------------------------------------------------------

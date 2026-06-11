@@ -1,8 +1,8 @@
 # SQL Completion P0-P4 Implementation Checklist
 
-> **Progress**: P0 ✅ | P1 ✅ | P2 ✅ | P3 ✅ | P4 ⬜
-> **Current phase**: P3 — Scope Resolver ✅
-> **Next step**: First unchecked item below
+> **Progress**: P0 ✅ | P1 ✅ | P2 ✅ | P3 ✅ | P4 ✅
+> **Current phase**: P4 — Persistent Context Service ✅
+> **Next step**: All P0-P4 complete
 
 ---
 
@@ -135,22 +135,22 @@ tests/run.sh
 
 ### Rust CLI
 
-- [ ] **P4a. Add serve subcommand** — `ContextAction::Serve`. Read line-delimited JSON from stdin.
-- [ ] **P4b. Handle detect method** → `make_detect_response()`.
-- [ ] **P4c. Handle stmt method** → statement span extraction.
-- [ ] **P4d. Error isolation** — Bad request returns `{"id": N, "ok": false}`, server continues.
-- [ ] **P4e. Clean exit on EOF**.
+- [x] **P4a. Add serve subcommand** — `ContextAction::Serve`. Read line-delimited JSON from stdin.
+- [x] **P4b. Handle detect method** → `make_detect_response()`.
+- [x] **P4c. Handle stmt method** → statement span extraction.
+- [x] **P4d. Error isolation** — Bad request returns `{"id": N, "ok": false}`, server continues.
+- [x] **P4e. Clean exit on EOF**.
 
 ### Lua Client
 
-- [ ] **P4f. `context_client.lua`** — `vim.fn.jobstart()`, request ID counter, callback map, stdout buffering, auto-restart.
-- [ ] **P4g. Public API** — `detect(sql, offset, dialect, cb)`, `stmt(sql, cursor_line, cb)`, `stop()`.
+- [x] **P4f. `context_client.lua`** — `vim.fn.jobstart()`, request ID counter, callback map, stdout buffering, auto-restart.
+- [x] **P4g. Public API** — `detect(sql, offset, dialect, cb)`, `stmt(sql, cursor_line, cb)`, `stop()`.
 
 ### Completion Integration
 
-- [ ] **P4h. `try_rust_context()` prefers persistent client** — Falls back to `vim.fn.system()` when unavailable.
-- [ ] **P4i. Cache extension** — Per-buffer LRU: `bufnr|changedtick|offset|dialect`.
-- [ ] **P4j. 50ms timeout** — Returns keyword/function fallback on timeout.
+- [x] **P4h. `try_rust_context()` prefers persistent client** — Falls back to `vim.fn.system()` when unavailable.
+- [x] **P4i. Cache extension** — Per-buffer LRU: `bufnr|changedtick|offset|dialect`.
+- [x] **P4j. 50ms timeout** — Returns keyword/function fallback on timeout.
 
 ### P4 Verification
 

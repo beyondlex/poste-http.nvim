@@ -1,8 +1,8 @@
 # SQL 补全 P0-P4 实施清单
 
-> **进度**: P0 ✅ | P1 ✅ | P2 ✅ | P3 ✅ | P4 ⬜
-> **当前阶段**: P3 — ScopeResolver ✅
-> **下一步**: 见下方第一个未勾选项
+> **进度**: P0 ✅ | P1 ✅ | P2 ✅ | P3 ✅ | P4 ✅
+> **当前阶段**: P4 — 持久化上下文服务 ✅
+> **下一步**: P0-P4 全部完成
 
 ---
 
@@ -131,22 +131,22 @@ tests/run.sh
 
 ### Rust CLI
 
-- [ ] **P4a. CLI 添加 serve 子命令** — `ContextAction::Serve`。读取 stdin 行分隔 JSON。
-- [ ] **P4b. 处理 detect 方法** → `make_detect_response()`。
-- [ ] **P4c. 处理 stmt 方法** → 语句跨度提取。
-- [ ] **P4d. 错误隔离** — 单坏请求不崩溃，返回 `{"id": N, "ok": false}`。
-- [ ] **P4e. EOF 时干净退出**。
+- [x] **P4a. CLI 添加 serve 子命令** — `ContextAction::Serve`。读取 stdin 行分隔 JSON。
+- [x] **P4b. 处理 detect 方法** → `make_detect_response()`。
+- [x] **P4c. 处理 stmt 方法** → 语句跨度提取。
+- [x] **P4d. 错误隔离** — 单坏请求不崩溃，返回 `{"id": N, "ok": false}`。
+- [x] **P4e. EOF 时干净退出**。
 
 ### Lua 客户端
 
-- [ ] **P4f. `context_client.lua`** — `vim.fn.jobstart()`, 请求 ID 计数器, 回调映射, stderr 缓冲, 自动重启。
-- [ ] **P4g. 公有 API** — `detect(sql, offset, dialect, cb)`, `stmt(sql, cursor_line, cb)`, `stop()`。
+- [x] **P4f. `context_client.lua`** — `vim.fn.jobstart()`, 请求 ID 计数器, 回调映射, stderr 缓冲, 自动重启。
+- [x] **P4g. 公有 API** — `detect(sql, offset, dialect, cb)`, `stmt(sql, cursor_line, cb)`, `stop()`。
 
 ### 补全集成
 
-- [ ] **P4h. `try_rust_context()` 优先走持久客户端** — 不可用时回退 `vim.fn.system()`。
-- [ ] **P4i. 扩展缓存** — per-buffer LRU: `bufnr|changedtick|offset|dialect`。
-- [ ] **P4j. 50ms 超时** — 超时返回 keyword/function 回退。
+- [x] **P4h. `try_rust_context()` 优先走持久客户端** — 不可用时回退 `vim.fn.system()`。
+- [x] **P4i. 扩展缓存** — per-buffer LRU: `bufnr|changedtick|offset|dialect`。
+- [x] **P4j. 50ms 超时** — 超时返回 keyword/function 回退。
 
 ### P4 验收
 

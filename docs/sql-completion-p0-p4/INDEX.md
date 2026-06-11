@@ -89,7 +89,8 @@ cargo clippy -p poste-core -p poste-cli -p poste-exec -- -D warnings
 | 当前实施步骤 | `plan.en.md` / `plan.zh.md` — 找到第一个未勾选的 `[ ]` |
 | 上下文类型完整表（14 种 + 42 种边缘情况） | `p0/poste-sql-file-syntax.*.md` §5 |
 | JSON 契约字段定义 | `p0/poste-sql-file-syntax.*.md` §4 |
-| 语句边界规则 | `p0/poste-sql-file-syntax.*.md` §3 |
+| 语句边界规则（当前） | `p0/poste-sql-file-syntax.*.md` §3 |
+| 语义级语句边界（未来方向） | `future/semantic-statement-boundary.*.md` |
 | 每阶段改动文件清单 | `plan.*.md` — 各 P1-P4 步骤内标注的 "Files:" 列表 |
 | 全局提交清单 | `plan.*.md` §Global Commit Checklist（文件末尾） |
 

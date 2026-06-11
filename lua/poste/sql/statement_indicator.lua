@@ -1,6 +1,8 @@
 --- Visual statement boundary indicator.
 --- Highlights the current SQL statement with a background extmark
 --- as the cursor moves, giving clear visual feedback of execution scope.
+local state = require("poste.state")
+
 local M = {}
 
 local ns = vim.api.nvim_create_namespace("poste_sql_stmt_boundary")
@@ -36,31 +38,67 @@ local function apply_range(buf, start_line, end_line)
   _prev_buf = buf
 end
 
+--- Find the ###-block containing cursor_line (1-based).
+local function find_block(lines, cursor_line)
+  local start = 1
+  for i = cursor_line, 1, -1 do
+    if (lines[i] or ""):match("^###") then
+      start = i + 1
+      break
+    end
+  end
+  local stop = #lines
+  for i = cursor_line, #lines do
+    if (lines[i] or ""):match("^###") and i > cursor_line then
+      stop = i - 1
+      break
+    end
+  end
+  return start, stop
+end
+
+--- Try to get statement boundaries from the Rust binary.
+--- Returns (start_line, end_line) as 1-based buffer line numbers, or nil.
+local function try_rust_span(lines, cursor_line)
+  local binary = state.find_poste_binary()
+  if not binary then return nil end
+
+  local block_start, block_end = find_block(lines, cursor_line)
+  local block_lines = {}
+  for i = block_start, block_end do
+    block_lines[#block_lines + 1] = lines[i] or ""
+  end
+  local rel_cursor = cursor_line - block_start -- 0-based within block
+
+  local cmd = string.format("%s context stmt %d", vim.fn.shellescape(binary), rel_cursor)
+  local input = table.concat(block_lines, "\n")
+  local output = vim.fn.system(cmd, input)
+  if vim.v.shell_error ~= 0 then return nil end
+
+  local ok, parsed = pcall(vim.json.decode, output)
+  if not ok or type(parsed) ~= "table" then return nil end
+
+  local rs = parsed.start_line
+  local re = parsed.end_line
+  if type(rs) ~= "number" or type(re) ~= "number" then return nil end
+
+  return block_start + rs, block_start + re -- convert 0-based → 1-based
+end
+
 local function fetch_and_highlight(buf, cursor_line)
   if not vim.api.nvim_buf_is_valid(buf) then return end
 
   local total = vim.api.nvim_buf_line_count(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, total, false)
-  local cursor_line_0 = cursor_line - 1
 
-  local stmt_start = 0
-  local stmt_end = total - 1
-  for i = cursor_line_0 - 1, 0, -1 do
-    local line = lines[i + 1] or ""
-    if line:find(";") then
-      stmt_start = i + 1
-      break
-    end
-  end
-  for i = cursor_line_0 + 1, total - 1 do
-    local line = lines[i + 1] or ""
-    if line:find(";") then
-      stmt_end = i
-      break
-    end
+  -- Primary: Rust semantic boundary detection
+  local s, e = try_rust_span(lines, cursor_line)
+  if s and e then
+    apply_range(buf, s - 1, e - 1) -- convert 1-based → 0-based for extmark
+    return
   end
 
-  apply_range(buf, stmt_start, stmt_end)
+  -- Fallback: nothing — if the binary isn't available, just don't highlight
 end
 
 --- Update the statement indicator for a buffer and cursor line.

@@ -2,21 +2,25 @@
   {
     "name": "tables isolated to current statement by semicolon",
     "dialect": "generic",
-    "sql": "select 1 from posts; select 2 from authors█",
+    "sql": "select 1 from posts; select 2 from authors\u2588",
     "expect": {
       "ctx_type": "table",
       "ctx_data": null,
       "ctx_schema": null,
       "prefix": "authors",
       "tables": [
-        { "name": "authors", "alias": null, "schema": null }
+        {
+          "name": "authors",
+          "alias": null,
+          "schema": null
+        }
       ],
       "in_string": false,
       "in_comment": false
     }
   },
   {
-    "name": "tables no longer isolated by blank line (P3)",
+    "name": "tables isolated to current statement by semantic boundary",
     "dialect": "generic",
     "sql": "UPDATE authors Set \u2588\n\nSELECT * from posts p left JOIN authors a on p.author_id = a.id;",
     "expect": {
@@ -25,9 +29,11 @@
       "ctx_schema": null,
       "prefix": "",
       "tables": [
-        { "name": "authors", "alias": null, "schema": null },
-        { "name": "posts", "alias": "p", "schema": null },
-        { "name": "authors", "alias": "a", "schema": null }
+        {
+          "name": "authors",
+          "alias": null,
+          "schema": null
+        }
       ],
       "in_string": false,
       "in_comment": false

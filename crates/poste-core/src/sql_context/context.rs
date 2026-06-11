@@ -5,8 +5,9 @@ use super::detectors::{
 use super::scanner::detect_scan_backward;
 use super::scope;
 use super::tokenizer::{
-    extract_prefix, find_token_at_offset, tokenize, Token, TokenKind,
+    extract_prefix, find_token_at_offset, tokenize, TokenKind,
 };
+use super::statements;
 use super::{
     functions, ContextResult, ContextType, SqlDialect,
 };
@@ -65,7 +66,7 @@ pub fn detect_context_with_dialect(
 
     let prefix = extract_prefix(sql, offset, &tokens, cursor_idx);
 
-    let (stmt_start, stmt_end) = find_statement_token_range(&tokens, cursor_idx);
+    let (stmt_start, stmt_end) = statements::find_statement_token_range(&tokens, cursor_idx, sql);
     let stmt_tokens = &tokens[stmt_start..stmt_end];
 
     let scope = scope::resolve_scope(stmt_tokens, sql);
@@ -167,26 +168,3 @@ pub fn detect_context_with_dialect(
     })
 }
 
-fn find_statement_token_range(
-    tokens: &[Token], cursor_idx: usize,
-) -> (usize, usize) {
-    let mut start = 0;
-    let mut i = cursor_idx;
-    while i > 0 {
-        i -= 1;
-        if tokens[i].kind == TokenKind::Semi {
-            start = i + 1;
-            break;
-        }
-    }
-    let mut end = tokens.len();
-    let mut i = cursor_idx;
-    while i < tokens.len() {
-        if tokens[i].kind == TokenKind::Semi {
-            end = i;
-            break;
-        }
-        i += 1;
-    }
-    (start, end)
-}

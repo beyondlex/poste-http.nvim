@@ -4,6 +4,7 @@ local state = require("poste.state")
 local tree = require("poste.sql.db_browser.tree")
 local async = require("poste.sql.db_browser.async")
 local icons = require("poste.sql.db_browser.icons")
+local forms = require("poste.sql.db_browser.forms")
 
 local HEADER_LINES = icons.HEADER_LINES
 local M = {}
@@ -45,7 +46,7 @@ local function find_table_node(context, start_idx)
   return nil
 end
 
-local function insert_into_source(context, lines, cursor_offset)
+local function insert_into_source(context, lines, cursor_offset, cursor_col)
   if not context.source_buf or not vim.api.nvim_buf_is_valid(context.source_buf) then
     vim.notify("No source SQL buffer found", vim.log.levels.WARN)
     return false
@@ -56,7 +57,7 @@ local function insert_into_source(context, lines, cursor_offset)
   if target_win and target_win ~= -1 then
     vim.api.nvim_set_current_win(target_win)
     if cursor_offset then
-      vim.api.nvim_win_set_cursor(target_win, { line_count + cursor_offset, 0 })
+      vim.api.nvim_win_set_cursor(target_win, { line_count + cursor_offset, cursor_col or 0 })
     end
   end
   return true
@@ -375,9 +376,386 @@ function M.edit_conn(node, context)
   end)
 end
 
---- Stub: Modify Column (Phase B).
+--- Modify Column: open form with type/nullable/default, generate ALTER SQL.
 function M.modify_col(node, context)
-  vim.notify("Modify Column coming in Phase B", vim.log.levels.INFO)
+  if node.node_type ~= "column" then
+    vim.notify("Modify is only available for columns", vim.log.levels.INFO)
+    return
+  end
+
+  local table_node = find_table_node(context, vim.fn.line(".") - HEADER_LINES)
+  if not table_node then
+    vim.notify("Could not find parent table", vim.log.levels.WARN)
+    return
+  end
+
+  local dialect = get_dialect(table_node, context)
+  local conn = get_connection_name(table_node, context)
+
+  local fields = {
+    { label = "Type",     key = "col_type", value = node.meta and node.meta.col_type or "", kind = "text" },
+    { label = "Nullable", key = "nullable", value = not not (node.meta and node.meta.nullable), kind = "bool" },
+    { label = "Default",  key = "default",  value = node.meta and node.meta.default or "", kind = "text" },
+  }
+
+  forms.open("Modify Column: " .. table_node.name .. "." .. node.name, fields, function(updated)
+    local col_type = updated[1].value
+    local nullable = updated[2].value
+    local default_val = updated[3].value
+
+    local sql_parts = {}
+    if dialect == "mysql" then
+      sql_parts = { "ALTER TABLE `" .. table_node.name .. "` MODIFY COLUMN `" .. node.name .. "` " .. col_type }
+    elseif dialect == "postgres" then
+      sql_parts = { "ALTER TABLE " .. table_node.name .. " ALTER COLUMN " .. node.name .. " TYPE " .. col_type }
+    else
+      sql_parts = { "ALTER TABLE " .. table_node.name .. " ALTER COLUMN " .. node.name .. " TYPE " .. col_type }
+    end
+
+    if not nullable then
+      table.insert(sql_parts, " NOT NULL")
+    end
+    if default_val ~= "" then
+      table.insert(sql_parts, " DEFAULT " .. default_val)
+    end
+    table.insert(sql_parts, ";")
+
+    local sql_line = table.concat(sql_parts, "")
+
+    -- For PG: separate ALTER statements needed for null/default
+    local lines = { "" }
+    local cursor_offset = 2
+    if conn then
+      table.insert(lines, "-- @connection " .. conn)
+      cursor_offset = cursor_offset + 1
+    end
+    if table_node.meta and table_node.meta.database then
+      table.insert(lines, "-- @database " .. table_node.meta.database)
+      cursor_offset = cursor_offset + 1
+    end
+
+    if dialect == "postgres" then
+      table.insert(lines, "ALTER TABLE " .. table_node.name .. " ALTER COLUMN " .. node.name .. " TYPE " .. col_type .. ";")
+      if not nullable then
+        table.insert(lines, "ALTER TABLE " .. table_node.name .. " ALTER COLUMN " .. node.name .. " SET NOT NULL;")
+      end
+      if default_val ~= "" then
+        table.insert(lines, "ALTER TABLE " .. table_node.name .. " ALTER COLUMN " .. node.name .. " SET DEFAULT " .. default_val .. ";")
+      end
+    elseif dialect == "mysql" then
+      local parts = { "ALTER TABLE `" .. table_node.name .. "` MODIFY COLUMN `" .. node.name .. "` " .. col_type }
+      if not nullable then table.insert(parts, " NOT NULL") end
+      if default_val ~= "" then table.insert(parts, " DEFAULT " .. default_val) end
+      table.insert(parts, ";")
+      table.insert(lines, table.concat(parts, ""))
+    else
+      table.insert(lines, sql_line)
+    end
+
+    table.insert(lines, "")
+    insert_into_source(context, lines, cursor_offset)
+    vim.notify("Generated ALTER SQL for column: " .. node.name, vim.log.levels.INFO)
+  end)
+end
+
+--- New Table: open form with table name, generate CREATE TABLE template.
+function M.new_table(node, context)
+  local dialect = get_dialect(node, context)
+  local conn = get_connection_name(node, context)
+  local schema = node.node_type == "schema" and node.name or nil
+  local database = node.node_type == "database" and node.name or (node.meta and node.meta.database)
+
+  local fields = {
+    { label = "Name", key = "table_name", value = "", kind = "text" },
+  }
+
+  local title = "New Table"
+  if node.node_type == "database" then title = "New Table: " .. node.name end
+  if node.node_type == "schema" then title = "New Table: " .. (schema or "") end
+
+  forms.open(title, fields, function(updated)
+    local table_name = updated[1].value
+    if table_name == "" then
+      vim.notify("Table name cannot be empty", vim.log.levels.WARN)
+      return
+    end
+
+    local lines = { "" }
+    local cursor_offset = 2
+    if conn then
+      table.insert(lines, "-- @connection " .. conn)
+      cursor_offset = cursor_offset + 1
+    end
+    if database then
+      table.insert(lines, "-- @database " .. database)
+      cursor_offset = cursor_offset + 1
+    end
+
+    local qualified = table_name
+    if schema and dialect == "postgres" then
+      qualified = schema .. "." .. table_name
+    end
+
+    table.insert(lines, "CREATE TABLE " .. qualified .. " (")
+    table.insert(lines, "  id SERIAL PRIMARY KEY,")
+    table.insert(lines, "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    table.insert(lines, ");")
+    table.insert(lines, "")
+
+    insert_into_source(context, lines, cursor_offset)
+    vim.notify("Generated CREATE TABLE: " .. table_name, vim.log.levels.INFO)
+  end)
+end
+
+--- New Column: open form with name/type/nullable/default, generate ALTER TABLE ADD COLUMN.
+function M.new_column(node, context)
+  local table_node = node
+  if node.node_type ~= "table" then
+    table_node = find_table_node(context, vim.fn.line(".") - HEADER_LINES)
+  end
+  if not table_node or table_node.node_type ~= "table" then
+    vim.notify("Move cursor to a table node", vim.log.levels.INFO)
+    return
+  end
+
+  local dialect = get_dialect(table_node, context)
+  local conn = get_connection_name(table_node, context)
+
+  local fields = {
+    { label = "Name",     key = "col_name",  value = "",   kind = "text" },
+    { label = "Type",     key = "col_type",  value = "TEXT", kind = "text" },
+    { label = "Nullable", key = "nullable",  value = true, kind = "bool" },
+    { label = "Default",  key = "default",   value = "",   kind = "text" },
+  }
+
+  forms.open("New Column: " .. table_node.name, fields, function(updated)
+    local col_name = updated[1].value
+    local col_type = updated[2].value
+    local nullable = updated[3].value
+    local default_val = updated[4].value
+
+    if col_name == "" then
+      vim.notify("Column name cannot be empty", vim.log.levels.WARN)
+      return
+    end
+
+    local lines = { "" }
+    local cursor_offset = 2
+    if conn then
+      table.insert(lines, "-- @connection " .. conn)
+      cursor_offset = cursor_offset + 1
+    end
+    if table_node.meta and table_node.meta.database then
+      table.insert(lines, "-- @database " .. table_node.meta.database)
+      cursor_offset = cursor_offset + 1
+    end
+
+    local add_col = "ALTER TABLE " .. table_node.name .. " ADD COLUMN " .. col_name .. " " .. col_type
+    if not nullable then add_col = add_col .. " NOT NULL" end
+    if default_val ~= "" then add_col = add_col .. " DEFAULT " .. default_val end
+    add_col = add_col .. ";"
+
+    if dialect == "mysql" then
+      add_col = "ALTER TABLE `" .. table_node.name .. "` ADD COLUMN `" .. col_name .. "` " .. col_type
+      if not nullable then add_col = add_col .. " NOT NULL" end
+      if default_val ~= "" then add_col = add_col .. " DEFAULT " .. default_val end
+      add_col = add_col .. ";"
+    end
+
+    table.insert(lines, add_col)
+    table.insert(lines, "")
+
+    insert_into_source(context, lines, cursor_offset)
+    vim.notify("Generated ADD COLUMN: " .. col_name, vim.log.levels.INFO)
+  end)
+end
+
+--- Get column names/types from a table node (must be expanded).
+local function get_columns_from_node(table_node)
+  if not table_node.children or #table_node.children == 0 then return nil end
+  local cols = {}
+  for _, child in ipairs(table_node.children) do
+    if child.node_type == "column" then
+      table.insert(cols, {
+        name = child.name,
+        col_type = child.meta and child.meta.col_type or "TEXT",
+        is_pk = child.meta and child.meta.is_pk or false,
+        nullable = child.meta and child.meta.nullable ~= false,
+      })
+    end
+  end
+  if #cols == 0 then return nil end
+  return cols
+end
+
+--- INSERT template: generate INSERT INTO ... VALUES based on table columns.
+function M.insert_template(node, context)
+  local table_node = node
+  if node.node_type ~= "table" then
+    table_node = find_table_node(context, vim.fn.line(".") - HEADER_LINES)
+  end
+  if not table_node or table_node.node_type ~= "table" then
+    vim.notify("Move cursor to a table node", vim.log.levels.INFO)
+    return
+  end
+
+  local cols = get_columns_from_node(table_node)
+  if not cols then
+    vim.notify("Expand the table first to see columns", vim.log.levels.WARN)
+    return
+  end
+
+  local dialect = get_dialect(table_node, context)
+  local conn = get_connection_name(table_node, context)
+  local schema_prefix = ""
+  if table_node.meta and table_node.meta.schema and dialect == "postgres" then
+    schema_prefix = table_node.meta.schema .. "."
+  end
+
+  local col_names = {}
+  for _, c in ipairs(cols) do
+    if not c.is_pk then  -- skip auto-increment PK
+      local q = dialect == "mysql" and "`" or ""
+      table.insert(col_names, q .. c.name .. q)
+    end
+  end
+
+  local lines = { "" }
+  local cursor_offset = 2
+  if conn then
+    table.insert(lines, "-- @connection " .. conn)
+    cursor_offset = cursor_offset + 1
+  end
+  if table_node.meta and table_node.meta.database then
+    table.insert(lines, "-- @database " .. table_node.meta.database)
+    cursor_offset = cursor_offset + 1
+  end
+
+  table.insert(lines, "INSERT INTO " .. schema_prefix .. table_node.name .. " (" .. table.concat(col_names, ", ") .. ")")
+  table.insert(lines, "VALUES ()")
+  table.insert(lines, "")
+  cursor_offset = cursor_offset + 1  -- land on VALUES line
+
+  insert_into_source(context, lines, cursor_offset, 8)  -- col 8 = inside VALUES ()
+  vim.notify("Generated INSERT template for: " .. table_node.name, vim.log.levels.INFO)
+end
+
+--- UPDATE template: generate UPDATE ... SET ... WHERE based on table columns.
+function M.update_template(node, context)
+  local table_node = node
+  if node.node_type ~= "table" then
+    table_node = find_table_node(context, vim.fn.line(".") - HEADER_LINES)
+  end
+  if not table_node or table_node.node_type ~= "table" then
+    vim.notify("Move cursor to a table node", vim.log.levels.INFO)
+    return
+  end
+
+  local cols = get_columns_from_node(table_node)
+  if not cols then
+    vim.notify("Expand the table first to see columns", vim.log.levels.WARN)
+    return
+  end
+
+  local dialect = get_dialect(table_node, context)
+  local conn = get_connection_name(table_node, context)
+  local schema_prefix = ""
+  if table_node.meta and table_node.meta.schema and dialect == "postgres" then
+    schema_prefix = table_node.meta.schema .. "."
+  end
+
+  local pk_cols = {}
+  local set_cols = {}
+  for _, c in ipairs(cols) do
+    local q = dialect == "mysql" and "`" or ""
+    if c.is_pk then
+      table.insert(pk_cols, q .. c.name .. q)
+    else
+      table.insert(set_cols, "  " .. q .. c.name .. q .. " = 'val'")
+    end
+  end
+
+  local lines = { "" }
+  local cursor_offset = 2
+  if conn then
+    table.insert(lines, "-- @connection " .. conn)
+    cursor_offset = cursor_offset + 1
+  end
+  if table_node.meta and table_node.meta.database then
+    table.insert(lines, "-- @database " .. table_node.meta.database)
+    cursor_offset = cursor_offset + 1
+  end
+
+  table.insert(lines, "UPDATE " .. schema_prefix .. table_node.name)
+  table.insert(lines, "SET")
+  for _, sc in ipairs(set_cols) do table.insert(lines, sc .. ",") end
+  -- Remove trailing comma from last SET column
+  local last = lines[#lines]
+  lines[#lines] = last:sub(1, -2)
+  if #pk_cols > 0 then
+    table.insert(lines, "WHERE " .. table.concat(pk_cols, " = ? AND ") .. " = ?;")
+  else
+    table.insert(lines, "WHERE ?;")
+  end
+  table.insert(lines, "")
+
+  insert_into_source(context, lines, cursor_offset)
+  vim.notify("Generated UPDATE template for: " .. table_node.name, vim.log.levels.INFO)
+end
+
+--- DELETE template: generate DELETE FROM ... WHERE based on table columns.
+function M.delete_template(node, context)
+  local table_node = node
+  if node.node_type ~= "table" then
+    table_node = find_table_node(context, vim.fn.line(".") - HEADER_LINES)
+  end
+  if not table_node or table_node.node_type ~= "table" then
+    vim.notify("Move cursor to a table node", vim.log.levels.INFO)
+    return
+  end
+
+  local cols = get_columns_from_node(table_node)
+  if not cols then
+    vim.notify("Expand the table first to see columns", vim.log.levels.WARN)
+    return
+  end
+
+  local dialect = get_dialect(table_node, context)
+  local conn = get_connection_name(table_node, context)
+  local schema_prefix = ""
+  if table_node.meta and table_node.meta.schema and dialect == "postgres" then
+    schema_prefix = table_node.meta.schema .. "."
+  end
+
+  local pk_cols = {}
+  for _, c in ipairs(cols) do
+    if c.is_pk then
+      local q = dialect == "mysql" and "`" or ""
+      table.insert(pk_cols, q .. c.name .. q)
+    end
+  end
+
+  local lines = { "" }
+  local cursor_offset = 2
+  if conn then
+    table.insert(lines, "-- @connection " .. conn)
+    cursor_offset = cursor_offset + 1
+  end
+  if table_node.meta and table_node.meta.database then
+    table.insert(lines, "-- @database " .. table_node.meta.database)
+    cursor_offset = cursor_offset + 1
+  end
+
+  table.insert(lines, "DELETE FROM " .. schema_prefix .. table_node.name)
+  if #pk_cols > 0 then
+    table.insert(lines, "WHERE " .. table.concat(pk_cols, " = ? AND ") .. " = ?;")
+  else
+    table.insert(lines, "WHERE ?;")
+  end
+  table.insert(lines, "")
+
+  insert_into_source(context, lines, cursor_offset)
+  vim.notify("Generated DELETE template for: " .. table_node.name, vim.log.levels.INFO)
 end
 
 return M

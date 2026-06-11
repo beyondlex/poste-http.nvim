@@ -115,6 +115,7 @@ When `-- @database` is absent after `-- @connection`, the completion for `@datab
 - Use `vim.api.nvim_buf_set_extmark()` to highlight the range with a background color or sign column marker.
 - Result: the current statement lights up as the cursor moves, giving the user clear visual feedback of execution boundaries.
 - This replaces the visual grouping that `###` previously provided, and is more accurate — based on real `;` semantics rather than manual separators.
+- **Relationship to semantic boundary detection** (see `future/semantic-statement-boundary.en.md`): the indicator only calls `find_statement_span()` and consumes its result. It does not care how boundaries are computed. If `;`-free semantic boundaries are implemented later, the indicator benefits automatically with zero changes.
 
 ---
 

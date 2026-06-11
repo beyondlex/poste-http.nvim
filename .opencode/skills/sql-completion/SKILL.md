@@ -1,10 +1,8 @@
 ---
 name: sql-completion
 description: >
-  Systematic guide for modifying SQL completion or SQL statement context
-  analysis in the Poste project. Covers the current Rust + Lua architecture,
-  source-of-truth rules, schema/alias propagation, dialect considerations,
-  testing requirements, and common pitfalls.
+  Agent guide for SQL completion changes in Poste. Source-of-truth rules,
+  workflow, common pitfalls, file index. Syntax spec in docs/sql-completion-p0-p4/.
 allowed-tools:
   - Read
   - Write
@@ -15,56 +13,20 @@ metadata:
   trigger: sql completion|context detect|tokenizer|sql_context|completion.lua|keyword|table extraction|alias|schema
 ---
 
-# SQL Completion & Context Analysis — Agent Skill
+# SQL Completion — Agent Skill
 
-## When to Load This Skill
+Architecture and completion modes: see `docs/sql-completion-p0-p4/`. This skill
+covers what docs don't: workflow, rules of thumb, historical pitfalls.
 
-Load this skill when working on:
+## When to Load
 
 - SQL completion items in Poste SQL buffers
 - SQL context detection (`SELECT`, `FROM`, `WHERE`, `JOIN`, DDL, DCL, dialect syntax)
 - SQL tokenizer changes
 - Table, alias, schema, or column extraction logic
-- Statement boundary detection for SQL request blocks
-- New SQL constructs such as CTEs, window functions, `SHOW`, `COPY`, or `FOR UPDATE`
+- Statement boundary detection
+- New SQL constructs (CTEs, window functions, `SHOW`, `COPY`, `FOR UPDATE`)
 - Any change in `crates/poste-core/src/sql_context/` or `lua/poste/sql/completion*.lua`
-
-## Current Architecture
-
-```text
-User types in a SQL buffer
-        |
-        v
-lua/poste/sql/completion.lua
-  |
-  |-- try_rust_context()
-  |     spawns: poste context detect <offset>
-  |     stdin: full ### SQL block
-  |     |
-  |     v
-  |   crates/poste-core/src/sql_context/
-  |     |-- mod.rs        detect_context(), ContextType, tests
-  |     |-- tokenizer.rs  tokenization, keyword classification
-  |     |-- tables.rs     table/schema/alias extraction
-  |     |-- functions.rs  SQL function list
-  |
-  |-- completion dispatch
-  |     |-- completion_data.lua  async introspection, cache, fallback lists
-  |     |-- completion_ctx.lua   legacy Lua regex fallback
-  |     |-- context.lua          connection/database resolution
-```
-
-### Completion Modes
-
-`vim.g.poste_sql_legacy_completion` controls the execution path:
-
-| Value | Mode | Behavior |
-|-------|------|----------|
-| `nil` | Hybrid default | Rust first, currently may let Lua override `keyword` with a typed prefix |
-| `true` | Lua-only legacy | Skips Rust entirely |
-| `"rust"` | Rust-only | Pure Rust, useful for regression tests |
-
-Important: the current hybrid default is a known risk. The desired direction is Rust as the syntax authority, with Lua fallback only when the Rust binary is unavailable or explicit legacy mode is selected.
 
 ## Source-of-Truth Rules
 
@@ -87,20 +49,23 @@ Lua owns:
 - Cache storage
 - Explicit legacy fallback behavior
 
-Do not add new SQL syntax detection only in Lua. If Lua detects a case better than Rust, add the case to Rust first.
+Do not add new SQL syntax detection only in Lua. If Lua detects a case better
+than Rust, add the case to Rust first.
 
 ### Data Lists Need Clear Roles
 
-Rust `functions.rs` is the authoritative normal-mode function source.
-Lua `SQL_FUNCTIONS` is fallback-only unless a generated/shared source is introduced.
+Rust `functions.rs` is the authoritative function source. Lua `SQL_FUNCTIONS`
+is fallback-only.
 
-Rust `is_known_keyword()` classifies tokens. Lua `KEYWORDS` contains display snippets and may include compound insertions like `ORDER BY`; it is not the same concept. When updating keywords, make sure single-word snippet parts that affect parsing are known by Rust.
+Rust `is_known_keyword()` classifies tokens. Lua `KEYWORDS` has display
+snippets (e.g. `ORDER BY`). Single-word snippet parts that affect parsing
+must be known by Rust.
 
 ### Preserve Schema and Alias End-to-End
 
-When a change touches column completion, verify the full chain:
+Verify the full chain when schema changes:
 
-```text
+```
 Rust TableRef / DotColumn
   -> CLI JSON response
   -> Lua alias map
@@ -109,7 +74,7 @@ Rust TableRef / DotColumn
   -> cache key
 ```
 
-Known current gap: Rust stores schema, but the CLI/Lua completion path drops or ignores it. Do not treat `public.users` and `auth.users` as the same table.
+Do not treat `public.users` and `auth.users` as the same table.
 
 ## Systematic Workflow
 
@@ -130,15 +95,8 @@ Known current gap: Rust stores schema, but the CLI/Lua completion path drops or 
 
 ### Step 2: Establish Baseline
 
-Run:
-
 ```bash
 cargo test -p poste-core
-```
-
-For a specific context case, reproduce through the CLI:
-
-```bash
 printf 'SELECT * FROM users WHERE ' | target/debug/poste context detect 26
 ```
 
@@ -164,8 +122,6 @@ Avoid expanding `completion_ctx.lua` unless the task is explicitly about legacy 
 
 ### Step 5: Add Tests
 
-Add Rust tests for parser behavior:
-
 ```rust
 #[test]
 fn test_detect_table_after_from() {
@@ -174,42 +130,13 @@ fn test_detect_table_after_from() {
 }
 ```
 
-Add table extraction tests that assert all structured fields:
-
-```rust
-#[test]
-fn test_extract_schema_alias() {
-    let result = detect_context("SELECT * FROM public.users AS u WHERE ", 38).unwrap();
-    assert!(result.tables.iter().any(|t| {
-        t.name == "users" && t.schema.as_deref() == Some("public") && t.alias.as_deref() == Some("u")
-    }));
-}
-```
-
-When Lua orchestration changes, add Lua tests for all three completion modes.
-
-## Context Type Reference
-
-```text
-ContextType::Keyword       -> SQL keywords + functions
-ContextType::Table         -> table names
-ContextType::Column        -> columns from referenced tables
-ContextType::DotColumn     -> columns after table_or_alias.
-ContextType::InsertColumn  -> columns inside INSERT INTO table (...)
-ContextType::Connection    -> @connection directive
-ContextType::Database      -> USE / @database
-ContextType::DataType      -> data types after column definitions
-```
-
-If adding a new context type, update:
-- Rust enum and `name()`
-- CLI JSON response if extra fields are needed
-- Lua dispatch in `completion.lua`
-- Tests in Rust and Lua
+Assert all structured fields (`name`, `schema`, `alias`). When Lua orchestration
+changes, add Lua tests for all three completion modes (nil, true, "rust").
 
 ## Dialect Guidance
 
-Keep `poste-core` lightweight. Do not directly import the `poste-exec` dialect trait into `poste-core` unless the dependency direction is explicitly approved.
+Keep `poste-core` lightweight. Do not import `poste-exec` dialect trait into
+`poste-core` unless explicitly approved.
 
 For dialect-specific completion:
 1. Add a lightweight dialect enum/string to the context API or CLI.
@@ -217,53 +144,53 @@ For dialect-specific completion:
 3. Keep dialect-agnostic behavior as the fallback.
 4. Test at least two dialects when behavior differs.
 
-Examples:
-- MySQL: `SHOW DATABASES`, `SHOW TABLES`, `SHOW COLUMNS FROM`
-- PostgreSQL: `COPY`, `LISTEN`, `NOTIFY`, schema-qualified tables
-- SQLite: dot commands or SQLite-only functions if supported later
-
 ## Common Pitfalls
 
-### Hybrid Override Hides Rust Bugs
+### Hybrid Override (Fixed in P1)
 
-Default completion currently may replace Rust `keyword` with Lua regex output. When debugging, test both default and `"rust"` mode. Fix missing detection in Rust rather than relying on Lua.
+Lua no longer overrides Rust. When debugging, test with
+`vim.g.poste_sql_legacy_completion = "rust"` to isolate Rust behavior.
+Fix missing detection in Rust rather than adding Lua heuristics.
 
 ### Schema Loss Produces Wrong Columns
 
-Do not pass only a bare table name when schema is known. Column cache keys and introspection calls must distinguish `schema.table`.
+Do not pass only a bare table name when schema is known. Column cache keys
+and introspection calls must distinguish `schema.table`.
 
 ### Fixed Token Offsets Break Qualified Names
 
-Qualified table parsing should use token navigation helpers such as `skip_forward()`, not fixed indexes like `i + 3`, because whitespace and optional `AS` matter.
+Use `skip_forward()` / `skip_back()`, not fixed indexes like `i + 3`,
+because whitespace and optional `AS` vary.
 
 ### `skip_one_ident` Affects Prefix Cases
 
-`detect_scan_backward()` skips the user's current typed identifier so `WHERE us` can still resolve to column context. Test both cursor-after-space and prefix-typed forms.
+`detect_scan_backward()` skips the user's typed identifier so `WHERE us`
+resolves to column context. Test both cursor-after-space and prefix-typed forms.
 
 ### `after_comma` Affects List Contexts
 
 Commas continue lists:
-- `SELECT id, ` should remain column context.
-- `FROM users, ` should remain table context if table-list support is intended.
-- `UPDATE users SET a = 1, ` should remain column context.
+- `SELECT id, ` → column context
+- `FROM users, ` → table context (if table-list support is intended)
+- `UPDATE users SET a = 1, ` → column context
 
 ### String/Comment Awareness Is Non-Negotiable
 
 Tokenizer changes must preserve:
-- `';'` inside strings does not split statements.
-- Keywords in `-- comments` and `/* comments */` do not trigger completion.
-- Dollar-quoted strings remain single string tokens.
+- `';'` inside strings does not split statements
+- Keywords in comments do not trigger completion
+- Dollar-quoted strings remain single tokens
 
 ## Testing Checklist
 
-- [ ] `cargo test -p poste-core` passes.
-- [ ] Context tests cover no-prefix and typed-prefix cases.
-- [ ] Table extraction tests assert `name`, `schema`, and `alias`.
-- [ ] CLI `poste context detect` output contains fields Lua needs.
-- [ ] Lua tests cover default, legacy, and rust-only modes when orchestration changes.
-- [ ] String/comment cases remain quiet.
-- [ ] Dialect-specific behavior has at least two dialect expectations.
-- [ ] Column cache tests cover same table name in different schemas when schema handling changes.
+- [ ] `cargo test -p poste-core` passes
+- [ ] Context tests cover no-prefix and typed-prefix cases
+- [ ] Table extraction tests assert `name`, `schema`, and `alias`
+- [ ] CLI output contains `version` field and all fields Lua needs
+- [ ] Lua tests cover all three completion modes (nil/true/"rust")
+- [ ] String/comment cases return `String`/`Comment` type, Lua suppresses items
+- [ ] Dialect-specific behavior has at least two dialect expectations
+- [ ] Column cache tests cover same table name in different schemas
 
 ## Quick File Reference
 
@@ -275,7 +202,7 @@ Tokenizer changes must preserve:
 | `crates/poste-core/src/sql_context/functions.rs` | SQL function list |
 | `crates/poste-cli/src/main.rs` | `poste context detect` JSON shape |
 | `lua/poste/sql/completion.lua` | Completion orchestrator |
-| `lua/poste/sql/completion_ctx.lua` | Legacy Lua regex fallback |
+| `lua/poste/sql/completion_ctx.lua` | Legacy Lua regex fallback (deprecated) |
 | `lua/poste/sql/completion_data.lua` | Async introspection, cache, fallback lists |
 | `lua/poste/sql/context.lua` | Connection/database resolution |
 | `crates/poste-exec/src/sql_dialect.rs` | Runtime dialect behavior for introspection/execution |

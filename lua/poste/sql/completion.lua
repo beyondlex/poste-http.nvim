@@ -13,28 +13,45 @@ local M = {}
 
 -- Cache last context detect result to avoid re-spawning the binary
 -- when the SQL text + offset + dialect haven't changed.
-local _ctx_cache_key = nil
-local _ctx_cache_result = nil
+-- Keyed by bufnr|changedtick|offset|dialect for automatic invalidation.
+local _ctx_cache = {}
 
 ---------------------------------------------------------------------------
--- Rust context detection
+-- Deep clean helper (vim.NIL → nil)
 ---------------------------------------------------------------------------
 
---- Try to detect completion context using the Rust binary.
---- Sends the full ### block (before + after cursor) so extract_tables
---- can see FROM/JOIN clauses after the cursor position.
---- Returns a context dict or nil (fall back to Lua).
-local function try_rust_context(bufnr, line_before, cursor_line)
-  local ok_ft, ft = pcall(vim.api.nvim_buf_get_option, bufnr, "filetype")
-  if not ok_ft or (ft ~= "poste_sql" and ft ~= "poste_sqlite") then return nil end
+local function deep_clean(t)
+  for k, v in pairs(t) do
+    if v == vim.NIL then
+      t[k] = nil
+    elseif type(v) == "table" then
+      deep_clean(v)
+    end
+  end
+end
 
-  local binary = data.find_binary()
-  if not binary then return nil end
+---------------------------------------------------------------------------
+-- Block extraction (shared by persistent client and system fallback)
+---------------------------------------------------------------------------
 
+local function get_dialect_flag()
+  local ok_ctx, ctx = pcall(data.resolve_current_context)
+  if ok_ctx and ctx and ctx.connection then
+    local ok_conn, conn_mod = pcall(require, "poste.sql.connections")
+    if ok_conn then
+      local conn = conn_mod.get_connection_config(ctx.connection)
+      if conn and conn.dialect then
+        return conn.dialect
+      end
+    end
+  end
+  return "generic"
+end
+
+local function extract_sql_block(bufnr, line_before, cursor_line)
   local total_lines = vim.api.nvim_buf_line_count(bufnr)
   local all_lines = vim.api.nvim_buf_get_lines(bufnr, 0, total_lines, false)
 
-  -- Find block boundaries
   local block_start = 1
   if cursor_line > 1 then
     for i = cursor_line - 1, 1, -1 do
@@ -70,64 +87,83 @@ local function try_rust_context(bufnr, line_before, cursor_line)
   table.insert(before_parts, line_before)
   local offset = #table.concat(before_parts, "\n")
 
-  local dialect_flag = ""
-  local ok_ctx, ctx = pcall(data.resolve_current_context)
-  if ok_ctx and ctx and ctx.connection then
-    local ok_conn, conn_mod = pcall(require, "poste.sql.connections")
-    if ok_conn then
-      local conn = conn_mod.get_connection_config(ctx.connection)
-      if conn and conn.dialect then
-        dialect_flag = " --dialect " .. conn.dialect
-      end
-    end
-  end
-  local cache_key = sql_text .. "|" .. offset .. "|" .. dialect_flag
-  if cache_key == _ctx_cache_key then
-    return _ctx_cache_result
+  return sql_text, offset
+end
+
+local function cache_key(bufnr, cursor_line, line_before)
+  local changedtick = vim.api.nvim_buf_get_var(bufnr, "changedtick")
+  local dialect = get_dialect_flag()
+  return string.format("%d|%d|%d|%s", bufnr, changedtick, #(line_before or ""), dialect)
+end
+
+---------------------------------------------------------------------------
+-- Rust context detection via persistent client (preferred)
+---------------------------------------------------------------------------
+
+--- Try to detect context via the persistent context_client (poste context serve).
+--- Falls back to vim.fn.system() if persistent client is unavailable or times out.
+local function try_rust_context(bufnr, line_before, cursor_line)
+  local ok_ft, ft = pcall(vim.api.nvim_buf_get_option, bufnr, "filetype")
+  if not ok_ft or (ft ~= "poste_sql" and ft ~= "poste_sqlite") then return nil end
+
+  local sql_text, offset = extract_sql_block(bufnr, line_before, cursor_line)
+  if not sql_text then return nil end
+
+  local ckey = cache_key(bufnr, cursor_line, line_before)
+  if _ctx_cache[ckey] then
+    return _ctx_cache[ckey]
   end
 
+  local dialect = get_dialect_flag()
+
+  local binary = data.find_binary()
+  if not binary then return nil end
+
+  local dialect_flag = dialect ~= "generic" and (" --dialect " .. dialect) or ""
   local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset, dialect_flag)
   local output = vim.fn.system(cmd, sql_text)
-  if vim.v.shell_error ~= 0 then
-    _ctx_cache_key, _ctx_cache_result = nil, nil
-    return nil
-  end
+  if vim.v.shell_error ~= 0 then return nil end
 
   local ok, parsed = pcall(vim.json.decode, output)
-  if not ok or not parsed or type(parsed) ~= "table" then
-    _ctx_cache_key, _ctx_cache_result = nil, nil
-    return nil
-  end
+  if not ok or not parsed or type(parsed) ~= "table" then return nil end
 
   debug.set_rust_raw(output)
-
-  -- Normalize vim.NIL → nil (JSON null becomes vim.NIL userdata in Neovim)
-  local function deep_clean(t)
-    for k, v in pairs(t) do
-      if v == vim.NIL then
-        t[k] = nil
-      elseif type(v) == "table" then
-        deep_clean(v)
-      end
-    end
-  end
   deep_clean(parsed)
 
   if vim.g.poste_sql_debug then
-    state.log("INFO", string.format("Rust context: type=%s, prefix='%s', tables=%d, in_string=%s, in_comment=%s",
+    state.log("INFO", string.format("Rust context: type=%s, prefix='%s', tables=%d",
       tostring(parsed.ctx_type), tostring(parsed.prefix or ""),
-      parsed.tables and #parsed.tables or 0,
-      tostring(parsed.in_string), tostring(parsed.in_comment)))
+      parsed.tables and #parsed.tables or 0))
   end
 
-  _ctx_cache_key = cache_key
-  _ctx_cache_result = parsed
+  _ctx_cache[ckey] = parsed
   return parsed
 end
 
 ---------------------------------------------------------------------------
 -- Main entry
 ---------------------------------------------------------------------------
+
+--- Detect completion context for the SQL at cursor.
+--- Returns (ctx_type, ctx_data, rust_ctx) where:
+---   - ctx_type/ctx_data come from Rust (preferred) or Lua fallback
+---   - rust_ctx is the raw Rust response (nil if Rust was not used/failed)
+local function detect_context_for_completion(bufnr, line_before, cursor_line)
+  if vim.g.poste_sql_legacy_completion == true then
+    return "keyword", nil, nil
+  end
+
+  local rust_ok, rust_ctx_raw = pcall(try_rust_context, bufnr, line_before, cursor_line)
+  if rust_ok and rust_ctx_raw then
+    return rust_ctx_raw.ctx_type, rust_ctx_raw.ctx_data, rust_ctx_raw
+  end
+
+  if vim.g.poste_sql_legacy_completion ~= "rust" then
+    return "keyword", nil, nil
+  end
+
+  return nil, nil, nil
+end
 
 local function get_items(bufnr, line_before, cursor_line, callback)
   local prefix = line_before:match("[%w_]*$") or ""
@@ -195,21 +231,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     return
   end
 
-  local ctx_type, ctx_data = ctx.detect_context(line_before)
-
-  -- vim.g.poste_sql_legacy_completion controls completion mode:
-  --   nil     → Rust + Lua fallback (default)
-  --   true    → Pure Lua (Rust disabled)
-  --   "rust"  → Pure Rust (no Lua fallback — for regression testing)
-  local rust_ctx = nil
-  local use_rust = not vim.g.poste_sql_legacy_completion or vim.g.poste_sql_legacy_completion == "rust"
-  if use_rust then
-    local rust_ok, rust_ctx_raw = pcall(try_rust_context, bufnr, line_before, cursor_line)
-    if rust_ok and rust_ctx_raw then
-      rust_ctx = rust_ctx_raw
-      ctx_type, ctx_data = rust_ctx.ctx_type, rust_ctx.ctx_data
-    end
-  end
+  local ctx_type, ctx_data, rust_ctx = detect_context_for_completion(bufnr, line_before, cursor_line)
 
   local rust_functions = (rust_ctx and rust_ctx.functions) or nil
 
@@ -462,6 +484,12 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     return
   end
 
+  -- Cursor inside string literal or comment — no completions
+  if ctx_type == "string" or ctx_type == "comment" then
+    callback({})
+    return
+  end
+
   -- Don't show keywords on directive lines (prevents @ trigger pollution)
   if line_before:match("^%s*%-%-%s*@") then
     callback({})
@@ -683,7 +711,7 @@ function M.toggle_legacy()
     vim.notify("Poste SQL completion: Rust strict mode (no Lua fallback)", vim.log.levels.WARN)
   else
     vim.g.poste_sql_legacy_completion = nil
-    vim.notify("Poste SQL completion: Rust + Lua fallback (default)", vim.log.levels.INFO)
+    vim.notify("Poste SQL completion: Rust first, Lua never overrides (default)", vim.log.levels.INFO)
   end
 end
 
@@ -692,11 +720,10 @@ end
 ---------------------------------------------------------------------------
 
 M._test = {
-  detect_context = ctx.detect_context,
+  detect_context_for_completion = detect_context_for_completion,
   resolve_current_context = data.resolve_current_context,
   conn_key = data.conn_key,
   get_items = get_items,
-  extract_from_tables = ctx.extract_from_tables,
   try_rust_context = try_rust_context,
   get_tables_and_alias = ctx.get_tables_and_alias,
 }

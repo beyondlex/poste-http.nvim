@@ -180,27 +180,34 @@ fn test_detect_comma_after_column() {
 }
 
 #[test]
-fn test_detect_inside_string_returns_none() {
-    let result = detect_context("SELECT 'hello world'", 10);
-    assert!(result.is_none(), "cursor inside string should return None");
+fn test_detect_inside_string_returns_string_type() {
+    let result = detect_context("SELECT 'hello world'", 10).unwrap();
+    assert_eq!(result.context_type, ContextType::String, "cursor inside string should return String type");
+    assert!(result.in_string, "in_string should be true");
+    assert!(!result.in_comment, "in_comment should be false");
 }
 
 #[test]
-fn test_detect_comment_where_triggers_none() {
-    let result = detect_context("-- WHERE ", 9);
-    assert!(result.is_none(), "cursor in line comment should return None");
+fn test_detect_comment_where_returns_comment_type() {
+    let result = detect_context("-- WHERE ", 9).unwrap();
+    assert_eq!(result.context_type, ContextType::Comment, "cursor in line comment should return Comment type");
+    assert!(result.in_comment, "in_comment should be true");
+    assert!(!result.in_string, "in_string should be false");
 }
 
 #[test]
-fn test_detect_comment_from_triggers_none() {
-    let result = detect_context("-- FROM ", 8);
-    assert!(result.is_none(), "cursor in line comment should return None");
+fn test_detect_comment_from_returns_comment_type() {
+    let result = detect_context("-- FROM ", 8).unwrap();
+    assert_eq!(result.context_type, ContextType::Comment, "cursor in line comment should return Comment type");
+    assert!(result.in_comment, "in_comment should be true");
+    assert!(!result.in_string, "in_string should be false");
 }
 
 #[test]
 fn test_detect_connection_directive() {
+    // @connection is now handled by Lua; Rust returns Keyword as safety net fallback
     let result = detect_context("@connection ", 12).unwrap();
-    assert_eq!(result.context_type, ContextType::Connection);
+    assert_eq!(result.context_type, ContextType::Keyword);
 }
 
 #[test]
@@ -1432,18 +1439,16 @@ fn test_where_with_prefix_returns_column() {
 }
 
 #[test]
-fn test_tables_dont_leak_across_blank_line_separator() {
-    // Two separate SQL statements separated by a blank line (no semicolon
-    // between them). Tables from the second statement should not leak into
-    // the first statement's table context.
+fn test_tables_from_all_statements_without_semicolon() {
+    // With semantic boundary detection, UPDATE and SELECT are separate
+    // statements. Cursor is in the UPDATE statement — only its table
+    // refs should be in scope.
     let sql = "UPDATE authors Set \n\nSELECT * from posts p left JOIN authors a on p.author_id = a.id;";
     let result = detect_context(sql, 19).unwrap();
     assert_eq!(result.context_type, ContextType::Column,
         "should be column context after SET");
     assert_eq!(result.tables.len(), 1,
-        "should only have one table (authors), got {:?}", result.tables);
-    assert_eq!(result.tables[0].name, "authors",
-        "table should be authors, not posts");
-    assert_eq!(result.tables[0].alias, None,
-        "authors should have no alias");
+        "should have only UPDATE's table ref, got {:?}", result.tables);
+    assert!(result.tables.iter().any(|t| t.name == "authors" && t.alias.is_none()),
+        "authors without alias from UPDATE should be present");
 }

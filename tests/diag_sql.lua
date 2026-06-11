@@ -14,9 +14,7 @@ if not ok then
   os.exit(1)
 end
 
-local detect_context    = sql_comp._test.detect_context
-local extract_from_tables = sql_comp._test.extract_from_tables
-local get_items         = sql_comp._test.get_items
+local get_items = sql_comp._test.get_items
 
 local pass, fail = 0, 0
 local function check(label, got, expected)
@@ -29,47 +27,15 @@ local function check(label, got, expected)
   end
 end
 
--- ── 1. detect_context ────────────────────────────────────────────────────────
-log("\n=== detect_context ===")
-check("WHERE<space>",        detect_context("SELECT * FROM authors WHERE "),          "column")
-check("WHERE<space>partial", detect_context("SELECT * FROM authors WHERE us"),        "column")
-check("FROM<space>",         detect_context("SELECT * FROM "),                         "table")
-check("AND<space>",          detect_context("... WHERE id=1 AND "),                   "column")
-check("bare SEL",            detect_context("SEL"),                                   "keyword")
-check("USE<space>",          detect_context("USE "),                                  "database")
-check("USE<space>partial",   detect_context("USE inv"),                               "database")
-do
-  local ctx, extra = detect_context("SELECT authors.")
-  check("dot_column ctx",   ctx,   "dot_column")
-  check("dot_column extra", extra, "authors")
-end
+-- ── 1. get_items with seeded cache ───────────────────────────────────────────
+log("\n=== get_items (Rust path) ===")
 
--- ── 2. extract_from_tables ───────────────────────────────────────────────────
-log("\n=== extract_from_tables ===")
 local function make_buf(lines)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
   return buf
 end
-
-do
-  local buf = make_buf({ "###", "SELECT * FROM authors WHERE " })
-  local tbls = extract_from_tables(buf, 2)
-  check("finds authors", vim.tbl_contains(tbls, "authors"), true)
-end
-
-do
-  local buf = make_buf({
-    "###", "SELECT * FROM other;",
-    "###", "SELECT * FROM authors WHERE ",
-  })
-  local tbls = extract_from_tables(buf, 4)
-  check("authors in block",    vim.tbl_contains(tbls, "authors"),     true)
-  check("other NOT in block",  vim.tbl_contains(tbls, "other"),       false)
-end
-
--- ── 3. get_items with seeded cache ───────────────────────────────────────────
-log("\n=== get_items (seeded cache) ===")
 
 -- Seed state so conn_key() resolves
 local state = require("poste.state")
@@ -80,13 +46,17 @@ sql_comp.cache_columns("authors", {
   { name = "id" }, { name = "username" }, { name = "email" }, { name = "bio" },
 })
 
+-- Use Rust strict mode to force Rust binary path
+local prev_mode = vim.g.poste_sql_legacy_completion
+vim.g.poste_sql_legacy_completion = "rust"
+
 do
   local buf = make_buf({ "###", "SELECT * FROM authors WHERE " })
   local items = nil
   get_items(buf, "SELECT * FROM authors WHERE ", 2, function(r) items = r end)
 
   if items == nil then
-    log("FAIL: callback not called (async? cache miss?)")
+    log("FAIL: callback not called (async? Rust binary not found?)")
     fail = fail + 1
   else
     log("items count: " .. #items)
@@ -114,26 +84,9 @@ do
   end
 end
 
--- ── Summary ──────────────────────────────────────────────────────────────────
-log(string.format("\n=== RESULT: %d passed, %d failed ===", pass, fail))
+-- ── 2. Alias resolution ─────────────────────────────────────────────────────
+log("\n=== alias resolution (Rust path) ===")
 
--- ── 4. Alias resolution ───────────────────────────────────────────────────────
-log("\n=== alias resolution ===")
-
-do
-  local buf = make_buf({ "###", "SELECT * FROM authors s LEFT JOIN posts p ON p." })
-  local tbls, alias_map = extract_from_tables(buf, 2)
-  check("alias s → authors", alias_map["s"], "authors")
-  check("alias p → posts",   alias_map["p"], "posts")
-end
-
-do
-  local buf = make_buf({ "###", "SELECT * FROM authors WHERE " })
-  local _, alias_map = extract_from_tables(buf, 2)
-  check("no alias: authors → authors", alias_map["authors"], "authors")
-end
-
--- dot_column resolves alias
 state.sql = { context = { connection = "test-conn", database = "blog" } }
 sql_comp.cache_tables({ { name = "authors" }, { name = "posts" } })
 sql_comp.cache_columns("posts", {
@@ -142,8 +95,6 @@ sql_comp.cache_columns("posts", {
 
 do
   local buf = make_buf({ "###", "SELECT * FROM authors s LEFT JOIN posts p ON p." })
-  vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
-  vim.api.nvim_set_current_buf(buf)
   local items = nil
   get_items(buf, "SELECT * FROM authors s LEFT JOIN posts p ON p.", 2, function(r) items = r end)
   if items == nil then
@@ -159,8 +110,6 @@ end
 
 do
   local buf = make_buf({ "###", "SELECT * FROM authors s LEFT JOIN posts p ON p.ti" })
-  vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
-  vim.api.nvim_set_current_buf(buf)
   local items = nil
   get_items(buf, "SELECT * FROM authors s LEFT JOIN posts p ON p.ti", 2, function(r) items = r end)
   if items then
@@ -173,7 +122,9 @@ do
   end
 end
 
-log(string.format("\n=== RESULT: %d passed, %d failed ===", pass, fail))
+-- Restore
+vim.g.poste_sql_legacy_completion = prev_mode
 
+log(string.format("\n=== RESULT: %d passed, %d failed ===", pass, fail))
 vim.fn.writefile(out, "/tmp/poste_sql_diag.txt")
 vim.cmd("qa!")

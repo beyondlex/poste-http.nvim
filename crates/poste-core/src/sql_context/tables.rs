@@ -2,61 +2,26 @@
 //!
 //! Supports schema-qualified tables (`schema.table`), aliases, and
 //! paren-depth tracking to skip subquery-internal table references.
+//!
+//! Compatibility layer: `extract_tables()` now delegates to `scope::resolve_scope()`.
 
+use super::scope;
 use super::tokenizer::{kw_eq, skip_forward, Token, TokenKind};
 use super::tokenizer::{is_column_keyword, is_known_keyword, is_predicate_keyword, is_table_keyword};
 use super::TableRef;
 
 // ---------------------------------------------------------------------------
-// Table extraction (forward scan, paren-aware)
+// Table extraction (delegates to scope resolver)
 // ---------------------------------------------------------------------------
 
 /// Extract table references from a token stream.
 ///
-/// Tracks paren depth to skip subqueries. Handles:
-/// - FROM/JOIN/UPDATE/INTO + identifier
-/// - Schema-qualified: schema.table
-/// - Aliases: table alias
+/// Delegates to `scope::resolve_scope()` for full scope-aware extraction
+/// including CTE registration and derived table aliases.
+/// Returns `Vec<TableRef>` for backward compatibility.
+#[allow(dead_code)]
 pub(crate) fn extract_tables(tokens: &[Token], sql: &str) -> Vec<TableRef> {
-    let mut tables: Vec<TableRef> = Vec::new();
-    let mut i = 0;
-    let mut paren_depth = 0i32;
-
-    while i < tokens.len() {
-        let t = &tokens[i];
-        match t.kind {
-            TokenKind::LParen => paren_depth += 1,
-            TokenKind::RParen => paren_depth -= 1,
-            TokenKind::Keyword if paren_depth == 0 => {
-                let kw = t.text(sql);
-                if kw_eq(kw, "from") || kw_eq(kw, "join") || kw_eq(kw, "into")
-                    || kw_eq(kw, "table") || kw_eq(kw, "update") {
-                    if let Some(next) = skip_forward(tokens, i) {
-                        let (schema, table_name, alias, consumed) =
-                            parse_table_ref(tokens, next, sql);
-
-                        let table = TableRef {
-                            name: table_name.to_string(),
-                            alias: alias.map(|s| s.to_string()),
-                            schema: schema.map(|s| s.to_string()),
-                        };
-
-                        if !tables.iter().any(|t| t.name == table.name && t.alias == table.alias && t.schema == table.schema) {
-                            tables.push(table);
-                        }
-
-                        if consumed > 0 {
-                            i += consumed;
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-
-    tables
+    scope::resolve_scope(tokens, sql).tables
 }
 
 /// Parse a table reference starting at token index `i`.

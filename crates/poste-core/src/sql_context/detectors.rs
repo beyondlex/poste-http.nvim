@@ -132,10 +132,12 @@ pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) 
 }
 
 pub(crate) fn try_directive(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
+    // @connection/@database: safety net only — return None (Lua handles directives).
+    // Kept as a no-op to avoid unused warnings; simply doesn't match.
     if tokens[cursor_idx].kind == TokenKind::At {
         let text = tokens[cursor_idx].text(sql);
         if kw_eq(text, "@connection") || kw_eq(text, "@database") {
-            return Some(ContextType::Connection);
+            return None;
         }
     }
 
@@ -143,7 +145,7 @@ pub(crate) fn try_directive(tokens: &[Token], cursor_idx: usize, sql: &str) -> O
         if tokens[prev].kind == TokenKind::At {
             let text = tokens[prev].text(sql);
             if kw_eq(text, "@connection") || kw_eq(text, "@database") {
-                return Some(ContextType::Connection);
+                return None;
             }
         }
     }

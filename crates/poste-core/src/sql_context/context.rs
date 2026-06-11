@@ -3,11 +3,13 @@ use super::detectors::{
     try_grant_revoke, try_insert_column, try_show_statement,
 };
 use super::scanner::detect_scan_backward;
+use super::scope;
 use super::tokenizer::{
-    extract_prefix, find_token_at_offset, tokenize, Token, TokenKind,
+    extract_prefix, find_token_at_offset, tokenize, TokenKind,
 };
+use super::statements;
 use super::{
-    functions, tables, ContextResult, ContextType, SqlDialect,
+    functions, ContextResult, ContextType, SqlDialect,
 };
 
 pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
@@ -39,101 +41,110 @@ pub fn detect_context_with_dialect(
 
     let in_string = cursor_tok.kind == TokenKind::StrLit;
     let in_comment = matches!(cursor_tok.kind, TokenKind::LineComment | TokenKind::BlockComment);
-    if in_string || in_comment {
-        return None;
+    if in_string {
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ContextType::String,
+            tables: vec![],
+            prefix: String::new(),
+            functions: funcs,
+            in_string: true,
+            in_comment: false,
+        });
+    }
+    if in_comment {
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ContextType::Comment,
+            tables: vec![],
+            prefix: String::new(),
+            functions: funcs,
+            in_string: false,
+            in_comment: true,
+        });
     }
 
     let prefix = extract_prefix(sql, offset, &tokens, cursor_idx);
 
-    let (stmt_start, stmt_end) = find_statement_token_range(&tokens, cursor_idx, sql);
+    let (stmt_start, stmt_end) = statements::find_statement_token_range(&tokens, cursor_idx, sql);
     let stmt_tokens = &tokens[stmt_start..stmt_end];
 
+    let scope = scope::resolve_scope(stmt_tokens, sql);
+    let tables = scope.tables;
+    let functions = functions::known_functions_for_dialect(dialect);
+
     if let Some(ctx) = try_dot_column(&tokens, cursor_idx, sql) {
-        let tables = tables::extract_tables(stmt_tokens, sql);
-        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
             prefix,
-            functions: funcs,
+            functions,
             in_string: false,
             in_comment: false,
         });
     }
 
     if let Some(ctx) = try_insert_column(&tokens, cursor_idx, sql) {
-        let tables = tables::extract_tables(stmt_tokens, sql);
-        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
             prefix,
-            functions: funcs,
+            functions,
             in_string: false,
             in_comment: false,
         });
     }
 
     if let Some(ctx) = try_directive(&tokens, cursor_idx, sql) {
-        let tables = tables::extract_tables(stmt_tokens, sql);
-        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
             prefix,
-            functions: funcs,
+            functions,
             in_string: false,
             in_comment: false,
         });
     }
 
     if let Some(ctx) = try_show_statement(&tokens, cursor_idx, sql) {
-        let tables = tables::extract_tables(stmt_tokens, sql);
-        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
             prefix,
-            functions: funcs,
+            functions,
             in_string: false,
             in_comment: false,
         });
     }
 
     if let Some(ctx) = try_grant_revoke(&tokens, cursor_idx, sql) {
-        let tables = tables::extract_tables(stmt_tokens, sql);
-        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
             prefix,
-            functions: funcs,
+            functions,
             in_string: false,
             in_comment: false,
         });
     }
 
     if let Some(ctx) = try_for_update_of(&tokens, cursor_idx, sql) {
-        let tables = tables::extract_tables(stmt_tokens, sql);
-        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
             prefix,
-            functions: funcs,
+            functions,
             in_string: false,
             in_comment: false,
         });
     }
 
     if let Some(ctx) = try_bare_set(&tokens, cursor_idx, sql) {
-        let tables = tables::extract_tables(stmt_tokens, sql);
-        let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
             context_type: ctx,
             tables,
             prefix,
-            functions: funcs,
+            functions,
             in_string: false,
             in_comment: false,
         });
@@ -147,8 +158,6 @@ pub fn detect_context_with_dialect(
             && sql[..offset].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_'));
     let context_type = detect_scan_backward(&tokens, cursor_idx, sql, cursor_on_ident);
 
-    let tables = tables::extract_tables(stmt_tokens, sql);
-    let functions = functions::known_functions_for_dialect(dialect);
     Some(ContextResult {
         context_type,
         tables,
@@ -159,40 +168,3 @@ pub fn detect_context_with_dialect(
     })
 }
 
-/// Check if a Whitespace token contains a blank line (at least two newlines).
-///
-/// Blank lines are used as soft statement delimiters in addition to semicolons.
-/// This prevents tables from a subsequent statement (e.g. `SELECT * FROM posts`
-/// below a `UPDATE authors SET ...`) from leaking into the current statement's
-/// table context.
-fn is_blank_line_separator(tok: &Token, sql: &str) -> bool {
-    if tok.kind != TokenKind::Whitespace {
-        return false;
-    }
-    let text = &sql[tok.start..tok.end];
-    text.bytes().filter(|&b| b == b'\n').count() >= 2
-}
-
-fn find_statement_token_range(
-    tokens: &[Token], cursor_idx: usize, sql: &str,
-) -> (usize, usize) {
-    let mut start = 0;
-    let mut i = cursor_idx;
-    while i > 0 {
-        i -= 1;
-        if tokens[i].kind == TokenKind::Semi || is_blank_line_separator(&tokens[i], sql) {
-            start = i + 1;
-            break;
-        }
-    }
-    let mut end = tokens.len();
-    let mut i = cursor_idx;
-    while i < tokens.len() {
-        if tokens[i].kind == TokenKind::Semi || is_blank_line_separator(&tokens[i], sql) {
-            end = i;
-            break;
-        }
-        i += 1;
-    }
-    (start, end)
-}

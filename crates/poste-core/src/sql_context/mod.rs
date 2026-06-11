@@ -26,6 +26,7 @@ mod tables;
 mod context;
 mod detectors;
 mod scanner;
+mod scope;
 mod statements;
 
 #[cfg(test)]
@@ -33,11 +34,9 @@ mod tests;
 
 #[allow(unused_imports)]
 pub(crate) use tokenizer::*;
-#[allow(unused_imports)]
-pub(crate) use tables::extract_tables;
 
 pub use context::{detect_context, detect_context_with_dialect};
-pub use statements::find_statement_span;
+pub use statements::{find_statement_span, find_all_statement_ranges};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SqlDialect {
@@ -69,6 +68,8 @@ pub enum ContextType {
     Connection,
     Database,
     DataType,
+    String,
+    Comment,
 }
 
 impl ContextType {
@@ -83,6 +84,8 @@ impl ContextType {
             Self::Connection => "connection",
             Self::Database => "database",
             Self::DataType => "datatype",
+            Self::String => "string",
+            Self::Comment => "comment",
         }
     }
 
@@ -91,6 +94,7 @@ impl ContextType {
             Self::DotColumn { table, .. } => Some(table.clone()),
             Self::SchemaTable { schema } => Some(schema.clone()),
             Self::InsertColumn { table } => Some(table.clone()),
+            Self::String | Self::Comment => None,
             _ => None,
         }
     }

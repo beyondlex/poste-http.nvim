@@ -76,6 +76,15 @@ local function setup_browser_buffer()
     vim.keymap.set("n", k, function() M.close() end, opts)
   end
 
+  k = state.get_keymap("db_browser", "context_menu", "x")
+  if k then
+    local context_menu = require("poste.sql.db_browser.context_menu")
+    vim.keymap.set("n", k, function()
+      local node = tree.get_node_at_line(line_to_node, vim.fn.line("."))
+      context_menu.open(node, make_context())
+    end, opts)
+  end
+
   local table_ops = require("poste.sql.table_ops")
   table_ops.register_keymaps(browser_buf, function()
     local buf_line = vim.fn.line(".")

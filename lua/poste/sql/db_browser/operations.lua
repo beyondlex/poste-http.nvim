@@ -1,0 +1,358 @@
+--- Operations dispatched from the DB Browser context menu.
+--- Each function: op(node, context) → performs the action.
+local state = require("poste.state")
+local tree = require("poste.sql.db_browser.tree")
+local async = require("poste.sql.db_browser.async")
+local icons = require("poste.sql.db_browser.icons")
+
+local HEADER_LINES = icons.HEADER_LINES
+local M = {}
+
+---------------------------------------------------------------------------
+-- Helpers
+---------------------------------------------------------------------------
+
+local function get_dialect(node, context)
+  if node.meta and node.meta.dialect then return node.meta.dialect end
+  local conn_name = node.meta and node.meta.connection or state.sql.db_browser.connection
+  for _, root in ipairs(context.root_nodes) do
+    if root.name == conn_name then
+      return root.meta and root.meta.dialect or "postgres"
+    end
+  end
+  return "postgres"
+end
+
+local function get_connection_name(node, context)
+  if node.node_type == "connection" then return node.name end
+  return node.meta and node.meta.connection or state.sql.db_browser.connection
+end
+
+local function get_search_dir(context)
+  if context.source_buf and vim.api.nvim_buf_is_valid(context.source_buf) then
+    local buf_name = vim.api.nvim_buf_get_name(context.source_buf)
+    if buf_name ~= "" then return vim.fn.fnamemodify(buf_name, ":p:h") end
+  end
+  return vim.fn.getcwd()
+end
+
+local function find_table_node(context, start_idx)
+  for i = start_idx, 1, -1 do
+    local n = context.line_to_node[i]
+    if n and n.node_type == "table" then return n end
+    if n and (n.node_type == "database" or n.node_type == "schema" or n.node_type == "connection") then break end
+  end
+  return nil
+end
+
+local function insert_into_source(context, lines)
+  if not context.source_buf or not vim.api.nvim_buf_is_valid(context.source_buf) then
+    vim.notify("No source SQL buffer found", vim.log.levels.WARN)
+    return false
+  end
+  local line_count = vim.api.nvim_buf_line_count(context.source_buf)
+  vim.api.nvim_buf_set_lines(context.source_buf, line_count, line_count, false, lines)
+  local target_win = vim.fn.bufwinid(context.source_buf)
+  if target_win and target_win ~= -1 then
+    vim.api.nvim_set_current_win(target_win)
+  end
+  return true
+end
+
+---------------------------------------------------------------------------
+-- Operations
+---------------------------------------------------------------------------
+
+--- SELECT * LIMIT 100 for table/view; insert at end of source buffer.
+function M.select_star(node, context)
+  local table_node = node
+  if node.node_type == "column" then
+    table_node = find_table_node(context, context.line_to_node[node] and 0 or 0)
+  end
+
+  -- Fallback: walk up from current line to find table
+  if not table_node or table_node.node_type ~= "table" then
+    local buf_line = vim.fn.line(".")
+    local idx = buf_line - HEADER_LINES
+    table_node = find_table_node(context, idx)
+  end
+
+  if not table_node or (table_node.node_type ~= "table" and table_node.node_type ~= "view") then
+    vim.notify("Move cursor to a table or view node", vim.log.levels.INFO)
+    return
+  end
+
+  local dialect = get_dialect(table_node, context)
+  local conn = get_connection_name(table_node, context)
+  local schema_prefix = ""
+  if table_node.meta and table_node.meta.schema and dialect == "postgres" then
+    schema_prefix = table_node.meta.schema .. "."
+  end
+
+  local query_lines = { "", "### Query: " .. table_node.name }
+  if conn then table.insert(query_lines, "-- @connection " .. conn) end
+  if table_node.meta and table_node.meta.database then
+    table.insert(query_lines, "-- @database " .. table_node.meta.database)
+  end
+  table.insert(query_lines, "SELECT * FROM " .. schema_prefix .. table_node.name .. " LIMIT 100;")
+  table.insert(query_lines, "")
+
+  if insert_into_source(context, query_lines) then
+    vim.notify("Generated SELECT for: " .. table_node.name, vim.log.levels.INFO)
+  end
+end
+
+--- Show DDL for table/view in a float window.
+function M.show_ddl(node, context)
+  local table_node = node
+  if node.node_type ~= "table" and node.node_type ~= "view" then
+    -- For index/key nodes, walk up to table
+    table_node = find_table_node(context, vim.fn.line(".") - HEADER_LINES)
+  end
+
+  if not table_node or (table_node.node_type ~= "table" and table_node.node_type ~= "view") then
+    vim.notify("DDL is only available for tables and views", vim.log.levels.INFO)
+    return
+  end
+
+  local binary = state.find_poste_binary()
+  if not binary then
+    vim.notify("Poste binary not found", vim.log.levels.ERROR)
+    return
+  end
+
+  local conn = get_connection_name(table_node, context)
+  local search_dir = get_search_dir(context)
+  local schema = table_node.meta and table_node.meta.schema
+  local database = table_node.meta and table_node.meta.database
+
+  local cmd_parts = {
+    vim.fn.shellescape(binary), "introspect",
+    vim.fn.shellescape(conn),
+    "--type", "ddl",
+    "--table", vim.fn.shellescape(table_node.name),
+    "--path", vim.fn.shellescape(search_dir),
+    "--env", vim.fn.shellescape(state.current_env),
+  }
+  if schema then
+    table.insert(cmd_parts, "--schema"); table.insert(cmd_parts, vim.fn.shellescape(schema))
+  end
+  if database then
+    table.insert(cmd_parts, "--database"); table.insert(cmd_parts, vim.fn.shellescape(database))
+  end
+
+  local cmd = table.concat(cmd_parts, " ")
+  state.log("INFO", "DB Browser DDL: " .. cmd)
+
+  vim.fn.jobstart(cmd, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      if not data then return end
+      while #data > 0 and data[#data] == "" do data[#data] = nil end
+      if #data == 0 then return end
+      local output = table.concat(data, "\n")
+      local ok, parsed = pcall(vim.json.decode, output)
+      if not ok or type(parsed) ~= "table" then
+        vim.schedule(function()
+          vim.notify("DDL: failed to parse output", vim.log.levels.WARN)
+        end)
+        return
+      end
+
+      local items = parsed.items
+      if not items or #items == 0 then
+        vim.schedule(function()
+          vim.notify("DDL: no items in response", vim.log.levels.WARN)
+        end)
+        return
+      end
+
+      vim.schedule(function()
+        local ddl = items[1].ddl or ""
+        if ddl == "" then
+          vim.notify("DDL: empty result", vim.log.levels.WARN)
+          return
+        end
+        local lines = vim.split(ddl, "\n")
+        local title = "DDL: " .. table_node.name
+        require("poste.sql.introspect").show_float(lines, title, "sql")
+      end)
+    end,
+    on_stderr = function(_, data)
+      if not data then return end
+    end,
+    on_exit = function(_, code)
+      if code ~= 0 then
+        vim.schedule(function()
+          vim.notify("DDL fetch failed (exit " .. tostring(code) .. ")", vim.log.levels.ERROR)
+        end)
+      end
+    end,
+  })
+end
+
+--- Copy node name to system clipboard.
+function M.copy_name(node)
+  local name = node.name or ""
+  vim.fn.setreg("+", name)
+  vim.notify("Copied: " .. name, vim.log.levels.INFO)
+end
+
+--- Rename table or column via vim.ui.input → generate ALTER SQL.
+function M.rename(node, context)
+  if node.node_type ~= "table" and node.node_type ~= "column" then
+    vim.notify("Rename is only available for tables and columns", vim.log.levels.INFO)
+    return
+  end
+
+  local dialect = get_dialect(node, context)
+  local label = node.node_type == "table" and "table" or "column"
+
+  vim.ui.input({
+    prompt = "Rename " .. label .. " (" .. node.name .. "): ",
+    default = node.name,
+  }, function(input)
+    if not input or input == "" or input == node.name then return end
+
+    local conn = get_connection_name(node, context)
+    local lines = { "", "### Rename " .. label .. ": " .. node.name .. " → " .. input }
+
+    if node.node_type == "table" then
+      if conn then table.insert(lines, "-- @connection " .. conn) end
+      if node.meta and node.meta.database then
+        table.insert(lines, "-- @database " .. node.meta.database)
+      end
+
+      if dialect == "mysql" then
+        table.insert(lines, "RENAME TABLE `" .. node.name .. "` TO `" .. input .. "`;")
+      elseif dialect == "sqlite" then
+        table.insert(lines, "ALTER TABLE " .. node.name .. " RENAME TO " .. input .. ";")
+      else
+        table.insert(lines, "ALTER TABLE " .. node.name .. " RENAME TO " .. input .. ";")
+      end
+    elseif node.node_type == "column" then
+      -- Find parent table
+      local table_node = find_table_node(context, vim.fn.line(".") - HEADER_LINES)
+      if not table_node then
+        vim.notify("Could not find parent table", vim.log.levels.WARN)
+        return
+      end
+      if conn then table.insert(lines, "-- @connection " .. conn) end
+      if table_node.meta and table_node.meta.database then
+        table.insert(lines, "-- @database " .. table_node.meta.database)
+      end
+      if dialect == "mysql" then
+        local col_type = node.meta and node.meta.col_type or "TEXT"
+        table.insert(lines, "ALTER TABLE `" .. table_node.name
+          .. "` CHANGE COLUMN `" .. node.name .. "` `" .. input .. "` " .. col_type .. ";")
+      else
+        table.insert(lines, "ALTER TABLE " .. table_node.name
+          .. " RENAME COLUMN " .. node.name .. " TO " .. input .. ";")
+      end
+    end
+
+    table.insert(lines, "")
+    insert_into_source(context, lines)
+    vim.notify("Generated RENAME " .. label .. " SQL", vim.log.levels.INFO)
+  end)
+end
+
+--- Refresh (re-fetch children) for expandable nodes.
+function M.refresh(node, context)
+  if node.node_type == "column" or node.node_type == "index"
+      or node.node_type == "key_item" or node.node_type == "fk_item"
+      or node.node_type == "index_item" then
+    vim.notify("Cannot refresh leaf nodes", vim.log.levels.INFO)
+    return
+  end
+
+  node.children = nil
+  node.expanded = false
+  node.loading = true
+  local new_map = tree.render_tree(context.browser_buf, context.line_to_node, context.root_nodes, context.conn_label)
+  for i, n in ipairs(new_map) do context.line_to_node[i] = n end
+
+  local search_dir = get_search_dir(context)
+  async.fetch_children(node, function()
+    node.expanded = true
+    vim.schedule(function()
+      local nm = tree.render_tree(context.browser_buf, context.line_to_node, context.root_nodes, context.conn_label)
+      for i, n in ipairs(nm) do context.line_to_node[i] = n end
+    end)
+  end, search_dir)
+end
+
+--- Insert a new query block with connection context.
+function M.new_query(node, context)
+  local conn = get_connection_name(node, context)
+  local lines = { "", "### New Query" }
+  if conn then table.insert(lines, "-- @connection " .. conn) end
+  if node.node_type == "database" then
+    table.insert(lines, "USE " .. node.name .. ";")
+  end
+  table.insert(lines, "")
+  table.insert(lines, "")
+
+  insert_into_source(context, lines)
+  vim.notify("New query block created", vim.log.levels.INFO)
+end
+
+--- Set default database/schema: insert USE or SET search_path.
+function M.set_default(node, context)
+  local dialect = get_dialect(node, context)
+  local conn = get_connection_name(node, context)
+  local lines = { "", "### Set Default: " .. node.name }
+  if conn then table.insert(lines, "-- @connection " .. conn) end
+
+  if node.node_type == "database" then
+    table.insert(lines, "USE " .. node.name .. ";")
+  elseif node.node_type == "schema" then
+    if dialect == "postgres" then
+      table.insert(lines, "SET search_path TO " .. node.name .. ";")
+    elseif dialect == "mysql" then
+      table.insert(lines, "USE " .. node.name .. ";")
+    else
+      table.insert(lines, "-- schema: " .. node.name)
+    end
+  end
+  table.insert(lines, "")
+
+  insert_into_source(context, lines)
+  vim.notify("Set default: " .. node.name, vim.log.levels.INFO)
+end
+
+--- Open connections.json at this connection's entry.
+function M.edit_conn(node, context)
+  local conn_name = node.node_type == "connection" and node.name
+    or (node.meta and node.meta.connection)
+  if not conn_name then
+    vim.notify("No connection name found", vim.log.levels.WARN)
+    return
+  end
+
+  local connections = require("poste.sql.connections")
+  local config_path = connections.find_connections_json(get_search_dir(context))
+  if not config_path then
+    vim.notify("connections.json not found", vim.log.levels.WARN)
+    return
+  end
+
+  vim.cmd("edit " .. vim.fn.fnameescape(config_path))
+
+  -- Try to jump to the connection entry
+  vim.schedule(function()
+    local escaped = vim.pesc(conn_name)
+    local found = vim.fn.search('"' .. escaped .. '"', "w")
+    if found == 0 then
+      vim.notify("Connection '" .. conn_name .. "' not found in file", vim.log.levels.WARN)
+    end
+  end)
+end
+
+--- Stub: Modify Column (Phase B).
+function M.modify_col(node, context)
+  vim.notify("Modify Column coming in Phase B", vim.log.levels.INFO)
+end
+
+return M

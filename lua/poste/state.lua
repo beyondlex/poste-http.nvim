@@ -84,6 +84,7 @@ M.config = {
     },
     db_browser = {
       toggle_node = "<CR>",
+      context_menu = "x",
       refresh_node = "r",
       search_filter = "/",
       select_query = "s",

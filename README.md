@@ -188,6 +188,7 @@ In Neovim, open any supported file. With cursor on a request block, press `<CR>`
 | Key | Action |
 |-----|--------|
 | `<CR>` | Toggle node expand/collapse |
+| `x` | Open context menu (node-specific actions) |
 | `r` | Refresh node |
 | `/` | Search filter |
 | `s` | Generate SELECT * query |
@@ -284,6 +285,7 @@ require("poste").setup({
     },
     db_browser = {
       toggle_node = "<CR>",
+      context_menu = "x",
       refresh_node = "r",
       search_filter = "/",
       select_query = "s",

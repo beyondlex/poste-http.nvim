@@ -16,16 +16,18 @@
     }
   },
   {
-    "name": "tables isolated by blank line separator",
+    "name": "tables no longer isolated by blank line (P3)",
     "dialect": "generic",
-    "sql": "UPDATE authors Set █\n\nSELECT * from posts p left JOIN authors a on p.author_id = a.id;",
+    "sql": "UPDATE authors Set \u2588\n\nSELECT * from posts p left JOIN authors a on p.author_id = a.id;",
     "expect": {
       "ctx_type": "column",
       "ctx_data": null,
       "ctx_schema": null,
       "prefix": "",
       "tables": [
-        { "name": "authors", "alias": null, "schema": null }
+        { "name": "authors", "alias": null, "schema": null },
+        { "name": "posts", "alias": "p", "schema": null },
+        { "name": "authors", "alias": "a", "schema": null }
       ],
       "in_string": false,
       "in_comment": false

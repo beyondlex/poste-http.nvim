@@ -26,6 +26,7 @@ mod tables;
 mod context;
 mod detectors;
 mod scanner;
+mod scope;
 mod statements;
 
 #[cfg(test)]
@@ -33,8 +34,6 @@ mod tests;
 
 #[allow(unused_imports)]
 pub(crate) use tokenizer::*;
-#[allow(unused_imports)]
-pub(crate) use tables::extract_tables;
 
 pub use context::{detect_context, detect_context_with_dialect};
 pub use statements::find_statement_span;

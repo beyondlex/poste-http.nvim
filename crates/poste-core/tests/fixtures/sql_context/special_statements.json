@@ -50,7 +50,9 @@
       "ctx_data": "users",
       "ctx_schema": null,
       "prefix": "",
-      "tables": [],
+      "tables": [
+        { "name": "users", "alias": null, "schema": null }
+      ],
       "in_string": false,
       "in_comment": false
     }

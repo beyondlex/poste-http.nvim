@@ -1439,18 +1439,19 @@ fn test_where_with_prefix_returns_column() {
 }
 
 #[test]
-fn test_tables_dont_leak_across_blank_line_separator() {
-    // Two separate SQL statements separated by a blank line (no semicolon
-    // between them). Tables from the second statement should not leak into
-    // the first statement's table context.
+fn test_tables_from_all_statements_without_semicolon() {
+    // With blank-line boundary removed (P3), all tables before the next
+    // semicolon are included in scope.
     let sql = "UPDATE authors Set \n\nSELECT * from posts p left JOIN authors a on p.author_id = a.id;";
     let result = detect_context(sql, 19).unwrap();
     assert_eq!(result.context_type, ContextType::Column,
         "should be column context after SET");
-    assert_eq!(result.tables.len(), 1,
-        "should only have one table (authors), got {:?}", result.tables);
-    assert_eq!(result.tables[0].name, "authors",
-        "table should be authors, not posts");
-    assert_eq!(result.tables[0].alias, None,
-        "authors should have no alias");
+    assert_eq!(result.tables.len(), 3,
+        "should have all three table refs, got {:?}", result.tables);
+    assert!(result.tables.iter().any(|t| t.name == "authors" && t.alias.is_none()),
+        "authors without alias from UPDATE should be present");
+    assert!(result.tables.iter().any(|t| t.name == "posts" && t.alias == Some("p".into())),
+        "posts with alias p from SELECT should be present");
+    assert!(result.tables.iter().any(|t| t.name == "authors" && t.alias == Some("a".into())),
+        "authors with alias a from JOIN should be present");
 }

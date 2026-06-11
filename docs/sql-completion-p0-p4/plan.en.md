@@ -1,7 +1,7 @@
 # SQL Completion P0-P4 Implementation Checklist
 
-> **Progress**: P0 ✅ | P1 ✅ | P2 ✅ | P3 ⬜ | P3 ⬜ | P4 ⬜
-> **Current phase**: P3 — Scope Resolver
+> **Progress**: P0 ✅ | P1 ✅ | P2 ✅ | P3 ✅ | P4 ⬜
+> **Current phase**: P3 — Scope Resolver ✅
 > **Next step**: First unchecked item below
 
 ---
@@ -104,20 +104,20 @@ tests/run.sh  # 80/80 + 89/89 + all others (367 total)
 
 **Goal**: Explicit scope model for CTE/subquery/alias/derived tables. Remove blank-line boundary + `completion_ctx.lua`.
 
-- [ ] **P3a. New `scope.rs` module** — In `crates/poste-core/src/sql_context/scope.rs`:
+- [x] **P3a. New `scope.rs` module** — In `crates/poste-core/src/sql_context/scope.rs`:
   - `QueryScope { tables, ctes, aliases }`, `CteRef`, `AliasRef`
   - `resolve_scope(tokens, sql) → QueryScope`
   - Handle: top-level FROM/JOIN, schema.table, aliases, CTE registration
   - Subquery/CTE body tables NOT leaked to outer scope
   - Derived table aliases visible
 
-- [ ] **P3b. Compatibility layer** — `tables::extract_tables()` calls `scope::resolve_scope()` internally, keeps `Vec<TableRef>` return type.
+- [x] **P3b. Compatibility layer** — `tables::extract_tables()` calls `scope::resolve_scope()` internally, keeps `Vec<TableRef>` return type.
 
-- [ ] **P3c. Update `detect_context()`** — Resolve scope once per call, build `ContextResult` from scope, remove duplicate `extract_tables()` calls.
+- [x] **P3c. Update `detect_context()`** — Resolve scope once per call, build `ContextResult` from scope, remove duplicate `extract_tables()` calls.
 
-- [ ] **P3d. Remove blank-line boundary** — Remove `is_blank_line_separator()` from `context.rs`. `find_statement_token_range()` relies only on `;`.
+- [x] **P3d. Remove blank-line boundary** — Remove `is_blank_line_separator()` from `context.rs`. `find_statement_token_range()` relies only on `;`.
 
-- [ ] **P3e. Remove `completion_ctx.lua` heuristic** — Delete Lua SQL heuristic logic (non-directive paths).
+- [x] **P3e. Remove `completion_ctx.lua` heuristic** — Delete Lua SQL heuristic logic (non-directive paths).
 
 ### P3 Verification
 

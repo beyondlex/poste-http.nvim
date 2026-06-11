@@ -135,8 +135,7 @@ end
 ---   - rust_ctx is the raw Rust response (nil if Rust was not used/failed)
 local function detect_context_for_completion(bufnr, line_before, cursor_line)
   if vim.g.poste_sql_legacy_completion == true then
-    local ct, cd = ctx.detect_context(line_before)
-    return ct, cd, nil
+    return "keyword", nil, nil
   end
 
   local rust_ok, rust_ctx_raw = pcall(try_rust_context, bufnr, line_before, cursor_line)
@@ -145,8 +144,7 @@ local function detect_context_for_completion(bufnr, line_before, cursor_line)
   end
 
   if vim.g.poste_sql_legacy_completion ~= "rust" then
-    local ct, cd = ctx.detect_context(line_before)
-    return ct, cd, nil
+    return "keyword", nil, nil
   end
 
   return nil, nil, nil
@@ -707,12 +705,10 @@ end
 ---------------------------------------------------------------------------
 
 M._test = {
-  detect_lua_context = ctx.detect_context,
   detect_context_for_completion = detect_context_for_completion,
   resolve_current_context = data.resolve_current_context,
   conn_key = data.conn_key,
   get_items = get_items,
-  extract_from_tables = ctx.extract_from_tables,
   try_rust_context = try_rust_context,
   get_tables_and_alias = ctx.get_tables_and_alias,
 }

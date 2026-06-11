@@ -41,7 +41,7 @@
       "ctx_schema": null,
       "prefix": "",
       "tables": [
-        { "name": "", "alias": null, "schema": null }
+        { "name": "sub", "alias": null, "schema": null }
       ],
       "in_string": false,
       "in_comment": false
@@ -73,7 +73,7 @@
       "ctx_schema": null,
       "prefix": "",
       "tables": [
-        { "name": "", "alias": null, "schema": null }
+        { "name": "outer", "alias": null, "schema": null }
       ],
       "in_string": false,
       "in_comment": false

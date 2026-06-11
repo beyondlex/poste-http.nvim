@@ -82,3 +82,10 @@ P3 的 `scope.rs` 引入了 `resolve_scope()`，已了解：
 - `crates/poste-core/src/sql_context/scope.rs` — 子查询隔离的括号深度追踪
 - `lua/poste/sql/statement.lua` — `find_stmt_lines`, `extract_stmt_at_cursor`
 - `docs/sql-completion-p0-p4/p0/poste-sql-file-syntax.en.md §3` — 当前边界规则
+- `docs/sql-completion-p0-p4/p0/poste-sql-file-syntax.en.md §3.6` — 视觉边界指示器（独立于边界计算方式）
+
+## 与视觉边界指示器（§3.6）的关系
+
+视觉边界指示器（extmark 高亮）只调用 `find_statement_span()` 获取 `(start_line, end_line)`，不关心边界如何计算——它只消费结果。
+
+这意味着指示器可以 **现在** 就用 `;` 边界实现，未来语义边界上线后自动受益，无需改动指示器代码。

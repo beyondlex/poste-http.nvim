@@ -82,3 +82,10 @@ The same paren-depth tracking is essential for semantic boundary detection — i
 - `crates/poste-core/src/sql_context/scope.rs` — paren-depth tracking for subquery isolation
 - `lua/poste/sql/statement.lua` — `find_stmt_lines`, `extract_stmt_at_cursor`
 - `docs/sql-completion-p0-p4/p0/poste-sql-file-syntax.en.md §3` — current boundary rules
+- `docs/sql-completion-p0-p4/p0/poste-sql-file-syntax.en.md §3.6` — Visual Boundary Indicator (independent of how boundaries are computed)
+
+## Relationship to Visual Boundary Indicator (§3.6)
+
+The Visual Boundary Indicator (extmark highlighting) calls `find_statement_span()` to get `(start_line, end_line)` for the statement under the cursor. It does not care how boundaries are computed — it only consumes the result.
+
+This means the indicator can be implemented **now** using `;`-based boundaries, and will automatically benefit from semantic boundary detection in the future without any changes to the indicator code.

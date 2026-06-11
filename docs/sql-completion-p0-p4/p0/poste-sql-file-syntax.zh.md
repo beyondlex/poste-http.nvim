@@ -115,6 +115,7 @@ SELECT * FROM page_views;             ← 仍使用 my-analytics
 - 用 `vim.api.nvim_buf_set_extmark()` 在该范围内绘制背景色或行号标记。
 - 效果：光标移动到某条 SQL 语句时，该语句区域视觉高亮，用户清晰感知执行边界。
 - 这取代了 `###` 曾提供的视觉分组功能，且更精确（基于真实 `;` 边界而非手动分隔）。
+- **与语义边界检测的关系**（见 `future/semantic-statement-boundary.zh.md`）：指示器只调用 `find_statement_span()` 消费结果，不关心边界如何计算。未来实现 `;`-free 语义边界后，指示器自动受益，无需改动。
 
 ---
 

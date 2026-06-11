@@ -25,9 +25,10 @@ local function apply_range(buf, start_line, end_line)
   local s = math.max(0, start_line)
   local e = math.min(end_line, total - 1)
   if s > e then return end
+  local end_col = #((vim.api.nvim_buf_get_lines(buf, e, e + 1, false) or {""})[1] or "")
   local mark_id = vim.api.nvim_buf_set_extmark(buf, ns, s, 0, {
     end_row = e,
-    end_col = -1,
+    end_col = end_col,
     hl_group = "PosteSqlBoundary",
     priority = 50,
   })
@@ -35,34 +36,13 @@ local function apply_range(buf, start_line, end_line)
   _prev_buf = buf
 end
 
-local function handle_stmt_response(buf, resp)
-  if not resp or not resp.ok or not resp.result then return end
-  local r = resp.result
-  if r.start_line == nil or r.end_line == nil then return end
-  apply_range(buf, r.start_line, r.end_line)
-end
-
 local function fetch_and_highlight(buf, cursor_line)
   if not vim.api.nvim_buf_is_valid(buf) then return end
 
   local total = vim.api.nvim_buf_line_count(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, total, false)
-  local sql_text = table.concat(lines, "\n")
   local cursor_line_0 = cursor_line - 1
 
-  -- Try persistent client first
-  local ok, client = pcall(require, "poste.sql.context_client")
-  if ok and client then
-    client.stmt(sql_text, cursor_line_0, function(resp)
-      vim.schedule(function()
-        if not vim.api.nvim_buf_is_valid(buf) then return end
-        handle_stmt_response(buf, resp)
-      end)
-    end)
-    return
-  end
-
-  -- Fallback: simple ;-based scan in Lua
   local stmt_start = 0
   local stmt_end = total - 1
   for i = cursor_line_0 - 1, 0, -1 do
@@ -79,6 +59,7 @@ local function fetch_and_highlight(buf, cursor_line)
       break
     end
   end
+
   apply_range(buf, stmt_start, stmt_end)
 end
 

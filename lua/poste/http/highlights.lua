@@ -116,6 +116,9 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteSqlModified",     { bg = 0x4a3d00 })                 -- yellow tint
   vim.api.nvim_set_hl(0, "PosteSqlDeleted",      { bg = 0x3d0000 })                 -- red tint
   vim.api.nvim_set_hl(0, "PosteSqlAdded",        { bg = 0x003d00 })                 -- green tint
+
+  -- Statement boundary indicator (subtle background for current statement)
+  vim.api.nvim_set_hl(0, "PosteSqlBoundary", { bg = 0x2d3a4a })                    -- subtle blue-gray
 end
 
 -- Apply highlights immediately on require

@@ -302,6 +302,7 @@ fn is_connection_url(conn: &str) -> bool {
 
 #[derive(Serialize)]
 struct ContextDetectResponse {
+    version: u32,
     ctx_type: String,
     ctx_data: Option<String>,
     ctx_schema: Option<String>,
@@ -330,7 +331,7 @@ fn make_detect_response(result: &poste_core::sql_context::ContextResult) -> Cont
     let ctx_data = result.context_type.data();
     let ctx_schema = match &result.context_type {
         poste_core::sql_context::ContextType::DotColumn { schema, .. } => schema.clone(),
-        poste_core::sql_context::ContextType::SchemaTable { .. } => None,
+        poste_core::sql_context::ContextType::SchemaTable { schema } => Some(schema.clone()),
         _ => None,
     };
     let tables: Vec<TableRefInfo> = result.tables.iter().map(|t| TableRefInfo {
@@ -339,6 +340,7 @@ fn make_detect_response(result: &poste_core::sql_context::ContextResult) -> Cont
         schema: t.schema.clone(),
     }).collect();
     ContextDetectResponse {
+        version: 1,
         ctx_type,
         ctx_data,
         ctx_schema,
@@ -365,6 +367,7 @@ fn handle_context_command(action: ContextAction) -> Result<()> {
             let response = match result {
                 Some(ctx) => make_detect_response(&ctx),
                 None => ContextDetectResponse {
+                    version: 1,
                     ctx_type: "keyword".into(),
                     ctx_data: None,
                     ctx_schema: None,

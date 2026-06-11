@@ -39,8 +39,27 @@ pub fn detect_context_with_dialect(
 
     let in_string = cursor_tok.kind == TokenKind::StrLit;
     let in_comment = matches!(cursor_tok.kind, TokenKind::LineComment | TokenKind::BlockComment);
-    if in_string || in_comment {
-        return None;
+    if in_string {
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ContextType::String,
+            tables: vec![],
+            prefix: String::new(),
+            functions: funcs,
+            in_string: true,
+            in_comment: false,
+        });
+    }
+    if in_comment {
+        let funcs = functions::known_functions_for_dialect(dialect);
+        return Some(ContextResult {
+            context_type: ContextType::Comment,
+            tables: vec![],
+            prefix: String::new(),
+            functions: funcs,
+            in_string: false,
+            in_comment: true,
+        });
     }
 
     let prefix = extract_prefix(sql, offset, &tokens, cursor_idx);

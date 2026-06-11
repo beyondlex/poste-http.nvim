@@ -11,7 +11,7 @@
 ---   "CURRENT:" prefix = correct behavior of current implementation
 
 local sql_comp = require("poste.sql.completion")
-local detect_context = sql_comp._test.detect_context
+local detect_context = sql_comp._test.detect_lua_context
 local extract_from_tables = sql_comp._test.extract_from_tables
 local resolve_current_context = sql_comp._test.resolve_current_context
 local conn_key = sql_comp._test.conn_key

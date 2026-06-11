@@ -1,7 +1,6 @@
 --- SQL completion — Lua context detection (fallback path).
---- Provides table extraction, alias resolution, and heuristic context
---- detection for when the Rust binary is unavailable or returns Keyword
---- on a partial identifier.
+--- @deprecated Fallback only when Rust binary is unavailable.
+--- No new SQL grammar features should be added here. Add to Rust first.
 local data = require("poste.sql.completion_data")
 
 local M = {}

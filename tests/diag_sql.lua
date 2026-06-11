@@ -14,7 +14,7 @@ if not ok then
   os.exit(1)
 end
 
-local detect_context    = sql_comp._test.detect_context
+local detect_context    = sql_comp._test.detect_lua_context
 local extract_from_tables = sql_comp._test.extract_from_tables
 local get_items         = sql_comp._test.get_items
 

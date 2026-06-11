@@ -69,6 +69,8 @@ pub enum ContextType {
     Connection,
     Database,
     DataType,
+    String,
+    Comment,
 }
 
 impl ContextType {
@@ -83,6 +85,8 @@ impl ContextType {
             Self::Connection => "connection",
             Self::Database => "database",
             Self::DataType => "datatype",
+            Self::String => "string",
+            Self::Comment => "comment",
         }
     }
 
@@ -91,6 +95,7 @@ impl ContextType {
             Self::DotColumn { table, .. } => Some(table.clone()),
             Self::SchemaTable { schema } => Some(schema.clone()),
             Self::InsertColumn { table } => Some(table.clone()),
+            Self::String | Self::Comment => None,
             _ => None,
         }
     }

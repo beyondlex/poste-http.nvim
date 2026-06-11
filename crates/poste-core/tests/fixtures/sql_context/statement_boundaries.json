@@ -1,0 +1,34 @@
+[
+  {
+    "name": "tables isolated to current statement by semicolon",
+    "dialect": "generic",
+    "sql": "select 1 from posts; select 2 from authors█",
+    "expect": {
+      "ctx_type": "table",
+      "ctx_data": null,
+      "ctx_schema": null,
+      "prefix": "authors",
+      "tables": [
+        { "name": "authors", "alias": null, "schema": null }
+      ],
+      "in_string": false,
+      "in_comment": false
+    }
+  },
+  {
+    "name": "tables isolated by blank line separator",
+    "dialect": "generic",
+    "sql": "UPDATE authors Set █\n\nSELECT * from posts p left JOIN authors a on p.author_id = a.id;",
+    "expect": {
+      "ctx_type": "column",
+      "ctx_data": null,
+      "ctx_schema": null,
+      "prefix": "",
+      "tables": [
+        { "name": "authors", "alias": null, "schema": null }
+      ],
+      "in_string": false,
+      "in_comment": false
+    }
+  }
+]

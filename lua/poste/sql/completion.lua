@@ -129,6 +129,29 @@ end
 -- Main entry
 ---------------------------------------------------------------------------
 
+--- Detect completion context for the SQL at cursor.
+--- Returns (ctx_type, ctx_data, rust_ctx) where:
+---   - ctx_type/ctx_data come from Rust (preferred) or Lua fallback
+---   - rust_ctx is the raw Rust response (nil if Rust was not used/failed)
+local function detect_context_for_completion(bufnr, line_before, cursor_line)
+  if vim.g.poste_sql_legacy_completion == true then
+    local ct, cd = ctx.detect_context(line_before)
+    return ct, cd, nil
+  end
+
+  local rust_ok, rust_ctx_raw = pcall(try_rust_context, bufnr, line_before, cursor_line)
+  if rust_ok and rust_ctx_raw then
+    return rust_ctx_raw.ctx_type, rust_ctx_raw.ctx_data, rust_ctx_raw
+  end
+
+  if vim.g.poste_sql_legacy_completion ~= "rust" then
+    local ct, cd = ctx.detect_context(line_before)
+    return ct, cd, nil
+  end
+
+  return nil, nil, nil
+end
+
 local function get_items(bufnr, line_before, cursor_line, callback)
   local prefix = line_before:match("[%w_]*$") or ""
 
@@ -195,21 +218,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     return
   end
 
-  local ctx_type, ctx_data = ctx.detect_context(line_before)
-
-  -- vim.g.poste_sql_legacy_completion controls completion mode:
-  --   nil     → Rust + Lua fallback (default)
-  --   true    → Pure Lua (Rust disabled)
-  --   "rust"  → Pure Rust (no Lua fallback — for regression testing)
-  local rust_ctx = nil
-  local use_rust = not vim.g.poste_sql_legacy_completion or vim.g.poste_sql_legacy_completion == "rust"
-  if use_rust then
-    local rust_ok, rust_ctx_raw = pcall(try_rust_context, bufnr, line_before, cursor_line)
-    if rust_ok and rust_ctx_raw then
-      rust_ctx = rust_ctx_raw
-      ctx_type, ctx_data = rust_ctx.ctx_type, rust_ctx.ctx_data
-    end
-  end
+  local ctx_type, ctx_data, rust_ctx = detect_context_for_completion(bufnr, line_before, cursor_line)
 
   local rust_functions = (rust_ctx and rust_ctx.functions) or nil
 
@@ -462,6 +471,12 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     return
   end
 
+  -- Cursor inside string literal or comment — no completions
+  if ctx_type == "string" or ctx_type == "comment" then
+    callback({})
+    return
+  end
+
   -- Don't show keywords on directive lines (prevents @ trigger pollution)
   if line_before:match("^%s*%-%-%s*@") then
     callback({})
@@ -683,7 +698,7 @@ function M.toggle_legacy()
     vim.notify("Poste SQL completion: Rust strict mode (no Lua fallback)", vim.log.levels.WARN)
   else
     vim.g.poste_sql_legacy_completion = nil
-    vim.notify("Poste SQL completion: Rust + Lua fallback (default)", vim.log.levels.INFO)
+    vim.notify("Poste SQL completion: Rust first, Lua never overrides (default)", vim.log.levels.INFO)
   end
 end
 
@@ -692,7 +707,8 @@ end
 ---------------------------------------------------------------------------
 
 M._test = {
-  detect_context = ctx.detect_context,
+  detect_lua_context = ctx.detect_context,
+  detect_context_for_completion = detect_context_for_completion,
   resolve_current_context = data.resolve_current_context,
   conn_key = data.conn_key,
   get_items = get_items,

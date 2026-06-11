@@ -180,27 +180,34 @@ fn test_detect_comma_after_column() {
 }
 
 #[test]
-fn test_detect_inside_string_returns_none() {
-    let result = detect_context("SELECT 'hello world'", 10);
-    assert!(result.is_none(), "cursor inside string should return None");
+fn test_detect_inside_string_returns_string_type() {
+    let result = detect_context("SELECT 'hello world'", 10).unwrap();
+    assert_eq!(result.context_type, ContextType::String, "cursor inside string should return String type");
+    assert!(result.in_string, "in_string should be true");
+    assert!(!result.in_comment, "in_comment should be false");
 }
 
 #[test]
-fn test_detect_comment_where_triggers_none() {
-    let result = detect_context("-- WHERE ", 9);
-    assert!(result.is_none(), "cursor in line comment should return None");
+fn test_detect_comment_where_returns_comment_type() {
+    let result = detect_context("-- WHERE ", 9).unwrap();
+    assert_eq!(result.context_type, ContextType::Comment, "cursor in line comment should return Comment type");
+    assert!(result.in_comment, "in_comment should be true");
+    assert!(!result.in_string, "in_string should be false");
 }
 
 #[test]
-fn test_detect_comment_from_triggers_none() {
-    let result = detect_context("-- FROM ", 8);
-    assert!(result.is_none(), "cursor in line comment should return None");
+fn test_detect_comment_from_returns_comment_type() {
+    let result = detect_context("-- FROM ", 8).unwrap();
+    assert_eq!(result.context_type, ContextType::Comment, "cursor in line comment should return Comment type");
+    assert!(result.in_comment, "in_comment should be true");
+    assert!(!result.in_string, "in_string should be false");
 }
 
 #[test]
 fn test_detect_connection_directive() {
+    // @connection is now handled by Lua; Rust returns Keyword as safety net fallback
     let result = detect_context("@connection ", 12).unwrap();
-    assert_eq!(result.context_type, ContextType::Connection);
+    assert_eq!(result.context_type, ContextType::Keyword);
 }
 
 #[test]

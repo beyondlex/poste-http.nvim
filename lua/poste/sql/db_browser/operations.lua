@@ -45,7 +45,7 @@ local function find_table_node(context, start_idx)
   return nil
 end
 
-local function insert_into_source(context, lines)
+local function insert_into_source(context, lines, cursor_offset)
   if not context.source_buf or not vim.api.nvim_buf_is_valid(context.source_buf) then
     vim.notify("No source SQL buffer found", vim.log.levels.WARN)
     return false
@@ -55,6 +55,9 @@ local function insert_into_source(context, lines)
   local target_win = vim.fn.bufwinid(context.source_buf)
   if target_win and target_win ~= -1 then
     vim.api.nvim_set_current_win(target_win)
+    if cursor_offset then
+      vim.api.nvim_win_set_cursor(target_win, { line_count + cursor_offset, 0 })
+    end
   end
   return true
 end
@@ -89,15 +92,20 @@ function M.select_star(node, context)
     schema_prefix = table_node.meta.schema .. "."
   end
 
-  local query_lines = { "", "### Query: " .. table_node.name }
-  if conn then table.insert(query_lines, "-- @connection " .. conn) end
+  local query_lines = { "" }
+  local cursor_offset = 2  -- line 1: empty, line 2: SELECT
+  if conn then
+    table.insert(query_lines, "-- @connection " .. conn)
+    cursor_offset = cursor_offset + 1
+  end
   if table_node.meta and table_node.meta.database then
     table.insert(query_lines, "-- @database " .. table_node.meta.database)
+    cursor_offset = cursor_offset + 1
   end
   table.insert(query_lines, "SELECT * FROM " .. schema_prefix .. table_node.name .. " LIMIT 100;")
   table.insert(query_lines, "")
 
-  if insert_into_source(context, query_lines) then
+  if insert_into_source(context, query_lines, cursor_offset) then
     vim.notify("Generated SELECT for: " .. table_node.name, vim.log.levels.INFO)
   end
 end
@@ -216,12 +224,17 @@ function M.rename(node, context)
     if not input or input == "" or input == node.name then return end
 
     local conn = get_connection_name(node, context)
-    local lines = { "", "### Rename " .. label .. ": " .. node.name .. " → " .. input }
+    local lines = { "" }
+    local cursor_offset = 2  -- after empty line → ALTER line
 
     if node.node_type == "table" then
-      if conn then table.insert(lines, "-- @connection " .. conn) end
+      if conn then
+        table.insert(lines, "-- @connection " .. conn)
+        cursor_offset = cursor_offset + 1
+      end
       if node.meta and node.meta.database then
         table.insert(lines, "-- @database " .. node.meta.database)
+        cursor_offset = cursor_offset + 1
       end
 
       if dialect == "mysql" then
@@ -232,15 +245,18 @@ function M.rename(node, context)
         table.insert(lines, "ALTER TABLE " .. node.name .. " RENAME TO " .. input .. ";")
       end
     elseif node.node_type == "column" then
-      -- Find parent table
       local table_node = find_table_node(context, vim.fn.line(".") - HEADER_LINES)
       if not table_node then
         vim.notify("Could not find parent table", vim.log.levels.WARN)
         return
       end
-      if conn then table.insert(lines, "-- @connection " .. conn) end
+      if conn then
+        table.insert(lines, "-- @connection " .. conn)
+        cursor_offset = cursor_offset + 1
+      end
       if table_node.meta and table_node.meta.database then
         table.insert(lines, "-- @database " .. table_node.meta.database)
+        cursor_offset = cursor_offset + 1
       end
       if dialect == "mysql" then
         local col_type = node.meta and node.meta.col_type or "TEXT"
@@ -253,7 +269,7 @@ function M.rename(node, context)
     end
 
     table.insert(lines, "")
-    insert_into_source(context, lines)
+    insert_into_source(context, lines, cursor_offset)
     vim.notify("Generated RENAME " .. label .. " SQL", vim.log.levels.INFO)
   end)
 end
@@ -286,15 +302,20 @@ end
 --- Insert a new query block with connection context.
 function M.new_query(node, context)
   local conn = get_connection_name(node, context)
-  local lines = { "", "### New Query" }
-  if conn then table.insert(lines, "-- @connection " .. conn) end
+  local lines = { "" }
+  local cursor_offset = 2  -- empty + first blank line
+  if conn then
+    table.insert(lines, "-- @connection " .. conn)
+    cursor_offset = cursor_offset + 1
+  end
   if node.node_type == "database" then
     table.insert(lines, "USE " .. node.name .. ";")
+    cursor_offset = cursor_offset + 1
   end
   table.insert(lines, "")
   table.insert(lines, "")
 
-  insert_into_source(context, lines)
+  insert_into_source(context, lines, cursor_offset)
   vim.notify("New query block created", vim.log.levels.INFO)
 end
 
@@ -302,8 +323,12 @@ end
 function M.set_default(node, context)
   local dialect = get_dialect(node, context)
   local conn = get_connection_name(node, context)
-  local lines = { "", "### Set Default: " .. node.name }
-  if conn then table.insert(lines, "-- @connection " .. conn) end
+  local lines = { "" }
+  local cursor_offset = 2  -- empty + USE/SET line
+  if conn then
+    table.insert(lines, "-- @connection " .. conn)
+    cursor_offset = cursor_offset + 1
+  end
 
   if node.node_type == "database" then
     table.insert(lines, "USE " .. node.name .. ";")
@@ -318,7 +343,7 @@ function M.set_default(node, context)
   end
   table.insert(lines, "")
 
-  insert_into_source(context, lines)
+  insert_into_source(context, lines, cursor_offset)
   vim.notify("Set default: " .. node.name, vim.log.levels.INFO)
 end
 

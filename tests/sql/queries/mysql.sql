@@ -154,3 +154,5 @@ LEFT JOIN shipment_items si ON si.shipment_id = sh.id
 LEFT JOIN items i ON i.id = si.item_id
 WHERE sh.status != 'delivered'
 GROUP BY sh.id, wf.name, wt.name, sh.status;
+
+

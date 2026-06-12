@@ -415,11 +415,13 @@ function M.render_dataset(lines, meta, opts)
   end
 
   if not D.dataset_window or not vim.api.nvim_win_is_valid(D.dataset_window) then
-    local saved_win = vim.api.nvim_get_current_win()
+    local src_win = vim.api.nvim_get_current_win()
+    local src_view = vim.fn.winsaveview()
     local height = math.floor(vim.o.lines * 0.4)
     vim.cmd("botright " .. height .. "split")
     D.dataset_window = vim.api.nvim_get_current_win()
-    vim.api.nvim_set_current_win(saved_win)
+    vim.api.nvim_set_current_win(src_win)
+    vim.fn.winrestview(src_view)
   end
 
   vim.api.nvim_win_set_buf(D.dataset_window, buf)

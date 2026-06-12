@@ -928,6 +928,39 @@ function M.get_env()
   return state.current_env
 end
 
+function M.pick_env()
+  local search_dir = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":h")
+  if search_dir == "" then search_dir = vim.fn.getcwd() end
+  local env_file = util.find_file_upwards("env.json", search_dir)
+  if not env_file then
+    vim.notify("No env.json found", vim.log.levels.WARN, { title = "Poste" })
+    return
+  end
+  local ok, data = pcall(vim.fn.readfile, env_file)
+  if not ok or not data then
+    vim.notify("Cannot read env.json", vim.log.levels.WARN, { title = "Poste" })
+    return
+  end
+  local ok2, parsed = pcall(vim.json.decode, table.concat(data, "\n"))
+  if not ok2 or type(parsed) ~= "table" then
+    vim.notify("Cannot parse env.json", vim.log.levels.WARN, { title = "Poste" })
+    return
+  end
+  local envs = {}
+  for name, _ in pairs(parsed) do
+    envs[#envs + 1] = name
+  end
+  table.sort(envs)
+  if #envs == 0 then
+    vim.notify("No environments found in env.json", vim.log.levels.WARN, { title = "Poste" })
+    return
+  end
+  local select_mod = require("poste.select")
+  select_mod.select(envs, "Select Environment", function(choice)
+    if choice then M.set_env(choice) end
+  end)
+end
+
 ---------------------------------------------------------------------------
 -- Setup
 ---------------------------------------------------------------------------
@@ -1029,6 +1062,8 @@ function M.setup(opts)
         symbols.show_symbols()
       end, keymap_opts)
     end
+    k = km("source_buffer", "pick_env", "<leader>vv")
+    if k then vim.keymap.set("n", k, M.pick_env, keymap_opts) end
 
     -- Clear indicators when buffer content changes (dd, x, etc.)
     local indicator_ns = vim.api.nvim_create_namespace("poste_indicator")

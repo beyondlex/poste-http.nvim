@@ -50,7 +50,7 @@ function M.setup()
     { "PosteMethodHEAD",   "Keyword" },
     { "PosteMethodOPTIONS", "Keyword" },
     { "PosteMethodOther",  "Keyword" },
-    { "PosteUrl",          "Underlined" },
+    { "PosteUrl",          "Normal" },
     { "PosteHttpVersion",  "Constant" },
     { "PosteHeaderKey",    "Type" },
     { "PosteDirective",    "PreProc" },

@@ -10,6 +10,7 @@ local _debounce_timer = nil
 local _prev_mark_id = nil
 local _prev_buf = nil
 local _disabled = false
+local _job_id = nil
 
 local DEBOUNCE_MS = 50
 
@@ -58,11 +59,11 @@ local function find_block(lines, cursor_line)
   return start, stop
 end
 
---- Try to get statement boundaries from the Rust binary.
---- Returns (start_line, end_line) as 1-based buffer line numbers, or nil.
-local function try_rust_span(lines, cursor_line)
+--- Try to get statement boundaries from the Rust binary (async).
+--- Calls callback with (start_line, end_line) as 1-based buffer line numbers, or nil.
+local function try_rust_span(lines, cursor_line, callback)
   local binary = state.find_poste_binary()
-  if not binary then return nil end
+  if not binary then callback(nil); return end
 
   local block_start, block_end = find_block(lines, cursor_line)
   local block_lines = {}
@@ -73,17 +74,34 @@ local function try_rust_span(lines, cursor_line)
 
   local cmd = string.format("%s context stmt %d", vim.fn.shellescape(binary), rel_cursor)
   local input = table.concat(block_lines, "\n")
-  local output = vim.fn.system(cmd, input)
-  if vim.v.shell_error ~= 0 then return nil end
 
-  local ok, parsed = pcall(vim.json.decode, output)
-  if not ok or type(parsed) ~= "table" then return nil end
+  local stdout = {}
+  local job_id = vim.fn.jobstart(cmd, {
+    on_stdout = function(_, data)
+      if data then
+        for _, line in ipairs(data) do stdout[#stdout + 1] = line end
+      end
+    end,
+    on_exit = function(_, exit_code)
+      _job_id = nil
+      if exit_code ~= 0 then callback(nil); return end
+      local output = table.concat(stdout, "\n")
+      local ok, parsed = pcall(vim.json.decode, output)
+      if not ok or type(parsed) ~= "table" then callback(nil); return end
+      local rs = parsed.start_line
+      local re = parsed.end_line
+      if type(rs) ~= "number" or type(re) ~= "number" then callback(nil); return end
+      callback(block_start + rs, block_start + re)
+    end,
+  })
 
-  local rs = parsed.start_line
-  local re = parsed.end_line
-  if type(rs) ~= "number" or type(re) ~= "number" then return nil end
-
-  return block_start + rs, block_start + re -- convert 0-based → 1-based
+  if job_id > 0 then
+    _job_id = job_id
+    vim.fn.chansend(job_id, input)
+    vim.fn.chanclose(job_id, "stdin")
+  else
+    callback(nil)
+  end
 end
 
 local function fetch_and_highlight(buf, cursor_line)
@@ -92,10 +110,15 @@ local function fetch_and_highlight(buf, cursor_line)
   local total = vim.api.nvim_buf_line_count(buf)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, total, false)
 
-  -- Primary: Rust semantic boundary detection
-  local s, e = try_rust_span(lines, cursor_line)
-  if s and e then
-    -- If the span is a single blank line, don't highlight
+  if _job_id then
+    pcall(vim.fn.jobstop, _job_id)
+    _job_id = nil
+  end
+
+  try_rust_span(lines, cursor_line, function(s, e)
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if not s or not e then return end
+
     if s == e then
       local line_text = lines[s] or ""
       if line_text:match("^%s*$") then
@@ -103,7 +126,7 @@ local function fetch_and_highlight(buf, cursor_line)
         return
       end
     end
-    -- If the span contains only blanks and comments, don't highlight
+
     local has_content = false
     for i = s, e do
       local trimmed = (lines[i] or ""):match("^%s*(.*)$")
@@ -117,10 +140,7 @@ local function fetch_and_highlight(buf, cursor_line)
       return
     end
     apply_range(buf, s - 1, e - 1)
-    return
-  end
-
-  -- Fallback: nothing — if the binary isn't available, just don't highlight
+  end)
 end
 
 --- Update the statement indicator for a buffer and cursor line.
@@ -148,6 +168,10 @@ function M.clear(buf)
     _debounce_timer:stop()
     _debounce_timer:close()
     _debounce_timer = nil
+  end
+  if _job_id then
+    pcall(vim.fn.jobstop, _job_id)
+    _job_id = nil
   end
   if buf then
     clear_prev()

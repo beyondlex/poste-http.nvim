@@ -41,8 +41,8 @@ cd tests/sql && docker compose up -d   # PG+MySQL on 15432/13306
 ## File Format
 
 - **HTTP**: `###` blocks, `{{var}}`, `@name = val`, `{{Name.res.body.X}}` chaining
-- **SQL**: `-- @connection name`, `###` blocks, `USE db;`
-- **Redis**: `# @connection redis://host:port`, `###` blocks
+- **SQL**: `-- @connection name`, `;`-separated statements, `USE db;`
+- **Redis**: `# @connection redis://host:port`, `;`-separated commands
 
 ## Config
 

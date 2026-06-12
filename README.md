@@ -57,7 +57,6 @@ Content-Type: application/json
 ```sql
 -- @connection pg-dev
 
-### Active users
 SELECT * FROM users WHERE active = true;
 ```
 

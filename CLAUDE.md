@@ -41,8 +41,8 @@ cd tests/sql && docker compose up -d   # PG+MySQL on 15432/13306
 ## File Format
 
 - **HTTP**: `###` blocks, `{{var}}`, `@name = val`, `{{Name.res.body.X}}` chaining
-- **SQL**: `-- @connection name`, `###` blocks, `USE db;`
-- **Redis**: `# @connection redis://host:port`, `###` blocks
+- **SQL**: `-- @connection name`, `;`-separated statements, `USE db;`
+- **Redis**: `# @connection redis://host:port`, `;`-separated commands
 
 ## Config
 
@@ -67,14 +67,14 @@ Queries: `tests/sql/queries/`. Execute: `cargo run -- run tests/sql/queries/post
 
 ## Current Focus
 
-SQL **Phase 4 — Table Ops + DDL + Completion** (23/38 steps, see `PROGRESS.md`):
+SQL **Phase 5 — Import/Export + Pagination** (27/38 steps, see `PROGRESS.md`):
 
 | Step | What | Key File |
 |------|------|----------|
-| 24 | `sql_ddl.rs` — DDL generator | new |
-| 25 | `sql/table_ops.lua` — table ops UI | new |
-| 26 | `sql/completion.lua` — SQL completion | new |
-| 27 | Phase 4 integration tests | — |
+| 28 | `sql/export.lua` — export CSV/JSON/SQL | new |
+| 29 | `sql/import.lua` — import SQL files | new |
+| 30 | `sql/pagination.lua` — result pagination | new |
+| 31 | Phase 5 integration tests | — |
 
 Flow: find `[ ]` in `PROGRESS.md` → read `docs/sql-design.md` → implement → `cargo test` → mark `[x]`.
 
@@ -98,4 +98,4 @@ Flow: find `[ ]` in `PROGRESS.md` → read `docs/sql-design.md` → implement �
 | Response struct | `crates/poste-exec/src/response.rs` |
 | HTTP result buf | `lua/poste/buffer.lua` |
 | SQL result buf | `lua/poste/sql/buffer.lua` |
-| Completion | `lua/poste/completion.lua` |
+| Completion | `lua/poste/completion.lua` (HTTP), `lua/poste/sql/completion.lua` (SQL) |

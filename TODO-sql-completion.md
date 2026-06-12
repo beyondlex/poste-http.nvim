@@ -201,7 +201,7 @@ The remaining question is product behavior: should `OVER (` suggest window keywo
 Each completion request spawns `poste context detect`.
 
 **Action:**
-1. Measure context detection latency in realistic large `###` blocks.
+1. Measure context detection latency in realistic large SQL files.
 2. Add debounce/cache if needed.
 3. Consider a persistent Neovim job/RPC process only if measurements justify it.
 

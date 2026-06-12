@@ -25,6 +25,7 @@ syn match PosteVarDef '^\s*@\w\+'
 syn match PosteVarAssign '=' contained
   \ nextgroup=PosteVarValue skipwhite
 syn match PosteVarValue '.\+$' contained
+  \ contains=PosteVarRef,PosteMagicVar
 
 " ─── Variable references ────────────────────────────
 syn match PosteMagicVar '{{\$\w\+}}'
@@ -100,7 +101,7 @@ syn match PosteHeaderSep ':' contained
 syn region PosteBody start=+^\s*\n+ end=+\n\ze\s*\%(###\|<\s*{%\|>\s*{%\)\|\%$+ keepend
   \ contains=PosteJsonString,PosteJsonNumber,PosteJsonBoolean,PosteJsonNull,
   \PosteJsonBraces,PosteJsonBrackets,PosteJsonColon,PosteJsonComma,
-  \PosteVarRef,PosteMagicVar
+  \PosteVarRef,PosteMagicVar,PosteVarDef,PosteComment
 
 syn match  PosteJsonNumber  '[-]\?\%(\d\+\.\d\+\|\d\+\)' contained
 syn match  PosteJsonBoolean '\<\%(true\|false\)\>' contained
@@ -118,7 +119,7 @@ syn match  PosteJsonEscape  '\\u\x\{4}' contained
 hi def link PosteSeparator   Delimiter
 hi def link PosteRequestName Title
 hi def link PosteComment     Comment
-hi def link PosteVarDef      Identifier
+hi def PosteVarDef      ctermfg=214 guifg=#FF8C00
 hi def link PosteVarAssign   Operator
 hi def link PosteVarValue    String
 hi def link PosteVarRef      Identifier

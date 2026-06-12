@@ -100,21 +100,26 @@ function M.try_rust_stmt_ranges(buf_lines, start_line, end_line)
   -- parsed is [[start0, end0], [start1, end1], ...] (0-based, relative to range)
   local stmt_lines = {}
   for _, pair in ipairs(parsed) do
-    local rs
+    local rs, re
     if type(pair[1]) == "number" then
-      rs = pair[1]
+      rs, re = pair[1], pair[2]
     elseif type(pair.start_line) == "number" then
-      rs = pair.start_line
+      rs, re = pair.start_line, pair.end_line
     else
       goto continue_range
     end
     local abs_start = start_line + rs
-    local line_text = buf_lines[abs_start] or ""
-    local trimmed = line_text:match("^%s*(.*)$")
-    -- Filter out blank, directive, ###, USE, and comment lines
-    if trimmed ~= "" and not trimmed:match("^%-%-%s*@")
-        and not trimmed:match("^%s*###") and not trimmed:upper():match("^USE ")
-        and not trimmed:match("^%-%-") then
+    local abs_end = start_line + (re or rs)
+    -- Advance past blank/directive/comment lines within the range
+    while abs_start <= abs_end and abs_start <= end_line do
+      local t = (buf_lines[abs_start] or ""):match("^%s*(.*)$") or ""
+      if t == "" or t:match("^%-%-") or t:match("^%s*###") or t:upper():match("^USE ") then
+        abs_start = abs_start + 1
+      else
+        break
+      end
+    end
+    if abs_start <= end_line then
       table.insert(stmt_lines, abs_start)
     end
     ::continue_range::
@@ -262,11 +267,7 @@ end
 --- @param end_line   number  1-indexed end of range
 --- @return number[]  buffer line numbers of each statement's first content line
 function M.find_stmt_lines(buf_lines, start_line, end_line)
-  -- Try Rust semantic boundary detection first
-  local rust_lines = M.try_rust_stmt_ranges(buf_lines, start_line, end_line)
-  if rust_lines then return rust_lines end
-
-  -- Fallback: Lua ;-scan
+  -- Lua ;-scan first (deterministic for standard SQL)
   local stmt_lines = {}
   local current_stmt = nil
 
@@ -275,34 +276,14 @@ function M.find_stmt_lines(buf_lines, start_line, end_line)
     local trimmed = line:match("^%s*(.*)$")
 
     -- Skip blank lines and directive comments
-    if trimmed == "" then
-      goto continue
-    end
-    if trimmed:match("^%-%-%s*@") then
-      goto continue
-    end
+    if trimmed == "" then goto continue end
+    if trimmed:match("^%-%-%s*@") then goto continue end
+    if trimmed:match("^%s*###") then goto continue end
+    if trimmed:upper():match("^USE ") then goto continue end
+    if trimmed:match("^%-%-") then goto continue end
 
-    -- Skip ### block separators
-    if trimmed:match("^%s*###") then
-      goto continue
-    end
+    if current_stmt == nil then current_stmt = i end
 
-    -- Skip USE statements (handled silently by Rust executor via pool reconnect)
-    if trimmed:upper():match("^USE ") then
-      goto continue
-    end
-
-    -- Comment line: skip unless we're inside a statement
-    if trimmed:match("^%-%-") then
-      goto continue
-    end
-
-    -- Content line
-    if current_stmt == nil then
-      current_stmt = i
-    end
-
-    -- Statement ends at a line containing ;
     if line:match(";") then
       table.insert(stmt_lines, current_stmt)
       current_stmt = nil
@@ -311,12 +292,12 @@ function M.find_stmt_lines(buf_lines, start_line, end_line)
     ::continue::
   end
 
-  -- Last statement without trailing semicolon
-  if current_stmt then
-    table.insert(stmt_lines, current_stmt)
-  end
+  if current_stmt then table.insert(stmt_lines, current_stmt) end
 
-  return stmt_lines
+  if #stmt_lines > 0 then return stmt_lines end
+
+  -- Fallback: try Rust semantic boundary detection
+  return M.try_rust_stmt_ranges(buf_lines, start_line, end_line)
 end
 
 --- Extract a visual selection as a synthetic ### block for the CLI.

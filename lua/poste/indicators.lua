@@ -177,13 +177,6 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
   spinner_gen = spinner_gen + 1
   local my_gen = spinner_gen
 
-  -- Stop any running spinner
-  if spinner_timer then
-    pcall(function() spinner_timer:stop() end)
-    spinner_timer:close()
-    spinner_timer = nil
-  end
-
   -- Clear only the extmark for this specific line
   if not indicator_marks[buf] then indicator_marks[buf] = {} end
   local old_mark = indicator_marks[buf][line_0]
@@ -212,6 +205,10 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
       frame = (frame % #spinner_frames) + 1
     end
     update_spinner()
+    if spinner_timer then
+      pcall(function() spinner_timer:stop() end)
+      spinner_timer:close()
+    end
     spinner_timer = uv.new_timer()
     spinner_timer:start(100, 100, vim.schedule_wrap(update_spinner))
 

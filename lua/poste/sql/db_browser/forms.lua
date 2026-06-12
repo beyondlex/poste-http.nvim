@@ -20,13 +20,17 @@ end
 setup_hl()
 vim.api.nvim_create_autocmd("ColorScheme", { callback = setup_hl })
 
---- Convert a field value to a displayable string, handling vim.NULL.
+--- Convert a field value to a displayable string.
+--- nil/vim.NULL → "(not set)" virtual text
+--- empty string → "''"
+--- bool → ✓/✗
 local function to_display(f)
   if f.kind == "bool" then
     return f.value and "✓" or "✗"
   end
   local v = f.value
-  if v == nil or v == vim.NULL or type(v) == "userdata" then return "" end
+  if v == nil or v == vim.NULL or type(v) == "userdata" then return "(not set)" end
+  if v == "" then return "''" end
   return tostring(v)
 end
 
@@ -94,6 +98,17 @@ local function render_form(buf, title, fields, current_idx)
   -- Bottom border
   local last_line = #lines - 1
   vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormBorder", last_line, 0, -1)
+  -- Virtual text for unset defaults
+  for i, f in ipairs(fields) do
+    if f.kind == "text" and (f.value == nil or f.value == vim.NULL or type(f.value) == "userdata") and field_rows[i] then
+      local line_nr = field_rows[i] - 1
+      local line_text = vim.api.nvim_buf_get_lines(buf, line_nr, line_nr + 1, false)[1] or ""
+      local s, e = line_text:find("(not set)", 1, true)
+      if s then
+        vim.api.nvim_buf_add_highlight(buf, ns_form, "Comment", line_nr, s - 1, e)
+      end
+    end
+  end
 
   return field_rows, submit_row
 end

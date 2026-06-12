@@ -318,40 +318,39 @@ local function walk_tree(nodes, lower, ancestors, matches)
 end
 
 function M.search_filter(buf_line, context)
-  -- Suppress cmdline buffer-word completions during input
-  local saved_complete = vim.o.complete
-  vim.o.complete = ""
-  local ok, input = pcall(vim.fn.input, "Search: ")
-  vim.o.complete = saved_complete
+  vim.ui.input({
+    prompt = "Search: ",
+    buf_options = { filetype = "" },
+  }, function(input)
+    if not input or input == "" then
+      search_state = { matches = {}, current = 0, pattern = "", context = nil }
+      _G.poste_search_info = nil
+      local new_map = tree.render_tree(context.browser_buf, context.line_to_node, context.root_nodes, context.conn_label)
+      for i, n in ipairs(new_map) do context.line_to_node[i] = n end
+      vim.api.nvim_buf_clear_namespace(context.browser_buf, search_hl_ns, 0, -1)
+      vim.api.nvim_buf_clear_namespace(context.browser_buf, search_char_ns, 0, -1)
+      return
+    end
 
-  if not ok or input == "" then
-    search_state = { matches = {}, current = 0, pattern = "", context = nil }
-    _G.poste_search_info = nil
-    local new_map = tree.render_tree(context.browser_buf, context.line_to_node, context.root_nodes, context.conn_label)
-    for i, n in ipairs(new_map) do context.line_to_node[i] = n end
+    local lower = input:lower()
+    local matches = {}
+    local search_dir = get_search_dir(context.source_buf)
+
+    walk_tree(context.root_nodes, lower, {}, matches)
+
+    if #matches > 0 then
+      search_state = { matches = matches, current = 0, pattern = input, context = context }
+      do_jump(1)
+      return
+    end
+
+    -- No matches in visible tree
+    _G.poste_search_info = { pattern = input, current = 0, total = 0 }
     vim.api.nvim_buf_clear_namespace(context.browser_buf, search_hl_ns, 0, -1)
     vim.api.nvim_buf_clear_namespace(context.browser_buf, search_char_ns, 0, -1)
-    return
-  end
-
-  local lower = input:lower()
-  local matches = {}
-  local search_dir = get_search_dir(context.source_buf)
-
-  walk_tree(context.root_nodes, lower, {}, matches)
-
-  if #matches > 0 then
-    search_state = { matches = matches, current = 0, pattern = input, context = context }
-    do_jump(1)
-    return
-  end
-
-  -- No matches in visible tree
-  _G.poste_search_info = { pattern = input, current = 0, total = 0 }
-  vim.api.nvim_buf_clear_namespace(context.browser_buf, search_hl_ns, 0, -1)
-  vim.api.nvim_buf_clear_namespace(context.browser_buf, search_char_ns, 0, -1)
-  local new_map = tree.render_tree(context.browser_buf, context.line_to_node, context.root_nodes, context.conn_label)
-  for i, n in ipairs(new_map) do context.line_to_node[i] = n end
+    local new_map = tree.render_tree(context.browser_buf, context.line_to_node, context.root_nodes, context.conn_label)
+    for i, n in ipairs(new_map) do context.line_to_node[i] = n end
+  end)
 end
 
 function M.search_next()

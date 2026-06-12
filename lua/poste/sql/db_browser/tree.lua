@@ -90,6 +90,7 @@ function M.make_column_node(item)
       nullable = item.nullable,
       default = item.default,
       extra = item.extra or "",
+      comment = item.comment or "",
       is_pk = is_pk,
       icon = icon,
     },

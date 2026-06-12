@@ -83,6 +83,9 @@ end
 --- @param table_name string Parent table
 --- @param col_name string Column name under cursor
 local function show_column_info(binary, conn, db, file, table_name, col_name)
+  -- Strip backtick/quote quoting from names (from RENAME/CHANGE COLUMN SQL)
+  table_name = table_name:gsub("^`", ""):gsub("`$", ""):gsub('^"', ''):gsub('"$', '')
+  col_name = col_name:gsub("^`", ""):gsub("`$", ""):gsub('^"', ''):gsub('"$', '')
   local cmd = string.format("%s introspect %s --type columns --table %s --env %s",
     vim.fn.shellescape(binary),
     vim.fn.shellescape(conn),
@@ -415,6 +418,10 @@ function M.show_table_ddl()
 
         local ct = parsed.ctx_type
         local tables = parsed.tables
+        local function strip_q(s)
+          if not s then return "" end
+          return s:gsub("^`", ""):gsub("`$", ""):gsub('^"', ''):gsub('"$', '')
+        end
 
         -- Resolve column: check if cword is a known column (not table name)
         local is_column = false
@@ -427,7 +434,7 @@ function M.show_table_ddl()
           if tables then
             for _, t in ipairs(tables) do
               if t.alias and t.alias:lower() == prefix:lower() then
-                parent_table = t.name; break
+                parent_table = strip_q(t.name); break
               end
             end
           end
@@ -436,18 +443,18 @@ function M.show_table_ddl()
           -- Check if cword is NOT a table name → it's a column
           local is_table = false
           for _, t in ipairs(tables) do
-            local tn = (t.name or ""):lower()
-            local ta = (t.alias or ""):lower()
+            local tn = strip_q(t.name):lower()
+            local ta = strip_q(t.alias):lower()
             if tn == cword:lower() or ta == cword:lower() then is_table = true; break end
           end
           if not is_table then
             -- Not a table name: use first table as parent, cword is column
-            parent_table = tables[1].name or tables[1].alias
+            parent_table = strip_q(tables[1].name or tables[1].alias)
             is_column = parent_table ~= nil
           end
         end
 
-        if is_column and parent_table then
+        if is_column and parent_table and parent_table:lower() ~= cword:lower() then
           show_column_info(binary, conn, db, file, parent_table, cword)
           return
         end

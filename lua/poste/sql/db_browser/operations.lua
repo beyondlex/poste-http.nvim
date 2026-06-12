@@ -14,7 +14,7 @@ local M = {}
 ---------------------------------------------------------------------------
 
 local function safe_str(v)
-  if v == nil or v == vim.NULL or type(v) == "userdata" then return "" end
+  if v == nil or v == vim.NULL or type(v) == "userdata" then return nil end
   return tostring(v)
 end
 
@@ -223,10 +223,16 @@ function M.rename(node, context)
   local dialect = get_dialect(node, context)
   local label = node.node_type == "table" and "table" or "column"
 
+  -- Temporarily disable dressing.nvim to avoid cmp completions
+  local ok_dr, dr = pcall(require, "dressing")
+  local dr_saved = ok_dr and dr.config and dr.config.input and dr.config.input.enabled
+  if ok_dr and dr.config and dr.config.input then dr.config.input.enabled = false end
+
   vim.ui.input({
     prompt = "Rename " .. label .. " (" .. node.name .. "): ",
     default = node.name,
   }, function(input)
+    if ok_dr and dr.config and dr.config.input then dr.config.input.enabled = dr_saved end
     if not input or input == "" or input == node.name then return end
 
     local conn = get_connection_name(node, context)
@@ -412,12 +418,14 @@ function M.modify_col(node, context)
     { label = "Type",     key = "col_type", value = node.meta and node.meta.col_type or "", kind = "text" },
     { label = "Nullable", key = "nullable", value = not not (node.meta and node.meta.nullable), kind = "bool" },
     { label = "Default",  key = "default",  value = safe_str(node.meta and node.meta.default), kind = "text" },
+    { label = "Comment",  key = "comment",  value = safe_str(node.meta and node.meta.comment), kind = "text" },
   }
 
   forms.open("Modify Column: " .. table_node.name .. "." .. node.name, fields, function(updated)
     local col_type = updated[1].value
     local nullable = updated[2].value
     local default_val = updated[3].value
+    local comment_val = updated[4].value
 
     local sql_parts = {}
     if dialect == "mysql" then
@@ -431,8 +439,10 @@ function M.modify_col(node, context)
     if not nullable then
       table.insert(sql_parts, " NOT NULL")
     end
-    if default_val ~= "" then
+    if default_val ~= nil and default_val ~= "" then
       table.insert(sql_parts, " DEFAULT " .. default_val)
+    elseif default_val == "" then
+      table.insert(sql_parts, " DEFAULT ''")
     end
     table.insert(sql_parts, ";")
 
@@ -455,13 +465,22 @@ function M.modify_col(node, context)
       if not nullable then
         table.insert(lines, "ALTER TABLE " .. table_node.name .. " ALTER COLUMN " .. node.name .. " SET NOT NULL;")
       end
-      if default_val ~= "" then
+      if default_val ~= nil and default_val ~= "" then
         table.insert(lines, "ALTER TABLE " .. table_node.name .. " ALTER COLUMN " .. node.name .. " SET DEFAULT " .. default_val .. ";")
+      elseif default_val == "" then
+        table.insert(lines, "ALTER TABLE " .. table_node.name .. " ALTER COLUMN " .. node.name .. " SET DEFAULT '';")
+      end
+      if comment_val ~= nil and comment_val ~= "" then
+        table.insert(lines, "COMMENT ON COLUMN " .. table_node.name .. "." .. node.name .. " IS '" .. comment_val:gsub("'", "''") .. "';")
       end
     elseif dialect == "mysql" then
       local parts = { "ALTER TABLE `" .. table_node.name .. "` MODIFY COLUMN `" .. node.name .. "` " .. col_type }
       if not nullable then table.insert(parts, " NOT NULL") end
-      if default_val ~= "" then table.insert(parts, " DEFAULT " .. default_val) end
+      if default_val ~= nil and default_val ~= "" then table.insert(parts, " DEFAULT " .. default_val)
+      elseif default_val == "" then table.insert(parts, " DEFAULT ''") end
+      if comment_val ~= nil and comment_val ~= "" then
+        table.insert(parts, " COMMENT '" .. comment_val:gsub("'", "''") .. "'")
+      end
       table.insert(parts, ";")
       table.insert(lines, table.concat(parts, ""))
     else

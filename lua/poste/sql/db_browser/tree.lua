@@ -301,6 +301,30 @@ function M.apply_highlights(buf, line_count, count_ranges, line_to_node)
   end
 end
 
+local function highlight_footer_keys(buf, line_nr)
+  local text = vim.api.nvim_buf_get_lines(buf, line_nr, line_nr + 1, false)[1] or ""
+  -- <KEY> patterns
+  for s, e in text:gmatch("()<[^>]+>()") do
+    vim.api.nvim_buf_add_highlight(buf, hl_ns, "PosteSqlBrowserKeyHint", line_nr, s - 1, e - 1)
+  end
+  -- h/l
+  local hls = text:find("h/l", 1, true)
+  if hls then
+    vim.api.nvim_buf_add_highlight(buf, hl_ns, "PosteSqlBrowserKeyHint", line_nr, hls - 1, hls + 2)
+  end
+  -- Single-char keys: r s d q /
+  for i = 1, #text do
+    local c = text:sub(i, i)
+    if c:match("[rsdq/]") then
+      local before = i == 1 and " " or text:sub(i - 1, i - 1)
+      local after = i == #text and " " or text:sub(i + 1, i + 1)
+      if not before:match("%w") and not after:match("%w") then
+        vim.api.nvim_buf_add_highlight(buf, hl_ns, "PosteSqlBrowserKeyHint", line_nr, i - 1, i)
+      end
+    end
+  end
+end
+
 function M.render_tree(browser_buf, line_to_node, root_nodes, conn_label)
   if not browser_buf or not vim.api.nvim_buf_is_valid(browser_buf) then return end
 
@@ -320,8 +344,9 @@ function M.render_tree(browser_buf, line_to_node, root_nodes, conn_label)
     table.insert(header, "  need: connections.json")
   else
     table.insert(header, "")
-    table.insert(header, " <CR> expand  h/l parent/child  r refresh")
-    table.insert(header, " s SELECT  d describe  / filter  q close")
+    table.insert(header, " <CR> open    h/l nav")
+    table.insert(header, " r reload     s SELECT")
+    table.insert(header, " / find       q close")
   end
 
   vim.api.nvim_set_option_value("modifiable", true, { buf = browser_buf })
@@ -329,6 +354,13 @@ function M.render_tree(browser_buf, line_to_node, root_nodes, conn_label)
   vim.api.nvim_set_option_value("modifiable", false, { buf = browser_buf })
 
   M.apply_highlights(browser_buf, #header, count_ranges, node_map)
+
+  -- Highlight key hints in footer lines with green bold
+  if #lines > 0 then
+    highlight_footer_keys(browser_buf, #header - 3)
+    highlight_footer_keys(browser_buf, #header - 2)
+    highlight_footer_keys(browser_buf, #header - 1)
+  end
 
   return node_map
 end

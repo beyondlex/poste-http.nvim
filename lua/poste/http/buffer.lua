@@ -128,6 +128,13 @@ local function get_response_buffer()
   return response_buffer
 end
 
+function M.get_buf()
+  if response_buffer and vim.api.nvim_buf_is_valid(response_buffer) then
+    return response_buffer
+  end
+  return nil
+end
+
 --- Ensure the response split is open and display the given lines
 function M.render_buffer(lines, filetype)
   local buf = get_response_buffer()

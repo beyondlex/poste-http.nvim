@@ -23,8 +23,13 @@ function M.show_view(view)
 
   local lines, filetype
   if view == "body" then
-    lines = format.format_body(state.last_response)
-    filetype = format.detect_filetype(state.last_response.content_type)
+    if not state.last_response.body or state.last_response.body == "" then
+      lines = { "(no response body)" }
+      filetype = "text"
+    else
+      lines = format.format_body(state.last_response)
+      filetype = format.detect_filetype(state.last_response.content_type)
+    end
   elseif view == "verbose" then
     lines = format.format_verbose(state.last_response)
     filetype = "markdown"
@@ -41,6 +46,18 @@ function M.show_view(view)
 
   buffer.render_buffer(lines, filetype)
   buffer.update_winbar(view)
+
+  if view == "body" and (not state.last_response.body or state.last_response.body == "") then
+    local buf = buffer.get_buf()
+    if buf then
+      local ns = vim.api.nvim_create_namespace("poste_response_hint")
+      vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+      vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
+        end_col = #lines[1],
+        hl_group = "Comment",
+      })
+    end
+  end
 end
 
 -- Wire up buffer tab-switching callbacks

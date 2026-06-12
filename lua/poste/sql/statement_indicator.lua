@@ -9,6 +9,7 @@ local ns = vim.api.nvim_create_namespace("poste_sql_stmt_boundary")
 local _debounce_timer = nil
 local _prev_mark_id = nil
 local _prev_buf = nil
+local _disabled = false
 
 local DEBOUNCE_MS = 50
 
@@ -127,6 +128,7 @@ end
 --- @param buf number Buffer handle
 --- @param cursor_line number 1-based cursor line
 function M.update(buf, cursor_line)
+  if _disabled then return end
   if _debounce_timer then
     _debounce_timer:stop()
     _debounce_timer:close()
@@ -154,5 +156,19 @@ function M.clear(buf)
     clear_prev()
   end
 end
+
+function M.toggle()
+  _disabled = not _disabled
+  if _disabled then
+    M.clear()
+    vim.notify("SQL boundary highlight: OFF", vim.log.levels.INFO, { title = "Poste" })
+  else
+    vim.notify("SQL boundary highlight: ON", vim.log.levels.INFO, { title = "Poste" })
+  end
+end
+
+vim.api.nvim_create_user_command("PosteSQLBoundary", function()
+  require("poste.sql.statement_indicator").toggle()
+end, { desc = "Toggle SQL statement boundary highlight" })
 
 return M

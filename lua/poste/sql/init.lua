@@ -95,13 +95,6 @@ end
 
 function M.run_sql_request()
   local src_buf = vim.api.nvim_get_current_buf()
-  indicators.clear_all(src_buf)
-
-  exec_seq = exec_seq + 1
-  local current_seq = exec_seq
-
-  -- Clear old dataset content before new async execution
-  sql_buffer.clear_panel(current_seq)
 
   local binary = state.find_poste_binary()
   if not binary then
@@ -154,6 +147,12 @@ function M.run_sql_request()
     if not buf_content then return end
     stmt_lines = { stmt_start or 1 }
   end
+
+  -- Only clear after we confirm there's something to execute
+  exec_seq = exec_seq + 1
+  local current_seq = exec_seq
+  indicators.clear_all(src_buf)
+  sql_buffer.clear_panel(current_seq)
 
   -- Set running indicators
   local first_line = stmt_lines[1]

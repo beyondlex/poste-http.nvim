@@ -224,6 +224,19 @@ function M.extract_stmt_at_cursor(buf_lines, cursor_line)
     return nil, nil, stmt_start
   end
 
+  -- If the detected statement contains only comment lines, nothing to execute
+  local has_sql = false
+  for _, l in ipairs(stmt_lines) do
+    local trimmed = l:match("^%s*(.*)$")
+    if trimmed ~= "" and not trimmed:match("^%-%-") then
+      has_sql = true
+      break
+    end
+  end
+  if not has_sql then
+    return nil, nil, stmt_start
+  end
+
   local parts = {}
   for _, l in ipairs(directives) do table.insert(parts, l) end
   table.insert(parts, "###")

@@ -1226,43 +1226,49 @@ end
 function M.register()
   if registered then return end
 
-  -- Try blink.cmp first (LazyVim default)
-  local blink_ok = pcall(register_blink)
-  if blink_ok then return end
+  -- Defer to avoid crashing startup if blink.cmp/nvim-cmp are broken or not yet loaded.
+  -- require() inside lazy.nvim can trigger config callbacks via nvim_exec2 which bypasses pcall.
+  vim.schedule(function()
+    if registered then return end
 
-  -- Fall back to nvim-cmp
-  local cmp_ok = pcall(register_cmp)
-  if cmp_ok then return end
+    -- Try blink.cmp first (LazyVim default)
+    local blink_ok = pcall(register_blink)
+    if blink_ok then return end
 
-  -- Neither loaded yet — register when user enters insert mode
-  local group = vim.api.nvim_create_augroup("PosteCmpRegister", { clear = true })
-  vim.api.nvim_create_autocmd("InsertEnter", {
-    group = group,
-    callback = function()
-      if registered then return end
+    -- Fall back to nvim-cmp
+    local cmp_ok = pcall(register_cmp)
+    if cmp_ok then return end
 
-      -- Try blink.cmp first
-      if pcall(register_blink) then
-        vim.api.nvim_del_augroup_by_name("PosteCmpRegister")
-        return
-      end
+    -- Neither loaded yet — register when user enters insert mode
+    local group = vim.api.nvim_create_augroup("PosteCmpRegister", { clear = true })
+    vim.api.nvim_create_autocmd("InsertEnter", {
+      group = group,
+      callback = function()
+        if registered then return end
 
-      -- Try nvim-cmp
-      if pcall(register_cmp) then
-        if vim.bo.filetype == "poste_http" or vim.bo.filetype == "poste_redis" then
-          local cmp = require("cmp")
-          cmp.setup.buffer({
-            sources = cmp.config.sources({
-              { name = "poste" },
-            }, {
-              { name = "buffer" },
-            }),
-          })
+        -- Try blink.cmp first
+        if pcall(register_blink) then
+          vim.api.nvim_del_augroup_by_name("PosteCmpRegister")
+          return
         end
-        vim.api.nvim_del_augroup_by_name("PosteCmpRegister")
-      end
-    end,
-  })
+
+        -- Try nvim-cmp
+        if pcall(register_cmp) then
+          if vim.bo.filetype == "poste_http" or vim.bo.filetype == "poste_redis" then
+            local cmp = require("cmp")
+            cmp.setup.buffer({
+              sources = cmp.config.sources({
+                { name = "poste" },
+              }, {
+                { name = "buffer" },
+              }),
+            })
+          end
+          vim.api.nvim_del_augroup_by_name("PosteCmpRegister")
+        end
+      end,
+    })
+  end)
 end
 
 -- Diagnostic function to check completion status

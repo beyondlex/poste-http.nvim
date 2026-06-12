@@ -1223,18 +1223,21 @@ function M.setup(opts)
     return cmp_ok
   end
 
-  if not pcall(register_sql_completion) then
-    -- Neither loaded yet — defer to InsertEnter
-    local group = vim.api.nvim_create_augroup("PosteSQLCmpRegister", { clear = true })
-    vim.api.nvim_create_autocmd("InsertEnter", {
-      group = group,
-      once = true,
-      callback = function()
-        pcall(register_sql_completion)
-        vim.api.nvim_del_augroup_by_name("PosteSQLCmpRegister")
-      end,
-    })
-  end
+  -- Defer to avoid crashing startup if blink.cmp is broken (same rationale as HTTP completion)
+  vim.schedule(function()
+    if not pcall(register_sql_completion) then
+      -- Neither loaded yet — defer to InsertEnter
+      local group = vim.api.nvim_create_augroup("PosteSQLCmpRegister", { clear = true })
+      vim.api.nvim_create_autocmd("InsertEnter", {
+        group = group,
+        once = true,
+        callback = function()
+          pcall(register_sql_completion)
+          vim.api.nvim_del_augroup_by_name("PosteSQLCmpRegister")
+        end,
+      })
+    end
+  end)
 
   local function setup_buffer_keymaps(buf)
     local keymap_opts = { buffer = buf, noremap = true, silent = true }

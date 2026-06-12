@@ -77,6 +77,7 @@ function M.show_view(view)
           vim.api.nvim_buf_set_extmark(buf, ns, i - 1, status_start - 1, {
             end_col = status_end,
             hl_group = hl_group,
+            priority = 200,
           })
           break
         end

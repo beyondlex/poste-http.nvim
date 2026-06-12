@@ -369,16 +369,27 @@ function M.edit_conn(node, context)
     return
   end
 
+  local target_win = vim.fn.bufwinid(context.source_buf)
+  if target_win and target_win ~= -1 then
+    vim.api.nvim_set_current_win(target_win)
+  end
   vim.cmd("edit " .. vim.fn.fnameescape(config_path))
 
-  -- Try to jump to the connection entry
-  vim.schedule(function()
-    local escaped = vim.pesc(conn_name)
-    local found = vim.fn.search('"' .. escaped .. '"', "w")
-    if found == 0 then
-      vim.notify("Connection '" .. conn_name .. "' not found in file", vim.log.levels.WARN)
+  -- Jump to the connection entry
+  local search_target = '"' .. conn_name .. '"'
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local found_line = nil
+  for i, line in ipairs(lines) do
+    if line:find(search_target, 1, true) then
+      found_line = i
+      break
     end
-  end)
+  end
+  if found_line then
+    vim.api.nvim_win_set_cursor(0, { found_line, 0 })
+  else
+    vim.notify("Connection '" .. conn_name .. "' not found in file", vim.log.levels.WARN)
+  end
 end
 
 --- Modify Column: open form with type/nullable/default, generate ALTER SQL.

@@ -73,6 +73,19 @@ local GROUP_NAMES = {
 local DANGER_GROUPS = { danger = true }
 
 local ns_floating = vim.api.nvim_create_namespace("poste_db_context_menu")
+local ns_menu_hl = vim.api.nvim_create_namespace("poste_db_context_menu_hl")
+
+-- Context menu highlight groups — applied at load and on ColorScheme change
+local function setup_menu_hl()
+  vim.api.nvim_set_hl(0, "PosteMenuBorder",    { fg = 0x7aa2f7, bold = true })
+  vim.api.nvim_set_hl(0, "PosteMenuTitle",     { fg = 0xe0af68, bold = true })
+  vim.api.nvim_set_hl(0, "PosteMenuShortcut",  { fg = 0x98c379, bold = true })
+  state.apply_highlight_overrides({
+    "PosteMenuBorder", "PosteMenuTitle", "PosteMenuShortcut",
+  })
+end
+setup_menu_hl()
+vim.api.nvim_create_autocmd("ColorScheme", { callback = setup_menu_hl })
 
 --- Build display lines for a menu.
 --- Returns { lines, item_map } where item_map[i] = { letter, action, node, context }
@@ -111,7 +124,7 @@ local function build_menu_lines(node, context)
   table.insert(lines, "")
   table.insert(lines, "└" .. string.rep("─", width) .. "┘")
 
-  return lines, item_map
+  return lines, item_map, title
 end
 
 --- Find item_map entry by letter (case-insensitive).
@@ -129,7 +142,7 @@ end
 function M.open(node, context)
   if not node then return end
 
-  local lines, item_map = build_menu_lines(node, context)
+  local lines, item_map, menu_title = build_menu_lines(node, context)
   if not lines then return end
 
   local width = 0
@@ -167,6 +180,13 @@ function M.open(node, context)
   vim.wo[menu_win].cursorline = true
   vim.wo[menu_win].winhl = "Normal:NormalFloat"
 
+  -- Highlight border lines (top + bottom)
+  vim.api.nvim_buf_add_highlight(menu_buf, ns_menu_hl, "PosteMenuBorder", 0, 0, -1)
+  vim.api.nvim_buf_add_highlight(menu_buf, ns_menu_hl, "PosteMenuBorder", #lines - 1, 0, -1)
+  -- Highlight title in top border
+  local title_start = vim.fn.strdisplaywidth("┌ ")  -- 0-based byte offset after box + space
+  vim.api.nvim_buf_add_highlight(menu_buf, ns_menu_hl, "PosteMenuTitle", 0, title_start, title_start + #menu_title)
+
   -- Highlight group labels
   for i, line in ipairs(lines) do
     for gname, label in pairs(GROUP_NAMES) do
@@ -175,6 +195,16 @@ function M.open(node, context)
           DANGER_GROUPS[gname] and "DiagnosticError" or "Comment", i - 1, 0, -1)
         break
       end
+    end
+  end
+
+  -- Highlight shortcut letters in each menu item
+  for i = 1, #lines do
+    if item_map[i] then
+      local letter = item_map[i].letter
+      local byte_offset = vim.fn.strdisplaywidth("  ")  -- 2 spaces = 2 display width, 2 bytes
+      local bracket_len = vim.fn.strdisplaywidth("[" .. letter .. "]")
+      vim.api.nvim_buf_add_highlight(menu_buf, ns_menu_hl, "PosteMenuShortcut", i - 1, byte_offset, byte_offset + bracket_len)
     end
   end
 
@@ -195,6 +225,14 @@ function M.open(node, context)
       vim.api.nvim_win_close(menu_win, true)
     end
   end
+
+  -- Auto-close on blur
+  local au_group = vim.api.nvim_create_augroup("PosteMenuClose", { clear = true })
+  vim.api.nvim_create_autocmd("WinLeave", {
+    group = au_group,
+    buffer = menu_buf,
+    callback = close,
+  })
 
   local function execute_item(map_entry)
     if not map_entry then return end

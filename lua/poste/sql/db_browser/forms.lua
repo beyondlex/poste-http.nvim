@@ -62,7 +62,11 @@ local function render_form(buf, title, fields, current_idx)
 
   table.insert(lines, "")
   local submit_row = #lines + 1
-  table.insert(lines, "  [s Submit]  [q Cancel]")
+  local btn_text = "  [q Cancel]  [s Submit]"
+  local btn_dw = vim.fn.strdisplaywidth(btn_text)
+  local right_pad = width - btn_dw
+  if right_pad < 0 then right_pad = 0 end
+  table.insert(lines, string.rep(" ", right_pad) .. btn_text)
 
   table.insert(lines, "  j/k:move  Enter:edit  Space:toggle  s:submit  q:close")
   local hints_row = #lines
@@ -81,9 +85,9 @@ local function render_form(buf, title, fields, current_idx)
   end
   -- Hints row in subtle color
   vim.api.nvim_buf_add_highlight(buf, ns_form, "Comment", hints_row - 1, 0, -1)
-  -- Submit / Cancel buttons with distinct colors
-  vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormSubmit", submit_row - 1, 2, 13)
-  vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormCancel", submit_row - 1, 15, 26)
+  -- Submit / Cancel buttons with distinct colors — Cancel left, Submit right
+  vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormCancel", submit_row - 1, right_pad + 2, right_pad + 12)
+  vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormSubmit", submit_row - 1, right_pad + 14, right_pad + 24)
   -- Top border + title
   vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormBorder", 0, 0, -1)
   vim.api.nvim_buf_add_highlight(buf, ns_form, "PosteFormTitle", 0, 4, 4 + #title)
@@ -159,6 +163,14 @@ function M.open(title, fields, on_submit)
       vim.api.nvim_win_close(form_win, true)
     end
   end
+
+  -- Auto-close on blur
+  local au_group = vim.api.nvim_create_augroup("PosteFormClose", { clear = true })
+  vim.api.nvim_create_autocmd("WinLeave", {
+    group = au_group,
+    buffer = form_buf,
+    callback = close,
+  })
 
   local function move_cursor(delta)
     local new_idx = current_idx + delta

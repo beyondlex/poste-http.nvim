@@ -442,12 +442,25 @@ function M.format_verbose(r)
     local duration = string.format("%.2f ms", r.latency_ms or 0)
     local timestamp = (r.metadata and r.metadata.timestamp) or ""
     local env_name = (r.metadata and r.metadata.env) or state.current_env
+    local status_text = r.status_text
+    if not status_text or status_text == "" then
+      local codes = {
+        [200] = "200 OK", [201] = "201 Created", [204] = "204 No Content",
+        [301] = "301 Moved", [302] = "302 Found", [304] = "304 Not Modified",
+        [400] = "400 Bad Request", [401] = "401 Unauthorized", [403] = "403 Forbidden",
+        [404] = "404 Not Found", [405] = "405 Method Not Allowed", [408] = "408 Timeout",
+        [409] = "409 Conflict", [422] = "422 Unprocessable", [429] = "429 Too Many",
+        [500] = "500 Internal Error", [502] = "502 Bad Gateway", [503] = "503 Unavailable",
+        [504] = "504 Gateway Timeout",
+      }
+      status_text = codes[r.status] or (tostring(r.status) .. " Unknown")
+    end
 
     -- Summary header
     table.insert(lines, string.format("# %s %s", method, r.url or ""))
     table.insert(lines, "")
     table.insert(lines, string.format("**%s** | %s | %s | %s",
-      r.status_text or "", duration, env_name, timestamp))
+      status_text, duration, env_name, timestamp))
     table.insert(lines, "")
 
     -- Request section

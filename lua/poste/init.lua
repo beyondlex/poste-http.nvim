@@ -737,14 +737,27 @@ function M.goto_definition()
 
   -- Check if variable exists in this environment
   if env_vars[req_name] then
-    -- Find the line in env.json
+    -- Find the current env section start line
+    local env_section_start = nil
+    local env_pattern = '^%s*"' .. vim.pesc(current_env) .. '"%s*:'
+    for i, l in ipairs(env_lines) do
+      if l:match(env_pattern) then
+        env_section_start = i
+        break
+      end
+    end
+
+    -- Find the variable line within the current env section
     local target_line = nil
-    for i, line in ipairs(env_lines) do
-      -- Match "varname": or "varname" :
-      if line:match('^%s*"' .. vim.pesc(req_name) .. '"%s*:') then
+    local start_search = env_section_start or 1
+    for i = start_search + 1, #env_lines do
+      local l = env_lines[i]
+      if l:match('^%s*"' .. vim.pesc(req_name) .. '"%s*:') then
         target_line = i
         break
       end
+      -- Stop at next top-level section
+      if l:match('^%s*"[^"]+"%s*:') then break end
     end
 
     if target_line then

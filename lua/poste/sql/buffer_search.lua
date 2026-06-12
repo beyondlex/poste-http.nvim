@@ -294,7 +294,9 @@ update_winbar = function()
   local meta = D.T() and D.T().meta
   if not meta then return end
   local text = require("poste.sql.buffer_nav").build_status_winbar(meta)
-  pcall(vim.api.nvim_set_option_value, "winbar", text or "", { win = D.dataset_window })
+  if D.dataset_window and vim.api.nvim_win_is_valid(D.dataset_window) then
+    pcall(vim.api.nvim_set_option_value, "winbar", text or "", { win = D.dataset_window })
+  end
 end
 M.update_winbar = update_winbar
 

@@ -117,7 +117,9 @@ function M.refresh_page()
   sql_highlights.apply_dataset_highlights(buf, tab.padded, meta)
 
   local winbar_text = require("poste.sql.buffer_nav").build_status_winbar(meta)
-  pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
+  if D.dataset_window and vim.api.nvim_win_is_valid(D.dataset_window) then
+    pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
+  end
 
   require("poste.sql.buffer_search").apply_search_highlights()
 end

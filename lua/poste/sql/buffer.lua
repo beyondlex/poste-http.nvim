@@ -171,7 +171,9 @@ local function switch_tab(idx)
   end
 
   local winbar_text = require("poste.sql.buffer_nav").build_status_winbar(meta)
-  pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
+  if D.dataset_window and vim.api.nvim_win_is_valid(D.dataset_window) then
+    pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
+  end
 
   require("poste.sql.buffer_search").apply_search_highlights()
 end
@@ -268,7 +270,9 @@ function M.apply_rendered_page(tab, lines, meta)
   sql_highlights.apply_dataset_highlights(buf, padded, meta)
 
   local winbar_text = require("poste.sql.buffer_nav").build_status_winbar(meta)
-  pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
+  if D.dataset_window and vim.api.nvim_win_is_valid(D.dataset_window) then
+    pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
+  end
 
   require("poste.sql.buffer_search").apply_search_highlights()
 end
@@ -428,9 +432,6 @@ function M.render_dataset(lines, meta, opts)
 
     sql_highlights.apply_dataset_highlights(buf, padded, meta)
 
-    local winbar_text = require("poste.sql.buffer_nav").build_status_winbar(meta)
-    pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
-
     require("poste.sql.buffer_search").apply_search_highlights()
   end
 
@@ -460,6 +461,11 @@ function M.render_dataset(lines, meta, opts)
   pcall(vim.api.nvim_set_option_value, "statuscolumn", "", { win = D.dataset_window })
   vim.api.nvim_set_option_value("foldcolumn", "0", { win = D.dataset_window })
   vim.api.nvim_set_option_value("foldenable", false, { win = D.dataset_window })
+
+  local winbar_text = require("poste.sql.buffer_nav").build_status_winbar(meta)
+  if D.dataset_window and vim.api.nvim_win_is_valid(D.dataset_window) then
+    pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
+  end
 
   if tab.header_text then
     require("poste.sql.buffer_nav").update_header_float()

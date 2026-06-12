@@ -906,9 +906,22 @@ end
 ---------------------------------------------------------------------------
 -- Environment
 ---------------------------------------------------------------------------
+local function build_http_winbar()
+  local left = string.format(" Env: %s ", state.current_env)
+  local right = " <CR> run  ]] next  [[ prev  :PosteEnv <name> "
+  return "%#PosteSqlMeta#" .. left .. "%=" .. "%#PosteSqlMetaDim#" .. right
+end
+
 function M.set_env(env_name)
   state.current_env = env_name
   vim.notify("Environment switched to: " .. env_name, vim.log.levels.INFO)
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    local ft = vim.bo[buf].filetype
+    if ft == "poste_http" then
+      vim.wo[win].winbar = build_http_winbar()
+    end
+  end
 end
 
 function M.get_env()
@@ -1357,6 +1370,14 @@ function M.setup(opts)
         vim.bo.filetype = "poste_http"
       end
       setup_buffer_keymaps(0)
+    end,
+  })
+
+  -- Winbar: show current env for HTTP files
+  vim.api.nvim_create_autocmd("BufEnter", {
+    pattern = { "*.http", "*.rest" },
+    callback = function()
+      vim.wo.winbar = build_http_winbar()
     end,
   })
 

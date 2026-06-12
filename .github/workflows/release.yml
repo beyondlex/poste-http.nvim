@@ -22,10 +22,7 @@ jobs:
             os: macos-latest
             name: aarch64-macos
             ext: ""
-          - target: x86_64-apple-darwin
-            os: macos-13
-            name: x86_64-macos
-            ext: ""
+            extra_target: x86_64-apple-darwin
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             name: x86_64-windows
@@ -39,6 +36,10 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
+      - name: Install extra target (macOS x86_64)
+        if: matrix.extra_target
+        run: rustup target add ${{ matrix.extra_target }}
+
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
@@ -47,11 +48,22 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} -p poste-cli
 
+      - name: Build (macOS x86_64)
+        if: matrix.extra_target
+        run: cargo build --release --target ${{ matrix.extra_target }} -p poste-cli
+
       - name: Package (Unix)
         if: matrix.ext == ''
         run: |
           cd target/${{ matrix.target }}/release
           tar czf ../../../poste-${{ matrix.name }}.tar.gz poste
+          cd ../../../..
+
+      - name: Package (macOS x86_64)
+        if: matrix.extra_target
+        run: |
+          cd target/${{ matrix.extra_target }}/release
+          tar czf ../../../poste-x86_64-macos.tar.gz poste
           cd ../../../..
 
       - name: Package (Windows)
@@ -65,6 +77,11 @@ jobs:
         if: matrix.ext == ''
         run: |
           sha256sum poste-${{ matrix.name }}.tar.gz > poste-${{ matrix.name }}.tar.gz.sha256
+
+      - name: Checksum (macOS x86_64)
+        if: matrix.extra_target
+        run: |
+          sha256sum poste-x86_64-macos.tar.gz > poste-x86_64-macos.tar.gz.sha256
 
       - name: Checksum (Windows)
         if: matrix.ext == '.exe'
@@ -81,6 +98,8 @@ jobs:
             poste-${{ matrix.name }}.zip
             poste-${{ matrix.name }}.tar.gz.sha256
             poste-${{ matrix.name }}.zip.sha256
+            poste-x86_64-macos.tar.gz
+            poste-x86_64-macos.tar.gz.sha256
 
   release:
     name: Release

@@ -22,9 +22,8 @@ syn match PosteComment '^\s*--.*$'
 " ─── Variable definitions: @name = value / @name value ──
 syn match PosteVarDef '^\s*@\w\+'
   \ nextgroup=PosteVarAssign,PosteVarValue skipwhite
-syn match PosteVarAssign '=' contained
-  \ nextgroup=PosteVarValue skipwhite
-syn match PosteVarValue '.\+$' contained
+syn match PosteVarAssign '=' contained nextgroup=PosteVarValue skipwhite
+syn match PosteVarValue '[^= \t].*$' contained
   \ contains=PosteVarRef,PosteMagicVar
 
 " ─── Variable references ────────────────────────────
@@ -101,7 +100,7 @@ syn match PosteHeaderSep ':' contained
 syn region PosteBody start=+^\s*\n+ end=+\n\ze\s*\%(###\|<\s*{%\|>\s*{%\)\|\%$+ keepend
   \ contains=PosteJsonString,PosteJsonNumber,PosteJsonBoolean,PosteJsonNull,
   \PosteJsonBraces,PosteJsonBrackets,PosteJsonColon,PosteJsonComma,
-  \PosteVarRef,PosteMagicVar,PosteVarDef,PosteComment
+  \PosteVarRef,PosteMagicVar,PosteVarDef,PosteVarAssign,PosteComment
 
 syn match  PosteJsonNumber  '[-]\?\%(\d\+\.\d\+\|\d\+\)' contained
 syn match  PosteJsonBoolean '\<\%(true\|false\)\>' contained

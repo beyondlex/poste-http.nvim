@@ -374,6 +374,134 @@ function M.jump_prev()
   vim.notify("No previous requests", vim.log.levels.INFO)
 end
 
+function M.show_var_value()
+  local buf = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local line_num = cursor[1]
+  local col = cursor[2] + 1  -- 0-indexed to 1-indexed
+  local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
+
+  -- Find {{var_name}} under cursor
+  local var_name = nil
+  local s, e = line_text:find("{{[^}]+}}")
+  while s do
+    if col >= s and col <= e then
+      var_name = line_text:sub(s + 2, e - 2):gsub("^%s+", ""):gsub("%s+$", "")
+      break
+    end
+    s, e = line_text:find("{{[^}]+}}", e + 1)
+  end
+
+  if not var_name then
+    vim.notify("Not on a {{variable}} reference", vim.log.levels.WARN, { title = "Poste" })
+    return
+  end
+
+  local resolved = nil
+  local source = nil
+
+  -- 1. Magic variables ($timestamp, $uuid, etc.)
+  local magic_vars = {
+    timestamp = function() return tostring(os.time()) .. math.random(100000, 999999) end,
+    uuid = function()
+      local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+      return template:gsub("[xy]", function(c)
+        local v = (c == "x") and math.random(0, 15) or math.random(8, 11)
+        return string.format("%x", v)
+      end)
+    end,
+    date = function() return os.date("%Y-%m-%d") end,
+    randomInt = function() return tostring(math.random(0, 9999999)) end,
+  }
+  if var_name:match("^%$") then
+    local magic_name = var_name:sub(2)
+    if magic_vars[magic_name] then
+      resolved = magic_vars[magic_name]()
+      source = "magic var"
+    end
+  end
+
+  -- 2. File-level @var = value definitions (scan preamble before first ###)
+  if not resolved then
+    local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    for _, l in ipairs(all_lines) do
+      if l:match("^###") then break end
+      local def_name, def_op, def_val = l:match("^%s*@(%w+)%s*(=?)(.*)")
+      if def_name and def_name == var_name then
+        resolved = vim.trim(def_val)
+        source = "file variable"
+        break
+      end
+    end
+  end
+
+  -- 3. env.json (check if the resolved value is still a {{var}} ref, resolve chain)
+  if not resolved then
+    local buf_path = vim.api.nvim_buf_get_name(buf)
+    if buf_path ~= "" then
+      local search_dir = vim.fn.fnamemodify(buf_path, ":h")
+      local env_file = util.find_file_upwards("env.json", search_dir)
+      if env_file then
+        local env_lines = vim.fn.readfile(env_file)
+        if env_lines and #env_lines > 0 then
+          local ok, env_data = pcall(vim.json.decode, table.concat(env_lines, "\n"))
+          if ok and type(env_data) == "table" then
+            local env_vars = env_data[state.current_env]
+            if env_vars and type(env_vars) == "table" and env_vars[var_name] then
+              resolved = env_vars[var_name]
+              source = "env.json (" .. state.current_env .. ")"
+            end
+          end
+        end
+      end
+    end
+  end
+
+  if not resolved then
+    resolved = "(unresolved)"
+    source = "unknown"
+  end
+
+  -- Show in float window
+  local title = "{{" .. var_name .. "}}"
+  local lines = { resolved }
+  if source then
+    table.insert(lines, "")
+    table.insert(lines, "— " .. source)
+  end
+
+  local max_width = math.min(math.floor(vim.o.columns * 0.7), 80)
+  local width = 0
+  for _, l in ipairs(lines) do
+    width = math.max(width, vim.fn.strdisplaywidth(l))
+  end
+  width = math.min(width + 4, max_width)
+
+  local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.4))
+  local float_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
+  vim.bo[float_buf].modifiable = false
+
+  local win_opts = {
+    relative = "editor",
+    row = math.floor((vim.o.lines - height) / 2),
+    col = math.floor((vim.o.columns - width) / 2),
+    width = width, height = height, style = "minimal",
+    border = "rounded", title = title, title_pos = "left",
+  }
+  local ok, win = pcall(vim.api.nvim_open_win, float_buf, true, win_opts)
+  if not ok then
+    win_opts.title = nil; win_opts.title_pos = nil
+    win = vim.api.nvim_open_win(float_buf, true, win_opts)
+  end
+
+  -- Close on q / Esc
+  vim.keymap.set("n", "q", function() pcall(vim.api.nvim_win_close, win, true) end,
+    { buffer = float_buf, noremap = true, silent = true })
+  vim.keymap.set("n", "<Esc>", function() pcall(vim.api.nvim_win_close, win, true) end,
+    { buffer = float_buf, noremap = true, silent = true })
+end
+
 function M.goto_definition()
   local ft = vim.bo.filetype
   -- SQL filetypes: delegate to DDL viewer
@@ -1148,6 +1276,8 @@ function M.setup(opts)
     end
     k = km("source_buffer", "pick_env", "<leader>vv")
     if k then vim.keymap.set("n", k, M.pick_env, keymap_opts) end
+    k = km("source_buffer", "show_var_value", "K")
+    if k then vim.keymap.set("n", k, M.show_var_value, keymap_opts) end
 
     -- Clear indicators when buffer content changes (dd, x, etc.)
     local indicator_ns = vim.api.nvim_create_namespace("poste_indicator")

@@ -27,6 +27,7 @@ M.config = {
       copy_as_curl = "<leader>rc",
       show_symbols = "gs",
       pick_env = "<leader>vv",
+      show_var_value = "K",
     },
     http_response = {
       close = "q",

@@ -908,7 +908,7 @@ end
 ---------------------------------------------------------------------------
 local function build_http_winbar()
   local left = string.format(" Env: %s ", state.current_env)
-  local right = " <CR> run  ]] next  [[ prev  :PosteEnv <name> "
+  local right = " <leader>vv switch "
   return "%#PosteSqlMeta#" .. left .. "%=" .. "%#PosteSqlMetaDim#" .. right
 end
 

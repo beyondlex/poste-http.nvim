@@ -86,6 +86,8 @@ M.config = {
     },
     db_browser = {
       toggle_node = "<CR>",
+      move_left = "h",
+      move_right = "l",
       context_menu = "x",
       refresh_node = "r",
       search_filter = "/",

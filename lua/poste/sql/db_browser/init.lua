@@ -47,6 +47,18 @@ local function setup_browser_buffer()
       actions.toggle_node(vim.fn.line("."), make_context())
     end, opts)
   end
+  k = state.get_keymap("db_browser", "move_left", "h")
+  if k then
+    vim.keymap.set("n", k, function()
+      actions.collapse_or_parent(vim.fn.line("."), make_context())
+    end, opts)
+  end
+  k = state.get_keymap("db_browser", "move_right", "l")
+  if k then
+    vim.keymap.set("n", k, function()
+      actions.expand_or_child(vim.fn.line("."), make_context())
+    end, opts)
+  end
   k = state.get_keymap("db_browser", "refresh_node", "r")
   if k then
     vim.keymap.set("n", k, function()

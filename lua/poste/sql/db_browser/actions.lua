@@ -82,6 +82,81 @@ function M.toggle_node(buf_line, context)
   end
 end
 
+local LEAF_TYPES = {
+  column = true, index = true, key_item = true, fk_item = true, index_item = true,
+}
+
+local function get_indent(buf, line_nr)
+  local text = vim.api.nvim_buf_get_lines(buf, line_nr - 1, line_nr, false)[1] or ""
+  local leading = text:match("^%s*") or ""
+  return math.floor(#leading / 2)
+end
+
+local function find_parent_line(buf, start_line_nr, current_depth, line_to_node, header_lines)
+  for line = start_line_nr - 1, header_lines + 1, -1 do
+    local parent_depth = get_indent(buf, line)
+    if parent_depth < current_depth then
+      local idx = line - header_lines
+      if idx >= 1 and idx <= #line_to_node and line_to_node[idx] then
+        return line
+      end
+    end
+  end
+  return nil
+end
+
+function M.collapse_or_parent(buf_line, context)
+  local node = tree.get_node_at_line(context.line_to_node, buf_line)
+  if not node then return end
+
+  local is_leaf = LEAF_TYPES[node.node_type]
+  local current_depth = get_indent(context.browser_buf, buf_line)
+
+  if not is_leaf and node.expanded then
+    -- Collapse: fold children, stay on this node
+    node.expanded = false
+    local new_map = tree.render_tree(context.browser_buf, context.line_to_node, context.root_nodes, context.conn_label)
+    for i, n in ipairs(new_map) do context.line_to_node[i] = n end
+    -- Keep cursor on the collapsed node
+    for i, n in ipairs(context.line_to_node) do
+      if n == node then
+        vim.api.nvim_win_set_cursor(0, { i + HEADER_LINES, 0 })
+        return
+      end
+    end
+  else
+    -- Go to parent (leaf, or non-leaf already collapsed)
+    local parent_line = find_parent_line(context.browser_buf, buf_line, current_depth, context.line_to_node, HEADER_LINES)
+    if parent_line then
+      vim.api.nvim_win_set_cursor(0, { parent_line, 0 })
+    end
+  end
+end
+
+function M.expand_or_child(buf_line, context)
+  local node = tree.get_node_at_line(context.line_to_node, buf_line)
+  if not node then return end
+
+  local is_leaf = LEAF_TYPES[node.node_type]
+  if is_leaf then return end
+
+  if not node.expanded then
+    -- Expand (same as toggle)
+    M.toggle_node(buf_line, context)
+  else
+    -- Already expanded → jump to first child (next line)
+    local total_lines = vim.api.nvim_buf_line_count(context.browser_buf)
+    local next_line = buf_line + 1
+    if next_line <= total_lines then
+      local next_depth = get_indent(context.browser_buf, next_line)
+      local current_depth = get_indent(context.browser_buf, buf_line)
+      if next_depth > current_depth then
+        vim.api.nvim_win_set_cursor(0, { next_line, 0 })
+      end
+    end
+  end
+end
+
 function M.refresh_node(buf_line, context)
   local node = tree.get_node_at_line(context.line_to_node, buf_line)
   if not node then return end

@@ -320,8 +320,8 @@ function M.render_tree(browser_buf, line_to_node, root_nodes, conn_label)
     table.insert(header, "  need: connections.json")
   else
     table.insert(header, "")
-    table.insert(header, " <CR> expand  r refresh  s SELECT")
-    table.insert(header, " d describe   / filter   q close")
+    table.insert(header, " <CR> expand  h/l parent/child  r refresh")
+    table.insert(header, " s SELECT  d describe  / filter  q close")
   end
 
   vim.api.nvim_set_option_value("modifiable", true, { buf = browser_buf })

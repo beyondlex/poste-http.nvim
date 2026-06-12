@@ -184,7 +184,7 @@ function M.open(node, context)
   vim.api.nvim_buf_add_highlight(menu_buf, ns_menu_hl, "PosteMenuBorder", 0, 0, -1)
   vim.api.nvim_buf_add_highlight(menu_buf, ns_menu_hl, "PosteMenuBorder", #lines - 1, 0, -1)
   -- Highlight title in top border
-  local title_start = vim.fn.strdisplaywidth("┌ ")  -- 0-based byte offset after box + space
+  local title_start = #("┌ ")  -- byte offset of title after box + space
   vim.api.nvim_buf_add_highlight(menu_buf, ns_menu_hl, "PosteMenuTitle", 0, title_start, title_start + #menu_title)
 
   -- Highlight group labels

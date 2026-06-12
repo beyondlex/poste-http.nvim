@@ -367,6 +367,17 @@ function M.open()
       state.sql.db_browser.connection = root_nodes[1].name
     end
     render_tree()
+    -- Focus cursor on first connection
+    for i, node in ipairs(line_to_node) do
+      if node.node_type == "connection" then
+        local target_line = i + HEADER_LINES
+        if vim.api.nvim_win_is_valid(browser_win) then
+          vim.api.nvim_set_current_win(browser_win)
+          vim.api.nvim_win_set_cursor(browser_win, { target_line, 0 })
+        end
+        break
+      end
+    end
   end, search_dir)
 end
 

@@ -26,6 +26,9 @@ syn match PosteVarAssign '=' contained nextgroup=PosteVarValue skipwhite
 syn match PosteVarValue '[^= \t].*$' contained
   \ contains=PosteVarRef,PosteMagicVar
 
+" ─── Multi-line variable value end marker ──────────
+syn match PosteMultiVarEnd '^\s*<<<\s*$'
+
 " ─── Variable references ────────────────────────────
 syn match PosteMagicVar '{{\$\w\+}}'
 syn match PosteVarRef '{{[^}]\+}}'
@@ -100,7 +103,7 @@ syn match PosteHeaderSep ':' contained
 syn region PosteBody start=+^\s*\n+ end=+\n\ze\s*\%(###\|<\s*{%\|>\s*{%\)\|\%$+ keepend
   \ contains=PosteJsonString,PosteJsonNumber,PosteJsonBoolean,PosteJsonNull,
   \PosteJsonBraces,PosteJsonBrackets,PosteJsonColon,PosteJsonComma,
-  \PosteVarRef,PosteMagicVar,PosteVarDef,PosteVarAssign,PosteComment
+  \PosteVarRef,PosteMagicVar,PosteVarDef,PosteVarAssign,PosteMultiVarEnd,PosteComment
 
 syn match  PosteJsonNumber  '[-]\?\%(\d\+\.\d\+\|\d\+\)' contained
 syn match  PosteJsonBoolean '\<\%(true\|false\)\>' contained
@@ -121,6 +124,7 @@ hi def link PosteComment     Comment
 hi def PosteVarDef      ctermfg=214 guifg=#FF8C00
 hi def link PosteVarAssign   Operator
 hi def link PosteVarValue    String
+hi def link PosteMultiVarEnd String
 hi def link PosteVarRef      Identifier
 hi def link PosteMagicVar    Special
 hi def link PosteMethodGET    Keyword

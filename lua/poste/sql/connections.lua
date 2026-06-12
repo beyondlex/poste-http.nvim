@@ -21,26 +21,46 @@ end
 -- Config file discovery
 -----------------------------------------------------------------------
 
+local _config_search_cache = {}
+
 --- Walk up from `search_dir` to find connections.json (matches Rust logic).
+--- Caches results to avoid directory traversal on every cursor move.
 --- @param search_dir string Directory to start from
 --- @return string|nil Path to connections.json
 function M.find_connections_json(search_dir)
-  return util.find_file_upwards("connections.json", search_dir)
+  if _config_search_cache[search_dir] ~= nil then
+    return _config_search_cache[search_dir] ~= false and _config_search_cache[search_dir] or nil
+  end
+  local result = util.find_file_upwards("connections.json", search_dir)
+  _config_search_cache[search_dir] = result or false
+  return result
 end
+
+local _config_cache = nil
+local _config_cache_path = nil
 
 --- Get the config for a named connection by reading connections.json directly.
 --- Returns raw values (before {{var}} substitution — use env-aware call for that).
+--- Caches parsed config to avoid file I/O on every cursor move.
 --- @param name string Connection name
 --- @return table|nil Connection config or nil
 function M.get_connection_config(name)
   local search_dir = get_search_dir()
   local config_path = M.find_connections_json(search_dir)
-  if not config_path then return nil end
-  local ok, data = pcall(vim.fn.readfile, config_path)
-  if not ok or not data then return nil end
-  local ok, parsed = pcall(vim.json.decode, table.concat(data, "\n"))
-  if not ok or type(parsed) ~= "table" then return nil end
-  return parsed[name]
+  if not config_path then
+    _config_cache = nil
+    _config_cache_path = nil
+    return nil
+  end
+  if _config_cache_path ~= config_path then
+    local ok, data = pcall(vim.fn.readfile, config_path)
+    if not ok or not data then return nil end
+    local ok2, parsed = pcall(vim.json.decode, table.concat(data, "\n"))
+    if not ok2 or type(parsed) ~= "table" then return nil end
+    _config_cache = parsed
+    _config_cache_path = config_path
+  end
+  return _config_cache[name]
 end
 
 ---------------------------------------------------------------------------

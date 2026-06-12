@@ -121,6 +121,12 @@ function M.setup()
   -- Statement boundary indicator (subtle background for current statement)
   vim.api.nvim_set_hl(0, "PosteSqlBoundary", { bg = 0x43265e })                    -- subtle blue-gray
 
+  -- Status code coloring in verbose view
+  vim.api.nvim_set_hl(0, "PosteStatus2xx", { fg = 0x98c379, bold = true })          -- green
+  vim.api.nvim_set_hl(0, "PosteStatus3xx", { fg = 0x56b6c2, bold = true })          -- cyan
+  vim.api.nvim_set_hl(0, "PosteStatus4xx", { fg = 0xe5c07b, bold = true })          -- yellow
+  vim.api.nvim_set_hl(0, "PosteStatus5xx", { fg = 0xe06c75, bold = true })          -- red
+
   state.apply_highlight_overrides({
     "PosteLatency", "PosteSpinner", "PosteSuccess", "PosteError",
     "PosteSeparator", "PosteRequestName", "PosteVarRef", "PosteMagicVar",
@@ -140,6 +146,7 @@ function M.setup()
     "PosteSqlHeader", "PosteSqlNull", "PosteSqlMeta", "PosteSqlBorder",
     "PosteSqlCellSelected", "PosteSqlModified", "PosteSqlDeleted", "PosteSqlAdded",
     "PosteSqlBoundary",
+    "PosteStatus2xx", "PosteStatus3xx", "PosteStatus4xx", "PosteStatus5xx",
   })
 end
 

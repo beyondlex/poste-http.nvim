@@ -136,7 +136,7 @@ impl Executor {
         }
         metadata.insert(
             "timestamp".to_string(),
-            chrono::Local::now().format("%b %d %H:%M:%S").to_string(),
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         );
         metadata.insert(
             "verbose".to_string(),

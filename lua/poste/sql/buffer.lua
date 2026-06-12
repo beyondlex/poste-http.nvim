@@ -99,13 +99,25 @@ function M.get_dataset_buffer()
         if not M.is_open() then
           D.close_header_float()
           sql_highlights.clear_cell_highlight(D.dataset_buffer)
-          if D.resize_autocmd_id then
-            pcall(vim.api.nvim_del_autocmd, D.resize_autocmd_id)
-            D.resize_autocmd_id = nil
-          end
+  if D.resize_autocmd_id then
+    pcall(vim.api.nvim_del_autocmd, D.resize_autocmd_id)
+    D.resize_autocmd_id = nil
+  end
+  if D.scroll_autocmd_id then
+    pcall(vim.api.nvim_del_autocmd, D.scroll_autocmd_id)
+    D.scroll_autocmd_id = nil
+  end
+  if D.winclose_autocmd_id then
+    pcall(vim.api.nvim_del_autocmd, D.winclose_autocmd_id)
+    D.winclose_autocmd_id = nil
+  end
           if D.scroll_autocmd_id then
             pcall(vim.api.nvim_del_autocmd, D.scroll_autocmd_id)
             D.scroll_autocmd_id = nil
+          end
+          if D.winclose_autocmd_id then
+            pcall(vim.api.nvim_del_autocmd, D.winclose_autocmd_id)
+            D.winclose_autocmd_id = nil
           end
         end
       end)
@@ -489,6 +501,14 @@ function M.render_dataset(lines, meta, opts)
       buffer = D.dataset_buffer,
       callback = function()
         require("poste.sql.buffer_nav").update_header_float()
+      end,
+    })
+    -- Re-anchor header float when any window closes (layout shift)
+    D.winclose_autocmd_id = vim.api.nvim_create_autocmd("WinClosed", {
+      callback = function()
+        vim.schedule(function()
+          require("poste.sql.buffer_nav").update_header_float()
+        end)
       end,
     })
   end

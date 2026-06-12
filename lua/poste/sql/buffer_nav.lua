@@ -108,7 +108,14 @@ function M.update_header_float()
 
   T_mark("  hdr:cache_check")
   if leftcol == D._float_cache_leftcol and win_width == D._float_cache_width
-     and tab.header_text == D._float_cache_header then T_mark("  hdr:cached"); return end
+     and tab.header_text == D._float_cache_header then
+    T_mark("  hdr:still_update_config")
+    if D.float_win and vim.api.nvim_win_is_valid(D.float_win) then
+      pcall(vim.api.nvim_win_set_config, D.float_win, { width = win_width })
+    end
+    T_mark("  hdr:cached")
+    return
+  end
 
   D._float_cache_leftcol = leftcol
   D._float_cache_width = win_width

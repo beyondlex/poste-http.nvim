@@ -61,14 +61,16 @@ jobs:
           7z a ../../../poste-${{ matrix.name }}.zip poste.exe
           cd ../../../..
 
-      - name: Checksum
+      - name: Checksum (Unix)
+        if: matrix.ext == ''
         run: |
-          if [ -f poste-${{ matrix.name }}.tar.gz ]; then
-            sha256sum poste-${{ matrix.name }}.tar.gz > poste-${{ matrix.name }}.tar.gz.sha256
-          fi
-          if [ -f poste-${{ matrix.name }}.zip ]; then
-            sha256sum poste-${{ matrix.name }}.zip > poste-${{ matrix.name }}.zip.sha256
-          fi
+          sha256sum poste-${{ matrix.name }}.tar.gz > poste-${{ matrix.name }}.tar.gz.sha256
+
+      - name: Checksum (Windows)
+        if: matrix.ext == '.exe'
+        shell: bash
+        run: |
+          sha256sum poste-${{ matrix.name }}.zip > poste-${{ matrix.name }}.zip.sha256
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

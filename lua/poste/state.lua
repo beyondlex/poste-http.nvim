@@ -30,8 +30,8 @@ M.config = {
     },
     http_response = {
       close = "q",
-      view_body = "B",
-      view_verbose = "I",
+      view_body = "H",
+      view_verbose = "L",
       view_assertions = "A",
       view_script_logs = "S",
       next_tab = "<Tab>",

@@ -210,16 +210,25 @@ function M.run_request()
                   end
                 end
 
+                local is_error = parsed.status and parsed.status >= 400
                 if state.last_assertion_results.failed > 0 then
                   M.show_view("assertions")
                   indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms, state.last_assertion_results)
+                elseif is_error then
+                  M.show_view("verbose")
+                  indicators.set_indicator(src_buf, req_line, "error", parsed.latency_ms, state.last_assertion_results)
                 else
                   M.show_view("body")
                   indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms, state.last_assertion_results)
                 end
               else
-                M.show_view("body")
-                indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms)
+                if parsed.status and parsed.status >= 400 then
+                  M.show_view("verbose")
+                  indicators.set_indicator(src_buf, req_line, "error", parsed.latency_ms)
+                else
+                  M.show_view("body")
+                  indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms)
+                end
               end
             else
               state.log("WARN", "JSON parse failed, showing raw output")

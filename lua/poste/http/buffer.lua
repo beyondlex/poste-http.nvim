@@ -17,8 +17,8 @@ M.on_show_view = nil
 --- Get list of active tabs based on current state
 local function get_active_tabs()
   local tabs = {
-    { id = "body",    label = "Body [B]" },
-    { id = "verbose", label = "Verbose [I]" },
+    { id = "body",    label = "Body [H]" },
+    { id = "verbose", label = "Verbose [L]" },
   }
   -- Only show Asserts tab when assertions were run
   if state.last_assertion_results then

@@ -113,7 +113,7 @@ local function json_pretty(value, indent)
     return tostring(value)
   elseif type(value) == "boolean" then
     return value and "true" or "false"
-  elseif value == nil then
+  elseif value == nil or value == vim.NIL then
     return "null"
   else
     return tostring(value)

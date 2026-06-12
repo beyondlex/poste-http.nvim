@@ -87,6 +87,14 @@ local function setup_browser_buffer()
   if k then
     vim.keymap.set("n", k, function() M.close() end, opts)
   end
+  k = state.get_keymap("db_browser", "search_next", "n")
+  if k then
+    vim.keymap.set("n", k, function() actions.search_next() end, opts)
+  end
+  k = state.get_keymap("db_browser", "search_prev", "N")
+  if k then
+    vim.keymap.set("n", k, function() actions.search_prev() end, opts)
+  end
 
   k = state.get_keymap("db_browser", "context_menu", "x")
   if k then

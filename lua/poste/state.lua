@@ -94,6 +94,8 @@ M.config = {
       select_query = "s",
       describe_query = "d",
       close = "q",
+      search_next = "n",
+      search_prev = "N",
     },
     introspect_float = {
       close = "q",

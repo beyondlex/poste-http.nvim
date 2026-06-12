@@ -89,6 +89,7 @@ function M.make_column_node(item)
       col_type = item.type or "?",
       nullable = item.nullable,
       default = item.default,
+      extra = item.extra or "",
       is_pk = is_pk,
       icon = icon,
     },
@@ -146,7 +147,9 @@ function M.flatten_tree(nodes, depth)
     local suffix = ""
     if node.node_type == "column" and node.meta then
       suffix = " " .. (node.meta.col_type or "?")
-      if node.meta.is_pk then suffix = suffix .. " PK" end
+      if node.meta.extra and node.meta.extra:lower():find("auto_increment") then
+        suffix = suffix .. " auto_increment"
+      end
     end
 
     local type_suffix = ""
@@ -157,7 +160,7 @@ function M.flatten_tree(nodes, depth)
     local prefix = indent .. marker .. icon .. " " .. node.name .. type_suffix
     local count_text = ""
     if node.children and #node.children > 0 then
-      count_text = " (" .. #node.children .. ")"
+      count_text = " " .. #node.children
     end
 
     local line = prefix .. suffix .. count_text
@@ -290,9 +293,16 @@ function M.apply_highlights(buf, line_count, count_ranges, line_to_node)
         local name_end = name_pos + #node.name - 1
         local after_name = text:sub(name_end + 1)
         local type_match = after_name:match("^ (%w+)")
+        local parens = after_name:match("^ %w+(%([%d,]*%))")
         if type_match then
+          local type_end = name_end + 1 + #type_match
+          if parens then type_end = type_end + #parens end
+          local remaining = text:sub(type_end)
+          if remaining:find("^ auto_increment") then
+            type_end = type_end + 15
+          end
           vim.api.nvim_buf_add_highlight(buf, hl_ns, "PosteSqlBrowserType",
-            i - 1, name_end, name_end + 1 + #type_match)
+            i - 1, name_end, type_end)
         end
       end
     end
@@ -330,8 +340,20 @@ function M.render_tree(browser_buf, line_to_node, root_nodes, conn_label)
 
   local lines, node_map, count_ranges = M.flatten_tree(root_nodes)
 
+  local si = _G.poste_search_info
+  local title
+  if si and si.pattern ~= "" then
+    if si.total == 0 then
+      title = " Search: " .. si.pattern .. " (0 matches)"
+    else
+      title = " Search: " .. si.pattern .. " (" .. si.current .. "/" .. si.total .. ")"
+    end
+  else
+    title = " DB Browser [" .. conn_label .. "]"
+  end
+
   local header = {
-    " DB Browser [" .. conn_label .. "]",
+    title,
     string.rep("─", 40),
     "",
   }
@@ -344,9 +366,10 @@ function M.render_tree(browser_buf, line_to_node, root_nodes, conn_label)
     table.insert(header, "  need: connections.json")
   else
     table.insert(header, "")
-    table.insert(header, " <CR> open    h/l nav")
+    table.insert(header, " <CR> open     h/l nav")
     table.insert(header, " r reload     s SELECT")
     table.insert(header, " / find       q close")
+    table.insert(header, " n next       N prev")
   end
 
   vim.api.nvim_set_option_value("modifiable", true, { buf = browser_buf })
@@ -357,6 +380,7 @@ function M.render_tree(browser_buf, line_to_node, root_nodes, conn_label)
 
   -- Highlight key hints in footer lines with green bold
   if #lines > 0 then
+    highlight_footer_keys(browser_buf, #header - 4)
     highlight_footer_keys(browser_buf, #header - 3)
     highlight_footer_keys(browser_buf, #header - 2)
     highlight_footer_keys(browser_buf, #header - 1)

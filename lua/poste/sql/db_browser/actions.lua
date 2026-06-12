@@ -8,6 +8,41 @@ local HEADER_LINES = icons.HEADER_LINES
 
 local M = {}
 
+local search_hl_ns = vim.api.nvim_create_namespace("poste_db_browser_search")
+local search_char_ns = vim.api.nvim_create_namespace("poste_db_browser_search_char")
+
+-- Search state for / n N navigation
+local search_state = {
+  matches = {},
+  current = 0,
+  pattern = "",
+  context = nil,
+}
+
+-- Fuzzy match: each pattern char must appear in order in text (case-insensitive).
+-- Returns true + 1-indexed positions of matched chars, or false.
+local function fuzzy_match(text, pattern)
+  local ti = 1
+  local positions = {}
+  local plower = pattern:lower()
+  local tlower = text:lower()
+  for pi = 1, #plower do
+    local pc = plower:sub(pi, pi)
+    local found = false
+    while ti <= #tlower do
+      if tlower:sub(ti, ti) == pc then
+        table.insert(positions, ti)
+        ti = ti + 1
+        found = true
+        break
+      end
+      ti = ti + 1
+    end
+    if not found then return false end
+  end
+  return true, positions
+end
+
 function M.find_table_node(line_to_node, start_idx)
   for i = start_idx, 1, -1 do
     if line_to_node[i] and line_to_node[i].node_type == "table" then
@@ -182,63 +217,151 @@ function M.refresh_node(buf_line, context)
   end, search_dir)
 end
 
-function M.search_filter(buf_line, context)
-  vim.ui.input({ prompt = "Filter: " }, function(input)
-    if not input or input == "" then
-      local new_map = tree.render_tree(context.browser_buf, context.line_to_node, context.root_nodes, context.conn_label)
-      for i, n in ipairs(new_map) do context.line_to_node[i] = n end
-      return
-    end
+local function ensure_expanded(node, search_dir, callback)
+  if node.expanded then
+    callback()
+  elseif node.children then
+    node.expanded = true
+    callback()
+  else
+    node.loading = true
+    async.fetch_children(node, function()
+      node.expanded = true
+      callback()
+    end, search_dir)
+  end
+end
 
-    local lower = input:lower()
-    local filtered = {}
-
-    local function walk(nodes, path)
-      for _, node in ipairs(nodes) do
-        local current_path = path .. node.name
-        if node.name:lower():find(lower, 1, true) then
-          table.insert(filtered, { node = node, path = current_path })
-        end
-        if node.children and #node.children > 0 then
-          walk(node.children, current_path .. "/")
-        end
-      end
-    end
-
-    walk(context.root_nodes, "")
-
-    if #filtered == 0 then
-      vim.notify("No matches for: " .. input, vim.log.levels.INFO)
-      return
-    end
-
-    local display_lines = {}
-    local filtered_map = {}
-    for _, entry in ipairs(filtered) do
-      local icon = ICONS[entry.node.node_type] or "  "
-      if entry.node.node_type == "column" and entry.node.meta and entry.node.meta.icon then
-        icon = entry.node.meta.icon
-      end
-      local line = "  " .. icon .. " " .. entry.path
-      table.insert(display_lines, line)
-      table.insert(filtered_map, entry.node)
-    end
-
-    local header = {
-      " Filter: " .. input,
-      string.rep("─", 40),
-      "",
-    }
-    for _, line in ipairs(display_lines) do
-      table.insert(header, line)
-    end
-
-    vim.api.nvim_set_option_value("modifiable", true, { buf = context.browser_buf })
-    vim.api.nvim_buf_set_lines(context.browser_buf, 0, -1, false, header)
-    vim.api.nvim_set_option_value("modifiable", false, { buf = context.browser_buf })
-
-    for i, n in ipairs(filtered_map) do context.line_to_node[i] = n end
+local function expand_ancestors(ancestors, search_dir, callback, i)
+  i = i or 1
+  if i > #ancestors then
+    callback()
+    return
+  end
+  ensure_expanded(ancestors[i], search_dir, function()
+    expand_ancestors(ancestors, search_dir, callback, i + 1)
   end)
+end
+
+local function highlight_match_chars(buf, line_to_node, matches)
+  vim.api.nvim_buf_clear_namespace(buf, search_char_ns, 0, -1)
+  for _, match in ipairs(matches) do
+    for i, n in ipairs(line_to_node) do
+      if n == match.node then
+        local line_nr = i + HEADER_LINES - 1 -- 0-indexed
+        local text = vim.api.nvim_buf_get_lines(buf, line_nr, line_nr + 1, false)[1] or ""
+        local name_start = text:find(match.node.name, 1, true)
+        if name_start and match.positions then
+          for _, pos in ipairs(match.positions) do
+            local char_col = name_start + pos - 2
+            vim.api.nvim_buf_add_highlight(buf, search_char_ns, "PosteSqlBrowserSearchChar",
+              line_nr, char_col, char_col + 1)
+          end
+        end
+        break
+      end
+    end
+  end
+end
+
+local function do_jump(index)
+  local state = search_state
+  if #state.matches == 0 then return end
+
+  index = ((index - 1) % #state.matches) + 1
+  state.current = index
+
+  local match = state.matches[index]
+  local ctx = state.context
+  local search_dir = get_search_dir(ctx.source_buf)
+
+  expand_ancestors(match.ancestors, search_dir, function()
+    vim.schedule(function()
+      -- Update header with match info
+      _G.poste_search_info = { pattern = state.pattern, current = state.current, total = #state.matches }
+      local new_map = tree.render_tree(ctx.browser_buf, ctx.line_to_node, ctx.root_nodes, ctx.conn_label)
+      for i, n in ipairs(new_map) do ctx.line_to_node[i] = n end
+
+      -- Highlight matching chars on all matches
+      highlight_match_chars(ctx.browser_buf, ctx.line_to_node, state.matches)
+
+      -- Line-level highlight only on current match
+      for i, n in ipairs(ctx.line_to_node) do
+        if n == match.node then
+          local target_line = i + HEADER_LINES
+          vim.api.nvim_buf_clear_namespace(ctx.browser_buf, search_hl_ns, 0, -1)
+          vim.api.nvim_buf_add_highlight(ctx.browser_buf, search_hl_ns, "PosteSqlBrowserSearchMatch",
+            target_line - 1, 0, -1)
+          vim.api.nvim_win_set_cursor(0, { target_line, 0 })
+          break
+        end
+      end
+    end)
+  end)
+end
+
+local function walk_tree(nodes, lower, ancestors, matches)
+  for _, node in ipairs(nodes) do
+    local ok, positions = fuzzy_match(node.name, lower)
+    if ok then
+      local anc = {}
+      for _, a in ipairs(ancestors) do table.insert(anc, a) end
+      table.insert(matches, { node = node, ancestors = anc, positions = positions })
+    end
+    if node.children then
+      local new_anc = {}
+      for _, a in ipairs(ancestors) do table.insert(new_anc, a) end
+      table.insert(new_anc, node)
+      walk_tree(node.children, lower, new_anc, matches)
+    end
+  end
+end
+
+function M.search_filter(buf_line, context)
+  -- Suppress cmdline buffer-word completions during input
+  local saved_complete = vim.o.complete
+  vim.o.complete = ""
+  local ok, input = pcall(vim.fn.input, "Search: ")
+  vim.o.complete = saved_complete
+
+  if not ok or input == "" then
+    search_state = { matches = {}, current = 0, pattern = "", context = nil }
+    _G.poste_search_info = nil
+    local new_map = tree.render_tree(context.browser_buf, context.line_to_node, context.root_nodes, context.conn_label)
+    for i, n in ipairs(new_map) do context.line_to_node[i] = n end
+    vim.api.nvim_buf_clear_namespace(context.browser_buf, search_hl_ns, 0, -1)
+    vim.api.nvim_buf_clear_namespace(context.browser_buf, search_char_ns, 0, -1)
+    return
+  end
+
+  local lower = input:lower()
+  local matches = {}
+  local search_dir = get_search_dir(context.source_buf)
+
+  walk_tree(context.root_nodes, lower, {}, matches)
+
+  if #matches > 0 then
+    search_state = { matches = matches, current = 0, pattern = input, context = context }
+    do_jump(1)
+    return
+  end
+
+  -- No matches in visible tree
+  _G.poste_search_info = { pattern = input, current = 0, total = 0 }
+  vim.api.nvim_buf_clear_namespace(context.browser_buf, search_hl_ns, 0, -1)
+  vim.api.nvim_buf_clear_namespace(context.browser_buf, search_char_ns, 0, -1)
+  local new_map = tree.render_tree(context.browser_buf, context.line_to_node, context.root_nodes, context.conn_label)
+  for i, n in ipairs(new_map) do context.line_to_node[i] = n end
+end
+
+function M.search_next()
+  if #search_state.matches == 0 then return end
+  do_jump(search_state.current + 1)
+end
+
+function M.search_prev()
+  if #search_state.matches == 0 then return end
+  do_jump(search_state.current - 1)
 end
 
 function M.generate_select_query(buf_line, context)

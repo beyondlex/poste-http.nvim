@@ -112,7 +112,15 @@ function M.fetch_children(node, callback, search_dir)
         node.children = {}
         if result and result.items then
           for _, item in ipairs(result.items) do
-            table.insert(node.children, tree.make_database_node(item, conn, dialect))
+            -- Skip system databases
+            local skip = {
+              information_schema = true, mysql = true,
+              performance_schema = true, sys = true,
+              template0 = true, template1 = true,
+            }
+            if not skip[item.name] then
+              table.insert(node.children, tree.make_database_node(item, conn, dialect))
+            end
           end
         end
         callback()
@@ -126,7 +134,12 @@ function M.fetch_children(node, callback, search_dir)
         node.children = {}
         if result and result.items then
           for _, item in ipairs(result.items) do
-            table.insert(node.children, tree.make_schema_node(item, conn, node.name))
+            -- Skip system schemas
+            if item.name ~= "pg_catalog"
+              and item.name ~= "information_schema"
+              and item.name:sub(1, 8) ~= "pg_toast" then
+              table.insert(node.children, tree.make_schema_node(item, conn, node.name))
+            end
           end
         end
         callback()
@@ -178,10 +191,10 @@ function M.fetch_children(node, callback, search_dir)
           else table.insert(regular_cols, item) end
         end
         node.children = {}
-        for _, item in ipairs(regular_cols) do
+        for _, item in ipairs(pk_cols) do
           table.insert(node.children, tree.make_column_node(item))
         end
-        for _, item in ipairs(pk_cols) do
+        for _, item in ipairs(regular_cols) do
           table.insert(node.children, tree.make_column_node(item))
         end
         for _, item in ipairs(fk_cols) do
@@ -219,12 +232,18 @@ function M.fetch_children(node, callback, search_dir)
         end
 
         local fk_items = {}
+        local function s(v) -- normalize null/nil to empty string
+          if v == nil or v == vim.NIL then return "" end
+          return tostring(v)
+        end
         for _, item in ipairs(cols) do
-          if item.fk_table and item.fk_table ~= "" then
+          local ref_table = s(item.fk_table)
+          local ref_column = s(item.fk_column)
+          if ref_table ~= "" then
             table.insert(fk_items, {
               name = item.name,
-              ref_table = item.fk_table,
-              ref_column = item.fk_column,
+              ref_table = ref_table,
+              ref_column = ref_column,
             })
           elseif item.is_fk or item.key == "MUL" then
             table.insert(fk_items, {

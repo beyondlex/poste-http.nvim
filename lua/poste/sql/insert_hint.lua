@@ -1,6 +1,9 @@
 local M = {}
 local ns = vim.api.nvim_create_namespace("poste_insert_hint")
 
+local _debounce_timer = nil
+local DEBOUNCE_MS = 150
+
 local function dbg(msg)
   if vim.g.poste_insert_hint_debug then
     vim.notify("[insert_hint] " .. msg, vim.log.levels.INFO, { title = "Poste Insert Hint" })
@@ -175,7 +178,22 @@ end
 
 function M.setup()
   local group = vim.api.nvim_create_augroup("poste_insert_hint", { clear = true })
-  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorHold", "CursorMovedI", "CursorHoldI" }, {
+  local function debounced_update()
+    if _debounce_timer then
+      _debounce_timer:stop()
+      _debounce_timer:close()
+    end
+    _debounce_timer = vim.defer_fn(function()
+      _debounce_timer = nil
+      M.update()
+    end, DEBOUNCE_MS)
+  end
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+    group = group,
+    pattern = { "*.sql", "*.sqlite" },
+    callback = debounced_update,
+  })
+  vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
     group = group,
     pattern = { "*.sql", "*.sqlite" },
     callback = M.update,

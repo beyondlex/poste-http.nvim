@@ -17,6 +17,10 @@ local _vis_active = false
 local _vis_start = 0
 local _vis_end = 0
 
+-- CursorMoved debounce to avoid jitter from repeated context resolution
+local _cursor_moved_timer = nil
+local CURSOR_MOVED_DEBOUNCE_MS = 100
+
 
 --- Install keymaps for this SQL buffer (one-time setup).
 local function ensure_sql_keymaps(buf)
@@ -64,12 +68,19 @@ local function ensure_sql_keymaps(buf)
     group = group,
     buffer = buf,
     callback = function()
-      if vim.api.nvim_get_current_buf() ~= buf then return end
-      local ctx_mod = require("poste.sql.context")
-      local text = ctx_mod.get_cursor_status_text(buf)
-      vim.b[buf].poste_sql_context = text
-      local stmt_indicator = require("poste.sql.statement_indicator")
-      stmt_indicator.update(buf, vim.fn.line("."))
+      if _cursor_moved_timer then
+        _cursor_moved_timer:stop()
+        _cursor_moved_timer:close()
+      end
+      _cursor_moved_timer = vim.defer_fn(function()
+        _cursor_moved_timer = nil
+        if vim.api.nvim_get_current_buf() ~= buf then return end
+        local ctx_mod = require("poste.sql.context")
+        local text = ctx_mod.get_cursor_status_text(buf)
+        vim.b[buf].poste_sql_context = text
+        local stmt_indicator = require("poste.sql.statement_indicator")
+        stmt_indicator.update(buf, vim.fn.line("."))
+      end, CURSOR_MOVED_DEBOUNCE_MS)
     end,
   })
 end

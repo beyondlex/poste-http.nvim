@@ -28,6 +28,7 @@ M.config = {
       show_symbols = "gs",
       pick_env = "<leader>vv",
       show_var_value = "K",
+      help = "g?",
     },
     http_response = {
       close = "q",
@@ -44,6 +45,7 @@ M.config = {
       clear_filter = "<leader>cr",
       toggle_db_browser = "<leader>db",
       trigger_completion = "<C-Space>",
+      help = "g?",
     },
     sql_dataset = {
       close = "q",

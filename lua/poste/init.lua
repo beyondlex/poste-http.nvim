@@ -1281,6 +1281,10 @@ function M.setup(opts)
     if k then vim.keymap.set("n", k, M.pick_env, keymap_opts) end
     k = km("source_buffer", "show_var_value", "K")
     if k then vim.keymap.set("n", k, M.show_var_value, keymap_opts) end
+    k = km("source_buffer", "help", "g?")
+    if k then
+      vim.keymap.set("n", k, function() require("poste.help").open() end, keymap_opts)
+    end
 
     -- Clear indicators when buffer content changes (dd, x, etc.)
     local indicator_ns = vim.api.nvim_create_namespace("poste_indicator")
@@ -1329,6 +1333,10 @@ function M.setup(opts)
       local copy = require("poste.http.copy")
     copy.copy_to_clipboard("+")
   end, { desc = "Copy current request as curl command to clipboard" })
+
+  vim.api.nvim_create_user_command("PosteHelp", function()
+    require("poste.help").open()
+  end, { desc = "Show Poste keymap help" })
 
   vim.api.nvim_create_user_command("PosteCmpStatus", function()
     vim.notify(completion.status(), vim.log.levels.INFO)

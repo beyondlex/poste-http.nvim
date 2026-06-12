@@ -60,6 +60,12 @@ local function ensure_sql_keymaps(buf)
     end, keymap_opts)
   end
 
+  -- g?: show keymap help
+  k = state.get_keymap("sql_source", "help", "g?")
+  if k then
+    vim.keymap.set("n", k, function() require("poste.help").open() end, keymap_opts)
+  end
+
   -- CursorMoved: update context indicator in statusline + statement highlight
   local augroup = "PosteSQLContext_" .. buf
   pcall(vim.api.nvim_del_augroup_by_name, augroup)

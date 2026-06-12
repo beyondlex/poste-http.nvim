@@ -72,7 +72,7 @@ function M.show_view(view)
       local ns = vim.api.nvim_create_namespace("poste_status_code")
       vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
       for i, line in ipairs(lines) do
-        local status_start, status_end = line:find("%*%*%d+ %u[%u ]*%*%*")
+        local status_start, status_end = line:find("%*%*.-%*%*")
         if status_start then
           vim.api.nvim_buf_set_extmark(buf, ns, i - 1, status_start - 1, {
             end_col = status_end,

@@ -92,6 +92,26 @@ function M.get_dataset_buffer()
   k = state.get_keymap("sql_dataset", "prev_search", "N")
   if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_search").prev_search_match() end, opts) end
 
+  vim.api.nvim_create_autocmd("WinClosed", {
+    buffer = D.dataset_buffer,
+    callback = function()
+      vim.schedule(function()
+        if not M.is_open() then
+          D.close_header_float()
+          sql_highlights.clear_cell_highlight(D.dataset_buffer)
+          if D.resize_autocmd_id then
+            pcall(vim.api.nvim_del_autocmd, D.resize_autocmd_id)
+            D.resize_autocmd_id = nil
+          end
+          if D.scroll_autocmd_id then
+            pcall(vim.api.nvim_del_autocmd, D.scroll_autocmd_id)
+            D.scroll_autocmd_id = nil
+          end
+        end
+      end)
+    end,
+  })
+
   return D.dataset_buffer
 end
 

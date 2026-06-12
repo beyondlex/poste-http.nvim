@@ -747,17 +747,36 @@ function M.goto_definition()
       end
     end
 
+    -- Find the env section end line by tracking brace depth
+    local env_section_end = #env_lines
+    if env_section_start then
+      local depth = 0
+      local started = false
+      for i = env_section_start, #env_lines do
+        local l = env_lines[i]
+        local opens = (l:match("{") and 1 or 0) - (l:match("}") and 1 or 0)
+        if i == env_section_start then
+          depth = depth + opens
+          started = true
+        elseif started then
+          depth = depth + opens
+          if depth <= 0 then
+            env_section_end = i
+            break
+          end
+        end
+      end
+    end
+
     -- Find the variable line within the current env section
     local target_line = nil
-    local start_search = env_section_start or 1
-    for i = start_search + 1, #env_lines do
+    local start_search = (env_section_start or 0) + 1
+    for i = start_search, env_section_end do
       local l = env_lines[i]
       if l:match('^%s*"' .. vim.pesc(req_name) .. '"%s*:') then
         target_line = i
         break
       end
-      -- Stop at next top-level section
-      if l:match('^%s*"[^"]+"%s*:') then break end
     end
 
     if target_line then

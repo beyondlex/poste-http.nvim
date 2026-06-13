@@ -90,9 +90,15 @@ end
 
 --- Convert a cell value to display string.
 --- Newlines are replaced with ⏎ to keep table layout intact.
-local function cell_to_string(val)
+local function cell_to_string(val, col)
+  if val == "[Auto]" then
+    return "<generated>"
+  end
   if val == vim.NIL or val == nil then
-    return "(NULL)"
+    if col and col.default then
+      return "<default>"
+    end
+    return "<null>"
   end
   if type(val) == "boolean" then
     return tostring(val)
@@ -148,7 +154,7 @@ local function calc_column_widths(columns, rows, max_width)
   for _, row in ipairs(rows) do
     for i, val in ipairs(row) do
       if i <= #widths then
-        local s = cell_to_string(val)
+        local s = cell_to_string(val, columns[i])
         widths[i] = math.max(widths[i], displaywidth(s))
       end
     end
@@ -478,7 +484,7 @@ function M.render_page(layout, page, page_size)
     line_num = line_num + 1
     local cells = { tostring(row_idx) }
     for i = 1, #columns do
-      cells[i + 1] = cell_to_string(rows[row_idx][i])
+      cells[i + 1] = cell_to_string(rows[row_idx][i], columns[i])
     end
     lines[line_num] = data_row(cells, col_widths, numeric_cols)
   end
@@ -556,12 +562,12 @@ function M.render_view(layout, view_indices, page, page_size, opts)
     local row_num = (row_number_mode == "view") and view_pos or src_idx
     local cells = { tostring(row_num) }
     for i = 1, #columns do
-      cells[i + 1] = cell_to_string(rows[src_idx][i])
+      cells[i + 1] = cell_to_string(rows[src_idx][i], columns[i])
+
     end
     lines[line_num] = data_row(cells, col_widths, numeric_cols)
   end
   local data_end = line_num
-
   line_num = line_num + 1
   lines[line_num] = border_line(col_widths, "└", "┴", "┘", "─")
 
@@ -631,7 +637,7 @@ end
 function M.render_row(row, layout, row_number)
   local cells = { tostring(row_number) }
   for i = 1, #layout.columns do
-    cells[i + 1] = cell_to_string(row[i])
+    cells[i + 1] = cell_to_string(row[i], layout.columns[i])
   end
   return data_row(cells, layout.col_widths, layout.numeric_cols)
 end

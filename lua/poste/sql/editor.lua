@@ -739,7 +739,6 @@ local function apply_cell_edit(row_idx, col_idx, new_val)
           local sql_highlights = require("poste.sql.highlights")
           sql_highlights.invalidate_sep_cache()
           sql_highlights.apply_edit_highlights(buf, tab)
-          sql_highlights.apply_virt_text(buf, tab)
         end
       end
     end

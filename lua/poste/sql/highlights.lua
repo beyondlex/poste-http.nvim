@@ -48,7 +48,6 @@ function M.setup()
 
   -- Added rows: green background (override, not link to DiffAdd)
   vim.api.nvim_set_hl(0, "PosteSqlAdded", {
-    fg = dark and 0xd4d4d4 or 0x333333,
     bg = dark and 0x2d6a2d or 0xc6efc6,
   })
 
@@ -409,8 +408,10 @@ function M.apply_edit_highlights(buf, tab)
   for row_idx, _ in pairs(es.deleted_rows) do
     local line_idx = meta.data_start_line + row_idx - 1
     if line_idx <= meta.data_end_line then
+      local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
       vim.api.nvim_buf_set_extmark(buf, ns_edit, line_idx - 1, 0, {
         end_row = line_idx - 1,
+        end_col = #line,
         hl_group = "PosteSqlDeleted",
         hl_mode = "combine",
         priority = 300,
@@ -424,10 +425,12 @@ function M.apply_edit_highlights(buf, tab)
     if row_idx then
       local line_idx = meta.data_start_line + row_idx - 1
       if line_idx <= meta.data_end_line then
+        local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
         vim.api.nvim_buf_set_extmark(buf, ns_edit, line_idx - 1, 0, {
           end_row = line_idx - 1,
+          end_col = #line,
           hl_group = "PosteSqlAdded",
-          hl_mode = "replace",
+          hl_mode = "combine",
           priority = 300,
         })
       end

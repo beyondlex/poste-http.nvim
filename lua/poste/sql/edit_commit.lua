@@ -153,8 +153,9 @@ function M.generate_insert(schema, table_name, columns, row_values, dialect)
 
   for i, col in ipairs(columns) do
     local val = row_values[i]
-    -- Skip [Auto] markers (auto-increment columns)
-    if val ~= "[Auto]" then
+    -- Skip [Auto] markers (auto-increment columns) and nil values
+    -- (user never touched: let DB use DEFAULT)
+    if val ~= "[Auto]" and val ~= nil then
       table.insert(col_parts, quote_ident(col.name, dialect))
       table.insert(val_parts, quote_val(val))
     end

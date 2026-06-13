@@ -92,7 +92,7 @@ end
 --- Newlines are replaced with ⏎ to keep table layout intact.
 local function cell_to_string(val, col)
   if val == "[Auto]" then
-    return "<generated>"
+    return "<auto>"
   end
   if val == vim.NIL or val == nil then
     if col and col.default then

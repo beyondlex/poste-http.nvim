@@ -25,7 +25,7 @@ local BOOLEAN_TYPES = {
 
 local DATE_TYPES = {
   date = true, timestamp = true, timestamptz = true,
-  datetime = true, datetime2 = true,
+  datetime = true, datetime2 = true, time = true,
 }
 
 local JSON_TYPES = {
@@ -84,6 +84,11 @@ end
 function M.is_boolean_column(col_meta)
   if not col_meta or not col_meta.ctype then return false end
   return BOOLEAN_TYPES[col_meta.ctype:lower()] or false
+end
+
+function M.is_datetime_column(col_meta)
+  if not col_meta or not col_meta.ctype then return false end
+  return DATE_TYPES[col_meta.ctype:lower()] or false
 end
 
 function M.is_enum_column(col_meta)
@@ -817,6 +822,43 @@ function M.edit_cell()
         new_val = false
       end
       apply_cell_edit(row_idx, col_idx, new_val)
+    end)
+    return
+  end
+
+  -- Date/time picker
+  if M.is_datetime_column(col_meta) then
+    local now = os.date("*t")
+    local choices = { "(NULL)", "Now" }
+    if col_meta.ctype == "date" then
+      choices = { "(NULL)", os.date("%Y-%m-%d") }
+    elseif col_meta.ctype == "time" then
+      choices = { "(NULL)", os.date("%H:%M:%S") }
+    else
+      choices = { "(NULL)", os.date("%Y-%m-%d %H:%M:%S"), "CURRENT_TIMESTAMP" }
+    end
+    table.insert(choices, "Custom…")
+    vim.ui.select(choices, {
+      prompt = (col_meta.name or "value") .. " (" .. (col_meta.ctype or "") .. ")",
+      format_item = function(item) return item end,
+    }, function(choice)
+      if not choice or choice == "(NULL)" then
+        if choice == "(NULL)" then
+          apply_cell_edit(row_idx, col_idx, vim.NIL)
+        end
+        return
+      end
+      if choice == "Custom…" then
+        vim.ui.input({
+          prompt = (col_meta.name or "value") .. ": ",
+          default = os.date(col_meta.ctype == "date" and "%Y-%m-%d" or "%Y-%m-%d %H:%M:%S"),
+        }, function(input)
+          if not input then return end
+          apply_cell_edit(row_idx, col_idx, input)
+        end)
+        return
+      end
+      apply_cell_edit(row_idx, col_idx, choice)
     end)
     return
   end

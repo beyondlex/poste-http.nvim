@@ -669,8 +669,8 @@ local did_register_cmp = false
 function M.register()
   if did_register_cmp then return end
   did_register_cmp = true
-  local ok, cmp = pcall(require, "cmp")
-  if not ok then
+  local compat = require("poste.compat")
+  if not compat.cmp_ok then
     did_register_cmp = false
     vim.api.nvim_create_autocmd("User", {
       pattern = "CmpReady",
@@ -681,9 +681,9 @@ function M.register()
     })
     return
   end
-  cmp.register_source("poste_sql", M.source.new())
-  cmp.setup.filetype({ "poste_sql", "poste_sqlite" }, {
-    sources = cmp.config.sources({ { name = "poste_sql" } }),
+  compat.cmp.register_source("poste_sql", M.source.new())
+  compat.cmp.setup.filetype({ "poste_sql", "poste_sqlite" }, {
+    sources = compat.cmp.config.sources({ { name = "poste_sql" } }),
   })
 end
 

@@ -1273,8 +1273,10 @@ end
 
 -- Diagnostic function to check completion status
 function M.status()
+  local compat = require("poste.compat")
   if registered == "blink" then
-    local ok, config = pcall(require, "blink.cmp.config")
+    local ok = compat.blink_config_ok
+    local config = compat.blink_config
     local providers_str = ""
     if ok then
       local ids = {}
@@ -1287,12 +1289,11 @@ function M.status()
   end
 
   if registered == "cmp" then
-    local ok, cmp = pcall(require, "cmp")
-    if not ok then
+    if not compat.cmp_ok then
       return "nvim-cmp registered but not loadable"
     end
 
-    local sources = cmp.get_config().sources or {}
+    local sources = compat.cmp.get_config().sources or {}
     local has_poste = false
     for _, src in ipairs(sources) do
       if src.name == "poste" then

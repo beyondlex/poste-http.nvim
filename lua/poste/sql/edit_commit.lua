@@ -547,37 +547,27 @@ function M.commit_edits()
   end
   sql_content = sql_content .. sql
 
-  local cmd = { binary, "run", "--stdin", "--line", "2", src_file }
+  local cmd = { binary, "run", "--stdin", "--line", "2", "--json", src_file }
   if database and database ~= "" then
     table.insert(cmd, "--database")
     table.insert(cmd, database)
   end
 
+  local stderr_buf = {}
   local start_time = vim.uv.now()
   local job_id = vim.fn.jobstart(cmd, {
-    on_exit = function(_, code)
-      local elapsed = vim.uv.now() - start_time
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      if not data or #data == 0 then return end
       vim.schedule(function()
-        if code == 0 then
-          vim.notify(string.format("Committed: %d update(s), %d insert(s), %d delete(s)",
-            summary.updates, summary.inserts, summary.deletes), vim.log.levels.INFO)
-          M.write_log({
-            source = "dataset_commit",
-            table_name = table_name,
-            connection = connection,
-            dialect = dialect,
-            database = database,
-            sql = sql,
-            status = "success",
-            elapsed_ms = elapsed,
-            edit_summary = summary,
-          })
-          -- Clear edit state and refresh dataset in-place
-          require("poste.sql.editor").reset_edit_state(tab.edit_state)
-          tab.edit_state = nil
-          refresh_dataset(tab)
-        else
-          vim.notify("Commit failed (exit code " .. code .. ")", vim.log.levels.ERROR)
+        local elapsed = vim.uv.now() - start_time
+        local output = table.concat(data, "\n")
+
+        local ok_r, resp = pcall(vim.json.decode, output)
+        if not ok_r or not resp then
+          local stderr_text = table.concat(stderr_buf, "\n")
+          vim.notify("Commit: failed to parse poste response\n" .. stderr_text:sub(1, 300), vim.log.levels.ERROR)
           M.write_log({
             source = "dataset_commit",
             table_name = table_name,
@@ -588,10 +578,92 @@ function M.commit_edits()
             status = "error",
             elapsed_ms = elapsed,
             edit_summary = summary,
-            error_msg = "Exit code " .. code,
+            error_msg = "JSON parse error: " .. (stderr_text:sub(1, 200)),
           })
+          return
         end
+
+        -- Decode inner body to get per-statement errors
+        local ok_body, body = pcall(vim.json.decode, resp.body or "{}")
+        if not ok_body or type(body) ~= "table" then
+          body = {}
+        end
+
+        -- Collect per-statement errors
+        local errors = {}
+        if body.results then
+          for i, result in ipairs(body.results) do
+            if result.error and result.error ~= "" then
+              table.insert(errors, "stmt " .. i .. ": " .. result.error)
+            end
+          end
+        end
+
+        if body.has_error or #errors > 0 then
+          local err_msg = table.concat(errors, "\n")
+          if err_msg == "" then
+            err_msg = "Unknown SQL error (has_error=true)"
+          end
+          vim.notify("Commit failed:\n" .. err_msg:sub(1, 500), vim.log.levels.ERROR)
+          M.write_log({
+            source = "dataset_commit",
+            table_name = table_name,
+            connection = connection,
+            dialect = dialect,
+            database = database,
+            sql = sql,
+            status = "error",
+            elapsed_ms = elapsed,
+            edit_summary = summary,
+            error_msg = err_msg:sub(1, 500),
+          })
+          return
+        end
+
+        -- Success
+        local affected = 0
+        if body.results then
+          for _, result in ipairs(body.results) do
+            if result.affected_rows then
+              affected = affected + result.affected_rows
+            end
+          end
+        end
+
+        vim.notify(string.format("Committed: %d update(s), %d insert(s), %d delete(s) (%d row(s) affected)",
+          summary.updates, summary.inserts, summary.deletes, affected), vim.log.levels.INFO)
+        M.write_log({
+          source = "dataset_commit",
+          table_name = table_name,
+          connection = connection,
+          dialect = dialect,
+          database = database,
+          sql = sql,
+          status = "success",
+          elapsed_ms = elapsed,
+          edit_summary = summary,
+          affected_rows = affected,
+        })
+        -- Clear edit state and refresh dataset in-place
+        require("poste.sql.editor").reset_edit_state(tab.edit_state)
+        tab.edit_state = nil
+        refresh_dataset(tab)
       end)
+    end,
+    on_stderr = function(_, data)
+      if not data then return end
+      for _, l in ipairs(data) do
+        if l ~= "" then table.insert(stderr_buf, l) end
+      end
+    end,
+    on_exit = function(_, code)
+      if code ~= 0 then
+        vim.schedule(function()
+          local stderr_text = table.concat(stderr_buf, "\n")
+          -- Only notify if on_stdout didn't already handle it
+          vim.notify("Commit process exited with code " .. code .. "\n" .. stderr_text:sub(1, 300), vim.log.levels.WARN)
+        end)
+      end
     end,
   })
 

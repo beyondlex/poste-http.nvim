@@ -858,7 +858,11 @@ function M.edit_cell()
         end)
         return
       end
-      apply_cell_edit(row_idx, col_idx, choice)
+      if choice == "CURRENT_TIMESTAMP" then
+        apply_cell_edit(row_idx, col_idx, "__expr:CURRENT_TIMESTAMP")
+      else
+        apply_cell_edit(row_idx, col_idx, choice)
+      end
     end)
     return
   end
@@ -887,6 +891,11 @@ function M.edit_cell()
     initial_text = M.format_json_input(old_val)
   else
     initial_text = (old_val == nil or old_val == vim.NIL) and "" or tostring(old_val)
+    -- Strip __expr: prefix for display
+    if type(old_val) == "string" then
+      local expr = old_val:match("^__expr:(.*)$")
+      if expr then initial_text = expr end
+    end
   end
 
   vim.ui.input({

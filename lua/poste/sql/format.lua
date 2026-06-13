@@ -94,6 +94,9 @@ local function cell_to_string(val, col)
   if val == "[Auto]" then
     return "<auto>"
   end
+  if type(val) == "string" and val:match("^__expr:") then
+    return val:match("^__expr:(.*)$")
+  end
   if val == vim.NIL or val == nil then
     if col and col.default then
       return "<default>"

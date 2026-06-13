@@ -27,6 +27,11 @@ local function quote_val(val)
   if val == nil or val == vim.NIL then
     return "NULL"
   end
+  -- Raw SQL expression (e.g. CURRENT_TIMESTAMP) — no quoting
+  if type(val) == "string" then
+    local expr = val:match("^__expr:(.*)$")
+    if expr then return expr end
+  end
   if type(val) == "boolean" then
     return val and "TRUE" or "FALSE"
   end

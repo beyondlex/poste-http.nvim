@@ -811,7 +811,7 @@ function M.edit_cell()
   if M.is_json_column(col_meta) and type(old_val) == "table" then
     initial_text = M.format_json_input(old_val)
   else
-    initial_text = tostring(old_val == vim.NIL and "(NULL)" or old_val)
+    initial_text = (old_val == nil or old_val == vim.NIL) and "" or tostring(old_val)
   end
 
   vim.ui.input({

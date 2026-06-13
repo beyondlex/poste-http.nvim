@@ -36,8 +36,8 @@ describe("log viewer _preview_sql", function()
     assert.equals("…", result:sub(-3))
   end)
 
-  it("replaces newlines with \\n", function()
-    assert.equals("a\\nb", log._preview_sql("a\nb", 50))
+  it("shows first line with ellipsis for multi-line SQL", function()
+    assert.equals("a…", log._preview_sql("a\nb", 50))
   end)
 end)
 

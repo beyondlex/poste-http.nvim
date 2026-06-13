@@ -54,9 +54,16 @@ M._format_time = format_time
 
 local function preview_sql(sql, max_len)
   if not sql or sql == "" then return "" end
-  local s = sql:gsub("\n", "\\n")
-  if #s <= max_len then return s end
-  return s:sub(1, max_len - 1) .. "…"
+  -- Show only the first line for multi-line SQL
+  local first_line = sql:match("^(.-)\n")
+  if first_line then
+    first_line = first_line:gsub("%s+$", "")
+    if #first_line <= max_len - 1 then
+      return first_line .. "…"
+    end
+  end
+  if #sql <= max_len then return sql end
+  return sql:sub(1, max_len - 1) .. "…"
 end
 M._preview_sql = preview_sql
 

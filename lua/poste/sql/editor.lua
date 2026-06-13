@@ -532,37 +532,48 @@ function M.ensure_primary_key(tab)
   if (not db or db == "") and layout.connection then
     db = layout.connection:match("/([^/?]+)$")
   end
-  local pk_query
+  local meta_query
   if dialect == "mysql" then
-    pk_query = string.format(
-      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE "
-      .. "WHERE TABLE_NAME = '%s' AND CONSTRAINT_NAME = 'PRIMARY'",
+    meta_query = string.format(
+      "SELECT c.COLUMN_NAME, c.COLUMN_DEFAULT, c.EXTRA, "
+      .. "CASE WHEN k.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PK "
+      .. "FROM INFORMATION_SCHEMA.COLUMNS c "
+      .. "LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE k "
+      .. "ON k.TABLE_NAME = c.TABLE_NAME AND k.COLUMN_NAME = c.COLUMN_NAME "
+      .. "AND k.CONSTRAINT_NAME = 'PRIMARY' AND k.TABLE_SCHEMA = c.TABLE_SCHEMA "
+      .. "WHERE c.TABLE_NAME = '%s'",
       table_name:gsub("'", "''"))
     if db and db ~= "" then
-      pk_query = pk_query .. string.format(" AND TABLE_SCHEMA = '%s'", db:gsub("'", "''"))
+      meta_query = meta_query .. string.format(" AND c.TABLE_SCHEMA = '%s'", db:gsub("'", "''"))
     end
   elseif dialect == "postgres" then
     local schema = "public"
-    pk_query = string.format(
-      "SELECT a.attname FROM pg_index i "
+    meta_query = string.format(
+      "SELECT c.column_name, c.column_default, "
+      .. "CASE WHEN pk.attname IS NOT NULL THEN 1 ELSE 0 END AS IS_PK "
+      .. "FROM information_schema.columns c "
+      .. "LEFT JOIN ("
+      .. "SELECT a.attname FROM pg_index i "
       .. "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
-      .. "JOIN pg_class c ON c.oid = i.indrelid "
-      .. "JOIN pg_namespace n ON n.oid = c.relnamespace "
-      .. "WHERE i.indisprimary AND c.relname = '%s' AND n.nspname = '%s'",
-      table_name:gsub("'", "''"), schema:gsub("'", "''"))
+      .. "JOIN pg_class cl ON cl.oid = i.indrelid "
+      .. "WHERE i.indisprimary AND cl.relname = '%s'"
+      .. ") pk ON pk.attname = c.column_name "
+      .. "WHERE c.table_name = '%s' AND c.table_schema = '%s'",
+      table_name:gsub("'", "''"), table_name:gsub("'", "''"), schema:gsub("'", "''"))
   elseif dialect == "sqlite" then
-    pk_query = string.format(
-      "SELECT name FROM pragma_table_info('%s') WHERE pk > 0",
+    meta_query = string.format(
+      "SELECT name AS column_name, dflt_value AS column_default, pk AS IS_PK "
+      .. "FROM pragma_table_info('%s')",
       table_name:gsub("'", "''"))
   end
 
-  if not pk_query then
-    vim.notify("[PK debug] no pk_query for dialect: " .. dialect, vim.log.levels.INFO)
+  if not meta_query then
+    vim.notify("[PK debug] no query for dialect: " .. dialect, vim.log.levels.INFO)
     pk_cache[cache_key] = true
     return
   end
 
-  vim.notify("[PK debug] pk_query: " .. pk_query:sub(1, 120), vim.log.levels.INFO)
+  vim.notify("[PK debug] meta_query: " .. meta_query:sub(1, 120), vim.log.levels.INFO)
 
   -- Execute via poste run --stdin (connection passed via @connection directive)
   local binary = get_state().find_poste_binary()
@@ -588,7 +599,7 @@ function M.ensure_primary_key(tab)
     table.insert(args, database)
   end
 
-  local sql_content = "-- @connection " .. connection .. "\n" .. pk_query
+  local sql_content = "-- @connection " .. connection .. "\n" .. meta_query
   vim.notify("[PK debug] src_file=" .. src_file .. " args=" .. vim.inspect(args), vim.log.levels.INFO)
   local output = vim.fn.system(args, sql_content)
   vim.notify("[PK debug] shell_error=" .. vim.v.shell_error .. " output_len=" .. #output, vim.log.levels.INFO)
@@ -603,28 +614,38 @@ function M.ensure_primary_key(tab)
     return
   end
 
-  -- Parse the result to get PK column names
-  local pk_names = {}
+  -- Parse the result to get column metadata (defaults + PK)
   local body_ok, body = pcall(vim.json.decode, parsed.body or "{}")
   vim.notify("[PK debug] body_ok=" .. tostring(body_ok) .. " results=" .. tostring(body and body.results and #body.results), vim.log.levels.INFO)
   if body_ok and body and body.results then
+    local defaults = {}
+    local pk_names = {}
+    local is_pk_col_idx = (dialect == "mysql" and 4) or 3  -- postgres/sqlite=3, mysql=4
+
     for _, res in ipairs(body.results) do
       if res.rows then
         for _, row in ipairs(res.rows) do
-          if row[1] then
-            pk_names[tostring(row[1])] = true
+          local col_name = tostring(row[1] or "")
+          local col_default = row[2]
+          local is_pk = row[is_pk_col_idx]
+          if col_name ~= "" then
+            defaults[col_name] = (col_default ~= vim.NIL and col_default ~= nil) and col_default or nil
+            if is_pk and (is_pk == 1 or is_pk == "1") then
+              pk_names[col_name] = true
+            end
           end
         end
       end
     end
-  end
 
-  vim.notify("[PK debug] pk_names=" .. vim.inspect(pk_names), vim.log.levels.INFO)
-
-  -- Set primary_key on matching columns
-  for _, col in ipairs(layout.columns) do
-    if pk_names[col.name] then
-      col.primary_key = true
+    -- Set metadata on matching columns
+    for _, col in ipairs(layout.columns) do
+      if defaults[col.name] ~= nil then
+        col.default = defaults[col.name]
+      end
+      if pk_names[col.name] then
+        col.primary_key = true
+      end
     end
   end
 
@@ -718,6 +739,7 @@ local function apply_cell_edit(row_idx, col_idx, new_val)
           local sql_highlights = require("poste.sql.highlights")
           sql_highlights.invalidate_sep_cache()
           sql_highlights.apply_edit_highlights(buf, tab)
+          sql_highlights.apply_virt_text(buf, tab)
         end
       end
     end
@@ -924,6 +946,7 @@ function M.insert_row()
     return
   end
 
+  M.ensure_primary_key(tab)
   local es = ensure_edit_state(tab)
   local num_cols = #tab.layout.columns
   local row_data = {}

@@ -48,7 +48,7 @@ function M.setup()
 
   -- Added rows: green background (override, not link to DiffAdd)
   vim.api.nvim_set_hl(0, "PosteSqlAdded", {
-    bg = dark and 0x2d6a2d or 0xc6efc6,
+    bg = dark and 0x001e00 or 0xc6efc6,
   })
 
   -- Cell text: ensure readable fg for data cells
@@ -153,6 +153,16 @@ function M.setup()
     fg = dark and 0xff6b6b or 0xcf222e,
     bold = true,
   })
+  -- Virt-text: auto-generated value indicator
+  vim.api.nvim_set_hl(0, "PosteSqlAuto", {
+    fg = dark and 0x56b6c2 or 0x0969da,
+    italic = true,
+  })
+  -- Virt-text: default value indicator
+  vim.api.nvim_set_hl(0, "PosteSqlDefault", {
+    fg = dark and 0x98c379 or 0x0550ae,
+    italic = true,
+  })
 
   state.apply_highlight_overrides({
     "PosteSqlModified", "PosteSqlDeleted", "PosteSqlAdded",
@@ -164,6 +174,7 @@ function M.setup()
     "PosteSearchMatch", "PosteSearchCurrent",
     "PosteFilterActive", "PosteSearchActive",
     "PosteInsertHint", "PosteSqlError",
+    "PosteSqlAuto", "PosteSqlDefault",
   })
 end
 
@@ -492,6 +503,71 @@ end
 --- Clear all edit highlights.
 function M.clear_edit_highlights(buf)
   vim.api.nvim_buf_clear_namespace(buf, ns_edit, 0, -1)
+end
+
+---------------------------------------------------------------------------
+-- Virt-text indicators for added-row cells
+---------------------------------------------------------------------------
+
+local ns_virt = vim.api.nvim_create_namespace("poste_sql_dataset_virt")
+
+--- Clear virt-text indicators.
+function M.clear_virt_text(buf)
+  vim.api.nvim_buf_clear_namespace(buf, ns_virt, 0, -1)
+end
+
+--- Apply virt-text indicators for special cell values in added rows.
+--- Shows <generated> for auto-increment PK, <default> for columns
+--- with defaults, and <null> for null values without defaults.
+--- @param buf number Buffer handle
+--- @param tab table Tab state with edit_state
+function M.apply_virt_text(buf, tab)
+  M.clear_virt_text(buf)
+  if not tab or not tab.edit_state then return end
+  if not tab.meta or tab.meta.type ~= "resultset" then return end
+  if not tab.meta.data_start_line then return end
+
+  local es = tab.edit_state
+  local meta = tab.meta
+  local columns = tab.layout and tab.layout.columns
+
+  for _, added in ipairs(es.added_rows) do
+    local row_idx = added.row_idx
+    if not row_idx then goto continue end
+    local line_idx = meta.data_start_line + row_idx - 1
+    if line_idx > meta.data_end_line then goto continue end
+
+    local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
+    local row_data = tab.layout and tab.layout.rows and tab.layout.rows[row_idx] or added.data
+
+    for col_idx, val in ipairs(row_data) do
+      local col = columns and columns[col_idx]
+      local indicator
+
+      if val == "[Auto]" then
+        indicator = { {"<generated>", "PosteSqlAuto"} }
+      elseif val == nil or val == vim.NIL then
+        if col and col.default then
+          indicator = { {"<default>", "PosteSqlDefault"} }
+        else
+          indicator = { {"<null>", "PosteSqlNull"} }
+        end
+      end
+
+      if indicator then
+        -- +1 for row number column offset
+        local range = M.find_cell_range(line, col_idx + 1)
+        if range then
+          vim.api.nvim_buf_set_extmark(buf, ns_virt, line_idx - 1, range.ext_start, {
+            virt_text = indicator,
+            virt_text_pos = "overlay",
+            priority = 250,
+          })
+        end
+      end
+    end
+    ::continue::
+  end
 end
 
 return M

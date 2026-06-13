@@ -313,6 +313,7 @@ function M.apply_rendered_page(tab, lines, meta)
   -- Re-apply edit highlights if dirty
   if tab.edit_state and tab.edit_state.dirty then
     sql_highlights.apply_edit_highlights(buf, tab)
+    sql_highlights.apply_virt_text(buf, tab)
   end
 
   local winbar_text = require("poste.sql.buffer_nav").build_status_winbar(meta)

@@ -1273,40 +1273,15 @@ end
 
 -- Diagnostic function to check completion status
 function M.status()
-  local compat = require("poste.compat")
   if registered == "blink" then
-    local ok = compat.blink_config_ok
-    local config = compat.blink_config
+    local config = require("blink.cmp.config")
     local providers_str = ""
-    if ok then
-      local ids = {}
-      for id, _ in pairs(config.sources.providers) do
-        table.insert(ids, id)
-      end
-      providers_str = " [" .. table.concat(ids, ", ") .. "]"
+    local ids = {}
+    for id, _ in pairs(config.sources.providers) do
+      table.insert(ids, id)
     end
+    providers_str = " [" .. table.concat(ids, ", ") .. "]"
     return string.format("completion engine: blink.cmp%s, filetype: %s", providers_str, vim.bo.filetype)
-  end
-
-  if registered == "cmp" then
-    if not compat.cmp_ok then
-      return "nvim-cmp registered but not loadable"
-    end
-
-    local sources = compat.cmp.get_config().sources or {}
-    local has_poste = false
-    for _, src in ipairs(sources) do
-      if src.name == "poste" then
-        has_poste = true
-        break
-      end
-    end
-
-    return string.format(
-      "completion engine: nvim-cmp, buffer has poste: %s, filetype: %s",
-      tostring(has_poste),
-      vim.bo.filetype
-    )
   end
 
   return "no completion engine registered"

@@ -1,7 +1,7 @@
 --- Poste: HTTP/Redis client for Neovim.
 --- This is the orchestrator module — all subsystems live in separate modules.
 local state = require("poste.state")
-local compat = require("poste.compat")
+local blink = require("blink.cmp")
 local util = require("poste.util")
 local highlights = require("poste.http.highlights")  -- auto-registers autocmds on require
 local indicators = require("poste.indicators")
@@ -1184,60 +1184,50 @@ function M.setup(opts)
   -- Register nvim-cmp source (if available)
   completion.register()
 
-  -- Register SQL completion source (blink.cmp or nvim-cmp)
+  -- Register SQL completion source (blink.cmp)
   local sql_comp = require("poste.sql.completion")
   local function register_sql_completion()
-    -- Try blink.cmp first
-    if compat.blink_ok and compat.blink.add_source_provider then
-      compat.blink.add_source_provider("poste_sql", {
-        module = "poste.sql.completion",
-        name = "PosteSQL",
-        async = true,
-        score_offset = 1000,
-        min_keyword_length = 0,
-        should_show_items = true,
-      })
-      compat.blink.add_filetype_source("poste_sql", "poste_sql")
-      compat.blink.add_filetype_source("poste_sqlite", "poste_sql")
+    blink.add_source_provider("poste_sql", {
+      module = "poste.sql.completion",
+      name = "PosteSQL",
+      async = true,
+      score_offset = 1000,
+      min_keyword_length = 0,
+      should_show_items = true,
+    })
+    blink.add_filetype_source("poste_sql", "poste_sql")
+    blink.add_filetype_source("poste_sqlite", "poste_sql")
 
-      -- Only show poste_sql source in SQL buffers (suppress buffer/lsp word noise)
-      local blink_config = compat.blink_config
-      blink_config.sources.per_filetype["poste_sql"]    = { "poste_sql" }
-      blink_config.sources.per_filetype["poste_sqlite"] = { "poste_sql" }
+    -- Only show poste_sql source in SQL buffers (suppress buffer/lsp word noise)
+    local blink_config = require("blink.cmp.config")
+    blink_config.sources.per_filetype["poste_sql"]    = { "poste_sql" }
+    blink_config.sources.per_filetype["poste_sqlite"] = { "poste_sql" }
 
-      -- Allow space as a trigger character in SQL buffers by removing it from the blocked list
-      local orig_blocked = blink_config.completion.trigger.show_on_blocked_trigger_characters
-      blink_config.completion.trigger.show_on_blocked_trigger_characters = function()
-        local ft = vim.bo.filetype
-        if ft == "poste_sql" or ft == "poste_sqlite" then
-          local blocked = type(orig_blocked) == "function" and orig_blocked() or orig_blocked
-          return vim.tbl_filter(function(c) return c ~= " " end, blocked)
-        end
-        return type(orig_blocked) == "function" and orig_blocked() or orig_blocked
+    -- Allow space as a trigger character in SQL buffers by removing it from the blocked list
+    local orig_blocked = blink_config.completion.trigger.show_on_blocked_trigger_characters
+    blink_config.completion.trigger.show_on_blocked_trigger_characters = function()
+      local ft = vim.bo.filetype
+      if ft == "poste_sql" or ft == "poste_sqlite" then
+        local blocked = type(orig_blocked) == "function" and orig_blocked() or orig_blocked
+        return vim.tbl_filter(function(c) return c ~= " " end, blocked)
       end
-
-      return true
+      return type(orig_blocked) == "function" and orig_blocked() or orig_blocked
     end
-    -- Fall back to nvim-cmp
-    local cmp_ok = pcall(sql_comp.register)
-    return cmp_ok
   end
 
-  -- Defer to avoid crashing startup if blink.cmp is broken (same rationale as HTTP completion)
-  vim.schedule(function()
-    if not pcall(register_sql_completion) then
-      -- Neither loaded yet — defer to InsertEnter
-      local group = vim.api.nvim_create_augroup("PosteSQLCmpRegister", { clear = true })
-      vim.api.nvim_create_autocmd("InsertEnter", {
-        group = group,
-        once = true,
-        callback = function()
-          pcall(register_sql_completion)
-          vim.api.nvim_del_augroup_by_name("PosteSQLCmpRegister")
-        end,
-      })
-    end
-  end)
+  -- Defer to avoid crashing startup if blink.cmp is broken
+  local ok, err = pcall(register_sql_completion)
+  if not ok then
+    local group = vim.api.nvim_create_augroup("PosteSQLCmpRegister", { clear = true })
+    vim.api.nvim_create_autocmd("InsertEnter", {
+      group = group,
+      once = true,
+      callback = function()
+        pcall(register_sql_completion)
+        vim.api.nvim_del_augroup_by_name("PosteSQLCmpRegister")
+      end,
+    })
+  end
 
   local function setup_buffer_keymaps(buf)
     local keymap_opts = { buffer = buf, noremap = true, silent = true }
@@ -1362,16 +1352,11 @@ function M.setup(opts)
     table.insert(status, "  Enabled: " .. tostring(instance:enabled()))
     
     -- Check blink.cmp registration
-    if compat.blink_ok then
-      if compat.blink_config_ok then
-        table.insert(status, "  blink.cmp loaded: true")
-        if compat.blink_config.sources and compat.blink_config.sources.providers then
-          local has_sql = compat.blink_config.sources.providers.poste_sql ~= nil
-          table.insert(status, "  poste_sql provider registered: " .. tostring(has_sql))
-        end
-      end
-    else
-      table.insert(status, "  blink.cmp loaded: false")
+    table.insert(status, "  blink.cmp loaded: true")
+    local blink_config = require("blink.cmp.config")
+    if blink_config.sources and blink_config.sources.providers then
+      local has_sql = blink_config.sources.providers.poste_sql ~= nil
+      table.insert(status, "  poste_sql provider registered: " .. tostring(has_sql))
     end
     
     -- Check connection
@@ -1404,11 +1389,6 @@ function M.setup(opts)
   end, { desc = "Check SQL completion status" })
 
   vim.api.nvim_create_user_command("PosteSQLAutoTrigger", function()
-    if not compat.blink_ok or not compat.blink.show then
-      vim.notify("blink.cmp not available", vim.log.levels.ERROR)
-      return
-    end
-
     local group = vim.api.nvim_create_augroup("PosteSQLAutoComplete", { clear = true })
     vim.api.nvim_create_autocmd("TextChangedI", {
       group = group,
@@ -1428,7 +1408,7 @@ function M.setup(opts)
                lw == "set" or lw == "on" or lw == "having" or
                lw == "by" or lw == "and" or lw == "or" then
               vim.schedule(function()
-                compat.blink.show()
+                blink.show()
               end)
             end
           end
@@ -1438,26 +1418,22 @@ function M.setup(opts)
     vim.notify("SQL auto-trigger installed for current buffer", vim.log.levels.INFO)
   end, { desc = "Install SQL auto-trigger for completion" })
 
-  vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
+vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     -- Reload the completion module
     package.loaded["poste.sql.completion"] = nil
     local sql_comp = require("poste.sql.completion")
-    
+
     -- Re-register with blink.cmp
-    if compat.blink_ok and compat.blink.add_source_provider then
-      compat.blink.add_source_provider("poste_sql", {
-        module = "poste.sql.completion",
-        name = "PosteSQL",
-        score_offset = 1000,
-        min_keyword_length = 0,
-        should_show_items = true,
-      })
-      compat.blink.add_filetype_source("poste_sql", "poste_sql")
-      compat.blink.add_filetype_source("poste_sqlite", "poste_sql")
-      vim.notify("SQL completion reloaded and re-registered with blink.cmp", vim.log.levels.INFO)
-    else
-      vim.notify("blink.cmp not available", vim.log.levels.ERROR)
-    end
+    blink.add_source_provider("poste_sql", {
+      module = "poste.sql.completion",
+      name = "PosteSQL",
+      score_offset = 1000,
+      min_keyword_length = 0,
+      should_show_items = true,
+    })
+    blink.add_filetype_source("poste_sql", "poste_sql")
+    blink.add_filetype_source("poste_sqlite", "poste_sql")
+    vim.notify("SQL completion reloaded and re-registered with blink.cmp", vim.log.levels.INFO)
   end, { desc = "Reload SQL completion provider" })
 
   vim.api.nvim_create_user_command("PosteSQLDiag", function()
@@ -1474,12 +1450,14 @@ function M.setup(opts)
     local conn = sql_comp._test.conn_key()
 
     -- Check what blink sources are active for this filetype
-    local active_providers = compat.blink_sources_ok and compat.blink_sources.get_enabled_provider_ids("insert") or {}
+    local blink_src = require("blink.cmp.sources.lib")
+    local blink_config = require("blink.cmp.config")
+    local active_providers = blink_src.get_enabled_provider_ids("insert")
     local per_ft = "(unavailable)"
-    if compat.blink_config_ok then
-      per_ft = vim.inspect(compat.blink_config.sources and compat.blink_config.sources.per_filetype and compat.blink_config.sources.per_filetype["poste_sql"])
+    if blink_config.sources and blink_config.sources.per_filetype then
+      per_ft = vim.inspect(blink_config.sources.per_filetype["poste_sql"])
     end
-    local runtime_ft = compat.blink_sources_ok and vim.inspect(compat.blink_sources.per_filetype_provider_ids) or "(unavailable)"
+    local runtime_ft = vim.inspect(blink_src.per_filetype_provider_ids)
 
     local msg = {
       "line_before: '" .. line_before .. "'",
@@ -1512,25 +1490,22 @@ function M.setup(opts)
     local before = line:sub(1, col)
     local last_word = before:match("(%w+)%s*$")
 
-    local blink_ok = compat.blink_ok
     local menu_open = false
-    if blink_ok then
-      local ok_m, menu_mod = pcall(require, "blink.cmp.completion.windows.menu")
-      menu_open = ok_m and menu_mod.win:is_open()
-    end
+    local ok_m, menu_mod = pcall(require, "blink.cmp.completion.windows.menu")
+    menu_open = ok_m and menu_mod.win:is_open()
 
     local msg = {
       "PosteSQLDebugSpace:",
       "  line_before cursor: '" .. before .. "'",
       "  last_word: " .. tostring(last_word),
-      "  blink loaded: " .. tostring(blink_ok),
-      "  blink.show exists: " .. tostring(blink_ok and compat.blink.show ~= nil),
+      "  blink loaded: true",
+      "  blink.show exists: " .. tostring(blink.show ~= nil),
       "  menu currently open: " .. tostring(menu_open),
     }
 
-    if blink_ok and compat.blink.show then
+    if blink.show then
       vim.notify(table.concat(msg, "\n") .. "\n  → calling blink.show() now...", vim.log.levels.WARN)
-      compat.blink.show()
+      blink.show()
     else
       vim.notify(table.concat(msg, "\n"), vim.log.levels.ERROR)
     end
@@ -1656,11 +1631,7 @@ function M.setup(opts)
       k = state.get_keymap("sql_source", "trigger_completion", "<C-Space>")
       if k then
         vim.keymap.set("i", k, function()
-          if compat.blink_ok and compat.blink.show then
-            compat.blink.show()
-          else
-            vim.notify("blink.cmp not available", vim.log.levels.WARN)
-          end
+          blink.show()
         end, { buffer = 0, noremap = true, silent = true, desc = "Trigger completion" })
       end
       
@@ -1681,7 +1652,8 @@ function M.setup(opts)
           if col < 1 or line:sub(col, col) ~= " " then return end
           local last_word = line:sub(1, col - 1):match("(%w+)%s*$")
           if last_word and sql_keywords[last_word:lower()] then
-            if compat.blink_trigger_ok then compat.blink_trigger.show({ force = true, trigger_kind = "manual" }) end
+            local trigger = require("blink.cmp.completion.trigger")
+            trigger.show({ force = true, trigger_kind = "manual" })
           end
         end,
       })
@@ -1697,7 +1669,8 @@ function M.setup(opts)
           local prefix = before:match("[%w_]*$") or ""
           if #prefix > 0 then
             vim.schedule(function()
-              if compat.blink_trigger_ok then compat.blink_trigger.show({ force = true, trigger_kind = "manual" }) end
+              local trigger = require("blink.cmp.completion.trigger")
+              trigger.show({ force = true, trigger_kind = "manual" })
             end)
           end
         end,

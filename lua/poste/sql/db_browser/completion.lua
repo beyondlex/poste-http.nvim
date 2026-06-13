@@ -1,17 +1,10 @@
 --- SQL column type completion for Modify Column / New Column forms.
---- Supports both blink.cmp and nvim-cmp; gracefully degrades if neither is installed.
+--- Requires blink.cmp.
 
 local M = {}
-local compat = require("poste.compat")
 
--- Lazy-loaded kind constant
-local _Kind = nil
-local function kind_type_param()
-  if not _Kind then
-    _Kind = (compat.blink_types_ok and compat.blink_types.CompletionItemKind) or { TypeParameter = 25 }
-  end
-  return _Kind.TypeParameter or 25
-end
+local blink_config = require("blink.cmp.config")
+local blink_sources = require("blink.cmp.sources.lib")
 
 -- Dialect-specific type lists
 local types = {
@@ -48,11 +41,11 @@ local types = {
 }
 
 --- Shared filtering logic.
---- @return blink.cmp.CompletionItem[]
 local function filter_types(keyword, dialect)
   local list = types[dialect] or types.postgres
   local lowered = keyword:lower()
-  local kind = kind_type_param()
+  local Kind = require("blink.cmp.types").CompletionItemKind
+  local kind = Kind.TypeParameter
 
   local items = {}
   local exact = {}
@@ -80,15 +73,10 @@ local function filter_types(keyword, dialect)
   return items
 end
 
-----------------------------------------------------------------------
--- blink.cmp source
-----------------------------------------------------------------------
-
-function M.ensure_registered_blink()
-  if not compat.blink_config_ok or not compat.blink_config then return end
-  if not compat.blink_config.sources then return end
-  if compat.blink_config.sources.providers["poste-sql-types"] then return end
-  compat.blink_config.sources.providers["poste-sql-types"] = {
+--- Register the poste-sql-types provider into blink.cmp (idempotent).
+function M.ensure_registered()
+  if blink_config.sources.providers["poste-sql-types"] then return end
+  blink_config.sources.providers["poste-sql-types"] = {
     name = "SQL Types",
     module = "poste.sql.db_browser.completion",
   }
@@ -110,82 +98,27 @@ end
 function M:get_trigger_characters() return {} end
 
 ----------------------------------------------------------------------
--- nvim-cmp source
+-- Injection (called by forms.lua before vim.ui.input)
 ----------------------------------------------------------------------
 
-local _cmp_registered = false
-local _cmp_source = {
-  name = "poste-sql-types",
-  complete = function(self, params, callback)
-    local dialect = vim.g.poste_sql_dialect or "postgres"
-    local keyword = ""
-    if params.context then
-      local line = params.context.cursor_before_line or ""
-      keyword = line:sub((params.offset or 0) + 1)
-    end
-    local items = filter_types(keyword, dialect)
-    callback({ items = items, isIncomplete = false })
-  end,
-}
-
-function M.ensure_registered_cmp()
-  if _cmp_registered then return end
-  if not compat.cmp_ok then return end
-  compat.cmp.register_source("poste-sql-types", _cmp_source)
-  _cmp_registered = true
-end
-
-----------------------------------------------------------------------
--- Unified injection (called by forms.lua before vim.ui.input)
-----------------------------------------------------------------------
-
--- Internal state
 local _enabled = false
-local _orig_blink_providers = nil
-local _cmp_autocmd_setup = false
+local _orig_providers = nil
 
 --- Enable SQL type completion for the next DressingInput buffer.
 --- Must call M.cleanup() after the input is done.
 function M.enable_for_next_input()
   if _enabled then return end
   _enabled = true
-
-  -- blink.cmp
-  if compat.blink_sources_ok and compat.blink_sources then
-    M.ensure_registered_blink()
-    _orig_blink_providers = compat.blink_sources.per_filetype_provider_ids["DressingInput"]
-    compat.blink_sources.per_filetype_provider_ids["DressingInput"] = { "poste-sql-types" }
-    return
-  end
-
-  -- nvim-cmp: autocmd hooks into DressingInput buffer creation
-  if not _cmp_autocmd_setup then
-    _cmp_autocmd_setup = true
-    vim.api.nvim_create_autocmd("FileType", {
-      pattern = "DressingInput",
-      callback = function(ev)
-        if not _enabled then return end
-        if not compat.cmp_ok then return end
-        M.ensure_registered_cmp()
-        compat.cmp.setup.buffer(ev.buf, {
-          sources = compat.cmp.config.sources({
-            { name = "poste-sql-types" },
-          }),
-        })
-      end,
-    })
-  end
+  M.ensure_registered()
+  _orig_providers = blink_sources.per_filetype_provider_ids["DressingInput"]
+  blink_sources.per_filetype_provider_ids["DressingInput"] = { "poste-sql-types" }
 end
 
 --- Clean up after input is done.
 function M.cleanup()
   _enabled = false
-
-  -- blink.cmp: restore original providers
-  if compat.blink_sources_ok and compat.blink_sources then
-    compat.blink_sources.per_filetype_provider_ids["DressingInput"] = _orig_blink_providers
-    _orig_blink_providers = nil
-  end
+  blink_sources.per_filetype_provider_ids["DressingInput"] = _orig_providers
+  _orig_providers = nil
 end
 
 return M

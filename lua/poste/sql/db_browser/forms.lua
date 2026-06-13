@@ -208,7 +208,7 @@ function M.open(title, fields, on_submit)
     local v = f.value
     local current_val = (v == nil or v == vim.NULL or type(v) == "userdata") and "" or tostring(v)
 
-    -- For type fields, enable dialect-specific completion via blink.cmp or nvim-cmp.
+    -- For type fields, enable dialect-specific completion via blink.cmp.
     local completion = require("poste.sql.db_browser.completion")
     if f.key == "col_type" then
       completion.enable_for_next_input()

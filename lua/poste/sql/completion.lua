@@ -659,35 +659,7 @@ function M.source:complete(params, callback)
   end)
 end
 
----------------------------------------------------------------------------
-
--- Registration
----------------------------------------------------------------------------
-
-local did_register_cmp = false
-
-function M.register()
-  if did_register_cmp then return end
-  did_register_cmp = true
-  local compat = require("poste.compat")
-  if not compat.cmp_ok then
-    did_register_cmp = false
-    vim.api.nvim_create_autocmd("User", {
-      pattern = "CmpReady",
-      once = true,
-      callback = function()
-        M.register()
-      end,
-    })
-    return
-  end
-  compat.cmp.register_source("poste_sql", M.source.new())
-  compat.cmp.setup.filetype({ "poste_sql", "poste_sqlite" }, {
-    sources = compat.cmp.config.sources({ { name = "poste_sql" } }),
-  })
-end
-
----------------------------------------------------------------------------
+----------------------------------------------------------------------
 -- Re-exports for test access and external callers
 ---------------------------------------------------------------------------
 

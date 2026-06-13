@@ -567,6 +567,19 @@ end
 --- @param err string Error message
 --- @param connection string Connection info
 --- @return string[] lines
+--- Render a single data row as a formatted line.
+--- @param row table Row data array
+--- @param layout table Layout with columns, col_widths, numeric_cols
+--- @param row_number number Row number to display
+--- @return string Formatted line with │ separators
+function M.render_row(row, layout, row_number)
+  local cells = { tostring(row_number) }
+  for i = 1, #layout.columns do
+    cells[i + 1] = cell_to_string(row[i])
+  end
+  return data_row(cells, layout.col_widths, layout.numeric_cols)
+end
+
 function M.format_error(err, connection)
   return {
     "",

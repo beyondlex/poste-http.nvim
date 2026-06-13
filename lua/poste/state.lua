@@ -79,6 +79,12 @@ M.config = {
       clear_filter_search = "<leader>cr",
       next_search = "n",
       prev_search = "N",
+      edit_cell = "i",
+      edit_cell_replace = "cc",
+      delete_row = "dd",
+      insert_row_after = "o",
+      insert_row_before = "O",
+      commit_edits = "<leader>w",
     },
     sql_table_ops = {
       select_all = "ma",

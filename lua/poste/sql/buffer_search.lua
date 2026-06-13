@@ -176,6 +176,10 @@ end
 function M.filter_by_current_cell()
   local tab = D.T()
   if not tab or not tab.data or not tab.meta then return end
+  if tab.edit_state and tab.edit_state.dirty then
+    vim.notify("有未提交的修改，请先提交(<leader>w)或放弃(R)", vim.log.levels.WARN)
+    return
+  end
   local res = tab.data.results and tab.data.results[1]
   if not res or not res.rows or #res.rows == 0 then return end
   local row, col = state.sql.cell.row, state.sql.cell.col

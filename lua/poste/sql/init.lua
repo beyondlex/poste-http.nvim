@@ -202,6 +202,9 @@ function M.run_sql_request()
   else
     ctx = sql_context.resolve_full_context(src_buf)
   end
+  -- Persist resolved context so it's available for dataset editing (PK introspection etc.)
+  if ctx.connection then state.sql.context.connection = ctx.connection end
+  if ctx.database then state.sql.context.database = ctx.database end
   local db = ctx.database
   if db and db ~= vim.NIL and db ~= "" then
     cmd = cmd .. " --database " .. vim.fn.shellescape(db)
@@ -276,7 +279,15 @@ local seq = current_seq
                 else
                   lines, meta = sql_format.format_resultset(single_data)
                 end
-                sql_buffer.render_dataset(lines, meta, { tab_index = i, exec_seq = seq, data = single_data, layout = layout })
+                sql_buffer.render_dataset(lines, meta, {
+                  tab_index = i,
+                  exec_seq = seq,
+                  data = single_data,
+                  layout = layout,
+                  original_sql = buf_content,
+                  src_file = file,
+                  src_buf = src_buf,
+                })
 
                 local line_nr = stmt_lines[i] or first_line
                 indicators.set_indicator(src_buf, line_nr - 1, "success", result.execution_time_ms)
@@ -315,13 +326,30 @@ local seq = current_seq
               end)
             end
             if table_name then meta.table_name = table_name end
-            sql_buffer.render_dataset(lines, meta, { exec_seq = seq, layout = layout })
+            sql_buffer.render_dataset(lines, meta, {
+              exec_seq = seq,
+              layout = layout,
+              original_sql = buf_content,
+              src_file = file,
+              src_buf = src_buf,
+            })
 
             local has_err = results[1] and results[1].error
             if has_err then
               indicators.set_indicator(src_buf, first_line - 1, "error")
             else
               indicators.set_indicator(src_buf, first_line - 1, "success", parsed.latency_ms)
+              -- Log successful manual execution
+              local edit_commit = require("poste.sql.edit_commit")
+              edit_commit.write_log({
+                source = "manual_exec",
+                connection = state.sql.context.connection or "",
+                dialect = data and data.dialect or "",
+                database = data and data.database or "",
+                sql = buf_content or "",
+                status = "success",
+                elapsed_ms = tonumber(parsed.latency_ms) or 0,
+              })
             end
           end
         else
@@ -350,6 +378,18 @@ local seq = current_seq
             state.sql.context.connection or ""
           )
           sql_buffer.render_dataset(lines, { type = "error" })
+          -- Log failed execution
+          local edit_commit = require("poste.sql.edit_commit")
+          edit_commit.write_log({
+            source = "manual_exec",
+            connection = state.sql.context.connection or "",
+            dialect = state.sql.context.dialect or "",
+            database = state.sql.context.database or "",
+            sql = buf_content or "",
+            status = "error",
+            elapsed_ms = 0,
+            error_msg = stderr_text:sub(1, 500),
+          })
         end)
       end
     end,

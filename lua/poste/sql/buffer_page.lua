@@ -124,7 +124,21 @@ function M.refresh_page()
   require("poste.sql.buffer_search").apply_search_highlights()
 end
 
+local function is_dirty()
+  local tab = D.T()
+  return tab and tab.edit_state and tab.edit_state.dirty
+end
+
+local function block_if_dirty()
+  if is_dirty() then
+    vim.notify("有未提交的修改，请先提交(<leader>w)或放弃(R)", vim.log.levels.WARN)
+    return true
+  end
+  return false
+end
+
 function M.prev_page()
+  if block_if_dirty() then return end
   local tab = D.T()
   if not tab or not tab.pagination_enabled or tab.num_pages <= 1 then return end
   if not tab.padded_full and not tab.layout then return end
@@ -134,6 +148,7 @@ function M.prev_page()
 end
 
 function M.next_page()
+  if block_if_dirty() then return end
   local tab = D.T()
   if not tab or not tab.pagination_enabled or tab.num_pages <= 1 then return end
   if not tab.padded_full and not tab.layout then return end
@@ -143,6 +158,7 @@ function M.next_page()
 end
 
 function M.goto_first_page()
+  if block_if_dirty() then return end
   local tab = D.T()
   if not tab or not tab.pagination_enabled or tab.num_pages <= 1 then return end
   if not tab.padded_full and not tab.layout then return end
@@ -151,6 +167,7 @@ function M.goto_first_page()
 end
 
 function M.goto_last_page()
+  if block_if_dirty() then return end
   local tab = D.T()
   if not tab or not tab.pagination_enabled or tab.num_pages <= 1 then return end
   if not tab.padded_full and not tab.layout then return end

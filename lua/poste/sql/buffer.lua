@@ -92,6 +92,31 @@ function M.get_dataset_buffer()
   k = state.get_keymap("sql_dataset", "prev_search", "N")
   if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_search").prev_search_match() end, opts) end
 
+  -- Edit keymaps
+  k = state.get_keymap("sql_dataset", "edit_cell", "i")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.editor").edit_cell() end, opts) end
+  k = state.get_keymap("sql_dataset", "edit_cell_replace", "cc")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.editor").edit_cell() end, opts) end
+  k = state.get_keymap("sql_dataset", "delete_row", "dd")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.editor").delete_row() end, opts) end
+  k = state.get_keymap("sql_dataset", "insert_row_after", "o")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.editor").insert_row(true) end, opts) end
+  k = state.get_keymap("sql_dataset", "insert_row_before", "O")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.editor").insert_row(false) end, opts) end
+  k = state.get_keymap("sql_dataset", "commit_edits", "<leader>w")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.edit_commit").commit_edits() end, opts) end
+
+  -- BufWriteCmd: :w triggers commit
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    buffer = D.dataset_buffer,
+    callback = function()
+      local tab = D.T()
+      if tab and tab.edit_state and tab.edit_state.dirty then
+        require("poste.sql.edit_commit").commit_edits()
+      end
+    end,
+  })
+
   vim.api.nvim_create_autocmd("WinClosed", {
     buffer = D.dataset_buffer,
     callback = function()
@@ -150,6 +175,12 @@ end
 
 local function switch_tab(idx)
   if not D.tabs[idx] then return end
+  -- Block tab switch if current tab has dirty edits
+  local current = D.T()
+  if current and current.edit_state and current.edit_state.dirty then
+    vim.notify("有未提交的修改，请先提交(<leader>w)或放弃(R)", vim.log.levels.WARN)
+    return
+  end
   save_active_tab_state()
   D.close_header_float()
   D.active_tab_idx = idx
@@ -281,6 +312,11 @@ function M.apply_rendered_page(tab, lines, meta)
 
   sql_highlights.apply_dataset_highlights(buf, padded, meta)
 
+  -- Re-apply edit highlights if dirty
+  if tab.edit_state and tab.edit_state.dirty then
+    sql_highlights.apply_edit_highlights(buf, tab)
+  end
+
   local winbar_text = require("poste.sql.buffer_nav").build_status_winbar(meta)
   if D.dataset_window and vim.api.nvim_win_is_valid(D.dataset_window) then
     pcall(vim.api.nvim_set_option_value, "winbar", winbar_text or "", { win = D.dataset_window })
@@ -339,6 +375,36 @@ function M.render_dataset(lines, meta, opts)
     tab.rows_source = tab.rows_source or opts.layout.rows
     tab.view_indices = opts.view_indices or nil
     tab.row_number_mode = opts.row_number_mode or "source"
+
+    -- Store original SQL for JOIN detection
+    if opts.original_sql then
+      tab.original_sql = opts.original_sql
+    end
+
+    -- Store source file path for PK introspection (poste needs a real file for connections.json discovery)
+    if opts.src_file then
+      tab.src_file = opts.src_file
+    end
+    -- Store source buffer handle for rerun after commit
+    if opts.src_buf then
+      tab.src_buf = opts.src_buf
+    end
+
+    -- Store connection name for PK introspection (from resolved context)
+    -- This persists even if state.sql.context is cleared later
+    local conn_name = state.sql.context.connection
+    if conn_name and conn_name ~= "" then
+      tab.layout._conn_name = conn_name
+    end
+    -- Also try to get from data response (full connection string → extract name later)
+    if not tab.layout._conn_name and tab.data and tab.data.connection then
+      tab.layout._conn_str = tab.data.connection
+    end
+
+    -- Sync table_name from meta to layout if missing
+    if meta.table_name and (not tab.layout.table_name or tab.layout.table_name == "") then
+      tab.layout.table_name = meta.table_name
+    end
 
     local total_for_pagination = meta.total_rows or meta.row_count
     if tab.pagination_enabled and total_for_pagination > tab.page_size then

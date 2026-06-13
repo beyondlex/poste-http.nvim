@@ -145,6 +145,12 @@ function M.setup()
     underline = true,
   })
 
+  -- Editor: cell error indicator (red background)
+  vim.api.nvim_set_hl(0, "PosteSqlError", {
+    fg = dark and 0xff6b6b or 0xcf222e,
+    bold = true,
+  })
+
   state.apply_highlight_overrides({
     "PosteSqlModified", "PosteSqlDeleted", "PosteSqlAdded",
     "PosteSqlCellText", "PosteSqlSep", "PosteSqlBorder",
@@ -154,7 +160,7 @@ function M.setup()
     "PosteSqlRowNum", "PosteSqlCellSelected",
     "PosteSearchMatch", "PosteSearchCurrent",
     "PosteFilterActive", "PosteSearchActive",
-    "PosteInsertHint",
+    "PosteInsertHint", "PosteSqlError",
   })
 end
 
@@ -375,6 +381,103 @@ end
 --- Clear cell selection highlight.
 function M.clear_cell_highlight(buf)
   vim.api.nvim_buf_clear_namespace(buf, ns_cell, 0, -1)
+end
+
+---------------------------------------------------------------------------
+-- Edit highlights namespace
+---------------------------------------------------------------------------
+
+local ns_edit = vim.api.nvim_create_namespace("poste_sql_dataset_edit")
+
+--- Apply edit highlights (modified/deleted/added rows, cell errors).
+--- @param buf number Buffer handle
+--- @param tab table Tab state with edit_state
+function M.apply_edit_highlights(buf, tab)
+  vim.api.nvim_buf_clear_namespace(buf, ns_edit, 0, -1)
+  if not tab or not tab.edit_state or not tab.edit_state.dirty then return end
+  if not tab.meta or tab.meta.type ~= "resultset" then return end
+  if not tab.meta.data_start_line then return end
+
+  local es = tab.edit_state
+  local meta = tab.meta
+
+  -- Deleted rows: full line strikethrough
+  for row_idx, _ in pairs(es.deleted_rows) do
+    local line_idx = meta.data_start_line + row_idx - 1
+    if line_idx <= meta.data_end_line then
+      local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
+      vim.api.nvim_buf_set_extmark(buf, ns_edit, line_idx - 1, 0, {
+        end_row = line_idx - 1,
+        end_col = #line + 1,
+        hl_group = "PosteSqlDeleted",
+        hl_mode = "combine",
+        priority = 300,
+      })
+    end
+  end
+
+  -- Added rows: full line green
+  -- Count added rows and apply highlights (limited to visible page)
+  local added_count = 0
+  for i, _ in ipairs(es.added_rows) do
+    added_count = added_count + 1
+  end
+
+  -- Modified cells: highlight individual cells
+  for row_key, mod in pairs(es.modified_cells) do
+    local row_idx = tonumber(row_key:match("^(%d+):"))
+    if row_idx then
+      local line_idx = meta.data_start_line + row_idx - 1
+      if line_idx <= meta.data_end_line then
+        local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
+        local range = M.find_cell_range(line, mod.col + 1)  -- +1 for row number column
+        if range then
+          local ext_start = math.min(range.ext_start, #line)
+          local ext_end = math.min(range.ext_end, #line)
+          if ext_start < ext_end then
+            vim.api.nvim_buf_set_extmark(buf, ns_edit, line_idx - 1, ext_start, {
+              end_row = line_idx - 1,
+              end_col = ext_end,
+              hl_group = "PosteSqlModified",
+              hl_mode = "combine",
+              priority = 250,
+            })
+          end
+        end
+      end
+    end
+  end
+
+  -- Cell errors: red highlight
+  for row_key, msg in pairs(es.cell_errors) do
+    local row_idx = tonumber(row_key:match("^(%d+):"))
+    local col_idx = tonumber(row_key:match(":(%d+)$"))
+    if row_idx and col_idx then
+      local line_idx = meta.data_start_line + row_idx - 1
+      if line_idx <= meta.data_end_line then
+        local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
+        local range = M.find_cell_range(line, col_idx + 1)
+        if range then
+          local ext_start = math.min(range.ext_start, #line)
+          local ext_end = math.min(range.ext_end, #line)
+          if ext_start < ext_end then
+            vim.api.nvim_buf_set_extmark(buf, ns_edit, line_idx - 1, ext_start, {
+              end_row = line_idx - 1,
+              end_col = ext_end,
+              hl_group = "PosteSqlError",
+              hl_mode = "combine",
+              priority = 350,
+            })
+          end
+        end
+      end
+    end
+  end
+end
+
+--- Clear all edit highlights.
+function M.clear_edit_highlights(buf)
+  vim.api.nvim_buf_clear_namespace(buf, ns_edit, 0, -1)
 end
 
 return M

@@ -47,6 +47,10 @@ function M.alloc_tab(idx)
       search_matches_by_page = nil, search_total_matches = 0,
       layout = nil, rows_source = nil, view_indices = nil,
       row_number_mode = "source",
+      edit_state = nil,
+      original_sql = nil,
+      src_file = nil,
+      src_buf = nil,
     }
   end
   return M.tabs[idx]

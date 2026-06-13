@@ -329,6 +329,54 @@ end
 -- Layout: full-table metadata (scans all rows once)
 ----------------------------------------------------------------------
 
+--- Normalize raw DB type name to ctype for editor type-checking.
+--- Maps database-specific type names (INT4, VARCHAR, etc.) to
+--- the normalized forms used in editor.lua's type tables.
+--- @param raw string Raw type name from DB (e.g. "INT4", "VARCHAR", "BOOL")
+--- @return string Normalized type name (e.g. "integer", "varchar", "boolean")
+function M.normalize_type(raw)
+  if not raw then return "" end
+  local t = raw:lower()
+  local map = {
+    -- PostgreSQL / generic integer
+    int4 = "integer", int8 = "bigint", int2 = "smallint",
+    integer = "integer", bigint = "bigint", smallint = "smallint",
+    serial = "serial", bigserial = "bigserial", smallserial = "smallserial",
+    tinyint = "integer",
+    -- PostgreSQL/Oracle-style numeric
+    numeric = "numeric", decimal = "decimal",
+    float4 = "real", float8 = "float", real = "real", float = "float",
+    double = "float", ["double precision"] = "float", money = "numeric",
+    -- Boolean
+    bool = "boolean", boolean = "boolean",
+    -- Text
+    text = "text", varchar = "varchar", char = "char", character = "char",
+    ["character varying"] = "varchar",
+    nvarchar = "nvarchar", nchar = "nchar",
+    longtext = "longtext", mediumtext = "mediumtext", tinytext = "tinytext",
+    citext = "text", name = "varchar",
+    -- Date/time
+    date = "date", timestamp = "timestamp", timestamptz = "timestamptz",
+    datetime = "datetime", datetime2 = "datetime",
+    time = "date", timetz = "timestamp", interval = "interval",
+    -- JSON
+    json = "json", jsonb = "jsonb",
+    -- UUID
+    uuid = "uuid",
+    -- Binary / ineditable
+    bytea = "bytea", blob = "blob", binary = "binary", varbinary = "varbinary",
+    tinyblob = "blob", mediumblob = "blob", longblob = "blob",
+    geometry = "geometry", geography = "geography",
+    point = "point", polygon = "polygon", linestring = "linestring",
+    multipolygon = "multipolygon",
+    inet = "inet", cidr = "cidr", macaddr = "macaddr", macaddr8 = "macaddr8",
+    bit = "bit", varbit = "varbit",
+    tsvector = "tsvector", tsquery = "tsquery",
+    xml = "xml", hstore = "hstore",
+  }
+  return map[t] or t
+end
+
 --- Compute layout metadata for a result set. Scans all rows for
 --- column widths and numeric detection, but produces no rendered strings.
 --- @param data table Parsed JSON with results, columns, rows
@@ -351,6 +399,14 @@ function M.plan_resultset_layout(data)
   local numeric_cols = { true }
   for i = 1, #columns do
     numeric_cols[i + 1] = is_numeric_column(rows, i)
+  end
+
+  -- Normalize raw DB type names to ctype for editor type-checking
+  for _, col in ipairs(columns) do
+    local raw = col.type
+    if raw then
+      col.ctype = M.normalize_type(raw)
+    end
   end
 
   local conn = data.connection or ""

@@ -1580,6 +1580,10 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
   end, { desc = "Toggle database structure browser sidebar" })
 
   -- SQL context switching
+  vim.api.nvim_create_user_command("PosteSqlLog", function()
+    require("poste.sql.log_viewer").toggle()
+  end, { desc = "Toggle SQL execution log viewer" })
+
   vim.api.nvim_create_user_command("PosteSQLContext", function(args)
     local context = require("poste.sql.context")
     local parts = {}

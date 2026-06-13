@@ -33,7 +33,6 @@ function M.setup()
   local groups = {
     { "PosteSqlModified",   "DiffChange" },
     { "PosteSqlDeleted",    "DiffDelete" },
-    { "PosteSqlAdded",      "DiffAdd" },
   }
 
   for _, pair in ipairs(groups) do
@@ -41,6 +40,16 @@ function M.setup()
     if vim.tbl_isempty(existing) then
       vim.api.nvim_set_hl(0, pair[1], { link = pair[2] })
     end
+  end
+
+  -- Added rows: explicit green background (not linked to DiffAdd, which varies by colorscheme)
+  local existing_added = vim.api.nvim_get_hl(0, { name = "PosteSqlAdded" })
+  if vim.tbl_isempty(existing_added) then
+    local normal = resolve_hl("Normal")
+    local dark = is_dark(normal.bg)
+    vim.api.nvim_set_hl(0, "PosteSqlAdded", {
+      bg = dark and 0x1b3a2b or 0xd3f0d3,
+    })
   end
 
   -- Theme-aware colors for dataset buffer text.

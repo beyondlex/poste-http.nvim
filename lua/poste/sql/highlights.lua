@@ -405,10 +405,8 @@ function M.apply_edit_highlights(buf, tab)
   for row_idx, _ in pairs(es.deleted_rows) do
     local line_idx = meta.data_start_line + row_idx - 1
     if line_idx <= meta.data_end_line then
-      local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
       vim.api.nvim_buf_set_extmark(buf, ns_edit, line_idx - 1, 0, {
         end_row = line_idx - 1,
-        end_col = #line + 1,
         hl_group = "PosteSqlDeleted",
         hl_mode = "combine",
         priority = 300,
@@ -422,10 +420,8 @@ function M.apply_edit_highlights(buf, tab)
     if row_idx then
       local line_idx = meta.data_start_line + row_idx - 1
       if line_idx <= meta.data_end_line then
-        local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
         vim.api.nvim_buf_set_extmark(buf, ns_edit, line_idx - 1, 0, {
           end_row = line_idx - 1,
-          end_col = #line + 1,
           hl_group = "PosteSqlAdded",
           hl_mode = "combine",
           priority = 300,

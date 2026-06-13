@@ -99,10 +99,8 @@ function M.get_dataset_buffer()
   if k then vim.keymap.set("n", k, function() require("poste.sql.editor").edit_cell() end, opts) end
   k = state.get_keymap("sql_dataset", "delete_row", "dd")
   if k then vim.keymap.set("n", k, function() require("poste.sql.editor").delete_row() end, opts) end
-  k = state.get_keymap("sql_dataset", "insert_row_after", "o")
-  if k then vim.keymap.set("n", k, function() require("poste.sql.editor").insert_row(true) end, opts) end
-  k = state.get_keymap("sql_dataset", "insert_row_before", "O")
-  if k then vim.keymap.set("n", k, function() require("poste.sql.editor").insert_row(false) end, opts) end
+  k = state.get_keymap("sql_dataset", "insert_row", "o")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.editor").insert_row() end, opts) end
   k = state.get_keymap("sql_dataset", "commit_edits", "<leader>w")
   if k then vim.keymap.set("n", k, function() require("poste.sql.edit_commit").commit_edits() end, opts) end
 

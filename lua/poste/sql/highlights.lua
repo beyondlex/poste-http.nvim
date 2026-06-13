@@ -417,10 +417,21 @@ function M.apply_edit_highlights(buf, tab)
   end
 
   -- Added rows: full line green
-  -- Count added rows and apply highlights (limited to visible page)
-  local added_count = 0
-  for i, _ in ipairs(es.added_rows) do
-    added_count = added_count + 1
+  for _, added in ipairs(es.added_rows) do
+    local row_idx = added.row_idx
+    if row_idx then
+      local line_idx = meta.data_start_line + row_idx - 1
+      if line_idx <= meta.data_end_line then
+        local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
+        vim.api.nvim_buf_set_extmark(buf, ns_edit, line_idx - 1, 0, {
+          end_row = line_idx - 1,
+          end_col = #line + 1,
+          hl_group = "PosteSqlAdded",
+          hl_mode = "combine",
+          priority = 300,
+        })
+      end
+    end
   end
 
   -- Modified cells: highlight individual cells

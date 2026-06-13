@@ -356,8 +356,8 @@ end
 --- Track a row addition.
 --- @param es table edit_state
 --- @param row_data table Array of cell values
-function M.track_row_add(es, row_data)
-  table.insert(es.added_rows, { data = row_data })
+function M.track_row_add(es, row_data, row_idx)
+  table.insert(es.added_rows, { data = row_data, row_idx = row_idx })
   es.dirty = true
 end
 
@@ -892,9 +892,8 @@ function M.delete_row()
   end
 end
 
---- Insert a new row (after=true for below, after=false for above).
---- @param after boolean Insert after current row?
-function M.insert_row(after)
+--- Insert a new row at the end of the table.
+function M.insert_row()
   local tab = get_dataset().T()
   if not tab or not tab.layout then return end
 
@@ -908,30 +907,47 @@ function M.insert_row(after)
     return
   end
 
-  -- Guard: single-table only
   if tab.original_sql and M.has_join(tab.original_sql) then
     vim.notify("Editing is not supported for multi-table (JOIN) queries", vim.log.levels.WARN)
     return
   end
-
-  local state = get_state()
-  local row_idx = state.sql.cell.row
-
-  if not M.is_data_row(tab, row_idx) then return end
 
   local es = ensure_edit_state(tab)
   local num_cols = #tab.layout.columns
   local row_data = {}
   for i = 1, num_cols do
     local col_meta = tab.layout.columns[i]
-    -- Mark auto-increment columns as [Auto]
     if col_meta.primary_key and col_meta.ctype and M.is_integer_type(col_meta.ctype) then
       row_data[i] = "[Auto]"
     else
       row_data[i] = nil
     end
   end
-  M.track_row_add(es, row_data)
+
+  -- Append to layout rows and track in edit_state
+  local new_row_idx = #tab.layout.rows + 1
+  tab.layout.rows[new_row_idx] = vim.deepcopy(row_data)
+  M.track_row_add(es, row_data, new_row_idx)
+
+  -- Re-render current page to show the new row
+  local sql_format = require("poste.sql.format")
+  local sql_buffer = require("poste.sql.buffer")
+  local buf = get_dataset().dataset_buffer
+  if buf and vim.api.nvim_buf_is_valid(buf) then
+    local lines, meta = sql_format.render_page(tab.layout, tab.page or 1, tab.page_size or 50)
+    meta.table_name = tab.meta and tab.meta.table_name
+    sql_buffer.apply_rendered_page(tab, lines, meta)
+    -- Re-apply edit highlights (green for added row)
+    local sql_highlights = require("poste.sql.highlights")
+    sql_highlights.apply_edit_highlights(buf, tab)
+    -- Move cursor to new row if visible
+    if new_row_idx <= meta.row_count then
+      get_state().sql.cell.row = new_row_idx
+      local line_idx = meta.data_start_line + new_row_idx - 1
+      pcall(vim.api.nvim_win_set_cursor, get_dataset().dataset_window, { line_idx, 0 })
+      sql_highlights.highlight_cell(buf, new_row_idx, get_state().sql.cell.col or 1, meta)
+    end
+  end
 
   -- Update winbar
   local pending = M.pending_changes_text(es)

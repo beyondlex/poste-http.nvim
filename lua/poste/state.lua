@@ -82,8 +82,7 @@ M.config = {
       edit_cell = "i",
       edit_cell_replace = "cc",
       delete_row = "dd",
-      insert_row_after = "o",
-      insert_row_before = "O",
+      insert_row = "o",
       commit_edits = "<leader>w",
     },
     sql_table_ops = {

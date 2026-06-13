@@ -207,10 +207,18 @@ function M.open(title, fields, on_submit)
     -- Text field: open vim.ui.input
     local v = f.value
     local current_val = (v == nil or v == vim.NULL or type(v) == "userdata") and "" or tostring(v)
+
+    -- For type fields, enable dialect-specific completion via blink.cmp or nvim-cmp.
+    local completion = require("poste.sql.db_browser.completion")
+    if f.key == "col_type" then
+      completion.enable_for_next_input()
+    end
+
     vim.ui.input({
       prompt = f.label .. ": ",
       default = current_val,
     }, function(input)
+      completion.cleanup()
       if closed then return end
       if input ~= nil then
         f.value = input

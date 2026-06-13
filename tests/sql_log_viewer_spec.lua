@@ -169,6 +169,16 @@ describe("log viewer _clean_sql", function()
     local result = log._clean_sql("-- @connection c\nSELECT 1;\nSELECT 2")
     assert.equals("SELECT 1;\nSELECT 2", result)
   end)
+
+  it("strips leading newline from buffer extraction", function()
+    local result = log._clean_sql("\nSELECT * FROM posts")
+    assert.equals("SELECT * FROM posts", result)
+  end)
+
+  it("strips leading blank line before ###", function()
+    local result = log._clean_sql("-- @connection c\n-- @database d\n\n###\nSELECT 1")
+    assert.equals("SELECT 1", result)
+  end)
 end)
 
 describe("log viewer _guess_table", function()

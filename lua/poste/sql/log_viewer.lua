@@ -66,10 +66,11 @@ local function clean_sql(sql)
   for line in (sql .. "\n"):gmatch("(.-)\n") do
     local trimmed = line:match("^%s*(.-)%s*$")
     if trimmed and not trimmed:match("^%-%-%s*@") and trimmed ~= "###" then
-      table.insert(lines, line)
+      table.insert(lines, trimmed)
     end
   end
-  return table.concat(lines, "\n")
+  local result = table.concat(lines, "\n")
+  return result:match("^%s*(.-)%s*$") or ""
 end
 M._clean_sql = clean_sql
 

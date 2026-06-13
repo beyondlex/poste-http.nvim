@@ -93,10 +93,8 @@ end
 
 function M.is_enum_column(col_meta)
   if not col_meta then return false end
-  if col_meta.ctype and col_meta.ctype:lower() == "user-defined" and col_meta.enum_values then
-    return #col_meta.enum_values > 0
-  end
-  return false
+  if not col_meta.enum_values then return false end
+  return #col_meta.enum_values > 0
 end
 
 function M.is_uuid_type(ctype)
@@ -654,6 +652,84 @@ function M.ensure_primary_key(tab)
     end
   end
 
+  -- Fetch enum values for ENUM columns
+  do
+    local enum_query
+    if dialect == "mysql" then
+      enum_query = string.format(
+        "SELECT COLUMN_NAME, COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
+        .. "WHERE TABLE_NAME = '%s' AND DATA_TYPE = 'enum'",
+        table_name:gsub("'", "''"))
+      if db and db ~= "" then
+        enum_query = enum_query .. string.format(" AND TABLE_SCHEMA = '%s'", db:gsub("'", "''"))
+      end
+    elseif dialect == "postgres" then
+      enum_query = [[
+        SELECT t.typname AS type_name, e.enumlabel AS enum_value
+        FROM pg_type t
+        JOIN pg_enum e ON t.oid = e.enumtypid
+        ORDER BY t.typname, e.enumsortorder
+      ]]
+    end
+    if enum_query then
+      local enum_sql_content = "-- @connection " .. connection .. "\n" .. enum_query
+      local enum_output = vim.fn.system(args, enum_sql_content)
+      if vim.v.shell_error == 0 then
+        local enum_ok, enum_parsed = pcall(vim.json.decode, enum_output)
+        if enum_ok and enum_parsed then
+          local enum_body_ok, enum_body = pcall(vim.json.decode, enum_parsed.body or "{}")
+          if enum_body_ok and enum_body and enum_body.results then
+            if dialect == "mysql" then
+              -- MySQL: COLUMN_TYPE = "enum('a','b','c')" → extract values
+              for _, res in ipairs(enum_body.results) do
+                if res.rows then
+                  for _, row in ipairs(res.rows) do
+                    local col_name = tostring(row[1] or "")
+                    local col_type = tostring(row[2] or "")
+                    local values = {}
+                    for v in col_type:gmatch("'([^']*)'") do
+                      table.insert(values, v)
+                    end
+                    if #values > 0 then
+                      for _, col in ipairs(layout.columns) do
+                        if col.name == col_name then
+                          col.enum_values = values
+                          break
+                        end
+                      end
+                    end
+                  end
+                end
+              end
+            elseif dialect == "postgres" then
+              -- PostgreSQL: group enum values by type_name, match against col.ctype
+              local enum_map = {}
+              for _, res in ipairs(enum_body.results) do
+                if res.rows then
+                  for _, row in ipairs(res.rows) do
+                    local type_name = tostring(row[1] or "")
+                    local enum_value = tostring(row[2] or "")
+                    if type_name ~= "" and enum_value ~= "" then
+                      if not enum_map[type_name] then
+                        enum_map[type_name] = {}
+                      end
+                      table.insert(enum_map[type_name], enum_value)
+                    end
+                  end
+                end
+              end
+              for _, col in ipairs(layout.columns) do
+                if col.ctype and enum_map[col.ctype:lower()] then
+                  col.enum_values = enum_map[col.ctype:lower()]
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
   pk_cache[cache_key] = true
 end
 
@@ -870,17 +946,29 @@ function M.edit_cell()
   -- Enum selector
   if M.is_enum_column(col_meta) then
     local choices = {}
+    local current_value = (old_val ~= nil and old_val ~= vim.NIL) and tostring(old_val) or nil
+
     for _, v in ipairs(col_meta.enum_values) do
-      table.insert(choices, v)
+      local display = v
+      if current_value and v == current_value then
+        display = v .. " (current)"
+        table.insert(choices, 1, { value = v, display = display })
+      else
+        table.insert(choices, { value = v, display = display })
+      end
     end
-    table.insert(choices, "(NULL)")
+
+    if col_meta.default then
+      table.insert(choices, { value = nil, display = "<default>" })
+    end
+    table.insert(choices, { value = vim.NIL, display = "(NULL)" })
+
     vim.ui.select(choices, {
-      prompt = col_meta.name or "value",
-      format_item = function(item) return item end,
+      prompt = (col_meta.name or "value") .. "  (i=insert, ENTER=confirm)",
+      format_item = function(item) return item.display end,
     }, function(choice)
       if not choice then return end
-      local new_val = choice == "(NULL)" and vim.NIL or choice
-      apply_cell_edit(row_idx, col_idx, new_val)
+      apply_cell_edit(row_idx, col_idx, choice.value)
     end)
     return
   end

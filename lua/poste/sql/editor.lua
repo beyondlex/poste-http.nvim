@@ -393,16 +393,26 @@ function M.count_pending_changes(es)
   }
 end
 
---- Format pending changes text for winbar, e.g. "[+1 ~2 -1]".
+--- Format pending changes text for winbar, e.g. "[+1 ~2 -1]"
+--- with per-segment highlight colors.
 --- @param es table edit_state
---- @return string|nil
+--- @return string|nil  nil when clean
 function M.pending_changes_text(es)
   local counts = M.count_pending_changes(es)
   if counts.modified == 0 and counts.deleted == 0 and counts.added == 0 then
     return nil
   end
-  return string.format("[+%d ~%d -%d]",
-    counts.added, counts.modified, counts.deleted)
+  local parts = {}
+  if counts.added > 0 then
+    table.insert(parts, "%#PosteWinbarAdded#+" .. counts.added .. "%#PosteSqlMeta#")
+  end
+  if counts.modified > 0 then
+    table.insert(parts, "%#PosteWinbarModified#~" .. counts.modified .. "%#PosteSqlMeta#")
+  end
+  if counts.deleted > 0 then
+    table.insert(parts, "%#PosteWinbarDeleted#-" .. counts.deleted .. "%#PosteSqlMeta#")
+  end
+  return "[" .. table.concat(parts, " ") .. "]"
 end
 
 --- Reset edit state to clean.
@@ -827,12 +837,7 @@ local function apply_cell_edit(row_idx, col_idx, new_val)
 
   -- Update winbar
   if tab.edit_state.dirty then
-    local pending = M.pending_changes_text(tab.edit_state)
-    local meta = tab.meta
-    local winbar_base = require("poste.sql.buffer_nav").build_status_winbar(meta)
-    if pending and winbar_base then
-      winbar_base = winbar_base .. " " .. pending
-    end
+    local winbar_base = require("poste.sql.buffer_nav").build_status_winbar(tab.meta)
     if get_dataset().dataset_window and vim.api.nvim_win_is_valid(get_dataset().dataset_window) then
       pcall(vim.api.nvim_set_option_value, "winbar", winbar_base or "", { win = get_dataset().dataset_window })
     end
@@ -1053,12 +1058,7 @@ function M.delete_row()
   end
 
   -- Update winbar
-  local pending = M.pending_changes_text(es)
-  local meta = tab.meta
-  local winbar_base = require("poste.sql.buffer_nav").build_status_winbar(meta)
-  if pending and winbar_base then
-    winbar_base = winbar_base .. " " .. pending
-  end
+  local winbar_base = require("poste.sql.buffer_nav").build_status_winbar(tab.meta)
   if get_dataset().dataset_window and vim.api.nvim_win_is_valid(get_dataset().dataset_window) then
     pcall(vim.api.nvim_set_option_value, "winbar", winbar_base or "", { win = get_dataset().dataset_window })
   end
@@ -1123,12 +1123,7 @@ function M.insert_row()
   end
 
   -- Update winbar
-  local pending = M.pending_changes_text(es)
-  local meta = tab.meta
-  local winbar_base = require("poste.sql.buffer_nav").build_status_winbar(meta)
-  if pending and winbar_base then
-    winbar_base = winbar_base .. " " .. pending
-  end
+  local winbar_base = require("poste.sql.buffer_nav").build_status_winbar(tab.meta)
   if get_dataset().dataset_window and vim.api.nvim_win_is_valid(get_dataset().dataset_window) then
     pcall(vim.api.nvim_set_option_value, "winbar", winbar_base or "", { win = get_dataset().dataset_window })
   end

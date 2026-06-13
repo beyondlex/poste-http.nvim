@@ -51,6 +51,11 @@ function M.setup()
     bg = dark and 0x001e00 or 0xc6efc6,
   })
 
+  -- Winbar pending status: fg-only
+  vim.api.nvim_set_hl(0, "PosteWinbarAdded",    { fg = dark and 0x4ec94e or 0x2d8a2d })
+  vim.api.nvim_set_hl(0, "PosteWinbarModified",  { fg = dark and 0xd7d700 or 0x9a7d00 })
+  vim.api.nvim_set_hl(0, "PosteWinbarDeleted",   { fg = dark and 0xf07070 or 0xc04040 })
+
   -- Cell text: ensure readable fg for data cells
   vim.api.nvim_set_hl(0, "PosteSqlCellText", {
     fg = dark and 0xd4d4d4 or 0x333333,
@@ -165,6 +170,7 @@ function M.setup()
     "PosteSearchMatch", "PosteSearchCurrent",
     "PosteFilterActive", "PosteSearchActive",
     "PosteInsertHint", "PosteSqlError",
+    "PosteWinbarAdded", "PosteWinbarModified", "PosteWinbarDeleted",
   })
 end
 

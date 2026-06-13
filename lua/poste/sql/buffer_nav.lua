@@ -700,11 +700,17 @@ local function build_status_winbar(meta)
   end
 
   local right = ""
+  local tab = D.T()
+  local pending = tab and tab.edit_state and tab.edit_state.dirty
+    and require("poste.sql.editor").pending_changes_text(tab.edit_state)
+  if pending then
+    right = right .. pending .. "  "
+  end
   if #D.tabs > 1 then
     local label = meta.table_name or ("result " .. D.active_tab_idx)
-    right = string.format("[%d/%d: %s] ", D.active_tab_idx, #D.tabs, label)
+    right = right .. string.format("[%d/%d: %s] ", D.active_tab_idx, #D.tabs, label)
   elseif meta.table_name then
-    right = string.format("[%s] ", meta.table_name)
+    right = right .. string.format("[%s] ", meta.table_name)
   end
   right = right .. (format_conn_short(meta.connection) or "")
 

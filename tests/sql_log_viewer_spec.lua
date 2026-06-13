@@ -140,3 +140,85 @@ describe("log viewer _get_entry_at_line", function()
     assert.equals(1, log._get_entry_at_line(6))
   end)
 end)
+
+describe("log viewer _clean_sql", function()
+  it("returns empty string for nil", function()
+    assert.equals("", log._clean_sql(nil))
+  end)
+
+  it("keeps plain SQL unchanged", function()
+    assert.equals("SELECT 1", log._clean_sql("SELECT 1"))
+  end)
+
+  it("strips -- @connection directive", function()
+    local result = log._clean_sql("-- @connection my-blog\nSELECT 1")
+    assert.equals("SELECT 1", result)
+  end)
+
+  it("strips -- @database directive", function()
+    local result = log._clean_sql("-- @connection my-blog\n-- @database blog\nSELECT 1")
+    assert.equals("SELECT 1", result)
+  end)
+
+  it("strips ### block markers", function()
+    local result = log._clean_sql("-- @connection c\n\n###\nSELECT 1")
+    assert.equals("SELECT 1", result)
+  end)
+
+  it("preserves multiple SQL statements", function()
+    local result = log._clean_sql("-- @connection c\nSELECT 1;\nSELECT 2")
+    assert.equals("SELECT 1;\nSELECT 2", result)
+  end)
+end)
+
+describe("log viewer _guess_table", function()
+  it("extracts from SELECT", function()
+    assert.equals("posts", log._guess_table("SELECT * FROM posts"))
+  end)
+
+  it("extracts from SELECT with schema", function()
+    assert.equals("posts", log._guess_table("SELECT id, name FROM public.posts"))
+  end)
+
+  it("extracts from UPDATE", function()
+    assert.equals("users", log._guess_table("UPDATE users SET name = 'x'"))
+  end)
+
+  it("extracts from JOIN", function()
+    assert.equals("comments", log._guess_table("SELECT * FROM posts JOIN comments ON ..."))
+  end)
+
+  it("extracts from INSERT INTO", function()
+    assert.equals("logs", log._guess_table("INSERT INTO logs (msg) VALUES ('hello')"))
+  end)
+
+  it("extracts from DELETE FROM", function()
+    assert.equals("sessions", log._guess_table("DELETE FROM sessions WHERE expires < NOW()"))
+  end)
+
+  it("returns nil for no table reference", function()
+    assert.is_nil(log._guess_table("BEGIN"))
+  end)
+
+  it("handles nil input", function()
+    assert.is_nil(log._guess_table(nil))
+  end)
+end)
+
+describe("log viewer _entry_table", function()
+  it("uses entry.table when set", function()
+    assert.equals("posts", log._entry_table({ table = "posts", sql = "SELECT 1" }))
+  end)
+
+  it("falls back to entry.table_name", function()
+    assert.equals("users", log._entry_table({ table_name = "users", sql = "SELECT 1" }))
+  end)
+
+  it("guesses from SQL when no table field", function()
+    assert.equals("posts", log._entry_table({ sql = "SELECT * FROM posts" }))
+  end)
+
+  it("returns nil when nothing matches", function()
+    assert.is_nil(log._entry_table({ sql = "BEGIN" }))
+  end)
+end)

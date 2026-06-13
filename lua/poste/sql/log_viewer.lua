@@ -60,6 +60,44 @@ local function preview_sql(sql, max_len)
 end
 M._preview_sql = preview_sql
 
+local function clean_sql(sql)
+  if not sql then return "" end
+  local lines = {}
+  for line in (sql .. "\n"):gmatch("(.-)\n") do
+    local trimmed = line:match("^%s*(.-)%s*$")
+    if trimmed and not trimmed:match("^%-%-%s*@") and trimmed ~= "###" then
+      table.insert(lines, line)
+    end
+  end
+  return table.concat(lines, "\n")
+end
+M._clean_sql = clean_sql
+
+local function guess_table(sql)
+  if not sql then return nil end
+  local patterns = {
+    "FROM%s+([%w_]+)",
+    "JOIN%s+([%w_]+)",
+    "UPDATE%s+([%w_]+)",
+    "INTO%s+([%w_]+)",
+    "DELETE%s+FROM%s+([%w_]+)",
+    "INSERT%s+INTO%s+([%w_]+)",
+  }
+  for _, pat in ipairs(patterns) do
+    local t = sql:match(pat)
+    if t then return t end
+  end
+  return nil
+end
+M._guess_table = guess_table
+
+local function entry_table(entry)
+  if entry.table and entry.table ~= "" then return entry.table end
+  if entry.table_name and entry.table_name ~= "" then return entry.table_name end
+  return guess_table(entry.sql)
+end
+M._entry_table = entry_table
+
 local function count_detail_lines(entry)
   local n = 1
   if entry.connection or entry.database or entry.source then
@@ -69,9 +107,10 @@ local function count_detail_lines(entry)
     n = n + 1
   end
   local sql_lines = 1
-  if entry.sql and entry.sql ~= "" then
+  local display_sql = clean_sql(entry.sql)
+  if display_sql and display_sql ~= "" then
     local lines = {}
-    for _ in (entry.sql .. "\n"):gmatch("(.-)\n") do
+    for _ in (display_sql .. "\n"):gmatch("(.-)\n") do
       table.insert(lines, _)
     end
     sql_lines = #lines
@@ -160,10 +199,12 @@ local function build_lines()
     local entry = entries[idx]
     local icon = entry.status == "error" and "✗" or "✓"
     local time = format_time(entry.ts)
-    local tbl = entry.table or entry.table_name or "?"
+    local tbl = entry_table(entry) or "?"
     local ms = tostring(entry.elapsed_ms or 0)
-    local sql = preview_sql(entry.sql, 70)
-    local summary = string.format("  %s  %s  [%s]  %sms  %s", icon, time, tbl, ms, sql)
+    local display_sql = clean_sql(entry.sql)
+    local sql = preview_sql(display_sql, 70)
+    local src_tag = entry.source == "dataset_commit" and "commit" or "exec"
+    local summary = string.format("  %s  %s  [%s]  %sms  %-5s %s", icon, time, tbl, ms, src_tag, sql)
     table.insert(lines, summary)
     line_idx = line_idx + 1
     if expanded[idx] then
@@ -181,8 +222,9 @@ local function build_lines()
       end
       table.insert(lines, "  │  SQL:")
       line_idx = line_idx + 1
-      if entry.sql and entry.sql ~= "" then
-        for sql_line in (entry.sql .. "\n"):gmatch("(.-)\n") do
+      local display_sql = clean_sql(entry.sql)
+      if display_sql and display_sql ~= "" then
+        for sql_line in (display_sql .. "\n"):gmatch("(.-)\n") do
           table.insert(lines, "  │    " .. sql_line)
           line_idx = line_idx + 1
         end

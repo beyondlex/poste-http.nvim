@@ -48,7 +48,7 @@ function M.setup()
 
   -- Added rows: green background (override, not link to DiffAdd)
   vim.api.nvim_set_hl(0, "PosteSqlAdded", {
-    bg = dark and 0x1b3a2b or 0xd3f0d3,
+    bg = dark and 0x2d6a2d or 0xc6efc6,
   })
 
   -- Cell text: ensure readable fg for data cells

@@ -48,6 +48,7 @@ function M.setup()
 
   -- Added rows: green background (override, not link to DiffAdd)
   vim.api.nvim_set_hl(0, "PosteSqlAdded", {
+    fg = dark and 0xd4d4d4 or 0x333333,
     bg = dark and 0x2d6a2d or 0xc6efc6,
   })
 
@@ -426,6 +427,7 @@ function M.apply_edit_highlights(buf, tab)
         vim.api.nvim_buf_set_extmark(buf, ns_edit, line_idx - 1, 0, {
           end_row = line_idx - 1,
           hl_group = "PosteSqlAdded",
+          hl_mode = "replace",
           priority = 300,
         })
       end

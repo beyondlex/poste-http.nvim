@@ -648,8 +648,8 @@ function M.is_data_row(tab, row_idx)
   if not tab or not tab.meta then return false end
   local meta = tab.meta
   if meta.type ~= "resultset" then return false end
-  if not meta.data_start_line or not meta.data_end_line then return false end
-  return row_idx >= meta.data_start_line and row_idx <= meta.data_end_line
+  if not meta.row_count then return false end
+  return row_idx >= 1 and row_idx <= meta.row_count
 end
 
 ---------------------------------------------------------------------------

@@ -1,6 +1,8 @@
 --- Dataset edit commit — DML generation, commit, rollback, SQL logging.
 
 local editor = require("poste.sql.editor")
+local sql_format = require("poste.sql.format")
+local sql_buffer = require("poste.sql.buffer")
 
 local M = {}
 
@@ -355,6 +357,128 @@ function M.set_log_path(path)
   SQL_LOG_PATH = path
 end
 
+--- Re-execute original SELECT and refresh the dataset in-place.
+--- Bypasses run_sql_request() to avoid cursor-position-dependent buffer parsing.
+--- @param tab table Tab state with original_sql, src_file, src_buf
+local function refresh_dataset(tab)
+  local D = require("poste.sql.dataset")
+  local state = require("poste.state")
+  local statement = require("poste.sql.statement")
+
+  local sql = tab.original_sql
+  if not sql or sql == "" then
+    vim.notify("No original SQL to re-execute", vim.log.levels.WARN)
+    return
+  end
+
+  local binary = state.find_poste_binary()
+  if not binary then
+    vim.notify("Poste binary not found", vim.log.levels.ERROR)
+    return
+  end
+
+  local conn = (tab.layout and tab.layout._conn_name) or state.sql.context.connection or ""
+  local db = (tab.layout and tab.layout.database) or state.sql.context.database or ""
+
+  -- Strip directives and ### markers from SQL, since original_sql
+  -- may contain the full buffer content (-- @connection, ###, etc.)
+  local sql_lines = vim.split(sql, "\n", { plain = true })
+  local clean_sql_lines = {}
+  for _, line in ipairs(sql_lines) do
+    local trimmed = line:match("^%s*(.*)$")
+    if trimmed ~= "" and not trimmed:match("^%-%-") and not trimmed:match("^###") then
+      table.insert(clean_sql_lines, line)
+    end
+  end
+
+  local content_lines = {}
+  if conn and conn ~= "" then
+    table.insert(content_lines, "-- @connection " .. conn)
+  end
+  if db and db ~= "" then
+    table.insert(content_lines, "-- @database " .. db)
+  end
+  table.insert(content_lines, "")
+  table.insert(content_lines, "### refresh")
+  local sql_start_line = #content_lines + 1
+  for _, line in ipairs(clean_sql_lines) do
+    table.insert(content_lines, line)
+  end
+  table.insert(content_lines, "")
+
+  -- Write temp file alongside source for connections.json discovery
+  local src_dir = tab.src_file and vim.fn.fnamemodify(tab.src_file, ":h") or ""
+  local tmpfile
+  if src_dir ~= "" and vim.fn.isdirectory(src_dir) == 1 then
+    tmpfile = src_dir .. "/.poste_refresh_" .. vim.fn.strftime("%Y%m%d%H%M%S") .. ".sql"
+  else
+    tmpfile = vim.fn.tempname() .. ".sql"
+  end
+  vim.fn.writefile(content_lines, tmpfile)
+
+  local cmd_parts = { binary, "run", tmpfile, "--line", tostring(sql_start_line), "--env", state.current_env, "--json" }
+  if db and db ~= "" then
+    local db_clean = vim.split(db, "/")
+    table.insert(cmd_parts, "--database")
+    table.insert(cmd_parts, db_clean[#db_clean])
+  end
+
+  -- Clear PK cache so the new layout gets primary_key info re-introspected
+  editor.clear_pk_cache()
+
+  local stderr_buf = {}
+
+  local job_id = vim.fn.jobstart(cmd_parts, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      if not data or #data == 0 then return end
+      local output = table.concat(data, "\n")
+      vim.schedule(function()
+        local ok, parsed = pcall(vim.json.decode, output)
+        if not ok or not parsed then
+          local stderr_text = table.concat(stderr_buf, "\n")
+          vim.notify("Refresh failed: JSON parse error\n" .. stderr_text:sub(1, 300), vim.log.levels.ERROR)
+          return
+        end
+
+        local lines, meta, layout = sql_format.format_dataset(parsed)
+        if layout then
+          local table_name = statement.extract_table_name(sql)
+          if table_name then meta.table_name = table_name end
+        end
+
+        sql_buffer.render_dataset(lines, meta, {
+          exec_seq = 0,
+          layout = layout,
+          original_sql = tab.original_sql,
+          src_file = tab.src_file,
+          src_buf = tab.src_buf,
+        })
+      end)
+    end,
+    on_stderr = function(_, data)
+      if not data then return end
+      for _, l in ipairs(data) do
+        if l ~= "" then table.insert(stderr_buf, l) end
+      end
+    end,
+    on_exit = function(_, code)
+      pcall(vim.fn.delete, tmpfile)
+      if code ~= 0 then
+        vim.schedule(function()
+          local stderr_text = table.concat(stderr_buf, "\n")
+          vim.notify("Refresh failed (exit " .. code .. ")\n" .. stderr_text:sub(1, 300), vim.log.levels.ERROR)
+        end)
+      end
+    end,
+  })
+
+  if job_id <= 0 then
+    vim.notify("Failed to start refresh job", vim.log.levels.ERROR)
+  end
+end
+
 ---------------------------------------------------------------------------
 -- Commit / Rollback execution
 ---------------------------------------------------------------------------
@@ -442,26 +566,10 @@ function M.commit_edits()
             elapsed_ms = elapsed,
             edit_summary = summary,
           })
-          -- Clear edit state and refresh by re-executing from the source buffer
+          -- Clear edit state and refresh dataset in-place
           require("poste.sql.editor").reset_edit_state(tab.edit_state)
           tab.edit_state = nil
-          vim.schedule(function()
-            local dataset = require("poste.sql.dataset")
-            local src_buf = tab.src_buf
-            if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
-              -- Switch the dataset window to show the source buffer temporarily
-              if dataset.dataset_window and vim.api.nvim_win_is_valid(dataset.dataset_window) then
-                vim.api.nvim_win_set_buf(dataset.dataset_window, src_buf)
-              end
-              -- Ensure we're in the right window
-              if dataset.dataset_window and vim.api.nvim_win_is_valid(dataset.dataset_window) then
-                vim.api.nvim_set_current_win(dataset.dataset_window)
-              end
-              require("poste.sql.init").run_sql_request()
-            else
-              require("poste.sql.init").run_sql_request()
-            end
-          end)
+          refresh_dataset(tab)
         else
           vim.notify("Commit failed (exit code " .. code .. ")", vim.log.levels.ERROR)
           M.write_log({

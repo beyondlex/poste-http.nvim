@@ -42,20 +42,14 @@ function M.setup()
     end
   end
 
-  -- Added rows: explicit green background (not linked to DiffAdd, which varies by colorscheme)
-  local existing_added = vim.api.nvim_get_hl(0, { name = "PosteSqlAdded" })
-  if vim.tbl_isempty(existing_added) then
-    local normal = resolve_hl("Normal")
-    local dark = is_dark(normal.bg)
-    vim.api.nvim_set_hl(0, "PosteSqlAdded", {
-      bg = dark and 0x1b3a2b or 0xd3f0d3,
-    })
-  end
-
-  -- Theme-aware colors for dataset buffer text.
   -- Detect dark/light from Normal background luminance.
   local normal = resolve_hl("Normal")
   local dark = is_dark(normal.bg)
+
+  -- Added rows: green background (override, not link to DiffAdd)
+  vim.api.nvim_set_hl(0, "PosteSqlAdded", {
+    bg = dark and 0x1b3a2b or 0xd3f0d3,
+  })
 
   -- Cell text: ensure readable fg for data cells
   vim.api.nvim_set_hl(0, "PosteSqlCellText", {
@@ -432,7 +426,6 @@ function M.apply_edit_highlights(buf, tab)
         vim.api.nvim_buf_set_extmark(buf, ns_edit, line_idx - 1, 0, {
           end_row = line_idx - 1,
           hl_group = "PosteSqlAdded",
-          hl_mode = "combine",
           priority = 300,
         })
       end

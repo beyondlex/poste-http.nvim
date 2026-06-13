@@ -239,9 +239,15 @@ function M.generate_dml(es, tab, dialect)
     end
   end
 
-  -- INSERT statements
+  -- INSERT statements: use current layout values (reflects edits after insert)
   for _, added in ipairs(es.added_rows) do
-    local sql = M.generate_insert(schema, table_name, columns, added.data, dialect)
+    local row_values
+    if added.row_idx and tab.layout.rows and tab.layout.rows[added.row_idx] then
+      row_values = tab.layout.rows[added.row_idx]
+    else
+      row_values = added.data
+    end
+    local sql = M.generate_insert(schema, table_name, columns, row_values, dialect)
     table.insert(stmts, { sql = sql, type = "insert" })
   end
 

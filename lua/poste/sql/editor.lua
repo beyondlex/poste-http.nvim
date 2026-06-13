@@ -670,12 +670,24 @@ local function apply_cell_edit(row_idx, col_idx, new_val)
   local es = ensure_edit_state(tab)
   local row_key = tostring(row_idx) .. ":" .. tostring(col_idx)
 
-  -- Preserve original value from first edit, not current cell value
-  local existing = es.modified_cells[row_key]
-  local old_val = existing and existing.old_val or tab.layout.rows[row_idx][col_idx]
+  -- Check if this row is an added row — update data directly, no modified_cell entry
+  local is_added = false
+  for _, added in ipairs(es.added_rows) do
+    if added.row_idx == row_idx then
+      is_added = true
+      break
+    end
+  end
 
-  M.track_cell_edit(es, row_key, col_idx, old_val, new_val)
-  tab.layout.rows[row_idx][col_idx] = new_val
+  if is_added then
+    tab.layout.rows[row_idx][col_idx] = new_val
+    es.dirty = #es.added_rows > 0
+  else
+    local existing = es.modified_cells[row_key]
+    local old_val = existing and existing.old_val or tab.layout.rows[row_idx][col_idx]
+    M.track_cell_edit(es, row_key, col_idx, old_val, new_val)
+    tab.layout.rows[row_idx][col_idx] = new_val
+  end
 
   -- Also update rows_source so refresh_page shows the edit
   if tab.rows_source and tab.rows_source[row_idx] then

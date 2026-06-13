@@ -178,24 +178,34 @@ local function apply_detail_highlights(line_idx, entry)
   end
 end
 
+local function update_winbar()
+  if not win or not vim.api.nvim_win_is_valid(win) then return end
+  local total = #entries
+  local count = 0
+  for _ in ipairs(entries) do
+    if filter_matches(entries[_]) then count = count + 1 end
+  end
+  local parts = { "%#PosteSqlMeta# SQL Log" }
+  if filter_text ~= "" then
+    table.insert(parts, string.format(" %%#PosteLogFilter#filter: %s%%#PosteSqlMeta#", filter_text))
+  end
+  table.insert(parts, string.format("  [%d/%d]", count, total))
+  if count < total then
+    table.insert(parts, "  %#PosteSqlMetaDim#filtered%#PosteSqlMeta#")
+  end
+  table.insert(parts, "  %#PosteSqlMetaDim#│  q=close  f=filter  F=clear  R=refresh  ↵=expand%#PosteSqlMeta#")
+  pcall(vim.api.nvim_set_option_value, "winbar", table.concat(parts), { win = win })
+end
+
 local function build_lines()
   local lines = {}
-  local count = 0
   local filtered = {}
   for i, entry in ipairs(entries) do
     if filter_matches(entry) then
       table.insert(filtered, i)
-      count = count + 1
     end
   end
-  local header = "  SQL Log"
-  if filter_text ~= "" then
-    header = header .. "  filter: " .. filter_text
-  end
-  header = header .. string.format("  [%d/%d]", count, #entries)
-  table.insert(lines, header)
-  table.insert(lines, string.rep("─", 80))
-  local line_idx = 3
+  local line_idx = 1
   for _, idx in ipairs(filtered) do
     local entry = entries[idx]
     local icon = entry.status == "error" and "✗" or "✓"
@@ -252,7 +262,7 @@ local function render()
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.api.nvim_buf_set_option(buf, "modifiable", false)
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-  local line_idx = 3
+  local line_idx = 1
   for _, idx in ipairs(filtered) do
     local entry = entries[idx]
     apply_highlights(line_idx, entry, false)
@@ -266,6 +276,7 @@ local function render()
     end
   end
   vim.api.nvim_buf_set_option(buf, "modifiable", false)
+  update_winbar()
 end
 
 function M.get_entry_at_cursor()
@@ -282,7 +293,7 @@ function M._get_entry_at_line(line_idx)
       table.insert(filtered, i)
     end
   end
-  local current = 3
+  local current = 1
   for _, idx in ipairs(filtered) do
     if current == line_idx then return idx end
     current = current + 1
@@ -378,8 +389,6 @@ function M.toggle()
     col = math.floor(vim.o.columns * 0.07),
     style = "minimal",
     border = "rounded",
-    title = " SQL Log ",
-    title_pos = "center",
   })
   vim.api.nvim_win_set_option(win, "cursorline", true)
   render()

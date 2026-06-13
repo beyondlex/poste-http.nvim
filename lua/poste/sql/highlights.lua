@@ -163,6 +163,7 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteLogSuccess", { fg = dark and 0x4ec94e or 0x2d8a2d })
   vim.api.nvim_set_hl(0, "PosteLogError",   { fg = dark and 0xf07070 or 0xc04040 })
   vim.api.nvim_set_hl(0, "PosteLogSQL",     { fg = dark and 0x9cdcfe or 0x0a6db5 })
+  vim.api.nvim_set_hl(0, "PosteLogFilter",  { fg = dark and 0xd7d700 or 0x9a7d00, bold = true })
 
   state.apply_highlight_overrides({
     "PosteSqlModified", "PosteSqlDeleted", "PosteSqlAdded",
@@ -175,7 +176,7 @@ function M.setup()
     "PosteFilterActive", "PosteSearchActive",
     "PosteInsertHint", "PosteSqlError",
     "PosteWinbarAdded", "PosteWinbarModified", "PosteWinbarDeleted",
-    "PosteLogSuccess", "PosteLogError", "PosteLogSQL",
+    "PosteLogSuccess", "PosteLogError", "PosteLogSQL", "PosteLogFilter",
   })
 end
 

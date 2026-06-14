@@ -386,7 +386,6 @@ function P.browse_path(format_value)
   local lines = { "> " .. initial_path, string.rep("─", width - 2) }
   for i = 3, height do lines[i] = "" end
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
 
   local items = {}
   local selected = 0
@@ -488,13 +487,11 @@ function P.browse_path(format_value)
     local cursor_line = cur[1]
     local cursor_col = cur[2]
 
-    vim.bo[buf].modifiable = true
     for i = list_offset, height - 1 do
       local idx = i - list_offset + 1
       local text = display[idx] or ""
       vim.api.nvim_buf_set_lines(buf, i - 1, i, false, { text })
     end
-    vim.bo[buf].modifiable = false
 
     vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
     if selected > 0 and selected <= max_list_items then
@@ -523,9 +520,7 @@ function P.browse_path(format_value)
     local parent, _ = resolve_prefix(line1:gsub("^> ", ""))
     local new_path = parent .. entry.name .. "/"
     local short = new_path:gsub("^" .. vim.fn.expand("~"), "~")
-    vim.bo[buf].modifiable = true
     vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "> " .. short })
-    vim.bo[buf].modifiable = false
     vim.api.nvim_win_set_cursor(win, { 1, #("> " .. short) })
     update_all()
   end
@@ -578,17 +573,13 @@ function P.browse_path(format_value)
     if vim.fn.isdirectory(parent) ~= 1 then return end
     local short = parent == "/" and "/" or parent .. "/"
     short = short:gsub("^" .. vim.fn.expand("~"), "~")
-    vim.bo[buf].modifiable = true
     vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "> " .. short })
     vim.api.nvim_win_set_cursor(win, { 1, #("> " .. short) })
-    vim.bo[buf].modifiable = false
     update_all()
   end, opts)
   vim.keymap.set("i", "<C-u>", function()
-    vim.bo[buf].modifiable = true
     vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "> ~/" })
     vim.api.nvim_win_set_cursor(win, { 1, 3 })
-    vim.bo[buf].modifiable = false
     update_all()
   end, opts)
   vim.keymap.set("i", "<Up>", function()

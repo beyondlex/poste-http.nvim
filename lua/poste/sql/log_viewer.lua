@@ -223,27 +223,32 @@ local function apply_detail_highlights(line_idx, entry, detail_idx)
     vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
       end_col = line_len, hl_group = "PosteLogDetailBg", priority = 80, hl_mode = "combine",
     })
+    -- Vertical bar at col 0 + indent
+    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
+      virt_text = {{"│", "PosteSqlMetaDim"}}, virt_text_pos = "overlay",
+      priority = 90,
+    })
   end
   if line_len == 0 then return end
 
   -- Determine line type by position
   local pos = detail_idx
   if pos <= n_meta then
-    -- Meta line: green bg only
+    -- Meta line: bar + green bg only
   elseif pos <= n_meta + n_edit then
-    -- Edit line: green bg only
+    -- Edit line: bar + green bg only
   elseif pos <= n_meta + n_edit + n_sql then
-    -- SQL line: > marker
-    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
+    -- SQL line: > marker at col 4
+    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 4, {
       virt_text = {{"> ", "PosteLogSQL"}}, virt_text_pos = "overlay",
       priority = 170,
     })
   else
-    -- Error line: red fg + < marker
+    -- Error line: red fg + < marker at col 4
     vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
       end_col = line_len, hl_group = "PosteLogError", priority = 160,
     })
-    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
+    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 4, {
       virt_text = {{"< ", "PosteLogError"}}, virt_text_pos = "overlay",
       priority = 170,
     })
@@ -300,7 +305,7 @@ local function build_lines()
           db = config.database
         end
       end
-      table.insert(lines, "    " .. table.concat({
+      table.insert(lines, "      " .. table.concat({
         "Connection: " .. (entry.connection or "?"),
         "Database: " .. (db ~= "" and db or "?"),
         "Source: " .. (entry.source or "?"),
@@ -308,20 +313,20 @@ local function build_lines()
       line_idx = line_idx + 1
       if entry.edit_summary then
         local s = entry.edit_summary
-        table.insert(lines, string.format("    Edit: +%d updates, %d inserts, %d deletes",
+        table.insert(lines, string.format("      Edit: +%d updates, %d inserts, %d deletes",
           s.updates or 0, s.inserts or 0, s.deletes or 0))
         line_idx = line_idx + 1
       end
       local display_sql = clean_sql(entry.sql)
       if display_sql and display_sql ~= "" then
         for sql_line in (display_sql .. "\n"):gmatch("(.-)\n") do
-          table.insert(lines, "  " .. sql_line)
+          table.insert(lines, "      " .. sql_line)
           line_idx = line_idx + 1
         end
       end
       if entry.error and entry.error ~= "" then
         for err_line in (entry.error .. "\n"):gmatch("(.-)\n") do
-          table.insert(lines, "  " .. err_line)
+          table.insert(lines, "      " .. err_line)
           line_idx = line_idx + 1
         end
       end

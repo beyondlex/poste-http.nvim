@@ -10,9 +10,6 @@ local patterns = {
   { '"[^"]-"', "sqlString" },
   { '`[^`]-`', "sqlString" },
   { "%f[%d]%d+%.?%d*%f[^%d%w]", "sqlNumber" },
-  { "%f[%w_]NULL%f[^%w_]", "sqlSpecial" },
-  { "%f[%w_]TRUE%f[^%w_]", "sqlSpecial" },
-  { "%f[%w_]FALSE%f[^%w_]", "sqlSpecial" },
 }
 
 local kw_map = {
@@ -20,6 +17,7 @@ local kw_map = {
   sqlKeyword = "CAST COALESCE IF IS NULL",
   sqlType = "INT INTEGER BIGINT SMALLINT TINYINT BOOLEAN BOOL FLOAT DOUBLE DECIMAL NUMERIC REAL VARCHAR CHAR TEXT BLOB CLOB ENUM SET JSON DATE TIME DATETIME TIMESTAMP YEAR",
   sqlFunction = "COUNT SUM AVG MIN MAX NULLIF GREATEST LEAST NOW CURDATE CURTIME DATE_FORMAT CONCAT SUBSTRING UPPER LOWER LENGTH TRIM ROUND ABS COALESCE",
+  sqlSpecial = "NULL TRUE FALSE",
 }
 
 --- Highlight SQL on a single buffer line using Vim SQL syntax groups.
@@ -40,14 +38,15 @@ function M.highlight_line(buf, ns, line_idx, text, col_offset)
       pos = e + 1
     end
   end
+  local upper = text:upper()
   for hl, kw_text in pairs(kw_map) do
     for kw in kw_text:gmatch("%S+") do
-      local s, e = text:find("%f[%w_]" .. kw .. "%f[^%w_]", 1)
+      local s, e = upper:find("%f[%w_]" .. kw .. "%f[^%w_]", 1)
       while s do
         vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, col_offset + s - 1, {
           end_col = col_offset + e, hl_group = hl, priority = 155,
         })
-        s, e = text:find("%f[%w_]" .. kw .. "%f[^%w_]", e + 1)
+        s, e = upper:find("%f[%w_]" .. kw .. "%f[^%w_]", e + 1)
       end
     end
   end

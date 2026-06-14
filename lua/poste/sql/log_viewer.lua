@@ -221,7 +221,7 @@ local function apply_detail_highlights(line_idx, entry, detail_idx)
   -- Green bg for all non-blank detail lines
   if line_len > 0 then
     vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
-      end_col = line_len, hl_group = "PosteLogDetail", priority = 80, hl_mode = "combine",
+      end_col = line_len, hl_group = "PosteLogDetailBg", priority = 80, hl_mode = "combine",
     })
   end
   if line_len == 0 then return end
@@ -233,17 +233,17 @@ local function apply_detail_highlights(line_idx, entry, detail_idx)
   elseif pos <= n_meta + n_edit then
     -- Edit line: green bg only
   elseif pos <= n_meta + n_edit + n_sql then
-    -- SQL line: > marker at col 2 (replaces 2 of the 4-space prefix)
-    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 2, {
+    -- SQL line: > marker
+    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
       virt_text = {{"> ", "PosteLogSQL"}}, virt_text_pos = "overlay",
       priority = 170,
     })
   else
-    -- Error line: red fg + < marker at col 2
+    -- Error line: red fg + < marker
     vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
       end_col = line_len, hl_group = "PosteLogError", priority = 160,
     })
-    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 2, {
+    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
       virt_text = {{"< ", "PosteLogError"}}, virt_text_pos = "overlay",
       priority = 170,
     })
@@ -315,13 +315,13 @@ local function build_lines()
       local display_sql = clean_sql(entry.sql)
       if display_sql and display_sql ~= "" then
         for sql_line in (display_sql .. "\n"):gmatch("(.-)\n") do
-          table.insert(lines, "    " .. sql_line)
+          table.insert(lines, "  " .. sql_line)
           line_idx = line_idx + 1
         end
       end
       if entry.error and entry.error ~= "" then
         for err_line in (entry.error .. "\n"):gmatch("(.-)\n") do
-          table.insert(lines, "    " .. err_line)
+          table.insert(lines, "  " .. err_line)
           line_idx = line_idx + 1
         end
       end
@@ -335,16 +335,6 @@ end
 local function render()
   if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
   local lines, filtered = build_lines()
-  -- Pad all lines to window width so bg highlights cover full rectangle
-  local win_width = 80
-  if win and vim.api.nvim_win_is_valid(win) then
-    win_width = vim.api.nvim_win_get_width(win)
-  end
-  for i, line in ipairs(lines) do
-    if #line < win_width then
-      lines[i] = line .. string.rep(" ", win_width - #line)
-    end
-  end
   vim.api.nvim_buf_set_option(buf, "modifiable", true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.api.nvim_buf_set_option(buf, "modifiable", false)

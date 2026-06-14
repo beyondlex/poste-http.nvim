@@ -416,14 +416,14 @@ function P.browse_path(format_value)
   end
 
   local function resolve_prefix(text)
-    local t = expand_path(text)
-    local last_slash = t:match("^(.*/)([^/]*)/?$")
-    if last_slash then
-      local parent = last_slash
-      local last = t:sub(#parent + 1):gsub("/$", "")
-      return parent, last
+    local t = text:gsub("^~", vim.fn.expand("~"))
+    local slash_pos = t:match(".*()/")
+    if slash_pos then
+      local parent = t:sub(1, slash_pos - 1) .. "/"
+      local prefix = t:sub(slash_pos + 1)
+      return parent, prefix
     end
-    return "/", text
+    return "/", t
   end
 
   local function fuzzy_score(name, query)

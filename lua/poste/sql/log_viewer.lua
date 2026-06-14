@@ -293,7 +293,7 @@ local function update_winbar()
   if count < total then
     table.insert(parts, "  %#PosteSqlMetaDim#filtered%#PosteSqlMeta#")
   end
-  table.insert(parts, "  %#PosteSqlMetaDim#│  q=close  f=filter  F=clear  R=refresh  ↵=expand%#PosteSqlMeta#")
+  table.insert(parts, "  %#PosteSqlMetaDim#│  q=close  f=filter  F=clear  C=clear-all  ↵=expand%#PosteSqlMeta#")
   pcall(vim.api.nvim_set_option_value, "winbar", table.concat(parts), { win = win })
 end
 
@@ -369,10 +369,22 @@ end
 local function render()
   if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
   local lines, filtered = build_lines()
+  if #lines == 0 then
+    lines = { "  <empty>" }
+  end
   vim.api.nvim_buf_set_option(buf, "modifiable", true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.api.nvim_buf_set_option(buf, "modifiable", false)
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+  if #filtered == 0 then
+    local line_len = #(lines[1] or "")
+    if line_len > 0 then
+      vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
+        end_col = line_len, hl_group = "PosteSqlMetaDim", priority = 150,
+      })
+    end
+    return
+  end
   local line_idx = 1
   for _, idx in ipairs(filtered) do
     local entry = entries[idx]
@@ -479,6 +491,24 @@ function M.close()
   win = nil
 end
 
+function M.clear_logs()
+  local path = get_log_path()
+  local dir = vim.fn.fnamemodify(path, ":h")
+  if vim.fn.isdirectory(dir) == 0 then
+    vim.fn.mkdir(dir, "p")
+  end
+  local f = io.open(path, "w")
+  if f then
+    f:write("")
+    f:close()
+  end
+  entries = {}
+  expanded = {}
+  filter_text = ""
+  render()
+  vim.notify("SQL log cleared", vim.log.levels.INFO)
+end
+
 function M.toggle()
   if buf and vim.api.nvim_buf_is_valid(buf) then
     M.close()
@@ -514,7 +544,7 @@ function M.toggle()
   vim.keymap.set("n", "F", M.clear_filter, opts)
   vim.keymap.set("n", "r", M.re_run, opts)
   vim.keymap.set("n", "y", M.yank_sql, opts)
-  vim.keymap.set("n", "R", M.refresh, opts)
+  vim.keymap.set("n", "C", M.clear_logs, opts)
 end
 
 return M

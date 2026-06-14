@@ -197,40 +197,47 @@ local function apply_highlights(line_idx, entry, _)
   })
 end
 
---- Apply treesitter-based SQL syntax highlighting to a buffer range.
---- @param buf number Buffer handle
---- @param ns number Namespace
---- @param line_idx number Buffer line (1-indexed)
---- @param sql_text string Full SQL text
---- @param sql_line_idx number 0-based line index within sql_text
---- @param offset number Column offset in buffer
-local function highlight_sql(buf, ns, line_idx, sql_text, sql_line_idx, offset)
-  local hl_marks = {}
-  local ok, _ = pcall(function()
-    local langtree = vim.treesitter.languagetree.new(sql_text, "sql")
-    local tree = langtree:parse()
-    local root = tree[1]:root()
-    local query = vim.treesitter.query.get("sql", "highlights")
-    if not query then error("no query") end
-    for _, match, metadata in query:iter_matches(root, sql_text, sql_line_idx, sql_line_idx + 1) do
-      for id, node in pairs(match) do
-        local cap = query.captures[id]
-        if cap then
-          local sr, sc, er, ec = node:range()
-          if sr == sql_line_idx then
-            table.insert(hl_marks, {
-              start = sc, end_col = ec, hl = "@" .. cap,
-            })
-          end
-        end
-      end
-    end
-  end)
-  if ok then
-    for _, m in ipairs(hl_marks) do
-      pcall(vim.api.nvim_buf_set_extmark, buf, ns, line_idx - 1, offset + m.start, {
-        end_col = offset + m.end_col, hl_group = m.hl, priority = 155,
+--- Apply SQL syntax highlighting to a single line via Lua pattern matching.
+--- @param buf number  Buffer handle
+--- @param ns number   Namespace
+--- @param line_idx number  Buffer line (1-indexed)
+--- @param text string SQL text for this line (without buffer prefix)
+--- @param offset number  Column offset in buffer
+local function highlight_sql_line(buf, ns, line_idx, text, offset)
+  for _, p in ipairs({
+    { "%-%-[^\n]-", "@comment" },
+    { "'[^']-'", "@string" },
+    { '"[^"]-"', "@string" },
+    { '`[^`]-`', "@string" },
+    { "%f[%d]%d+%.?%d*%f[^%d%w]", "@number" },
+    { "%f[%w_]NULL%f[^%w_]", "@constant" },
+    { "%f[%w_]TRUE%f[^%w_]", "@constant" },
+    { "%f[%w_]FALSE%f[^%w_]", "@constant" },
+  }) do
+    local pos = 1
+    while pos <= #text do
+      local s, e = text:find(p[1], pos)
+      if not s then break end
+      vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, offset + s - 1, {
+        end_col = offset + e, hl_group = p[2], priority = 157,
       })
+      pos = e + 1
+    end
+  end
+  local kw_map = {
+    Keyword = "SELECT FROM WHERE INSERT INTO VALUES UPDATE SET DELETE CREATE TABLE ALTER DROP INDEX PRIMARY KEY FOREIGN REFERENCES CASCADE CONSTRAINT DEFAULT CHECK UNIQUE JOIN LEFT RIGHT INNER OUTER CROSS FULL ON AND OR NOT IN AS ORDER BY GROUP HAVING LIMIT OFFSET LIKE BETWEEN EXISTS UNION ALL DISTINCT ASC DESC CASE WHEN THEN ELSE END CAST COALESCE IF REPLACE TRUNCATE COMMIT ROLLBACK BEGIN RETURNING EXPLAIN ANALYZE WITH RECURSIVE",
+    Type = "INT INTEGER BIGINT SMALLINT TINYINT BOOLEAN BOOL FLOAT DOUBLE DECIMAL NUMERIC REAL VARCHAR CHAR TEXT BLOB CLOB ENUM SET JSON DATE TIME DATETIME TIMESTAMP YEAR",
+    Function = "COUNT SUM AVG MIN MAX NULLIF GREATEST LEAST NOW CURDATE CURTIME DATE_FORMAT CONCAT SUBSTRING UPPER LOWER LENGTH TRIM COALESCE ROUND ABS",
+  }
+  for hl, kw_text in pairs(kw_map) do
+    for kw in kw_text:gmatch("%S+") do
+      local s, e = text:find("%f[%w_]" .. kw .. "%f[^%w_]", 1)
+      while s do
+        vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, offset + s - 1, {
+          end_col = offset + e, hl_group = "@" .. hl, priority = 155,
+        })
+        s, e = text:find("%f[%w_]" .. kw .. "%f[^%w_]", e + 1)
+      end
     end
   end
 end
@@ -276,12 +283,9 @@ local function apply_detail_highlights(line_idx, entry, detail_idx)
       virt_text = {{"> ", "PosteLogSQL"}}, virt_text_pos = "overlay",
       priority = 170,
     })
-    -- Full SQL syntax highlighting via treesitter
+    -- Full SQL syntax highlighting
     if line_len > 5 then
-      local clean_text = clean_sql(entry.sql)
-      if clean_text and clean_text ~= "" then
-        highlight_sql(buf, ns, line_idx, clean_text, pos - 1, 5)
-      end
+      highlight_sql_line(buf, ns, line_idx, line:sub(6), 5)
     end
   elseif pos <= n_sql + n_err then
     -- Error line: vertical bar + red fg + < marker

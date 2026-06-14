@@ -369,6 +369,7 @@ function P.browse_path(format_value)
   end
 
   local function pick_dir(cwd)
+    local _ = P
     local items = {}
     table.insert(items, { path = cwd, display = "[.]  save here" })
     table.insert(items, { path = vim.fn.fnamemodify(cwd, ":h"), display = "[..] parent" })
@@ -414,6 +415,22 @@ function P.browse_path(format_value)
               return
             end
           end
+        end,
+        ["ctrl-g"] = function()
+          vim.schedule(function()
+            vim.ui.input({ prompt = "Go to dir: ", default = cwd, completion = "dir" }, function(path)
+              if path and path ~= "" then
+                if vim.fn.isdirectory(path) == 1 then
+                  pick_dir(path)
+                else
+                  vim.notify("Not a directory: " .. path, vim.log.levels.WARN)
+                  pick_dir(cwd)
+                end
+              else
+                pick_dir(cwd)
+              end
+            end)
+          end)
         end,
       },
     })

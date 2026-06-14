@@ -197,23 +197,42 @@ local function apply_highlights(line_idx, entry, _)
   })
 end
 
-  local sql_kw = "SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|ALTER|DROP|INDEX|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AND|OR|NOT|IN|AS|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|LIKE|BETWEEN|EXISTS|UNION|ALL|DISTINCT|CASE|WHEN|THEN|ELSE|END|NULL|IS|TRUE|FALSE|PRIMARY|KEY|FOREIGN|REFERENCES|CASCADE|CONSTRAINT|DEFAULT|CHECK|UNIQUE|ASC|DESC|CAST|COALESCE|IF|REPLACE|TRUNCATE|COMMIT|ROLLBACK|BEGIN|RETURNING"
-
---- Highlight SQL keywords in a buffer line.
---- @param line string The buffer line content
---- @return table List of { start_col, end_col } extmark calls to apply
-local function highlight_sql_keywords(line)
-  local marks = {}
-  for kw in sql_kw:gmatch("[%w_]+") do
-    local pos = 1
-    while pos <= #line do
-      local s, e = line:find("%f[%w_]" .. kw .. "%f[^%w_]", pos)
-      if not s then break end
-      table.insert(marks, { s - 1, e })
-      pos = e + 1
+--- Apply treesitter-based SQL syntax highlighting to a buffer range.
+--- @param buf number Buffer handle
+--- @param ns number Namespace
+--- @param line_idx number Buffer line (1-indexed)
+--- @param sql_text string Full SQL text
+--- @param sql_line_idx number 0-based line index within sql_text
+--- @param offset number Column offset in buffer
+local function highlight_sql(buf, ns, line_idx, sql_text, sql_line_idx, offset)
+  local hl_marks = {}
+  local ok, _ = pcall(function()
+    local langtree = vim.treesitter.languagetree.new(sql_text, "sql")
+    local tree = langtree:parse()
+    local root = tree[1]:root()
+    local query = vim.treesitter.query.get("sql", "highlights")
+    if not query then error("no query") end
+    for _, match, metadata in query:iter_matches(root, sql_text, sql_line_idx, sql_line_idx + 1) do
+      for id, node in pairs(match) do
+        local cap = query.captures[id]
+        if cap then
+          local sr, sc, er, ec = node:range()
+          if sr == sql_line_idx then
+            table.insert(hl_marks, {
+              start = sc, end_col = ec, hl = "@" .. cap,
+            })
+          end
+        end
+      end
+    end
+  end)
+  if ok then
+    for _, m in ipairs(hl_marks) do
+      pcall(vim.api.nvim_buf_set_extmark, buf, ns, line_idx - 1, offset + m.start, {
+        end_col = offset + m.end_col, hl_group = m.hl, priority = 155,
+      })
     end
   end
-  return marks
 end
 
 local function apply_detail_highlights(line_idx, entry, detail_idx)
@@ -257,13 +276,11 @@ local function apply_detail_highlights(line_idx, entry, detail_idx)
       virt_text = {{"> ", "PosteLogSQL"}}, virt_text_pos = "overlay",
       priority = 170,
     })
-    -- Syntax highlight SQL keywords
+    -- Full SQL syntax highlighting via treesitter
     if line_len > 5 then
-      local content = line:sub(6)
-      for _, m in ipairs(highlight_sql_keywords(content)) do
-        vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 5 + m[1], {
-          end_col = 5 + m[2], hl_group = "PosteLogSQLKeyword", priority = 160,
-        })
+      local clean_text = clean_sql(entry.sql)
+      if clean_text and clean_text ~= "" then
+        highlight_sql(buf, ns, line_idx, clean_text, pos - 1, 5)
       end
     end
   elseif pos <= n_sql + n_err then

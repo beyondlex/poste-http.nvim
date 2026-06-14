@@ -111,30 +111,25 @@ end
 M._entry_table = entry_table
 
 local function count_detail_lines(entry)
-  local n = 1
+  local n = 0
   if entry.connection or entry.database or entry.source then
     n = n + 1
   end
   if entry.edit_summary then
     n = n + 1
   end
-  local sql_lines = 1
   local display_sql = clean_sql(entry.sql)
   if display_sql and display_sql ~= "" then
-    local lines = {}
     for _ in (display_sql .. "\n"):gmatch("(.-)\n") do
-      table.insert(lines, _)
+      n = n + 1
     end
-    sql_lines = #lines
   end
-  n = n + sql_lines + 1
   if entry.error and entry.error ~= "" then
-    local err_lines = 0
     for _ in (entry.error .. "\n"):gmatch("(.-)\n") do
-      err_lines = err_lines + 1
+      n = n + 1
     end
-    n = n + err_lines + 1
   end
+  n = n + 1 -- trailing blank line
   return n
 end
 M._count_detail_lines = count_detail_lines
@@ -173,10 +168,14 @@ local function pad_table(s)
 end
 
 local function apply_highlights(line_idx, entry, _)
+  -- Get actual line length for bounds checking
+  local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
+  local line_len = #line
+
   -- Error row: red for entire line (low priority so element colors show through)
-  if entry.status == "error" then
+  if entry.status == "error" and line_len > 0 then
     vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
-      end_col = -1, hl_group = "PosteLogError", priority = 100, hl_mode = "combine",
+      end_col = line_len, hl_group = "PosteLogError", priority = 100, hl_mode = "combine",
     })
   end
 
@@ -185,32 +184,68 @@ local function apply_highlights(line_idx, entry, _)
     end_col = 17, hl_group = "PosteSqlMetaDim", priority = 150,
   })
   -- Table name cols 19 to 19+TBL_W
-  vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 19, {
-    end_col = 19 + TBL_W, hl_group = "PosteSqlMeta", priority = 150,
+  vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 18, {
+    end_col = 18 + TBL_W, hl_group = "PosteSqlMeta", priority = 150,
   })
   -- Duration cols 21+TBL_W to 26+TBL_W (yellow)
-  vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 21 + TBL_W, {
-    end_col = 26 + TBL_W, hl_group = "PosteWinbarModified", priority = 150,
+  vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 20 + TBL_W, {
+    end_col = 25 + TBL_W, hl_group = "PosteWinbarModified", priority = 150,
   })
   -- Source tag cols 28+TBL_W to 34+TBL_W (gray)
-  vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 28 + TBL_W, {
-    end_col = 34 + TBL_W, hl_group = "PosteSqlMetaDim", priority = 150,
+  vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 27 + TBL_W, {
+    end_col = 33 + TBL_W, hl_group = "PosteSqlMetaDim", priority = 150,
   })
 end
 
-local function apply_detail_highlights(line_idx, entry)
+local function apply_detail_highlights(line_idx, entry, detail_idx)
+  -- Precompute line counts for this entry
+  local n_meta = (entry.connection or entry.database or entry.source) and 1 or 0
+  local n_edit = entry.edit_summary and 1 or 0
+  local n_sql = 0
+  local display_sql = clean_sql(entry.sql)
+  if display_sql and display_sql ~= "" then
+    for _ in (display_sql .. "\n"):gmatch("(.-)\n") do
+      n_sql = n_sql + 1
+    end
+  end
+  local n_err = 0
+  if entry.error and entry.error ~= "" then
+    for _ in (entry.error .. "\n"):gmatch("(.-)\n") do
+      n_err = n_err + 1
+    end
+  end
+
   local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
-  if line:match("Error:") then
-    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 2, {
-      end_col = #line, hl_group = "PosteLogError", priority = 150,
+  local line_len = #line
+
+  -- Green bg for all non-blank detail lines
+  if line_len > 0 then
+    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
+      end_col = line_len, hl_group = "PosteLogDetailBg", priority = 80, hl_mode = "combine",
     })
-  elseif line:match("SQL:") then
-    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 2, {
-      end_col = #line, hl_group = "PosteLogSQL", priority = 150,
+  end
+  if line_len == 0 then return end
+
+  -- Determine line type by position
+  local pos = detail_idx
+  if pos <= n_meta then
+    -- Meta line: green bg only
+  elseif pos <= n_meta + n_edit then
+    -- Edit line: green bg only
+  elseif pos <= n_meta + n_edit + n_sql then
+    -- SQL line: > marker
+    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
+      virt_text = {{"> ", "PosteLogSQL"}}, virt_text_pos = "overlay",
+      priority = 170,
     })
-  elseif line:match("Edit:") then
-    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 2, {
-      end_col = #line, hl_group = "PosteSqlMetaDim", priority = 150,
+  else
+    -- Error line: red fg + < marker
+    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
+      end_col = line_len, hl_group = "PosteLogError", priority = 160,
+    })
+    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
+      virt_text = {{"< ", "PosteLogError"}}, virt_text_pos = "overlay",
+      priority = 170,
     })
   end
 end
@@ -257,32 +292,36 @@ local function build_lines()
     table.insert(lines, summary)
     line_idx = line_idx + 1
     if expanded[idx] then
-      table.insert(lines, "  │  " .. table.concat({
+      local db = entry.database or ""
+      if db == "" and entry.connection and entry.connection ~= "" then
+        local connections = require("poste.sql.connections")
+        local config = connections.get_connection_config(entry.connection)
+        if config and config.database and config.database ~= "" then
+          db = config.database
+        end
+      end
+      table.insert(lines, "  " .. table.concat({
         "Connection: " .. (entry.connection or "?"),
-        "Database: " .. (entry.database or "?"),
+        "Database: " .. (db ~= "" and db or "?"),
         "Source: " .. (entry.source or "?"),
       }, " · "))
       line_idx = line_idx + 1
       if entry.edit_summary then
         local s = entry.edit_summary
-        table.insert(lines, string.format("  │  Edit: +%d updates, %d inserts, %d deletes",
+        table.insert(lines, string.format("  Edit: +%d updates, %d inserts, %d deletes",
           s.updates or 0, s.inserts or 0, s.deletes or 0))
         line_idx = line_idx + 1
       end
-      table.insert(lines, "  │  SQL:")
-      line_idx = line_idx + 1
       local display_sql = clean_sql(entry.sql)
       if display_sql and display_sql ~= "" then
         for sql_line in (display_sql .. "\n"):gmatch("(.-)\n") do
-          table.insert(lines, "  │    " .. sql_line)
+          table.insert(lines, sql_line)
           line_idx = line_idx + 1
         end
       end
       if entry.error and entry.error ~= "" then
-        table.insert(lines, "  │  Error:")
-        line_idx = line_idx + 1
         for err_line in (entry.error .. "\n"):gmatch("(.-)\n") do
-          table.insert(lines, "  │    " .. err_line)
+          table.insert(lines, err_line)
           line_idx = line_idx + 1
         end
       end
@@ -308,7 +347,7 @@ local function render()
     if expanded[idx] then
       local dl = count_detail_lines(entry)
       for d = 1, dl do
-        apply_detail_highlights(line_idx, entry)
+        apply_detail_highlights(line_idx, entry, d)
         line_idx = line_idx + 1
       end
     end

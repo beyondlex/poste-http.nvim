@@ -77,27 +77,27 @@ end)
 describe("log viewer _count_detail_lines", function()
   it("counts minimal entry with just meta line", function()
     local entry = { connection = "c1", sql = "SELECT 1" }
-    assert.equals(4, log._count_detail_lines(entry))
+    assert.equals(3, log._count_detail_lines(entry))
   end)
 
   it("counts entry with edit_summary", function()
     local entry = { connection = "c1", sql = "SELECT 1", edit_summary = { updates = 1 } }
-    assert.equals(5, log._count_detail_lines(entry))
+    assert.equals(4, log._count_detail_lines(entry))
   end)
 
   it("counts entry with error", function()
     local entry = { connection = "c1", sql = "SELECT 1", error = "syntax error" }
-    assert.equals(6, log._count_detail_lines(entry))
+    assert.equals(4, log._count_detail_lines(entry))
   end)
 
   it("counts multi-line SQL", function()
     local entry = { connection = "c1", sql = "line1\nline2\nline3" }
-    assert.equals(6, log._count_detail_lines(entry))
+    assert.equals(5, log._count_detail_lines(entry))
   end)
 
   it("counts entry without connection (no meta line)", function()
     local entry = { sql = "SELECT 1" }
-    assert.equals(3, log._count_detail_lines(entry))
+    assert.equals(2, log._count_detail_lines(entry))
   end)
 end)
 
@@ -137,7 +137,6 @@ describe("log viewer _get_entry_at_line", function()
     log._set_expanded(1, true)
     assert.equals(1, log._get_entry_at_line(2))
     assert.equals(1, log._get_entry_at_line(3))
-    assert.equals(1, log._get_entry_at_line(4))
   end)
 end)
 

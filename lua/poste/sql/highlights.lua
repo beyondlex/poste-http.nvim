@@ -164,6 +164,8 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteLogError",   { fg = dark and 0xf07070 or 0xc04040 })
   vim.api.nvim_set_hl(0, "PosteLogSQL",     { fg = dark and 0x9cdcfe or 0x0a6db5 })
   vim.api.nvim_set_hl(0, "PosteLogFilter",  { fg = dark and 0xd7d700 or 0x9a7d00, bold = true })
+  -- Detail background: subtle green
+  vim.api.nvim_set_hl(0, "PosteLogDetailBg", { bg = dark and 0x1a3a1a or 0xe8f5e9 })
 
   state.apply_highlight_overrides({
     "PosteSqlModified", "PosteSqlDeleted", "PosteSqlAdded",

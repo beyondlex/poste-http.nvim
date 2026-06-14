@@ -95,12 +95,12 @@ M._clean_sql = clean_sql
 local function guess_table(sql)
   if not sql then return nil end
   local patterns = {
-    "FROM%s+([%w_]+)",
-    "JOIN%s+([%w_]+)",
-    "UPDATE%s+([%w_]+)",
-    "INTO%s+([%w_]+)",
-    "DELETE%s+FROM%s+([%w_]+)",
-    "INSERT%s+INTO%s+([%w_]+)",
+    "[Ff][Rr][Oo][Mm]%s+([%w_]+)",
+    "[Jj][Oo][Ii][Nn]%s+([%w_]+)",
+    "[Uu][Pp][Dd][Aa][Tt][Ee]%s+([%w_]+)",
+    "[Ii][Nn][Tt][Oo]%s+([%w_]+)",
+    "[Dd][Ee][Ll][Ee][Tt][Ee]%s+[Ff][Rr][Oo][Mm]%s+([%w_]+)",
+    "[Ii][Nn][Ss][Ee][Rr][Tt]%s+[Ii][Nn][Tt][Oo]%s+([%w_]+)",
   }
   for _, pat in ipairs(patterns) do
     local t = sql:match(pat)
@@ -160,11 +160,23 @@ end
 
 local TBL_W = 0
 
+local function entry_database(entry)
+  if entry.database and entry.database ~= "" then return entry.database end
+  if entry.connection and entry.connection ~= "" then
+    local ok, config = pcall(require, "poste.sql.connections")
+    if ok then
+      local cfg = config.get_connection_config(entry.connection)
+      if cfg and cfg.database and cfg.database ~= "" then return cfg.database end
+    end
+  end
+  return nil
+end
+
 local function compute_table_width()
   local max_w = 0
   for _, entry in ipairs(entries) do
-    local tbl = entry_table(entry) or "?"
-    max_w = math.max(max_w, #tbl)
+    local db = entry_database(entry) or entry_table(entry) or "?"
+    max_w = math.max(max_w, #db)
   end
   TBL_W = math.min(math.max(max_w, 4), 25)
 end
@@ -316,12 +328,12 @@ local function build_lines()
   for _, idx in ipairs(filtered) do
     local entry = entries[idx]
     local time = format_time(entry.ts)
-    local tbl = pad_table(entry_table(entry) or "?")
+    local db = pad_table(entry_database(entry) or entry_table(entry) or "?")
     local ms = string.format("%5s", tostring(entry.elapsed_ms or 0) .. "ms")
     local src_tag = string.format("%-6s", entry.source == "dataset_commit" and "commit" or "exec")
     local display_sql = clean_sql(entry.sql)
     local sql = preview_sql(display_sql, 70)
-    local parts = { "  ", time, "  ", tbl, "  ", ms, "  ", src_tag, " ", sql }
+    local parts = { "  ", time, "  ", db, "  ", ms, "  ", src_tag, " ", sql }
     local summary = table.concat(parts)
     table.insert(lines, summary)
     line_idx = line_idx + 1
@@ -342,14 +354,7 @@ local function build_lines()
         end
       end
       -- Connection info (gray)
-      local db = entry.database or ""
-      if db == "" and entry.connection and entry.connection ~= "" then
-        local connections = require("poste.sql.connections")
-        local config = connections.get_connection_config(entry.connection)
-        if config and config.database and config.database ~= "" then
-          db = config.database
-        end
-      end
+      local db = entry_database(entry) or ""
       if entry.connection or entry.database or entry.source then
         table.insert(lines, "     " .. table.concat({
           "Connection: " .. (entry.connection or "?"),

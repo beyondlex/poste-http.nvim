@@ -131,7 +131,7 @@ end
 
 local function block_if_dirty()
   if is_dirty() then
-    vim.notify("有未提交的修改，请先提交(<leader>w)或放弃(R)", vim.log.levels.WARN)
+    vim.notify("Unsaved changes, commit (<leader>w) or revert (R) first", vim.log.levels.WARN)
     return true
   end
   return false

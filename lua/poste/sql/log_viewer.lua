@@ -29,6 +29,12 @@ local function load_entries()
   end
   file:close()
   table.sort(result, function(a, b) return (a.ts or "") > (b.ts or "") end)
+  -- Cap at 1000 entries
+  if #result > 1000 then
+    local capped = {}
+    for i = 1, 1000 do capped[i] = result[i] end
+    result = capped
+  end
   return result
 end
 

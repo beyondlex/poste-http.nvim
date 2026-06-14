@@ -70,7 +70,15 @@ function M.get_dataset_buffer()
   k = state.get_keymap("sql_dataset", "rerun", "R")
   if k then
     vim.keymap.set("n", k, function()
-      vim.schedule(function() require("poste.sql.init").run_sql_request() end)
+      local tab = D.T()
+      if not tab or not tab.original_sql then return end
+      if tab.edit_state and tab.edit_state.dirty then
+        require("poste.sql.editor").rollback_edits()
+      else
+        vim.schedule(function()
+          require("poste.sql.edit_commit").refresh_dataset(tab)
+        end)
+      end
     end, opts)
   end
   k = state.get_keymap("sql_dataset", "goto_first_page", "<leader>hh")
@@ -176,7 +184,7 @@ local function switch_tab(idx)
   -- Block tab switch if current tab has dirty edits
   local current = D.T()
   if current and current.edit_state and current.edit_state.dirty then
-    vim.notify("有未提交的修改，请先提交(<leader>w)或放弃(R)", vim.log.levels.WARN)
+    vim.notify("Unsaved changes, commit (<leader>w) or revert (R) first", vim.log.levels.WARN)
     return
   end
   save_active_tab_state()

@@ -1144,7 +1144,7 @@ function M.rollback_edits()
   tab.edit_state = nil
 
   vim.schedule(function()
-    require("poste.sql.init").run_sql_request()
+    require("poste.sql.edit_commit").refresh_dataset(tab)
   end)
 end
 

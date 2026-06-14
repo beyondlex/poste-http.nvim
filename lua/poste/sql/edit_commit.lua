@@ -324,7 +324,9 @@ function M.format_log_entry(entry)
   return "{" .. table.concat(parts, ", ") .. "}"
 end
 
---- Write a log entry to the JSONL file.
+local MAX_LOG_ENTRIES = 1000
+
+--- Write a log entry to the JSONL file, trimming to MAX_LOG_ENTRIES.
 --- @param entry table Log entry fields
 function M.write_log(entry)
   local path = get_log_path()
@@ -333,6 +335,22 @@ function M.write_log(entry)
   if f then
     f:write(line)
     f:close()
+  end
+  -- Trim to MAX_LOG_ENTRIES
+  local lines = {}
+  for l in io.lines(path) do
+    lines[#lines + 1] = l
+  end
+  if #lines > MAX_LOG_ENTRIES then
+    local keep = {}
+    for i = #lines - MAX_LOG_ENTRIES + 1, #lines do
+      keep[#keep + 1] = lines[i]
+    end
+    f = io.open(path, "w")
+    if f then
+      f:write(table.concat(keep, "\n"), "\n")
+      f:close()
+    end
   end
 end
 
@@ -372,7 +390,7 @@ end
 --- Re-execute original SELECT and refresh the dataset in-place.
 --- Bypasses run_sql_request() to avoid cursor-position-dependent buffer parsing.
 --- @param tab table Tab state with original_sql, src_file, src_buf
-local function refresh_dataset(tab)
+function M.refresh_dataset(tab)
   local D = require("poste.sql.dataset")
   local state = require("poste.state")
   local statement = require("poste.sql.statement")

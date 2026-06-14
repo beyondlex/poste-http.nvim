@@ -319,6 +319,7 @@ function P.prompt_path(format_value)
   vim.ui.input({
     prompt = "Export path: ",
     default = default_path,
+    completion = "file",
   }, function(path)
     if not path or path == "" then
       P.destination_picker(format_value)
@@ -338,6 +339,66 @@ function P.format_picker(on_format)
   end)
 end
 
+function P.browse_path(format_value)
+  local _ = P
+  local data_result, body = get_current_data()
+  if not data_result then return end
+  local ext = ""
+  for _, f in ipairs(FORMATS) do
+    if f.value == format_value then ext = f.ext; break end
+  end
+  local dir = get_default_dir()
+  local filename = generate_filename(body, ext)
+
+  local function do_prompt(chosen_dir)
+    local default_path = chosen_dir .. "/" .. filename
+    vim.ui.input({
+      prompt = "Export path: ",
+      default = default_path,
+      completion = "file",
+    }, function(path)
+      if not path or path == "" then
+        P.destination_picker(format_value)
+        return
+      end
+      export_to_file(data_result, format_value, path)
+      P.ask_save_default(path)
+    end)
+  end
+
+  local ok_tf, telescope = pcall(require, "telescope")
+  if ok_tf then
+    local ok_ext = pcall(telescope.load_extension, "file_browser")
+    if ok_ext then
+      local actions = require("telescope.actions")
+      local action_state = require("telescope.actions.state")
+      telescope.extensions.file_browser.file_browser({
+        path = dir,
+        cwd = dir,
+        select_buffer = true,
+        attach_mappings = function(prompt_bufnr, map)
+          actions.select_default:replace(function()
+            actions.close(prompt_bufnr)
+            local selection = action_state.get_selected_entry()
+            local chosen = selection and selection.path or dir
+            local stat = vim.loop.fs_stat(chosen)
+            if stat and stat.type == "directory" then
+              do_prompt(chosen)
+            else
+              do_prompt(vim.fn.fnamemodify(chosen, ":h"))
+            end
+          end)
+          return true
+        end,
+      })
+      return
+    end
+  end
+
+  vim.notify("telescope-file-browser not available, using path input", vim.log.levels.INFO)
+  do_prompt(dir)
+end
+
 function P.destination_picker(format_value)
   local _ = P
   local data_result, body = get_current_data()
@@ -353,9 +414,10 @@ function P.destination_picker(format_value)
   local filename = generate_filename(body, ext)
   local default_path = dir .. "/" .. filename
   local destinations = {
-    { value = "quick",  label = "→ " .. dir,        desc = "Quick save to default dir" },
-    { value = "file",   label = "File (choose)",     desc = "Choose export path" },
-    { value = "clip",   label = "Clipboard",         desc = "Copy to system clipboard" },
+    { value = "quick",  label = "→ " .. dir,          desc = "Quick save to default dir" },
+    { value = "browse", label = "Browse...",           desc = "Pick directory (telescope)" },
+    { value = "file",   label = "File (choose)",       desc = "Type export path" },
+    { value = "clip",   label = "Clipboard",           desc = "Copy to system clipboard" },
   }
   vim.ui.select(destinations, {
     prompt = "Export " .. format_value:upper() .. " to...",
@@ -367,6 +429,8 @@ function P.destination_picker(format_value)
     end
     if choice.value == "clip" then
       export_to_clipboard(data_result, format_value)
+    elseif choice.value == "browse" then
+      P.browse_path(format_value)
     elseif choice.value == "file" then
       P.prompt_path(format_value)
     else

@@ -572,15 +572,16 @@ function P.browse_path(format_value)
   vim.keymap.set("i", "<C-w>", function()
     local line1 = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
     local text = line1:gsub("^> ", "")
-    local parent = resolve_parent(vim.fn.fnamemodify(expand_path(text), ":h"):gsub("/$", ""))
-    if parent then
-      local short = parent .. "/"
-      short = short:gsub("^" .. vim.fn.expand("~"), "~")
-      vim.bo[buf].modifiable = true
-      vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "> " .. short })
-      vim.api.nvim_win_set_cursor(win, { 1, #("> " .. short) })
-      vim.bo[buf].modifiable = false
-    end
+    local expanded = expand_path(text):gsub("/+$", "")
+    local parent = vim.fn.fnamemodify(expanded, ":h")
+    if parent == "" or parent == "." then parent = "/" end
+    if vim.fn.isdirectory(parent) ~= 1 then return end
+    local short = parent == "/" and "/" or parent .. "/"
+    short = short:gsub("^" .. vim.fn.expand("~"), "~")
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "> " .. short })
+    vim.api.nvim_win_set_cursor(win, { 1, #("> " .. short) })
+    vim.bo[buf].modifiable = false
     update_all()
   end, opts)
   vim.keymap.set("i", "<C-u>", function()

@@ -506,37 +506,22 @@ end
 --- Sets primary_key=true on matching columns in layout.
 --- @param tab table Tab state with layout
 function M.ensure_primary_key(tab)
-  if not tab or not tab.layout then
-    vim.notify("[PK debug] no tab or layout", vim.log.levels.INFO)
-    return
-  end
+  if not tab or not tab.layout then return end
   local layout = tab.layout
   local table_name = layout.table_name
-  if not table_name or table_name == "" then
-    vim.notify("[PK debug] no table_name", vim.log.levels.INFO)
-    return
-  end
+  if not table_name or table_name == "" then return end
 
-  -- Check if already introspected for this table
   local connection = layout._conn_name or get_state().sql.context.connection or ""
   local database = layout.database or get_state().sql.context.database or ""
   local cache_key = connection .. ":" .. database .. ":" .. table_name
-  if pk_cache[cache_key] then
-    vim.notify("[PK debug] cached for " .. cache_key, vim.log.levels.INFO)
-    return
-  end
+  if pk_cache[cache_key] then return end
 
-  -- Check if any column already has primary_key set
   for _, col in ipairs(layout.columns) do
     if col.primary_key then
       pk_cache[cache_key] = true
-      vim.notify("[PK debug] already has PK on " .. col.name, vim.log.levels.INFO)
       return
     end
   end
-
-  vim.notify(string.format("[PK debug] table=%s conn=%s db=%s dialect=%s cols=%d",
-    table_name, connection, database, layout.dialect or "?", #layout.columns), vim.log.levels.INFO)
 
   -- Query the database for primary key columns
   local dialect = layout.dialect or ""
@@ -581,21 +566,13 @@ function M.ensure_primary_key(tab)
   end
 
   if not meta_query then
-    vim.notify("[PK debug] no query for dialect: " .. dialect, vim.log.levels.INFO)
     pk_cache[cache_key] = true
     return
   end
 
-  vim.notify("[PK debug] meta_query: " .. meta_query:sub(1, 120), vim.log.levels.INFO)
-
-  -- Execute via poste run --stdin (connection passed via @connection directive)
   local binary = get_state().find_poste_binary()
-  if not binary then
-    vim.notify("[PK debug] no poste binary found", vim.log.levels.INFO)
-    return
-  end
+  if not binary then return end
 
-  -- poste run needs a FILE for connections.json discovery; use the source SQL file
   local src_file = tab.src_file or ""
   if src_file == "" then
     local ok, buf_name = pcall(vim.api.nvim_buf_get_name, 0)
@@ -613,23 +590,13 @@ function M.ensure_primary_key(tab)
   end
 
   local sql_content = "-- @connection " .. connection .. "\n" .. meta_query
-  vim.notify("[PK debug] src_file=" .. src_file .. " args=" .. vim.inspect(args), vim.log.levels.INFO)
   local output = vim.fn.system(args, sql_content)
-  vim.notify("[PK debug] shell_error=" .. vim.v.shell_error .. " output_len=" .. #output, vim.log.levels.INFO)
-  if vim.v.shell_error ~= 0 then
-    vim.notify("[PK debug] exec failed: " .. output:sub(1, 200), vim.log.levels.INFO)
-    return
-  end
+  if vim.v.shell_error ~= 0 then return end
 
   local ok, parsed = pcall(vim.json.decode, output)
-  if not ok or not parsed then
-    vim.notify("[PK debug] json decode failed: " .. tostring(parsed), vim.log.levels.INFO)
-    return
-  end
+  if not ok or not parsed then return end
 
-  -- Parse the result to get column metadata (defaults + PK)
   local body_ok, body = pcall(vim.json.decode, parsed.body or "{}")
-  vim.notify("[PK debug] body_ok=" .. tostring(body_ok) .. " results=" .. tostring(body and body.results and #body.results), vim.log.levels.INFO)
   if body_ok and body and body.results then
     local defaults = {}
     local pk_names = {}

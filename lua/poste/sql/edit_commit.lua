@@ -532,9 +532,6 @@ function M.commit_edits()
     for _, col in ipairs(tab.layout.columns) do
       if col.primary_key then table.insert(pk_cols, col.name) end
     end
-    vim.notify(string.format("[commit debug] columns: %s | PK cols: %s",
-      vim.inspect(vim.tbl_map(function(c) return c.name end, tab.layout.columns)),
-      vim.inspect(pk_cols)), vim.log.levels.INFO)
     if #pk_cols == 0 then
       vim.notify("No primary key info — WHERE will use all column values", vim.log.levels.WARN)
     end
@@ -679,7 +676,7 @@ function M.commit_edits()
         -- Clear edit state and refresh dataset in-place
         require("poste.sql.editor").reset_edit_state(tab.edit_state)
         tab.edit_state = nil
-        refresh_dataset(tab)
+        M.refresh_dataset(tab)
       end)
     end,
     on_stderr = function(_, data)

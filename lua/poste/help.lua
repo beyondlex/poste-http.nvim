@@ -35,6 +35,7 @@ local DESCRIPTIONS = {
     clear_filter = "Clear filter / search",
     toggle_db_browser = "Toggle DB Browser panel",
     trigger_completion = "Trigger SQL completion",
+    toggle_log = "Toggle execution log",
     help = "Show this help window",
   },
   sql_dataset = {
@@ -69,6 +70,17 @@ local DESCRIPTIONS = {
     clear_filter_search = "Clear filter / search",
     next_search = "Next search match",
     prev_search = "Previous search match",
+    commit_edits = "Commit pending edits",
+    edit_cell = "Edit cell value",
+    edit_cell_replace = "Replace cell value",
+    delete_row = "Delete row",
+    insert_row = "Insert row",
+  },
+  sql_table_ops = {
+    select_all = "SELECT * from table",
+    refresh_all = "Refresh table list",
+    describe_all = "DESCRIBE table",
+    toggle_menu = "Toggle action menu",
   },
   db_browser = {
     toggle_node = "Toggle expand/collapse node",
@@ -94,6 +106,7 @@ local SECTION_TITLES = {
   http_response = "HTTP Response Buffer",
   sql_source = "SQL Source Buffer",
   sql_dataset = "SQL Dataset Buffer",
+  sql_table_ops = "SQL Table Ops",
   db_browser = "DB Browser",
   introspect_float = "Introspect Float",
 }
@@ -102,7 +115,7 @@ function M.open()
   local lines = {}
   local width = 50
 
-  for _, section in ipairs({ "source_buffer", "http_response", "sql_source", "sql_dataset", "db_browser", "introspect_float" }) do
+  for _, section in ipairs({ "source_buffer", "http_response", "sql_source", "sql_dataset", "sql_table_ops", "db_browser", "introspect_float" }) do
     local title = SECTION_TITLES[section] or section
     local km = state.config.keymaps[section] or {}
     local desc = DESCRIPTIONS[section] or {}
@@ -157,7 +170,7 @@ function M.open()
   -- Highlight section titles
   local ns = vim.api.nvim_create_namespace("poste_help")
   for i, line in ipairs(lines) do
-    if line:find("^  %u") then -- section title line
+    if line:find("^  %u%a") then -- section title line (two+ char word, not single-letter key)
       vim.api.nvim_buf_add_highlight(buf, ns, "Title", i - 1, 2, -1)
     elseif line:find("^  ─") then -- separator
       vim.api.nvim_buf_add_highlight(buf, ns, "Comment", i - 1, 2, -1)

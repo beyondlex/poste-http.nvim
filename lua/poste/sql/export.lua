@@ -355,21 +355,18 @@ function P.browse_path(format_value)
   end
 
   ------------------------------------------------------------------------
-  -- Go to Folder style directory picker
+  -- Path input window with custom directory-only completion
   ------------------------------------------------------------------------
 
   local width = math.min(70, vim.o.columns - 8)
-  local height = 16
-  local row = math.floor((vim.o.lines - height) / 2)
+  local row = math.floor((vim.o.lines - 3) / 2)
   local col = math.floor((vim.o.columns - width) / 2)
-  local list_offset = 3
-  local max_list_items = height - list_offset - 1
 
   local buf = vim.api.nvim_create_buf(false, true)
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",
     width = width,
-    height = height,
+    height = 3,
     row = row,
     col = col,
     style = "minimal",
@@ -383,13 +380,20 @@ function P.browse_path(format_value)
   vim.wo[win].winhl = "Normal:NormalFloat"
 
   local initial_path = get_default_dir() .. "/"
-  local lines = { "> " .. initial_path, string.rep("─", width - 2) }
-  for i = 3, height do lines[i] = "" end
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "> " .. initial_path })
 
-  local items = {}
-  local selected = 0
-  local ns = vim.api.nvim_create_namespace("poste_export_dir")
+  -- Disable blink.cmp for this buffer at runtime
+  pcall(function()
+    local blink = require("blink.cmp")
+    if blink and blink.config then
+      blink.config.disable = blink.config.disable or {}
+      blink.config.disable.filetypes = blink.config.disable.filetypes or {}
+      if not vim.list_contains(blink.config.disable.filetypes, "poste_export_path") then
+        table.insert(blink.config.disable.filetypes, "poste_export_path")
+        blink.restart()
+      end
+    end
+  end)
 
   local function expand_path(text)
     local t = text:gsub("^~", vim.fn.expand("~"))
@@ -426,112 +430,58 @@ function P.browse_path(format_value)
     return "/", t
   end
 
-  local function fuzzy_score(name, query)
-    if query == "" then return 0 end
-    local lower_name = name:lower()
-    local lower_q = query:lower()
-    if lower_name == lower_q then return 100 end
-    if lower_name:sub(1, #lower_q) == lower_q then return 80 end
-    if lower_name:find(lower_q, 1, true) then return 60 end
-    return nil
-  end
+  -- Auto-trigger directory-only completion on text change
+  local completing = false
+  vim.api.nvim_create_autocmd("TextChangedI", {
+    group = vim.api.nvim_create_augroup("PosteExportDir_" .. buf, { clear = true }),
+    buffer = buf,
+    callback = function()
+      if completing then return end
+      completing = true
+      vim.schedule(function()
+        completing = false
+        local line = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
+        local text = line:gsub("^> ", "")
+        local parent, prefix = resolve_prefix(text)
+        if not parent then return end
+        local ok, entries = pcall(vim.fn.readdir, parent)
+        if not ok then return end
+        local matches = {}
+        for _, name in ipairs(entries) do
+          local full = parent .. "/" .. name
+          if vim.fn.isdirectory(full) == 1 then
+            if prefix == "" or name:lower():find(prefix:lower(), 1, true) then
+              table.insert(matches, name .. "/")
+            end
+          end
+        end
+        if #matches > 0 then
+          vim.fn.complete(#("> ") + #parent + 1, matches)
+        end
+      end)
+    end,
+  })
 
-  local function list_subdirs(dir_path)
-    local results = {}
-    local ok, entries = pcall(vim.fn.readdir, dir_path)
-    if not ok or not entries then return results end
-    for _, name in ipairs(entries) do
-      local full = dir_path .. "/" .. name
-      if vim.fn.isdirectory(full) == 1 then
-        table.insert(results, { path = full, name = name })
-      end
-    end
-    return results
-  end
-
-  local function refresh_items(path_text)
-    local parent, prefix = resolve_prefix(path_text)
-    if not parent then
-      items = {}
-      selected = 0
-      return
-    end
-    local raw = list_subdirs(parent)
-    local scored = {}
-    for _, entry in ipairs(raw) do
-      local score = fuzzy_score(entry.name, prefix)
-      if score ~= nil then
-        table.insert(scored, { path = entry.path, name = entry.name, score = score })
-      end
-    end
-    table.sort(scored, function(a, b)
-      if a.score ~= b.score then return a.score > b.score end
-      return a.name < b.name
-    end)
-    items = scored
-    selected = (#items > 0) and 1 or 0
-  end
-
-  local function render()
-    local display = {}
-    for i = 1, max_list_items do
-      local entry = items[i]
-      if entry then
-        table.insert(display, "  " .. entry.name .. "/")
-      else
-        table.insert(display, "")
-      end
-    end
-
-    local cur = vim.api.nvim_win_get_cursor(win)
-    local cursor_line = cur[1]
-    local cursor_col = cur[2]
-
-    for i = list_offset, height - 1 do
-      local idx = i - list_offset + 1
-      local text = display[idx] or ""
-      vim.api.nvim_buf_set_lines(buf, i - 1, i, false, { text })
-    end
-
-    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-    if selected > 0 and selected <= max_list_items then
-      local line = list_offset + selected - 1
-      vim.api.nvim_buf_add_highlight(buf, ns, "Visual", line, 0, -1)
-    end
-
-    if cursor_line == 1 then
-      pcall(vim.api.nvim_win_set_cursor, win, { 1, cursor_col })
-    end
-  end
-
-  local function update_all()
-    local line1 = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
-    local text = line1:gsub("^> ", "")
-    if text ~= "" then refresh_items(text) end
-    render()
-  end
-
-  local function complete_selected()
-    if #items == 0 then return end
-    local idx = selected
-    if idx < 1 or idx > #items then idx = 1 end
-    local entry = items[idx]
-    local line1 = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
-    local parent, _ = resolve_prefix(line1:gsub("^> ", ""))
-    local new_path = parent .. entry.name .. "/"
-    local short = new_path:gsub("^" .. vim.fn.expand("~"), "~")
-    vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "> " .. short })
-    vim.api.nvim_win_set_cursor(win, { 1, #("> " .. short) })
-    update_all()
-  end
+  vim.api.nvim_create_autocmd("BufLeave", {
+    group = vim.api.nvim_create_augroup("PosteExportDirLeave_" .. buf, { clear = true }),
+    buffer = buf,
+    callback = function()
+      pcall(vim.api.nvim_win_close, win, true)
+      pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    end,
+  })
 
   local function do_save()
+    if vim.fn.pumvisible() == 1 then
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-y>", true, false, true), "n", true)
+      return
+    end
     local line1 = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
     local resolved = resolve_parent(line1:gsub("^> ", ""))
     if not resolved then return end
     pcall(vim.api.nvim_win_close, win, true)
     pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    save_at(resolved)
+    save_at(resolved .. "/" .. filename)
   end
 
   local function do_cancel()
@@ -540,25 +490,7 @@ function P.browse_path(format_value)
     P.destination_picker(format_value)
   end
 
-  local augroup = vim.api.nvim_create_augroup("PosteExportDir_" .. buf, { clear = true })
-  vim.api.nvim_create_autocmd("TextChangedI", {
-    group = augroup,
-    buffer = buf,
-    callback = function()
-      vim.schedule(update_all)
-    end,
-  })
-  vim.api.nvim_create_autocmd("BufLeave", {
-    group = augroup,
-    buffer = buf,
-    callback = function()
-      pcall(vim.api.nvim_win_close, win, true)
-      pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    end,
-  })
-
-  local opts = { buffer = buf, nowait = true }
-  vim.keymap.set("i", "<Tab>", complete_selected, opts)
+  local opts = { buffer = buf }
   vim.keymap.set("i", "<CR>", do_save, opts)
   vim.keymap.set("n", "<CR>", do_save, opts)
   vim.keymap.set("i", "<Esc>", do_cancel, opts)
@@ -575,29 +507,12 @@ function P.browse_path(format_value)
     short = short:gsub("^" .. vim.fn.expand("~"), "~")
     vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "> " .. short })
     vim.api.nvim_win_set_cursor(win, { 1, #("> " .. short) })
-    update_all()
   end, opts)
   vim.keymap.set("i", "<C-u>", function()
     vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "> ~/" })
     vim.api.nvim_win_set_cursor(win, { 1, 3 })
-    update_all()
   end, opts)
-  vim.keymap.set("i", "<Up>", function()
-    if #items > 0 then
-      selected = (selected > 1) and (selected - 1) or #items
-      render()
-    end
-  end, opts)
-  vim.keymap.set("i", "<Down>", function()
-    if #items > 0 then
-      selected = (selected < #items) and (selected + 1) or 1
-      render()
-    end
-  end, opts)
-
-  refresh_items(get_default_dir() .. "/")
-  render()
-  vim.api.nvim_win_set_cursor(win, { 1, 2 })
+  vim.api.nvim_win_set_cursor(win, { 1, #("> " .. initial_path) })
   vim.cmd("startinsert!")
 end
 

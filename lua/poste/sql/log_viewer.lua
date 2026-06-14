@@ -44,7 +44,11 @@ end
 M._filter_matches = filter_matches
 
 local function format_time(ts)
-  if not ts then return "??:??:??" end
+  if not ts then return "??-?? ??:??:??" end
+  local year, month, day, hms = ts:match("(%d+)-(%d+)-(%d+)T(%d+:%d+:%d+)")
+  if month and day and hms then
+    return string.format("%s-%s %s", month, day, hms)
+  end
   local t = ts:match("T(%d+:%d+:%d+)")
   if t then return t end
   t = ts:match("T(%d+:%d+)")

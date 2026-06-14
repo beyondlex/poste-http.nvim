@@ -2,16 +2,16 @@
 local log = require("poste.sql.log_viewer")
 
 describe("log viewer _format_time", function()
-  it("formats full ISO timestamp", function()
-    assert.equals("10:30:00", log._format_time("2026-06-13T10:30:00"))
+  it("formats as MM-DD HH:mm:ss", function()
+    assert.equals("06-13 10:30:00", log._format_time("2026-06-13T10:30:00"))
   end)
 
-  it("formats ISO with seconds", function()
-    assert.equals("14:05:22", log._format_time("2026-06-13T14:05:22"))
+  it("formats another timestamp", function()
+    assert.equals("12-25 14:05:22", log._format_time("2025-12-25T14:05:22"))
   end)
 
   it("handles nil", function()
-    assert.equals("??:??:??", log._format_time(nil))
+    assert.equals("??-?? ??:??:??", log._format_time(nil))
   end)
 
   it("handles non-ISO string", function()

@@ -532,7 +532,6 @@ function M.toggle()
     border = "rounded",
   })
   vim.api.nvim_win_set_option(win, "cursorline", true)
-  vim.api.nvim_win_set_option(win, "wrap", false)
   render()
   local opts = { buffer = buf, nowait = true, silent = true }
   vim.keymap.set("n", "q", M.close, opts)

@@ -21,11 +21,42 @@ local _vis_end = 0
 local _cursor_moved_timer = nil
 local CURSOR_MOVED_DEBOUNCE_MS = 100
 
+-- Shared SQL syntax highlighter
+local syntax = require("poste.sql.syntax")
+
+--- Apply shared SQL syntax highlighting to a source buffer.
+--- Skips comments, directives, separators, and blank lines.
+local _syn_ns = vim.api.nvim_create_namespace("poste_sql_syntax")
+local function apply_source_highlights(buf)
+  vim.api.nvim_buf_clear_namespace(buf, _syn_ns, 0, -1)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  for i, line in ipairs(lines) do
+    local trimmed = line:match("^%s*(.-)%s*$") or ""
+    if trimmed ~= "" and not trimmed:match("^%-%-") and not trimmed:match("^###") then
+      syntax.highlight_line(buf, _syn_ns, i, trimmed, 0)
+    end
+  end
+end
+
+--- Debounced refresh of source buffer highlighting.
+local _syn_timer = nil
+local function schedule_syn_refresh(buf)
+  if _syn_timer then _syn_timer:stop(); _syn_timer:close() end
+  _syn_timer = vim.defer_fn(function()
+    _syn_timer = nil
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    apply_source_highlights(buf)
+  end, 150)
+end
+
 
 --- Install keymaps for this SQL buffer (one-time setup).
 local function ensure_sql_keymaps(buf)
   if vim.b[buf].poste_sql_keymaps_installed then return end
   vim.b[buf].poste_sql_keymaps_installed = true
+
+  -- Initial apply of shared SQL syntax highlighting
+  apply_source_highlights(buf)
 
   local keymap_opts = { buffer = buf, noremap = true, silent = true }
 
@@ -88,6 +119,16 @@ local function ensure_sql_keymaps(buf)
         stmt_indicator.update(buf, vim.fn.line("."))
       end, CURSOR_MOVED_DEBOUNCE_MS)
     end,
+  })
+
+  -- Refresh shared SQL syntax highlighting on text changes
+  local syn_group = "PosteSQLSyntax_" .. buf
+  pcall(vim.api.nvim_del_augroup_by_name, syn_group)
+  local sg = vim.api.nvim_create_augroup(syn_group, { clear = true })
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "BufWritePost" }, {
+    group = sg,
+    buffer = buf,
+    callback = function() schedule_syn_refresh(buf) end,
   })
 end
 M.ensure_sql_keymaps = ensure_sql_keymaps
@@ -341,11 +382,12 @@ local seq = current_seq
               indicators.set_indicator(src_buf, first_line - 1, "success", parsed.latency_ms)
               -- Log successful manual execution
               local edit_commit = require("poste.sql.edit_commit")
+              local context = require("poste.sql.context").resolve_full_context(src_buf, first_line)
               edit_commit.write_log({
                 source = "manual_exec",
-                connection = state.sql.context.connection or "",
+                connection = context.connection or "",
                 dialect = data and data.dialect or "",
-                database = data and data.database or "",
+                database = context.database or "",
                 sql = buf_content or "",
                 status = "success",
                 elapsed_ms = tonumber(parsed.latency_ms) or 0,
@@ -380,11 +422,12 @@ local seq = current_seq
           sql_buffer.render_dataset(lines, { type = "error" })
           -- Log failed execution
           local edit_commit = require("poste.sql.edit_commit")
+          local context = require("poste.sql.context").resolve_full_context(src_buf, #buf_lines)
           edit_commit.write_log({
             source = "manual_exec",
-            connection = state.sql.context.connection or "",
+            connection = context.connection or "",
             dialect = state.sql.context.dialect or "",
-            database = state.sql.context.database or "",
+            database = context.database or "",
             sql = buf_content or "",
             status = "error",
             elapsed_ms = 0,

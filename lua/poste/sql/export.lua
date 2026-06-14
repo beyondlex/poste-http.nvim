@@ -339,7 +339,7 @@ function P.format_picker(on_format)
   end)
 end
 
-function P.browse_path(format_value)
+function P.browse_path(format_value, search_root)
   local _ = P
   local data_result, body = get_current_data()
   if not data_result then return end
@@ -347,7 +347,6 @@ function P.browse_path(format_value)
   for _, f in ipairs(FORMATS) do
     if f.value == format_value then ext = f.ext; break end
   end
-  local default_dir = get_default_dir()
   local filename = generate_filename(body, ext)
 
   local function save_at(chosen_dir)
@@ -356,78 +355,56 @@ function P.browse_path(format_value)
     P.ask_save_default(full_path)
   end
 
-  local function list_subdirs(cwd)
-    local entries = {}
-    for _, name in ipairs(vim.fn.readdir(cwd) or {}) do
-      local full = cwd .. "/" .. name
-      if vim.fn.isdirectory(full) == 1 then
-        table.insert(entries, { path = full, display = name .. "/" })
+  local ok_fzf, fzf = pcall(require, "fzf-lua")
+  if not ok_fzf then
+    local dir = search_root or get_default_dir()
+    vim.ui.input({
+      prompt = "Export path: ",
+      default = dir .. "/" .. filename,
+      completion = "file",
+    }, function(path)
+      if not path or path == "" then
+        P.destination_picker(format_value)
+        return
       end
-    end
-    table.sort(entries, function(a, b) return a.display < b.display end)
-    return entries
+      export_to_file(data_result, format_value, path)
+      P.ask_save_default(path)
+    end)
+    return
   end
 
-  local function pick_dir(cwd)
-    local _ = P
-    local items = {}
-    table.insert(items, { path = cwd, display = "[.]  save here" })
-    table.insert(items, { path = vim.fn.fnamemodify(cwd, ":h"), display = "[..] parent" })
-    for _, entry in ipairs(list_subdirs(cwd)) do
-      table.insert(items, entry)
-    end
-    local display_items = vim.tbl_map(function(e) return e.display end, items)
-
-    local ok_fzf, fzf = pcall(require, "fzf-lua")
-    if not ok_fzf then
-      local default_path = cwd .. "/" .. filename
-      vim.ui.input({
-        prompt = "Export path: ",
-        default = default_path,
-        completion = "file",
-      }, function(path)
-        if not path or path == "" then
-          P.destination_picker(format_value)
-          return
-        end
-        export_to_file(data_result, format_value, path)
-        P.ask_save_default(path)
-      end)
-      return
+  local function open_picker(root)
+    local cmd
+    if vim.fn.executable("fd") == 1 then
+      cmd = string.format("fd --type d --max-depth 6 --exclude node_modules --exclude .git --exclude .cache --exclude Library . %s 2>/dev/null",
+        vim.fn.shellescape(root))
+    else
+      cmd = string.format("find %s -type d -maxdepth 6 -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/.cache/*' 2>/dev/null",
+        vim.fn.shellescape(root))
     end
 
-    fzf.fzf_exec(display_items, {
-      prompt = "Export dir: " .. cwd .. "/ ",
+    fzf.fzf_exec(cmd, {
+      prompt = "Export dir [" .. root .. "]> ",
       actions = {
         ["default"] = function(selected)
           if not selected or #selected == 0 then
             P.destination_picker(format_value)
             return
           end
-          local sel = selected[1]
-          for _, item in ipairs(items) do
-            if item.display == sel then
-              if sel:match("%[%.%]  save here") or sel:match("%[%.%.%]") then
-                save_at(item.path)
-              else
-                pick_dir(item.path)
-              end
-              return
-            end
-          end
+          save_at(selected[1])
         end,
-        ["ctrl-g"] = function()
+        ["ctrl-r"] = function()
           vim.schedule(function()
-            vim.ui.input({ prompt = "Go to dir: ", default = cwd, completion = "dir" }, function(path)
-              if path and path ~= "" then
-                if vim.fn.isdirectory(path) == 1 then
-                  pick_dir(path)
+            vim.ui.input({ prompt = "Search root: ", default = root, completion = "dir" }, function(new_root)
+              if new_root and new_root ~= "" then
+                if vim.fn.isdirectory(new_root) == 1 then
+                  open_picker(new_root)
                 else
-                  vim.notify("Not a directory: " .. path, vim.log.levels.WARN)
-                  pick_dir(cwd)
+                  vim.notify("Not a directory: " .. new_root, vim.log.levels.WARN)
+                  open_picker(root)
                 end
               else
-                pick_dir(cwd)
+                open_picker(root)
               end
             end)
           end)
@@ -436,7 +413,7 @@ function P.browse_path(format_value)
     })
   end
 
-  pick_dir(default_dir)
+  open_picker(search_root or vim.fn.expand("~"))
 end
 
 function P.destination_picker(format_value)

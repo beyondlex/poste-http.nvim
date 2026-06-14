@@ -28,8 +28,7 @@ A Neovim plugin and Rust CLI for executing HTTP, Redis, SQL (PostgreSQL / MySQL 
   dependencies = {
     "saghen/blink.cmp",
     "stevearc/dressing.nvim",
-    -- Optional: fuzzy directory picker for dataset export (Browse...)
-    -- "ibhagwan/fzf-lua",
+
   },
   config = function()
     require("poste").setup()

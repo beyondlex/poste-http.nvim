@@ -100,6 +100,10 @@ function M.get_dataset_buffer()
   k = state.get_keymap("sql_dataset", "prev_search", "N")
   if k then vim.keymap.set("n", k, function() require("poste.sql.buffer_search").prev_search_match() end, opts) end
 
+  -- Export
+  k = state.get_keymap("sql_dataset", "export", "E")
+  if k then vim.keymap.set("n", k, function() require("poste.sql.export").run() end, opts) end
+
   -- Edit keymaps
   k = state.get_keymap("sql_dataset", "edit_cell", "i")
   if k then vim.keymap.set("n", k, function() require("poste.sql.editor").edit_cell() end, opts) end

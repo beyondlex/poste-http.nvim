@@ -84,6 +84,7 @@ M.config = {
       delete_row = "dd",
       insert_row = "o",
       commit_edits = "<leader>w",
+      export = "E",
     },
     sql_table_ops = {
       select_all = "ma",

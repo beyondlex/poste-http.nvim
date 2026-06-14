@@ -1579,6 +1579,21 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     require("poste.sql.db_browser").toggle()
   end, { desc = "Toggle database structure browser sidebar" })
 
+  -- Dataset export
+  vim.api.nvim_create_user_command("PosteExport", function(args)
+    local parts = {}
+    for word in args.args:gmatch("%S+") do
+      table.insert(parts, word)
+    end
+    require("poste.sql.export").run(parts[1], parts[2], parts[3])
+  end, {
+    nargs = "*",
+    complete = function(ArgLead, CmdLine)
+      return require("poste.sql.export").complete(ArgLead, CmdLine)
+    end,
+    desc = "Export dataset — :PosteExport [format] [destination] [path]",
+  })
+
   -- SQL context switching
   vim.api.nvim_create_user_command("PosteSqlLog", function()
     require("poste.sql.log_viewer").toggle()

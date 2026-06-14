@@ -75,6 +75,7 @@ local DESCRIPTIONS = {
     edit_cell_replace = "Replace cell value",
     delete_row = "Delete row",
     insert_row = "Insert row",
+    export = "Export dataset (format → destination)",
   },
   sql_table_ops = {
     select_all = "SELECT * from table",

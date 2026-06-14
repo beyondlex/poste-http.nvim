@@ -197,6 +197,25 @@ local function apply_highlights(line_idx, entry, _)
   })
 end
 
+  local sql_kw = "SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|ALTER|DROP|INDEX|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AND|OR|NOT|IN|AS|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|LIKE|BETWEEN|EXISTS|UNION|ALL|DISTINCT|CASE|WHEN|THEN|ELSE|END|NULL|IS|TRUE|FALSE|PRIMARY|KEY|FOREIGN|REFERENCES|CASCADE|CONSTRAINT|DEFAULT|CHECK|UNIQUE|ASC|DESC|CAST|COALESCE|IF|REPLACE|TRUNCATE|COMMIT|ROLLBACK|BEGIN|RETURNING"
+
+--- Highlight SQL keywords in a buffer line.
+--- @param line string The buffer line content
+--- @return table List of { start_col, end_col } extmark calls to apply
+local function highlight_sql_keywords(line)
+  local marks = {}
+  for kw in sql_kw:gmatch("[%w_]+") do
+    local pos = 1
+    while pos <= #line do
+      local s, e = line:find("%f[%w_]" .. kw .. "%f[^%w_]", pos)
+      if not s then break end
+      table.insert(marks, { s - 1, e })
+      pos = e + 1
+    end
+  end
+  return marks
+end
+
 local function apply_detail_highlights(line_idx, entry, detail_idx)
   -- Precompute line counts for this entry
   local n_meta = (entry.connection or entry.database or entry.source) and 1 or 0
@@ -229,7 +248,7 @@ local function apply_detail_highlights(line_idx, entry, detail_idx)
   -- Determine line type by position (order: SQL → error → meta → edit)
   local pos = detail_idx
   if pos <= n_sql then
-    -- SQL line: vertical bar + > marker
+    -- SQL line: vertical bar + > marker + keyword highlights
     vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 2, {
       virt_text = {{"│", "PosteSqlMetaDim"}}, virt_text_pos = "overlay",
       priority = 90,
@@ -238,6 +257,15 @@ local function apply_detail_highlights(line_idx, entry, detail_idx)
       virt_text = {{"> ", "PosteLogSQL"}}, virt_text_pos = "overlay",
       priority = 170,
     })
+    -- Syntax highlight SQL keywords
+    if line_len > 5 then
+      local content = line:sub(6)
+      for _, m in ipairs(highlight_sql_keywords(content)) do
+        vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 5 + m[1], {
+          end_col = 5 + m[2], hl_group = "PosteLogSQLKeyword", priority = 160,
+        })
+      end
+    end
   elseif pos <= n_sql + n_err then
     -- Error line: vertical bar + red fg + < marker
     vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {

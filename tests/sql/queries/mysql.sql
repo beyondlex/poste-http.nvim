@@ -4,7 +4,7 @@
 SELECT * FROM posts;
 
 
-SELECT * FROM posts;
+SELECT * FROM authors;
 
 select id, slug FROM posts;
 

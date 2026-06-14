@@ -537,8 +537,16 @@ function M.commit_edits()
   end
 
   local connection = tab.layout and tab.layout._conn_name or state.sql.context.connection or ""
-  local database = tab.layout and tab.layout.database or state.sql.context.database or ""
   local table_name = tab.layout and tab.layout.table_name or ""
+
+  -- Resolve database: layout → context → connections.json default
+  local database = tab.layout and tab.layout.database or state.sql.context.database or ""
+  if database == "" and connection ~= "" then
+    local config = require("poste.sql.connections").get_connection_config(connection)
+    if config and config.database and config.database ~= "" then
+      database = config.database
+    end
+  end
   local src_file = tab.src_file or ""
 
   -- poste run needs a FILE for connections.json discovery

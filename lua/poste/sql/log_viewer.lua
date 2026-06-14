@@ -300,7 +300,7 @@ local function build_lines()
           db = config.database
         end
       end
-      table.insert(lines, "  " .. table.concat({
+      table.insert(lines, "    " .. table.concat({
         "Connection: " .. (entry.connection or "?"),
         "Database: " .. (db ~= "" and db or "?"),
         "Source: " .. (entry.source or "?"),
@@ -308,20 +308,20 @@ local function build_lines()
       line_idx = line_idx + 1
       if entry.edit_summary then
         local s = entry.edit_summary
-        table.insert(lines, string.format("  Edit: +%d updates, %d inserts, %d deletes",
+        table.insert(lines, string.format("    Edit: +%d updates, %d inserts, %d deletes",
           s.updates or 0, s.inserts or 0, s.deletes or 0))
         line_idx = line_idx + 1
       end
       local display_sql = clean_sql(entry.sql)
       if display_sql and display_sql ~= "" then
         for sql_line in (display_sql .. "\n"):gmatch("(.-)\n") do
-          table.insert(lines, sql_line)
+          table.insert(lines, "  " .. sql_line)
           line_idx = line_idx + 1
         end
       end
       if entry.error and entry.error ~= "" then
         for err_line in (entry.error .. "\n"):gmatch("(.-)\n") do
-          table.insert(lines, err_line)
+          table.insert(lines, "  " .. err_line)
           line_idx = line_idx + 1
         end
       end

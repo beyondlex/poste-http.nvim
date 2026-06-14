@@ -347,7 +347,7 @@ function P.browse_path(format_value)
   for _, f in ipairs(FORMATS) do
     if f.value == format_value then ext = f.ext; break end
   end
-  local dir = get_default_dir()
+  local default_dir = get_default_dir()
   local filename = generate_filename(body, ext)
 
   local function save_at(chosen_dir)
@@ -356,49 +356,70 @@ function P.browse_path(format_value)
     P.ask_save_default(full_path)
   end
 
-  local ok_tf, telescope = pcall(require, "telescope")
-  if ok_tf then
-    local ok_ext = pcall(telescope.load_extension, "file_browser")
-    if ok_ext then
-      local actions = require("telescope.actions")
-      local action_state = require("telescope.actions.state")
-      telescope.extensions.file_browser.file_browser({
-        path = dir,
-        cwd = dir,
-        select_buffer = true,
-        attach_mappings = function(prompt_bufnr, map)
-          actions.select_default:replace(function()
-            actions.close(prompt_bufnr)
-            local selection = action_state.get_selected_entry()
-            local chosen = selection and selection.path or dir
-            local stat = vim.loop.fs_stat(chosen)
-            if stat and stat.type == "directory" then
-              save_at(chosen)
-            else
-              save_at(vim.fn.fnamemodify(chosen, ":h"))
-            end
-          end)
-          return true
-        end,
-      })
-      return
+  local function list_subdirs(cwd)
+    local entries = {}
+    for _, name in ipairs(vim.fn.readdir(cwd) or {}) do
+      local full = cwd .. "/" .. name
+      if vim.fn.isdirectory(full) == 1 then
+        table.insert(entries, { path = full, display = name .. "/" })
+      end
     end
+    table.sort(entries, function(a, b) return a.display < b.display end)
+    return entries
   end
 
-  vim.notify("telescope-file-browser not available, using path input", vim.log.levels.INFO)
-  local default_path = dir .. "/" .. filename
-  vim.ui.input({
-    prompt = "Export path: ",
-    default = default_path,
-    completion = "file",
-  }, function(path)
-    if not path or path == "" then
-      P.destination_picker(format_value)
+  local function pick_dir(cwd)
+    local items = {}
+    table.insert(items, { path = cwd, display = "[.]  save here" })
+    table.insert(items, { path = vim.fn.fnamemodify(cwd, ":h"), display = "[..] parent" })
+    for _, entry in ipairs(list_subdirs(cwd)) do
+      table.insert(items, entry)
+    end
+    local display_items = vim.tbl_map(function(e) return e.display end, items)
+
+    local ok_fzf, fzf = pcall(require, "fzf-lua")
+    if not ok_fzf then
+      local default_path = cwd .. "/" .. filename
+      vim.ui.input({
+        prompt = "Export path: ",
+        default = default_path,
+        completion = "file",
+      }, function(path)
+        if not path or path == "" then
+          P.destination_picker(format_value)
+          return
+        end
+        export_to_file(data_result, format_value, path)
+        P.ask_save_default(path)
+      end)
       return
     end
-    export_to_file(data_result, format_value, path)
-    P.ask_save_default(path)
-  end)
+
+    fzf.fzf_exec(display_items, {
+      prompt = "Export dir: " .. cwd .. "/ ",
+      actions = {
+        ["default"] = function(selected)
+          if not selected or #selected == 0 then
+            P.destination_picker(format_value)
+            return
+          end
+          local sel = selected[1]
+          for _, item in ipairs(items) do
+            if item.display == sel then
+              if sel:match("%[%.%]  save here") or sel:match("%[%.%.%]") then
+                save_at(item.path)
+              else
+                pick_dir(item.path)
+              end
+              return
+            end
+          end
+        end,
+      },
+    })
+  end
+
+  pick_dir(default_dir)
 end
 
 function P.destination_picker(format_value)
@@ -417,7 +438,7 @@ function P.destination_picker(format_value)
   local default_path = dir .. "/" .. filename
   local destinations = {
     { value = "quick",  label = "→ " .. dir,          desc = "Quick save to default dir" },
-    { value = "browse", label = "Browse...",           desc = "Pick directory (telescope)" },
+    { value = "browse", label = "Browse...",           desc = "Pick directory (fzf)" },
     { value = "file",   label = "File (choose)",       desc = "Type export path" },
     { value = "clip",   label = "Clipboard",           desc = "Copy to system clipboard" },
   }

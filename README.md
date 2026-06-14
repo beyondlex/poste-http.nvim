@@ -29,7 +29,7 @@ A Neovim plugin and Rust CLI for executing HTTP, Redis, SQL (PostgreSQL / MySQL 
     "saghen/blink.cmp",
     "stevearc/dressing.nvim",
     -- Optional: fuzzy directory picker for dataset export (Browse...)
-    -- "nvim-telescope/telescope-file-browser.nvim",
+    -- "ibhagwan/fzf-lua",
   },
   config = function()
     require("poste").setup()

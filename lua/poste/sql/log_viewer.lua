@@ -205,14 +205,14 @@ end
 --- @param offset number  Column offset in buffer
 local function highlight_sql_line(buf, ns, line_idx, text, offset)
   for _, p in ipairs({
-    { "%-%-[^\n]-", "@comment" },
-    { "'[^']-'", "@string" },
-    { '"[^"]-"', "@string" },
-    { '`[^`]-`', "@string" },
-    { "%f[%d]%d+%.?%d*%f[^%d%w]", "@number" },
-    { "%f[%w_]NULL%f[^%w_]", "@constant" },
-    { "%f[%w_]TRUE%f[^%w_]", "@constant" },
-    { "%f[%w_]FALSE%f[^%w_]", "@constant" },
+    { "%-%-[^\n]-", "sqlComment" },
+    { "'[^']-'", "sqlString" },
+    { '"[^"]-"', "sqlString" },
+    { '`[^`]-`', "sqlString" },
+    { "%f[%d]%d+%.?%d*%f[^%d%w]", "sqlNumber" },
+    { "%f[%w_]NULL%f[^%w_]", "sqlSpecial" },
+    { "%f[%w_]TRUE%f[^%w_]", "sqlSpecial" },
+    { "%f[%w_]FALSE%f[^%w_]", "sqlSpecial" },
   }) do
     local pos = 1
     while pos <= #text do
@@ -225,16 +225,17 @@ local function highlight_sql_line(buf, ns, line_idx, text, offset)
     end
   end
   local kw_map = {
-    Keyword = "SELECT FROM WHERE INSERT INTO VALUES UPDATE SET DELETE CREATE TABLE ALTER DROP INDEX PRIMARY KEY FOREIGN REFERENCES CASCADE CONSTRAINT DEFAULT CHECK UNIQUE JOIN LEFT RIGHT INNER OUTER CROSS FULL ON AND OR NOT IN AS ORDER BY GROUP HAVING LIMIT OFFSET LIKE BETWEEN EXISTS UNION ALL DISTINCT ASC DESC CASE WHEN THEN ELSE END CAST COALESCE IF REPLACE TRUNCATE COMMIT ROLLBACK BEGIN RETURNING EXPLAIN ANALYZE WITH RECURSIVE",
-    Type = "INT INTEGER BIGINT SMALLINT TINYINT BOOLEAN BOOL FLOAT DOUBLE DECIMAL NUMERIC REAL VARCHAR CHAR TEXT BLOB CLOB ENUM SET JSON DATE TIME DATETIME TIMESTAMP YEAR",
-    Function = "COUNT SUM AVG MIN MAX NULLIF GREATEST LEAST NOW CURDATE CURTIME DATE_FORMAT CONCAT SUBSTRING UPPER LOWER LENGTH TRIM COALESCE ROUND ABS",
+    sqlStatement = "SELECT FROM WHERE INSERT INTO VALUES UPDATE SET DELETE CREATE TABLE ALTER DROP INDEX JOIN LEFT RIGHT INNER OUTER CROSS FULL ON AND OR NOT IN AS ORDER BY GROUP HAVING LIMIT OFFSET LIKE BETWEEN EXISTS UNION ALL DISTINCT ASC DESC CASE WHEN THEN ELSE END COMMIT ROLLBACK BEGIN RETURNING EXPLAIN ANALYZE WITH RECURSIVE TRUNCATE PRIMARY KEY FOREIGN REFERENCES CASCADE CONSTRAINT DEFAULT CHECK UNIQUE REPLACE",
+    sqlKeyword = "CAST COALESCE IF IS NULL",
+    sqlType = "INT INTEGER BIGINT SMALLINT TINYINT BOOLEAN BOOL FLOAT DOUBLE DECIMAL NUMERIC REAL VARCHAR CHAR TEXT BLOB CLOB ENUM SET JSON DATE TIME DATETIME TIMESTAMP YEAR",
+    sqlFunction = "COUNT SUM AVG MIN MAX NULLIF GREATEST LEAST NOW CURDATE CURTIME DATE_FORMAT CONCAT SUBSTRING UPPER LOWER LENGTH TRIM ROUND ABS COALESCE",
   }
   for hl, kw_text in pairs(kw_map) do
     for kw in kw_text:gmatch("%S+") do
       local s, e = text:find("%f[%w_]" .. kw .. "%f[^%w_]", 1)
       while s do
         vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, offset + s - 1, {
-          end_col = offset + e, hl_group = "@" .. hl, priority = 155,
+          end_col = offset + e, hl_group = hl, priority = 155,
         })
         s, e = text:find("%f[%w_]" .. kw .. "%f[^%w_]", e + 1)
       end

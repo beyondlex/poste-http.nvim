@@ -460,6 +460,7 @@ function M.re_run()
   end
   local sql = entry.sql
   vim.fn.setreg('"', sql)
+  vim.fn.setreg("+", sql)
   vim.notify("SQL yanked to default register — paste into a .sql buffer and run", vim.log.levels.INFO)
 end
 
@@ -472,7 +473,8 @@ function M.yank_sql()
     return
   end
   vim.fn.setreg('"', entry.sql)
-  vim.notify("SQL yanked to default register", vim.log.levels.INFO)
+  vim.fn.setreg("+", entry.sql)
+  vim.notify("SQL yanked", vim.log.levels.INFO)
 end
 
 function M.refresh()

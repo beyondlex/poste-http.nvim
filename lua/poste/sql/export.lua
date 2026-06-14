@@ -393,21 +393,13 @@ function P.browse_path(format_value, search_root)
           end
           save_at(selected[1])
         end,
-        ["ctrl-r"] = function()
-          vim.schedule(function()
-            vim.ui.input({ prompt = "Search root: ", default = root, completion = "dir" }, function(new_root)
-              if new_root and new_root ~= "" then
-                if vim.fn.isdirectory(new_root) == 1 then
-                  open_picker(new_root)
-                else
-                  vim.notify("Not a directory: " .. new_root, vim.log.levels.WARN)
-                  open_picker(root)
-                end
-              else
-                open_picker(root)
-              end
-            end)
-          end)
+        ["ctrl-o"] = function(selected)
+          if selected and #selected > 0 then
+            open_picker(selected[1])
+          end
+        end,
+        ["ctrl-u"] = function()
+          open_picker(vim.fn.fnamemodify(root, ":h"))
         end,
       },
     })

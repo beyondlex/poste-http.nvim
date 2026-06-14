@@ -156,20 +156,46 @@ function M._set_expanded(idx, val)
   expanded[idx] = val
 end
 
-local function apply_highlights(line_idx, entry, is_detail)
+local TBL_W = 0
+
+local function compute_table_width()
+  local max_w = 0
+  for _, entry in ipairs(entries) do
+    local tbl = entry_table(entry) or "?"
+    max_w = math.max(max_w, #tbl)
+  end
+  TBL_W = math.min(math.max(max_w, 4), 25)
+end
+
+local function pad_table(s)
+  if #s > TBL_W then return s:sub(1, TBL_W - 1) .. "…" end
+  return s .. string.rep(" ", TBL_W - #s)
+end
+
+local function apply_highlights(line_idx, entry, _)
+  local ok, line = pcall(vim.api.nvim_buf_get_lines, buf, line_idx - 1, line_idx, false)
+  if not ok or not line or not line[1] then return end
+
+  -- Icon at col 2
   vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 2, {
     end_col = 3, hl_group = entry.status == "error" and "PosteLogError" or "PosteLogSuccess", priority = 150,
   })
-  local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
-  local _, te = line:find("%[.-%]", 19)
-  if te then
-    local ts = line:find("%[", 19)
-    if ts then
-      vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, ts - 1, {
-        end_col = te, hl_group = "PosteSqlMeta", priority = 150,
-      })
-    end
-  end
+  -- Timestamp cols 5-20 (gray)
+  vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 5, {
+    end_col = 20, hl_group = "PosteSqlMetaDim", priority = 150,
+  })
+  -- [table] cols 22 to 24+TBL_W (the whole [name] block)
+  vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 22, {
+    end_col = 24 + TBL_W, hl_group = "PosteSqlMeta", priority = 150,
+  })
+  -- Duration cols 26+TBL_W to 31+TBL_W (yellow)
+  vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 26 + TBL_W, {
+    end_col = 31 + TBL_W, hl_group = "PosteWinbarModified", priority = 150,
+  })
+  -- Source tag cols 33+TBL_W to 39+TBL_W (gray)
+  vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 33 + TBL_W, {
+    end_col = 39 + TBL_W, hl_group = "PosteSqlMetaDim", priority = 150,
+  })
 end
 
 local function apply_detail_highlights(line_idx, entry)
@@ -216,17 +242,19 @@ local function build_lines()
       table.insert(filtered, i)
     end
   end
+  compute_table_width()
   local line_idx = 1
   for _, idx in ipairs(filtered) do
     local entry = entries[idx]
     local icon = entry.status == "error" and "✗" or "✓"
     local time = format_time(entry.ts)
-    local tbl = entry_table(entry) or "?"
-    local ms = tostring(entry.elapsed_ms or 0)
+    local tbl = pad_table(entry_table(entry) or "?")
+    local ms = string.format("%5s", tostring(entry.elapsed_ms or 0) .. "ms")
+    local src_tag = string.format("%-6s", entry.source == "dataset_commit" and "commit" or "exec")
     local display_sql = clean_sql(entry.sql)
     local sql = preview_sql(display_sql, 70)
-    local src_tag = entry.source == "dataset_commit" and "commit" or "exec"
-    local summary = string.format("  %s  %s  [%s]  %sms  %-5s %s", icon, time, tbl, ms, src_tag, sql)
+    local parts = { "  ", icon, "  ", time, "  [", tbl, "]  ", ms, "  ", src_tag, " ", sql }
+    local summary = table.concat(parts)
     table.insert(lines, summary)
     line_idx = line_idx + 1
     if expanded[idx] then

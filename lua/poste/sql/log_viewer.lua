@@ -252,7 +252,11 @@ local function apply_detail_highlights(line_idx, entry, detail_idx)
       priority = 170,
     })
   else
-    -- Meta/edit line: gray, no bar, no marker
+    -- Meta/edit line: gray, bar, no marker
+    vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 2, {
+      virt_text = {{"│", "PosteSqlMetaDim"}}, virt_text_pos = "overlay",
+      priority = 90,
+    })
     vim.api.nvim_buf_set_extmark(buf, ns, line_idx - 1, 0, {
       end_col = line_len, hl_group = "PosteSqlMetaDim", priority = 160,
     })

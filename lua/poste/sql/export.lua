@@ -287,47 +287,11 @@ end
 
 local P = {}
 
-function P.ask_save_default(path)
-  vim.ui.input({
-    prompt = "Save as default export directory? (y/N): ",
-    default = "",
-  }, function(answer)
-    if answer and answer:lower() == "y" then
-      local dir = vim.fn.fnamemodify(path, ":h")
-      local cfg = load_export_config()
-      cfg.last_dir = dir
-      save_export_config(cfg)
-      vim.notify("Default export directory saved: " .. dir, vim.log.levels.INFO)
-    end
-  end)
-end
-
-function P.prompt_path(format_value)
-  local _ = P
-  local data_result, body = get_current_data()
-  if not data_result then return end
-  local ext = ""
-  for _, f in ipairs(FORMATS) do
-    if f.value == format_value then
-      ext = f.ext
-      break
-    end
-  end
-  local dir = get_default_dir()
-  local filename = generate_filename(body, ext)
-  local default_path = dir .. "/" .. filename
-  vim.ui.input({
-    prompt = "Export path: ",
-    default = default_path,
-    completion = "file",
-  }, function(path)
-    if not path or path == "" then
-      P.destination_picker(format_value)
-      return
-    end
-    export_to_file(data_result, format_value, path)
-    P.ask_save_default(path)
-  end)
+local function save_default_dir(dir)
+  local cfg = load_export_config()
+  cfg.last_dir = dir
+  save_export_config(cfg)
+  vim.notify("Default export directory saved: " .. dir, vim.log.levels.INFO)
 end
 
 function P.format_picker(on_format)
@@ -364,7 +328,7 @@ function P.browse_path(format_value)
     on_confirm = function(path)
       local full_path = path .. "/" .. filename
       export_to_file(data_result, format_value, full_path)
-      P.ask_save_default(path)
+      save_default_dir(path)
     end,
     on_cancel = function()
       P.destination_picker(format_value)
@@ -389,7 +353,6 @@ function P.destination_picker(format_value)
   local destinations = {
     { value = "quick",  label = "→ " .. dir,          desc = "Quick save to default dir" },
     { value = "browse", label = "Browse...",           desc = "Pick directory (Go to Folder)" },
-    { value = "file",   label = "File (choose)",       desc = "Type export path" },
     { value = "clip",   label = "Clipboard",           desc = "Copy to system clipboard" },
   }
   vim.ui.select(destinations, {
@@ -404,8 +367,6 @@ function P.destination_picker(format_value)
       export_to_clipboard(data_result, format_value)
     elseif choice.value == "browse" then
       P.browse_path(format_value)
-    elseif choice.value == "file" then
-      P.prompt_path(format_value)
     else
       export_to_file(data_result, format_value, default_path)
     end
@@ -426,19 +387,6 @@ function M.run(format_value, destination, path)
     if data_result then
       export_to_clipboard(data_result, format_value)
     end
-    return
-  end
-
-  if format_value and destination == "file" and path then
-    local data_result = get_current_data()
-    if data_result then
-      export_to_file(data_result, format_value, path)
-    end
-    return
-  end
-
-  if format_value and destination == "file" then
-    P.prompt_path(format_value)
     return
   end
 
@@ -463,7 +411,7 @@ function M.complete(ArgLead, CmdLine)
     return vim.tbl_filter(function(f) return f:find(ArgLead) ~= nil end, { "csv", "tsv", "json", "md", "sql" })
   end
   if n == 1 or (n == 2 and not CmdLine:match("%s$")) then
-    return vim.tbl_filter(function(d) return d:find(ArgLead) ~= nil end, { "file", "clipboard" })
+    return vim.tbl_filter(function(d) return d:find(ArgLead) ~= nil end, { "clipboard" })
   end
   return vim.fn.getcompletion(ArgLead, "file")
 end

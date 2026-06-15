@@ -742,6 +742,19 @@ function M.update_template(node, context)
   vim.notify("Generated UPDATE template for: " .. table_node.name, vim.log.levels.INFO)
 end
 
+--- Import data from CSV/TSV/JSON into this table.
+function M.import_data(node, context)
+  if node.meta and node.meta.table_type == "VIEW" then
+    vim.notify("Cannot import data into a view", vim.log.levels.WARN)
+    return
+  end
+  if node.node_type ~= "table" then
+    vim.notify("Import is only available for tables", vim.log.levels.INFO)
+    return
+  end
+  require("poste.sql.import").run(node, context)
+end
+
 --- DELETE template: generate DELETE FROM ... WHERE based on table columns.
 function M.delete_template(node, context)
   local table_node = node

@@ -653,9 +653,8 @@ function M.commit_edits()
         local affected = 0
         if body.results then
           for _, result in ipairs(body.results) do
-            if result.affected_rows then
-              affected = affected + result.affected_rows
-            end
+            local ar = result.affected_rows
+            if type(ar) == "number" then affected = affected + ar end
           end
         end
 

@@ -11,6 +11,7 @@ M.config = {
   split_direction = "vertical",
   split_size = 80,
   log_file = vim.fn.stdpath("cache") .. "/poste.log",
+  import_chunk_size = 100,
 
   -- User-overridable keymaps. Set to false to disable a keymap.
   -- Each section maps action names → key strings.

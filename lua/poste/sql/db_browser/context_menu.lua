@@ -36,6 +36,7 @@ local MENU_DEFS = {
     { letter = "i", label = "INSERT template",     action = "insert_template",  group = "generate" },
     { letter = "u", label = "UPDATE template",     action = "update_template",  group = "generate" },
     { letter = "d", label = "DELETE template",     action = "delete_template",  group = "generate" },
+    { letter = "I", label = "Import Data",         action = "import_data",      group = "modify" },
     { letter = "n", label = "New Column",          action = "new_column",       group = "modify" },
     { letter = "r", label = "Rename Table",        action = "rename",           group = "modify" },
   },

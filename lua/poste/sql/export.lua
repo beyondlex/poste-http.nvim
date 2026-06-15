@@ -340,7 +340,6 @@ function P.format_picker(on_format)
 end
 
 function P.browse_path(format_value)
-  local _ = P
   local data_result, body = get_current_data()
   if not data_result then return end
   local ext = ""
@@ -348,172 +347,29 @@ function P.browse_path(format_value)
     if f.value == format_value then ext = f.ext; break end
   end
   local filename = generate_filename(body, ext)
+  local initial_dir = get_default_dir()
 
-  local function save_at(path)
-    export_to_file(data_result, format_value, path)
-    P.ask_save_default(path)
+  local ok, finder = pcall(require, "finder")
+  if not ok then
+    vim.notify(
+      "beyondlex/finder required for Browse. Add { \"beyondlex/finder\" } to your plugin specs.",
+      vim.log.levels.ERROR
+    )
+    return
   end
 
-  ------------------------------------------------------------------------
-  -- Path input window with custom directory-only completion
-  ------------------------------------------------------------------------
-
-  local width = math.min(70, vim.o.columns - 8)
-  local row = math.floor((vim.o.lines - 3) / 2)
-  local col = math.floor((vim.o.columns - width) / 2)
-
-  local buf = vim.api.nvim_create_buf(false, true)
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = "editor",
-    width = width,
-    height = 3,
-    row = row,
-    col = col,
-    style = "minimal",
-    border = "rounded",
-    title = " Browse export directory ",
-    title_pos = "center",
-  })
-
-  vim.bo[buf].filetype = "poste_export_path"
-  vim.wo[win].cursorline = false
-  vim.wo[win].winhl = "Normal:NormalFloat"
-
-  local initial_path = get_default_dir() .. "/"
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "> " .. initial_path })
-
-  -- Disable blink.cmp for this buffer at runtime
-  pcall(function()
-    local blink = require("blink.cmp")
-    if blink and blink.config then
-      blink.config.disable = blink.config.disable or {}
-      blink.config.disable.filetypes = blink.config.disable.filetypes or {}
-      if not vim.list_contains(blink.config.disable.filetypes, "poste_export_path") then
-        table.insert(blink.config.disable.filetypes, "poste_export_path")
-        blink.restart()
-      end
-    end
-  end)
-
-  local function expand_path(text)
-    local t = text:gsub("^~", vim.fn.expand("~"))
-    if t:sub(-1) ~= "/" then t = t .. "/" end
-    return t
-  end
-
-  local function resolve_parent(text)
-    local t = expand_path(text)
-    local parts = {}
-    for seg in t:gmatch("[^/]+") do
-      if seg == ".." then
-        if #parts > 0 then table.remove(parts) end
-      elseif seg ~= "." then
-        table.insert(parts, seg)
-      end
-    end
-    local result = table.concat(parts, "/")
-    if result:sub(1, 1) ~= "/" then result = "/" .. result end
-    if vim.fn.isdirectory(result) == 1 then return result end
-    local parent = vim.fn.fnamemodify(result, ":h")
-    if vim.fn.isdirectory(parent) == 1 then return parent end
-    return nil
-  end
-
-  local function resolve_prefix(text)
-    local t = text:gsub("^~", vim.fn.expand("~"))
-    local slash_pos = t:match(".*()/")
-    if slash_pos then
-      local parent = t:sub(1, slash_pos - 1) .. "/"
-      local prefix = t:sub(slash_pos + 1)
-      return parent, prefix
-    end
-    return "/", t
-  end
-
-  -- Auto-trigger directory-only completion on text change
-  local completing = false
-  vim.api.nvim_create_autocmd("TextChangedI", {
-    group = vim.api.nvim_create_augroup("PosteExportDir_" .. buf, { clear = true }),
-    buffer = buf,
-    callback = function()
-      if completing then return end
-      completing = true
-      vim.schedule(function()
-        completing = false
-        local line = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
-        local text = line:gsub("^> ", "")
-        local parent, prefix = resolve_prefix(text)
-        if not parent then return end
-        local ok, entries = pcall(vim.fn.readdir, parent)
-        if not ok then return end
-        local matches = {}
-        for _, name in ipairs(entries) do
-          local full = parent .. "/" .. name
-          if vim.fn.isdirectory(full) == 1 then
-            if prefix == "" or name:lower():find(prefix:lower(), 1, true) then
-              table.insert(matches, name .. "/")
-            end
-          end
-        end
-        if #matches > 0 then
-          vim.fn.complete(#("> ") + #parent + 1, matches)
-        end
-      end)
+  finder.open({
+    mode = "dir",
+    initial_path = initial_dir,
+    on_confirm = function(path)
+      local full_path = path .. "/" .. filename
+      export_to_file(data_result, format_value, full_path)
+      P.ask_save_default(path)
+    end,
+    on_cancel = function()
+      P.destination_picker(format_value)
     end,
   })
-
-  vim.api.nvim_create_autocmd("BufLeave", {
-    group = vim.api.nvim_create_augroup("PosteExportDirLeave_" .. buf, { clear = true }),
-    buffer = buf,
-    callback = function()
-      pcall(vim.api.nvim_win_close, win, true)
-      pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    end,
-  })
-
-  local function do_save()
-    if vim.fn.pumvisible() == 1 then
-      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-y>", true, false, true), "n", true)
-      return
-    end
-    local line1 = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
-    local resolved = resolve_parent(line1:gsub("^> ", ""))
-    if not resolved then return end
-    pcall(vim.api.nvim_win_close, win, true)
-    pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    save_at(resolved .. "/" .. filename)
-  end
-
-  local function do_cancel()
-    pcall(vim.api.nvim_win_close, win, true)
-    pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    P.destination_picker(format_value)
-  end
-
-  local opts = { buffer = buf }
-  vim.keymap.set("i", "<CR>", do_save, opts)
-  vim.keymap.set("n", "<CR>", do_save, opts)
-  vim.keymap.set("i", "<Esc>", do_cancel, opts)
-  vim.keymap.set("n", "q", do_cancel, opts)
-  vim.keymap.set("n", "<Esc>", do_cancel, opts)
-  vim.keymap.set("i", "<C-w>", function()
-    local line1 = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""
-    local text = line1:gsub("^> ", "")
-    local expanded = expand_path(text):gsub("/+$", "")
-    local parent = vim.fn.fnamemodify(expanded, ":h")
-    if parent == "" or parent == "." then parent = "/" end
-    if vim.fn.isdirectory(parent) ~= 1 then return end
-    local short = parent == "/" and "/" or parent .. "/"
-    short = short:gsub("^" .. vim.fn.expand("~"), "~")
-    vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "> " .. short })
-    vim.api.nvim_win_set_cursor(win, { 1, #("> " .. short) })
-  end, opts)
-  vim.keymap.set("i", "<C-u>", function()
-    vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "> ~/" })
-    vim.api.nvim_win_set_cursor(win, { 1, 3 })
-  end, opts)
-  vim.api.nvim_win_set_cursor(win, { 1, #("> " .. initial_path) })
-  vim.cmd("startinsert!")
 end
 
 function P.destination_picker(format_value)

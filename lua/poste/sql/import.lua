@@ -545,7 +545,7 @@ local function build_preview_lines(table_info, total_rows, valid_count, bad_rows
     local tc = mc.table_col
     local right = tc.name .. " (" .. tc.col_type .. ")"
     add(fmt_row(mc.import_name, right))
-    if tc and not tc.nullable and not tc.default and not tc.is_pk then
+    if tc and not tc.nullable and not tc.is_pk and (tc.default == nil or tc.default == vim.NIL) then
       table.insert(orange_rows, #lines)
     end
   end
@@ -640,8 +640,8 @@ local function show_preview(table_info, total_rows, valid_count, bad_rows,
   local parsed_text = lines[parsed_li + 1]
   if parsed_text then
     local s1, e1 = parsed_text:find("%d+", 9)
-    local s2, e2 = parsed_text:find("%d+", e1)
-    local s3, e3 = parsed_text:find("%d+", e2)
+    local s2, e2 = parsed_text:find("%d+", e1 + 1)
+    local s3, e3 = parsed_text:find("%d+", e2 + 1)
     if s1 then vim.api.nvim_buf_add_highlight(buf, ns, "Number", parsed_li, s1 - 1, e1) end
     if s2 then vim.api.nvim_buf_add_highlight(buf, ns, "String", parsed_li, s2 - 1, e2) end
     if s3 then vim.api.nvim_buf_add_highlight(buf, ns, "DiagnosticError", parsed_li, s3 - 1, e3) end
@@ -1057,7 +1057,9 @@ function M.run(table_node, context)
         end
         finder.open({
           mode = "both",
-          initial_path = vim.fn.expand("~"),
+          initial_path = (vim.fn.has("mac") == 1 and vim.fn.expand("~/Downloads"))
+            or (vim.fn.has("unix") == 1 and vim.fn.expand("~"))
+            or vim.fn.expand("~/Desktop"),
           extensions = { "csv", "tsv", "json" },
           on_confirm = function(path)
             if not path then return end

@@ -128,13 +128,12 @@ local function build_menu_lines(node, context)
   return lines, item_map, title
 end
 
---- Find item_map entry by letter (case-insensitive).
+--- Find item_map entry by letter (exact case).
 local function find_by_letter(item_map, letter)
-  letter = letter:lower()
-  for _, entry in pairs(item_map) do
-    if entry.letter:lower() == letter then return entry end
-  end
-  return nil
+    for _, entry in pairs(item_map) do
+        if entry.letter == letter then return entry end
+    end
+    return nil
 end
 
 --- Open the context menu for a node.

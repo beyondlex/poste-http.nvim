@@ -1188,8 +1188,9 @@ function M.setup(opts)
   -- Register SQL completion source (blink.cmp)
   local sql_comp = require("poste.sql.completion")
   local function register_sql_completion()
-    if not blink then return end
-    blink.add_source_provider("poste_sql", {
+    local ok_b, blink_mod = pcall(require, "blink.cmp")
+    if not ok_b then return end
+    blink_mod.add_source_provider("poste_sql", {
       module = "poste.sql.completion",
       name = "PosteSQL",
       async = true,
@@ -1197,8 +1198,8 @@ function M.setup(opts)
       min_keyword_length = 0,
       should_show_items = true,
     })
-    blink.add_filetype_source("poste_sql", "poste_sql")
-    blink.add_filetype_source("poste_sqlite", "poste_sql")
+    blink_mod.add_filetype_source("poste_sql", "poste_sql")
+    blink_mod.add_filetype_source("poste_sqlite", "poste_sql")
 
     -- Only show poste_sql source in SQL buffers (suppress buffer/lsp word noise)
     local blink_config = require("blink.cmp.config")
@@ -1410,7 +1411,7 @@ function M.setup(opts)
                lw == "set" or lw == "on" or lw == "having" or
                lw == "by" or lw == "and" or lw == "or" then
               vim.schedule(function()
-                if blink then blink.show() end
+                pcall(function() require("blink.cmp").show() end)
               end)
             end
           end
@@ -1426,19 +1427,20 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     local sql_comp = require("poste.sql.completion")
 
     -- Re-register with blink.cmp
-    if not blink then
+    local ok_b, blink_mod = pcall(require, "blink.cmp")
+    if not ok_b then
       vim.notify("blink.cmp not loaded, cannot re-register", vim.log.levels.WARN)
       return
     end
-    blink.add_source_provider("poste_sql", {
+    blink_mod.add_source_provider("poste_sql", {
       module = "poste.sql.completion",
       name = "PosteSQL",
       score_offset = 1000,
       min_keyword_length = 0,
       should_show_items = true,
     })
-    blink.add_filetype_source("poste_sql", "poste_sql")
-    blink.add_filetype_source("poste_sqlite", "poste_sql")
+    blink_mod.add_filetype_source("poste_sql", "poste_sql")
+    blink_mod.add_filetype_source("poste_sqlite", "poste_sql")
     vim.notify("SQL completion reloaded and re-registered with blink.cmp", vim.log.levels.INFO)
   end, { desc = "Reload SQL completion provider" })
 
@@ -1496,6 +1498,7 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     local before = line:sub(1, col)
     local last_word = before:match("(%w+)%s*$")
 
+    local blink_mod = pcall(require, "blink.cmp") and require("blink.cmp") or nil
     local menu_open = false
     local ok_m, menu_mod = pcall(require, "blink.cmp.completion.windows.menu")
     menu_open = ok_m and menu_mod.win:is_open()
@@ -1504,14 +1507,14 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
       "PosteSQLDebugSpace:",
       "  line_before cursor: '" .. before .. "'",
       "  last_word: " .. tostring(last_word),
-      "  blink loaded: " .. tostring(blink ~= nil),
-      "  blink.show exists: " .. tostring(blink and blink.show ~= nil),
+      "  blink loaded: " .. tostring(blink_mod ~= nil),
+      "  blink.show exists: " .. tostring(blink_mod and blink_mod.show ~= nil),
       "  menu currently open: " .. tostring(menu_open),
     }
 
-    if blink and blink.show then
+    if blink_mod and blink_mod.show then
       vim.notify(table.concat(msg, "\n") .. "\n  → calling blink.show() now...", vim.log.levels.WARN)
-      blink.show()
+      blink_mod.show()
     else
       vim.notify(table.concat(msg, "\n"), vim.log.levels.ERROR)
     end
@@ -1656,7 +1659,7 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
       k = state.get_keymap("sql_source", "trigger_completion", "<C-Space>")
       if k then
         vim.keymap.set("i", k, function()
-          if blink then blink.show() end
+          pcall(function() require("blink.cmp").show() end)
         end, { buffer = 0, noremap = true, silent = true, desc = "Trigger completion" })
       end
       

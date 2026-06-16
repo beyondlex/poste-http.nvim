@@ -52,6 +52,7 @@ end
 
 --- Install keymaps for this SQL buffer (one-time setup).
 local function ensure_sql_keymaps(buf)
+  if buf == 0 then buf = vim.api.nvim_get_current_buf() end
   if vim.b[buf].poste_sql_keymaps_installed then return end
   vim.b[buf].poste_sql_keymaps_installed = true
 
@@ -120,9 +121,13 @@ local function ensure_sql_keymaps(buf)
       _cursor_moved_timer = vim.defer_fn(function()
         _cursor_moved_timer = nil
         if vim.api.nvim_get_current_buf() ~= buf then return end
-        local ctx_mod = require("poste.sql.context")
-        local text = ctx_mod.get_cursor_status_text(buf)
-        vim.b[buf].poste_sql_context = text
+        local ok, ctx_mod = pcall(require, "poste.sql.context")
+        if ok and ctx_mod then
+          local ok2, text = pcall(ctx_mod.get_cursor_status_text, ctx_mod, buf)
+          if ok2 and text then
+            vim.b[buf].poste_sql_context = text
+          end
+        end
         local stmt_indicator = require("poste.sql.statement_indicator")
         stmt_indicator.update(buf, vim.fn.line("."))
       end, CURSOR_MOVED_DEBOUNCE_MS)

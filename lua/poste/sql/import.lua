@@ -537,7 +537,6 @@ local function build_preview_lines(table_info, total_rows, valid_count, bad_rows
     local r = right .. string.rep(" ", max_table_w - vim.fn.strdisplaywidth(right))
     return "  " .. l .. " | " .. r
   end
-  add(sep)
   add(fmt_row("file", "table"))
   add(sep)
   local orange_rows = {}
@@ -550,6 +549,7 @@ local function build_preview_lines(table_info, total_rows, valid_count, bad_rows
     end
   end
 
+  add(sep)
   if #unmatched_import > 0 then
     add(string.format("  (unmatched: %s)", table.concat(unmatched_import, ", ")))
   end

@@ -283,19 +283,33 @@ function M.format_dataset(r)
   -- Affected rows (INSERT/UPDATE/DELETE)
   if rtype == "affected" then
     local lines = { "" }
+    local has_err = false
     local results = data.results or {}
     for i, res in ipairs(results) do
-      local affected = tonumber(res.affected_rows) or 0
-      local ms = tonumber(res.execution_time_ms) or 0
-      local msg
-      if #results > 1 then
-        msg = string.format("  Statement %d: %s · %dms", i,
-          affected > 0 and string.format("%d row(s) affected", affected) or "Query OK", ms)
+      if res.error then
+        has_err = true
+        local ms = tonumber(res.execution_time_ms) or 0
+        local err_text = type(res.error) == "string" and res.error or vim.inspect(res.error)
+        local msg
+        if #results > 1 then
+          msg = string.format("  Statement %d: ERROR · %s · %dms", i, err_text, ms)
+        else
+          msg = string.format("  ERROR: %s · %dms", err_text, ms)
+        end
+        table.insert(lines, msg)
       else
-        msg = string.format("  %s · %dms",
-          affected > 0 and string.format("%d row(s) affected", affected) or "Query OK", ms)
+        local affected = tonumber(res.affected_rows) or 0
+        local ms = tonumber(res.execution_time_ms) or 0
+        local msg
+        if #results > 1 then
+          msg = string.format("  Statement %d: %s · %dms", i,
+            affected > 0 and string.format("%d row(s) affected", affected) or "Query OK", ms)
+        else
+          msg = string.format("  %s · %dms",
+            affected > 0 and string.format("%d row(s) affected", affected) or "Query OK", ms)
+        end
+        table.insert(lines, msg)
       end
-      table.insert(lines, msg)
     end
     table.insert(lines, "")
     local db = data.database

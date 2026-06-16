@@ -1,7 +1,8 @@
 --- Poste: HTTP/Redis client for Neovim.
 --- This is the orchestrator module — all subsystems live in separate modules.
 local state = require("poste.state")
-local blink = require("blink.cmp")
+local blink_ok, blink = pcall(require, "blink.cmp")
+if not blink_ok then blink = nil end
 local util = require("poste.util")
 local highlights = require("poste.http.highlights")  -- auto-registers autocmds on require
 local indicators = require("poste.indicators")
@@ -1187,6 +1188,7 @@ function M.setup(opts)
   -- Register SQL completion source (blink.cmp)
   local sql_comp = require("poste.sql.completion")
   local function register_sql_completion()
+    if not blink then return end
     blink.add_source_provider("poste_sql", {
       module = "poste.sql.completion",
       name = "PosteSQL",
@@ -1378,7 +1380,7 @@ function M.setup(opts)
     
     -- Call the test interface if available
     if sql_comp._test then
-      local ctx_type, ctx_data = sql_comp._test.detect_context(line_before)
+      local ctx_type, ctx_data = sql_comp._test.detect_context_for_completion(line_before)
       table.insert(status, "  Detected context: " .. tostring(ctx_type))
       if ctx_data then
         table.insert(status, "  Context data: " .. tostring(ctx_data))
@@ -1408,7 +1410,7 @@ function M.setup(opts)
                lw == "set" or lw == "on" or lw == "having" or
                lw == "by" or lw == "and" or lw == "or" then
               vim.schedule(function()
-                blink.show()
+                if blink then blink.show() end
               end)
             end
           end
@@ -1424,6 +1426,10 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     local sql_comp = require("poste.sql.completion")
 
     -- Re-register with blink.cmp
+    if not blink then
+      vim.notify("blink.cmp not loaded, cannot re-register", vim.log.levels.WARN)
+      return
+    end
     blink.add_source_provider("poste_sql", {
       module = "poste.sql.completion",
       name = "PosteSQL",
@@ -1445,7 +1451,7 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     local line_before = line:sub(1, col)
     local cursor_lnum = cursor[1]
 
-    local ctx_type, ctx_data = sql_comp._test.detect_context(line_before)
+    local ctx_type, ctx_data = sql_comp._test.detect_context_for_completion(line_before)
     local tbls, alias_map = sql_comp._test.extract_from_tables(buf, cursor_lnum)
     local conn = sql_comp._test.conn_key()
 
@@ -1498,12 +1504,12 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
       "PosteSQLDebugSpace:",
       "  line_before cursor: '" .. before .. "'",
       "  last_word: " .. tostring(last_word),
-      "  blink loaded: true",
-      "  blink.show exists: " .. tostring(blink.show ~= nil),
+      "  blink loaded: " .. tostring(blink ~= nil),
+      "  blink.show exists: " .. tostring(blink and blink.show ~= nil),
       "  menu currently open: " .. tostring(menu_open),
     }
 
-    if blink.show then
+    if blink and blink.show then
       vim.notify(table.concat(msg, "\n") .. "\n  → calling blink.show() now...", vim.log.levels.WARN)
       blink.show()
     else
@@ -1528,7 +1534,7 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     
     -- Test context detection
     if sql_comp._test then
-      local ctx_type, ctx_data = sql_comp._test.detect_context(line_before)
+      local ctx_type, ctx_data = sql_comp._test.detect_context_for_completion(line_before)
       table.insert(status, "  Context: " .. tostring(ctx_type))
       
       -- If column context, test extract_from_tables
@@ -1650,7 +1656,7 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
       k = state.get_keymap("sql_source", "trigger_completion", "<C-Space>")
       if k then
         vim.keymap.set("i", k, function()
-          blink.show()
+          if blink then blink.show() end
         end, { buffer = 0, noremap = true, silent = true, desc = "Trigger completion" })
       end
       

@@ -11,7 +11,7 @@
 vim.g.mapleader = " "
 vim.opt.laststatus = 3
 
-vim.keymap.set("n", "<leader>e", function() Snacks.explorer() end)
+-- vim.keymap.set("n", "<leader>e", function() Snacks.explorer() end)
 vim.keymap.set("n", "<C-l>", "<C-W>l")
 vim.keymap.set("n", "<C-h>", "<C-W>h")
 vim.keymap.set("n", "<C-j>", "<C-W>j")

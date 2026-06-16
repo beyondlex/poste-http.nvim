@@ -12,6 +12,7 @@
 return {
   {
     "saghen/blink.cmp",
+    branch = "v1",
     dependencies = { "saghen/blink.lib" },
   },
   {

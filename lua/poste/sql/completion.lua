@@ -93,7 +93,7 @@ end
 local function cache_key(bufnr, cursor_line, line_before)
   local changedtick = vim.api.nvim_buf_get_var(bufnr, "changedtick")
   local dialect = get_dialect_flag()
-  return string.format("%d|%d|%d|%s", bufnr, changedtick, #(line_before or ""), dialect)
+  return string.format("%d|%d|%d|%s|%s", bufnr, changedtick, cursor_line, line_before or "", dialect)
 end
 
 ---------------------------------------------------------------------------

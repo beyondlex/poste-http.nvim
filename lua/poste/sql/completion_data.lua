@@ -219,8 +219,14 @@ function M.find_binary()
       and vim.fn.filereadable(state.config.poste_binary) == 1 then
     return vim.fn.fnamemodify(state.config.poste_binary, ":p")
   end
-  local paths = { "./target/debug/poste", "./target/release/poste" }
-  -- Search relative to plugin install dir (works in-repo and for plugin installs)
+  local paths = {}
+  -- CWD-relative: highest priority (works when nvim is launched from repo root)
+  local cwd = vim.fn.getcwd()
+  if cwd ~= "" then
+    table.insert(paths, cwd .. "/target/debug/poste")
+    table.insert(paths, cwd .. "/target/release/poste")
+  end
+  -- Resolve relative to this file's dir (plugin install or repo)
   local src = debug.getinfo(1, "S").source
   if src:sub(1, 1) == "@" then
     local dir = src:sub(2):match("^(.+/)lua/poste/") or ""

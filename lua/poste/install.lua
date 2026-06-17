@@ -175,20 +175,35 @@ function M.ensure()
     end
   end
 
-  -- 2. Local dev build (in-repo development)
+  -- 2. Local dev build relative to plugin install dir (works when poste is added
+  --    to rtp from a repo checkout, regardless of Neovim's CWD)
+  local src = debug.getinfo(1, "S").source
+  local plugin_root = src:sub(1, 1) == "@" and src:sub(2):match("^(.+/)lua/poste/")
+  if plugin_root then
+    for _, p in ipairs({
+      plugin_root .. "target/debug/poste",
+      plugin_root .. "target/release/poste",
+    }) do
+      if vim.fn.filereadable(p) == 1 then
+        return vim.fn.fnamemodify(p, ":p")
+      end
+    end
+  end
+
+  -- 3. CWD-relative local dev build (in-repo development from poste dir)
   for _, path in ipairs({ "./target/debug/poste", "./target/release/poste" }) do
     if vim.fn.filereadable(path) == 1 then
       return vim.fn.fnamemodify(path, ":p")
     end
   end
 
-  -- 3. Default installed path (stdpath data)
+  -- 4. Default installed path (stdpath data)
   local bp = binary_path()
   if vim.fn.filereadable(bp) == 1 then
     return bp
   end
 
-  -- 4. Fallback: attempt download
+  -- 5. Fallback: attempt download
   local ok = M.download("latest")
   if not ok then
     vim.notify(

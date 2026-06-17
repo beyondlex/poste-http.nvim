@@ -532,18 +532,35 @@ fn mysql_value_to_json(row: &sqlx::mysql::MySqlRow, idx: usize) -> Value {
 
     match type_name {
         "BOOLEAN" => opt_json(row.try_get::<Option<bool>, _>(idx).ok().flatten()),
-        "TINYINT" | "TINYINT UNSIGNED" => {
+        "TINYINT" => {
             // TINYINT(1) is typically used as boolean
             opt_json(row.try_get::<Option<i8>, _>(idx).ok().flatten().map(|v| v as i64))
         }
-        "SMALLINT" | "SMALLINT UNSIGNED" => {
+        "TINYINT UNSIGNED" => {
+            opt_json(row.try_get::<Option<u8>, _>(idx).ok().flatten().map(|v| v as i64))
+        }
+        "SMALLINT" => {
             opt_json(row.try_get::<Option<i16>, _>(idx).ok().flatten().map(|v| v as i64))
         }
-        "INT" | "INT UNSIGNED" | "MEDIUMINT" | "MEDIUMINT UNSIGNED" => {
+        "SMALLINT UNSIGNED" => {
+            opt_json(row.try_get::<Option<u16>, _>(idx).ok().flatten().map(|v| v as i64))
+        }
+        "MEDIUMINT" | "MEDIUMINT UNSIGNED" | "INT" => {
             opt_json(row.try_get::<Option<i32>, _>(idx).ok().flatten().map(|v| v as i64))
         }
-        "BIGINT" | "BIGINT UNSIGNED" => {
+        "INT UNSIGNED" => {
+            opt_json(row.try_get::<Option<u32>, _>(idx).ok().flatten().map(|v| v as i64))
+        }
+        "BIGINT" => {
             opt_json(row.try_get::<Option<i64>, _>(idx).ok().flatten())
+        }
+        "BIGINT UNSIGNED" => {
+            // Serialize as string to avoid u64 precision loss in JSON
+            if let Ok(Some(v)) = row.try_get::<Option<u64>, _>(idx) {
+                json!(v.to_string())
+            } else {
+                Value::Null
+            }
         }
         "FLOAT" => opt_json(row.try_get::<Option<f32>, _>(idx).ok().flatten()),
         "DOUBLE" => opt_json(row.try_get::<Option<f64>, _>(idx).ok().flatten()),

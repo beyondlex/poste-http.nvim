@@ -21,6 +21,23 @@ local function displaywidth(s)
   return vim.fn.strdisplaywidth(s)
 end
 
+--- Truncate a string to fit within a given display width, preserving UTF-8 validity.
+--- Walks character-by-character so multi-byte chars like CJK are never split.
+local function truncate_to_displaywidth(s, max_dw)
+  local dw = 0
+  local i = 1
+  while i <= #s do
+    local b = s:byte(i)
+    local char_byte_len = b < 128 and 1 or b < 224 and 2 or b < 240 and 3 or 4
+    local char = s:sub(i, i + char_byte_len - 1)
+    local char_dw = vim.fn.strdisplaywidth(char)
+    if dw + char_dw > max_dw then break end
+    dw = dw + char_dw
+    i = i + char_byte_len
+  end
+  return s:sub(1, i - 1)
+end
+
 --- Pad a string to a given display width (right-pad with spaces).
 local function pad_right(s, width)
   local dw = displaywidth(s)
@@ -226,7 +243,7 @@ local function data_row(cells, widths, numeric_cols)
     if i > #widths then break end
     local w = widths[i]
     local s = displaywidth(cell) > w
-      and (cell:sub(1, w - 1) .. "…")  -- truncate with ellipsis
+      and (truncate_to_displaywidth(cell, w - 1) .. "…")
       or cell
     if numeric_cols[i] then
       parts[#parts + 1] = " " .. pad_left(s, w) .. " "

@@ -43,6 +43,18 @@ impl Token {
     pub(crate) fn contains(&self, offset: usize) -> bool {
         offset >= self.start && offset < self.end
     }
+
+    /// Return the display text of the token, stripping quotes for QuotedIdent.
+    /// For a backtick-quoted or double-quoted identifier, returns the inner text
+    /// without the quote characters.
+    pub(crate) fn display_text<'a>(&self, sql: &'a str) -> &'a str {
+        match self.kind {
+            TokenKind::QuotedIdent if self.end - self.start >= 2 => {
+                &sql[self.start + 1..self.end - 1]
+            }
+            _ => self.text(sql),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +305,9 @@ pub(crate) fn extract_prefix(sql: &str, offset: usize, tokens: &[Token], idx: us
             TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At => {
                 return sql[t.start..offset].to_string();
             }
+            TokenKind::QuotedIdent => {
+                return sql[t.start + 1..offset].to_string();
+            }
             _ => {}
         }
     }
@@ -300,6 +315,9 @@ pub(crate) fn extract_prefix(sql: &str, offset: usize, tokens: &[Token], idx: us
         match tokens[idx].kind {
             TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At => {
                 return tokens[idx].text(sql).to_string();
+            }
+            TokenKind::QuotedIdent => {
+                return tokens[idx].display_text(sql).to_string();
             }
             _ => {}
         }
@@ -312,6 +330,11 @@ pub(crate) fn extract_prefix(sql: &str, offset: usize, tokens: &[Token], idx: us
                     if tokens[prev].end == offset =>
                 {
                     return tokens[prev].text(sql).to_string();
+                }
+                TokenKind::QuotedIdent
+                    if tokens[prev].end == offset =>
+                {
+                    return tokens[prev].display_text(sql).to_string();
                 }
                 _ => {}
             }

@@ -34,7 +34,7 @@ pub(crate) fn parse_table_ref<'a>(
         _ => return (None, "", None, 0),
     };
 
-    let first_text = first.text(sql);
+    let first_text = first.display_text(sql);
     let mut consumed = 1;
 
     // Check for schema qualifier: find '.' after this token using skip_forward
@@ -44,7 +44,7 @@ pub(crate) fn parse_table_ref<'a>(
             if let Some(table_idx) = skip_forward(tokens, dot_idx) {
                 let table_tok = &tokens[table_idx];
                 if matches!(table_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword) {
-                    let table = table_tok.text(sql);
+                    let table = table_tok.display_text(sql);
 
                     // Check for 3-level: database.schema.table
                     if let Some(next_dot_idx) = skip_forward(tokens, table_idx) {
@@ -54,7 +54,7 @@ pub(crate) fn parse_table_ref<'a>(
                                 if matches!(third_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword) {
                                     // 3-level: database.schema.table → schema = middle, table = last
                                     let schema_text = table;
-                                    let table_text = third_tok.text(sql);
+                                    let table_text = third_tok.display_text(sql);
                                     consumed = third_idx - i + 1;
 
                                     // Check for alias after 3-level table
@@ -89,12 +89,12 @@ pub(crate) fn parse_table_ref<'a>(
                 match tokens[j].kind {
                     TokenKind::Dot => { j += 1; }
                     TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword => {
-                        let table = tokens[j].text(sql);
+                        let table = tokens[j].display_text(sql);
                         consumed = j - i + 2;
 
                         if let Some(alias_tok) = tokens.get(j + 1) {
                             if matches!(alias_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
-                                let alias_text = alias_tok.text(sql);
+                                let alias_text = alias_tok.display_text(sql);
                                 if !is_known_keyword(alias_text) {
                                     consumed = j - i + 3;
                                     return (Some(first_text), table, Some(alias_text), consumed);
@@ -119,7 +119,7 @@ pub(crate) fn parse_table_ref<'a>(
         // Fallback: check bare alias with extra exclusions
         let alias_tok = &tokens[next_idx];
         if matches!(alias_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
-            let alias_text = alias_tok.text(sql);
+            let alias_text = alias_tok.display_text(sql);
             let lower = alias_text.to_ascii_lowercase();
             if !is_table_keyword(&lower) && !is_column_keyword(&lower)
                 && !is_predicate_keyword(&lower)
@@ -146,7 +146,7 @@ fn try_extract_alias<'a>(
         if let Some(after_as) = skip_forward(tokens, idx) {
             let alias_tok = &tokens[after_as];
             if matches!(alias_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
-                let alias_text = alias_tok.text(sql);
+                let alias_text = alias_tok.display_text(sql);
                 if !is_table_keyword(alias_text) && !is_column_keyword(alias_text)
                     && !is_predicate_keyword(alias_text)
                     && !is_known_keyword(alias_text)
@@ -157,7 +157,7 @@ fn try_extract_alias<'a>(
         }
     // Handle bare "alias"
     } else if matches!(tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
-        let alias_text = tok.text(sql);
+        let alias_text = tok.display_text(sql);
         if !is_table_keyword(alias_text) && !is_column_keyword(alias_text)
             && !is_predicate_keyword(alias_text)
             && !is_known_keyword(alias_text)

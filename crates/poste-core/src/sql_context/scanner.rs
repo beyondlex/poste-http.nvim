@@ -147,7 +147,7 @@ pub(crate) fn detect_scan_backward(
                 }
                 return ContextType::Keyword;
             }
-            TokenKind::Ident | TokenKind::NumLit => {
+            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::NumLit => {
                 if after_comma {
                     after_comma = false;
                 } else if skip_one_ident {

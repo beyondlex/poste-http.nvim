@@ -151,7 +151,7 @@ fn extract_cte_names(tokens: &[Token], with_idx: usize, sql: &str, scope: &mut Q
                 if check < tokens.len() {
                     let tok = &tokens[check];
                     if tok.kind == TokenKind::Keyword && kw_eq(tok.text(sql), "as") {
-                        let name = tokens[i].text(sql).to_string();
+                        let name = tokens[i].display_text(sql).to_string();
                         scope.ctes.push(CteRef { name });
                         found_cte = true;
                         if let Some(body_start) = skip_forward(tokens, check) {
@@ -200,11 +200,11 @@ fn extract_derived_table_alias(tokens: &[Token], lp_idx: usize, sql: &str) -> Op
             if let Some(name_idx) = skip_forward(tokens, alias_start) {
                 let name_tok = &tokens[name_idx];
                 if matches!(name_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword) {
-                    return Some(name_tok.text(sql).to_string());
+                    return Some(name_tok.display_text(sql).to_string());
                 }
             }
         } else if matches!(alias_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
-            let text = alias_tok.text(sql);
+            let text = alias_tok.display_text(sql);
             if !is_known_keyword(text) {
                 return Some(text.to_string());
             }

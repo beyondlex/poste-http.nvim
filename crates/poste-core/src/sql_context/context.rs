@@ -151,7 +151,7 @@ pub fn detect_context_with_dialect(
     }
 
     let cursor_on_ident = matches!(cursor_tok.kind,
-        TokenKind::Ident | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At)
+        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At)
         || (matches!(cursor_tok.kind, TokenKind::Whitespace)
             && offset > 0
             && offset <= sql.len()

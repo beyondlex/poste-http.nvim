@@ -17,7 +17,7 @@ pub(crate) fn try_dot_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> 
         let prev_tok = &tokens[prev_idx];
         match prev_tok.kind {
             TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword => {
-                let ident = prev_tok.text(sql).to_string();
+                let ident = prev_tok.display_text(sql).to_string();
                 if let Some(ctx_kw_idx) = skip_back(tokens, prev_idx) {
                     if tokens[ctx_kw_idx].kind == TokenKind::Keyword {
                         let kw = tokens[ctx_kw_idx].text(sql).to_ascii_lowercase();
@@ -32,7 +32,7 @@ pub(crate) fn try_dot_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> 
                         if let Some(schema_tok_idx) = skip_back(tokens, before) {
                             let schema_tok = &tokens[schema_tok_idx];
                             if matches!(schema_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
-                                schema = Some(schema_tok.text(sql).to_string());
+                                schema = Some(schema_tok.display_text(sql).to_string());
                             }
                         }
                     }
@@ -106,7 +106,7 @@ pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) 
         if !matches!(tbl_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword) {
             return None;
         }
-        let table = tbl_tok.text(sql).to_string();
+        let table = tbl_tok.display_text(sql).to_string();
 
         if let Some(into_idx) = skip_back(tokens, tbl_idx) {
             let into_tok = &tokens[into_idx];

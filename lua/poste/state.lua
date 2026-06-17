@@ -181,12 +181,24 @@ function M.find_poste_binary()
   if M.config.poste_binary ~= "" and vim.fn.filereadable(M.config.poste_binary) == 1 then
     return vim.fn.fnamemodify(M.config.poste_binary, ":p")
   end
+  -- CWD-relative (works when nvim is launched from poste repo root)
   for _, path in ipairs({ "./target/debug/poste", "./target/release/poste" }) do
     if vim.fn.filereadable(path) == 1 then
       return vim.fn.fnamemodify(path, ":p")
     end
   end
-  return vim.fn.exepath("poste")
+  -- Plugin-relative (works when poste is on rtp from a repo checkout)
+  local src = debug.getinfo(1, "S").source
+  local root = src:sub(1, 1) == "@" and src:sub(2):match("^(.+/)lua/poste/")
+  if root then
+    for _, p in ipairs({ root .. "target/debug/poste", root .. "target/release/poste" }) do
+      if vim.fn.filereadable(p) == 1 then
+        return vim.fn.fnamemodify(p, ":p")
+      end
+    end
+  end
+  local path = vim.fn.exepath("poste")
+  return path ~= "" and path or nil
 end
 
 -- Highlight overrides from user config

@@ -15,6 +15,143 @@ local function shell_escape(s)
   return s
 end
 
+--- Walk up from directory looking for env.json and return current env's variables.
+local function load_env_vars(file_path, env_name)
+  if not file_path or file_path == "" then return {} end
+  if not env_name or env_name == "" then return {} end
+  local dir = vim.fn.fnamemodify(file_path, ":h")
+  local seen = {}
+  while true do
+    local candidate = dir .. "/env.json"
+    if not seen[dir] and vim.fn.filereadable(candidate) == 1 then
+      seen[dir] = true
+      local f = io.open(candidate, "r")
+      if f then
+        local content = f:read("*a")
+        f:close()
+        local ok, data = pcall(vim.json.decode, content)
+        if ok and type(data) == "table" then
+          return data[env_name] or {}
+        end
+      end
+    end
+    local parent = vim.fn.fnamemodify(dir, ":h")
+    if parent == dir then break end
+    dir = parent
+  end
+  return {}
+end
+
+--- Simple {{var}} substitution with iterative resolution (handles nested refs).
+local function substitute_vars(text, vars)
+  local result = text
+  for _ = 1, 20 do
+    local next = result:gsub("{{([^}]+)}}", function(var_name)
+      return vars[var_name] or "{{" .. var_name .. "}}"
+    end)
+    if next == result then break end
+    result = next
+  end
+  return result
+end
+
+--- Collect @var definitions from a list of lines (single-line: @name = value or @name value).
+--- Returns a table of {name = value, ...}.
+local function collect_var_defs(lines)
+  local vars = {}
+  for _, line in ipairs(lines) do
+    local trimmed = vim.trim(line)
+    if trimmed:sub(1, 1) == "@" then
+      local name, value = trimmed:match("^@(%S+)%s*=%s*(.+)")
+      if not name then
+        name, value = trimmed:match("^@(%S+)%s+(.+)")
+      end
+      if name and value then
+        value = value:match("^'(.-)'$") or value:match('^"(.-)"$') or value
+        vars[name] = value
+      end
+    end
+  end
+  return vars
+end
+
+--- Resolve variables in request block content:
+--- 1. Collect file-level @var defs (before the block)
+--- 2. Load env.json for current env
+--- 3. Collect request-level @var defs (within the block)
+--- 4. Resolve {{var}} iteratively
+--- 5. Replace magic vars ({{$timestamp}}, {{$uuid}}, {{$date}}, {{$randomInt}})
+--- 6. Handle file inclusion lines (< /path/to/file)
+local function resolve_request_content(buf, raw_lines, block_start_line)
+  local state = require("poste.state")
+
+  -- 1. File-level @var definitions
+  local file_lines = block_start_line > 1
+    and vim.api.nvim_buf_get_lines(buf, 0, block_start_line - 2, false) or {}
+  local vars = collect_var_defs(file_lines)
+
+  -- 2. env.json variables
+  local file_path = vim.api.nvim_buf_get_name(buf)
+  local env_vars = load_env_vars(file_path, state.current_env)
+  for k, v in pairs(env_vars) do
+    vars[k] = v
+  end
+
+  -- 3. Resolve file-level vars (they may reference each other or env)
+  vars = collect_var_defs(file_lines)
+  for name, value in pairs(vars) do
+    vars[name] = substitute_vars(value, vars)
+  end
+  -- Re-merge env vars after resolution (env takes lower priority)
+  for k, v in pairs(env_vars) do
+    if not vars[k] then vars[k] = v end
+  end
+
+  -- 4. Resolve content: join, substitute magic vars, substitute {{var}}, handle file includes
+  local content = table.concat(raw_lines, "\n")
+
+  -- Magic vars
+  content = content:gsub("{{%$timestamp}}", tostring(os.time()) .. math.random(100000, 999999))
+  content = content:gsub("{{%$uuid}}", function()
+    local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+    return template:gsub("[xy]", function(c)
+      local r = math.random(0, 15)
+      local v = c == "x" and r or (r % 4) + 8
+      return string.format("%x", v)
+    end)
+  end)
+  content = content:gsub("{{%$date}}", os.date("%Y-%m-%d"))
+  content = content:gsub("{{%$randomInt}}", tostring(math.random(0, 9999999)))
+
+  -- {{var}} substitution
+  content = substitute_vars(content, vars)
+
+  -- File inclusion lines: < /path/to/file
+  local inc_lines = vim.split(content, "\n", { plain = true })
+  local out_lines = {}
+  for _, line in ipairs(inc_lines) do
+    local file_path_inc = line:match("^%s*<%s+(.+)$")
+    if file_path_inc then
+      file_path_inc = vim.trim(file_path_inc)
+      if file_path_inc:sub(1, 1) == "~" then
+        file_path_inc = vim.fn.expand("~") .. file_path_inc:sub(2)
+      end
+      local f = io.open(file_path_inc, "rb")
+      if f then
+        table.insert(out_lines, f:read("*a"))
+        f:close()
+      else
+        table.insert(out_lines, line)
+      end
+    else
+      table.insert(out_lines, line)
+    end
+  end
+  content = table.concat(out_lines, "\n")
+
+  return vim.split(content, "\n", { plain = true })
+end
+
 --- Extract current request block and convert to curl command.
 --- Returns curl command string or nil, error_msg.
 function M.copy_as_curl()
@@ -31,12 +168,13 @@ function M.copy_as_curl()
   end
 
   -- Extract request block text
-  local lines = vim.api.nvim_buf_get_lines(buf, start_line - 1, end_line, false)
+  local raw_lines = vim.api.nvim_buf_get_lines(buf, start_line - 1, end_line, false)
+  local resolved_lines = resolve_request_content(buf, raw_lines, start_line)
   local request_lines = {}
 
-  for _, line in ipairs(lines) do
-    -- Skip ### separator and comments
-    if not line:match("^%s*###") and not line:match("^%s*#") then
+  for _, line in ipairs(resolved_lines) do
+    -- Skip ### separator, comments, and @var definitions
+    if not line:match("^%s*###") and not line:match("^%s*#") and not line:match("^%s*@%S+") then
       table.insert(request_lines, line)
     end
   end

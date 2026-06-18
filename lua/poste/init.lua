@@ -114,6 +114,7 @@ function M.run_request()
 
   local src_buf = vim.api.nvim_get_current_buf()
   local line = vim.fn.line(".")
+  state.last_request = { buf = src_buf, line = line }
 
   -- Use buffer name (file path) for env.json discovery and extension detection.
   -- The file may not exist on disk — that's fine with --stdin.

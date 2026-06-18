@@ -39,6 +39,7 @@ M.config = {
       view_script_logs = "S",
       next_tab = "<Tab>",
       prev_tab = "<S-Tab>",
+      rerun = "r",
     },
     sql_source = {
       run = "<CR>",
@@ -126,6 +127,7 @@ M.current_env = M.config.default_env
 M.last_response = nil            -- parsed JSON table from --json output
 M.last_assertion_results = nil   -- { tests, logs, total, passed, failed }
 M.last_script_logs = nil         -- { "log line 1", "log line 2", ... } from pre/post scripts
+M.last_request = nil             -- { buf, line } for re-run from response buffer
 M.current_view = "body"          -- "body" | "headers" | "verbose" | "assertions" | "script_logs"
 
 -- Script variable stores

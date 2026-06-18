@@ -124,13 +124,8 @@ end
 local function pretty_body(body, content_type)
   if not body or body == "" then return "" end
 
-  -- If body already has newlines, it's already formatted (curl does this)
-  if body:find("\n") then
-    return body
-  end
-
-  -- Only try to format compact JSON
-  if content_type and content_type:find("json") then
+  -- Try to format compact JSON: decode unicode escapes, pretty-print
+  if not body:find("\n") and (not content_type or content_type:find("json") or body:sub(1, 1) == "{" or body:sub(1, 1) == "[") then
     local ok, decoded = pcall(vim.json.decode, body)
     if ok and decoded then
       local pretty = json_pretty(decoded)

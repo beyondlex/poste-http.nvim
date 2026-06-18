@@ -125,6 +125,32 @@ local function get_response_buffer()
     vim.keymap.set("n", k, function() M.cycle_tab(-1) end, opts)
   end
 
+  -- Re-run current request
+  k = state.get_keymap("http_response", "rerun", "r")
+  if k then
+    vim.keymap.set("n", k, function()
+      local last = state.last_request
+      if not last then
+        vim.notify("No request to re-run", vim.log.levels.WARN)
+        return
+      end
+      if not vim.api.nvim_buf_is_valid(last.buf) then
+        vim.notify("Source buffer no longer exists", vim.log.levels.WARN)
+        return
+      end
+      local win = vim.fn.bufwinid(last.buf)
+      if win < 0 then
+        vim.notify("Source buffer not visible in any window", vim.log.levels.WARN)
+        return
+      end
+      vim.api.nvim_set_current_win(win)
+      pcall(vim.api.nvim_win_set_cursor, win, { last.line, 0 })
+      -- Clear last_response so the UI updates even if the same request returns quickly
+      state.last_response = nil
+      require("poste").run_request()
+    end, opts)
+  end
+
   return response_buffer
 end
 

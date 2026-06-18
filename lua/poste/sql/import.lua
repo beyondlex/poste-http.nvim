@@ -822,7 +822,7 @@ local function execute_import(table_info, valid_rows, col_map, table_cols, callb
       table_info.schema or "(default)", table_info.name))
 
     local cmd = { binary, "run", "--stdin", "--line", "2", "--json", src_file }
-    local stderr_buf = {}
+    local stderr_buf = {}; local chunk_start = vim.fn.reltime(); local logged = false
     local job_id = vim.fn.jobstart(cmd, {
       stdout_buffered = true,
       stderr_buffered = true,
@@ -831,9 +831,22 @@ local function execute_import(table_info, valid_rows, col_map, table_cols, callb
           send_chunk(end_idx + 1)
           return
         end
+        logged = true
         local output = table.concat(data, "\n")
         local ok_r, resp = pcall(vim.json.decode, output)
         if not ok_r or not resp then
+          local elapsed = vim.fn.reltimefloat(vim.fn.reltime(chunk_start)) * 1000
+          edit_commit.write_log({
+            source = "import",
+            table_name = table_info.schema and (table_info.schema .. "." .. table_info.name) or table_info.name,
+            connection = table_info.connection or "",
+            dialect = table_info.dialect or "",
+            database = table_info.database or "",
+            sql = sql_content,
+            status = "error",
+            elapsed_ms = math.floor(elapsed + 0.5),
+            error_msg = "JSON parse error:\n" .. output,
+          })
           table.insert(all_errors, {
             chunk_start = start_idx, chunk_end = end_idx,
             error = "JSON parse error:\n" .. output,
@@ -845,9 +858,11 @@ local function execute_import(table_info, valid_rows, col_map, table_cols, callb
         local ok_body, body = pcall(vim.json.decode, resp.body or "{}")
         if not ok_body or type(body) ~= "table" then body = {} end
 
+        local has_error = false
         if body.has_error and body.results then
           for ri, result in ipairs(body.results) do
             if result.error and result.error ~= "" then
+              has_error = true
               table.insert(all_errors, {
                 row = start_idx + ri - 1,
                 chunk_start = start_idx, chunk_end = end_idx,
@@ -865,6 +880,33 @@ local function execute_import(table_info, valid_rows, col_map, table_cols, callb
           end
         end
         total_imported = total_imported + affected
+
+        local elapsed = vim.fn.reltimefloat(vim.fn.reltime(chunk_start)) * 1000
+        if has_error then
+          edit_commit.write_log({
+            source = "import",
+            table_name = table_info.schema and (table_info.schema .. "." .. table_info.name) or table_info.name,
+            connection = table_info.connection or "",
+            dialect = table_info.dialect or "",
+            database = table_info.database or "",
+            sql = sql_content,
+            status = "error",
+            elapsed_ms = math.floor(elapsed + 0.5),
+            error_msg = "One or more statements in chunk failed",
+          })
+        else
+          edit_commit.write_log({
+            source = "import",
+            table_name = table_info.schema and (table_info.schema .. "." .. table_info.name) or table_info.name,
+            connection = table_info.connection or "",
+            dialect = table_info.dialect or "",
+            database = table_info.database or "",
+            sql = sql_content,
+            status = "success",
+            elapsed_ms = math.floor(elapsed + 0.5),
+          })
+        end
+
         send_chunk(end_idx + 1)
       end,
       on_stderr = function(_, data)
@@ -877,6 +919,20 @@ local function execute_import(table_info, valid_rows, col_map, table_cols, callb
         if code ~= 0 then
           local s = table.concat(stderr_buf, "\n")
           if s ~= "" then
+            if not logged then
+              local elapsed = vim.fn.reltimefloat(vim.fn.reltime(chunk_start)) * 1000
+              edit_commit.write_log({
+                source = "import",
+                table_name = table_info.schema and (table_info.schema .. "." .. table_info.name) or table_info.name,
+                connection = table_info.connection or "",
+                dialect = table_info.dialect or "",
+                database = table_info.database or "",
+                sql = sql_content,
+                status = "error",
+                elapsed_ms = math.floor(elapsed + 0.5),
+                error_msg = "Process error (code " .. code .. "):\n" .. s,
+              })
+            end
             table.insert(all_errors, {
               chunk_start = start_idx, chunk_end = end_idx,
               error = "Process error (code " .. code .. "):\n" .. s,

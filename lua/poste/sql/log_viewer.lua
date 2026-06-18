@@ -330,7 +330,7 @@ local function build_lines()
     local time = format_time(entry.ts)
     local db = pad_table(entry_database(entry) or entry_table(entry) or "?")
     local ms = string.format("%5s", tostring(entry.elapsed_ms or 0) .. "ms")
-    local src_tag = string.format("%-6s", entry.source == "dataset_commit" and "commit" or "exec")
+    local src_tag = string.format("%-6s", entry.source == "dataset_commit" and "commit" or entry.source == "import" and "import" or "exec")
     local display_sql = clean_sql(entry.sql)
     local sql = preview_sql(display_sql, 70)
     local parts = { "  ", time, "  ", db, "  ", ms, "  ", src_tag, " ", sql }

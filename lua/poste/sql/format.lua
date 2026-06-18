@@ -676,16 +676,30 @@ function M.render_row(row, layout, row_number)
   return data_row(cells, layout.col_widths, layout.numeric_cols)
 end
 
+local function wrap_text(text, width)
+  if not text or #text == 0 then return {} end
+  local lines = {}
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    while #line > width do
+      local split = line:sub(1, width)
+      line = line:sub(width + 1)
+      table.insert(lines, split)
+    end
+    table.insert(lines, line)
+  end
+  return lines
+end
+
 function M.format_error(err, connection)
-  return {
-    "",
-    "  ✗ SQL Error",
-    "",
-    "  " .. err,
-    "",
-    "  Connection: " .. (connection or "unknown"),
-    "",
-  }
+  local wrapped = wrap_text(err, 78)
+  local lines = { "", "  ✗ SQL Error", "" }
+  for _, l in ipairs(wrapped) do
+    table.insert(lines, "  " .. l)
+  end
+  table.insert(lines, "")
+  table.insert(lines, "  Connection: " .. (connection or "unknown"))
+  table.insert(lines, "")
+  return lines
 end
 
 return M

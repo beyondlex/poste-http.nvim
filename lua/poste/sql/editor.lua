@@ -8,87 +8,47 @@ local M = {}
 -- Type classification helpers
 ---------------------------------------------------------------------------
 
-local NUMERIC_TYPES = {
-  integer = true, int = true, bigint = true, smallint = true,
-  numeric = true, decimal = true, real = true, float = true,
-  serial = true, bigserial = true, smallserial = true,
+local TYPES = {
+  integer = { integer=true, int=true, bigint=true, smallint=true,
+              serial=true, bigserial=true, smallserial=true },
+  numeric = { integer=true, int=true, bigint=true, smallint=true, serial=true, bigserial=true, smallserial=true,
+              numeric=true, decimal=true, real=true, float=true, double=true, double_precision=true },
+  boolean = { boolean=true, bool=true },
+  date    = { date=true, timestamp=true, timestamptz=true, datetime=true, datetime2=true, time=true },
+  json    = { json=true, jsonb=true },
+  uuid    = { uuid=true },
+  text    = { text=true, varchar=true, char=true, character=true, character_varying=true,
+              nvarchar=true, nchar=true, longtext=true, mediumtext=true, tinytext=true },
+  ineditable = { binary=true, bytea=true, blob=true, varbinary=true,
+                 geometry=true, geography=true, point=true, polygon=true, linestring=true, multipolygon=true,
+                 inet=true, cidr=true, macaddr=true, macaddr8=true,
+                 bit=true, varbit=true, interval=true,
+                 tsvector=true, tsquery=true, xml=true, hstore=true,
+                 array=true, range=true, multirange=true },
 }
 
-local INTEGER_TYPES = {
-  integer = true, int = true, bigint = true, smallint = true,
-  serial = true, bigserial = true, smallserial = true,
-}
-
-local BOOLEAN_TYPES = {
-  boolean = true, bool = true,
-}
-
-local DATE_TYPES = {
-  date = true, timestamp = true, timestamptz = true,
-  datetime = true, datetime2 = true, time = true,
-}
-
-local JSON_TYPES = {
-  json = true, jsonb = true,
-}
-
-local UUID_TYPE = { uuid = true }
-
-local TEXT_TYPES = {
-  text = true, varchar = true, char = true, character = true,
-  character_varying = true, nvarchar = true, nchar = true,
-  longtext = true, mediumtext = true, tinytext = true,
-}
-
-local INEDITABLE_TYPES = {
-  binary = true, bytea = true, blob = true, varbinary = true,
-  geometry = true, geography = true, point = true, polygon = true,
-  linestring = true, multipolygon = true,
-  inet = true, cidr = true, macaddr = true, macaddr8 = true,
-  bit = true, varbit = true,
-  interval = true,
-  tsvector = true, tsquery = true,
-  xml = true, hstore = true,
-  array = true, range = true, multirange = true,
-}
-
----------------------------------------------------------------------------
--- Type classification public API
----------------------------------------------------------------------------
-
-function M.is_numeric_type(ctype)
-  if not ctype then return false end
-  return NUMERIC_TYPES[ctype:lower()] or false
+local function is_type(ctype, category)
+  if not ctype or not TYPES[category] then return false end
+  return TYPES[category][ctype:lower()] or false
 end
 
-function M.is_integer_type(ctype)
-  if not ctype then return false end
-  return INTEGER_TYPES[ctype:lower()] or false
-end
-
-function M.is_boolean_type(ctype)
-  if not ctype then return false end
-  return BOOLEAN_TYPES[ctype:lower()] or false
-end
-
-function M.is_date_type(ctype)
-  if not ctype then return false end
-  return DATE_TYPES[ctype:lower()] or false
-end
+function M.is_numeric_type(ctype) return is_type(ctype, "numeric") end
+function M.is_integer_type(ctype) return is_type(ctype, "integer") end
+function M.is_boolean_type(ctype) return is_type(ctype, "boolean") end
+function M.is_date_type(ctype) return is_type(ctype, "date") end
+function M.is_uuid_type(ctype) return is_type(ctype, "uuid") end
+function M.is_text_type(ctype) return is_type(ctype, "text") end
 
 function M.is_json_column(col_meta)
-  if not col_meta or not col_meta.ctype then return false end
-  return JSON_TYPES[col_meta.ctype:lower()] or false
+  return col_meta and col_meta.ctype and is_type(col_meta.ctype, "json")
 end
 
 function M.is_boolean_column(col_meta)
-  if not col_meta or not col_meta.ctype then return false end
-  return BOOLEAN_TYPES[col_meta.ctype:lower()] or false
+  return col_meta and col_meta.ctype and is_type(col_meta.ctype, "boolean")
 end
 
 function M.is_datetime_column(col_meta)
-  if not col_meta or not col_meta.ctype then return false end
-  return DATE_TYPES[col_meta.ctype:lower()] or false
+  return col_meta and col_meta.ctype and is_type(col_meta.ctype, "date")
 end
 
 function M.is_enum_column(col_meta)
@@ -97,31 +57,12 @@ function M.is_enum_column(col_meta)
   return #col_meta.enum_values > 0
 end
 
-function M.is_uuid_type(ctype)
-  if not ctype then return false end
-  return UUID_TYPE[ctype:lower()] or false
-end
-
-function M.is_text_type(ctype)
-  if not ctype then return false end
-  return TEXT_TYPES[ctype:lower()] or false
-end
-
----------------------------------------------------------------------------
--- UT3: is_editable_field
----------------------------------------------------------------------------
-
---- Check if a column type supports editing.
---- @param col_meta table Column metadata with .ctype and optionally .user_defined
---- @return boolean
 function M.is_editable_field(col_meta)
   if not col_meta then return false end
   if col_meta.user_defined then return false end
   local ctype = col_meta.ctype
   if not ctype then return true end
-  ctype = ctype:lower()
-  if INEDITABLE_TYPES[ctype] then return false end
-  return true
+  return not is_type(ctype, "ineditable")
 end
 
 ---------------------------------------------------------------------------
@@ -199,8 +140,8 @@ function M.validate_value(value, col_meta)
 
   local ctype = col_meta.ctype:lower()
 
-  -- Integer types
-  if INTEGER_TYPES[ctype] then
+  -- Integer types (check before numeric for stricter validation)
+  if is_type(ctype, "integer") then
     if type(value) ~= "number" then
       return false, "Expected integer, got " .. type(value)
     end
@@ -211,7 +152,7 @@ function M.validate_value(value, col_meta)
   end
 
   -- Numeric/float types
-  if NUMERIC_TYPES[ctype] then
+  if is_type(ctype, "numeric") then
     if type(value) ~= "number" then
       return false, "Expected number, got " .. type(value)
     end
@@ -219,7 +160,7 @@ function M.validate_value(value, col_meta)
   end
 
   -- Boolean types
-  if BOOLEAN_TYPES[ctype] then
+  if is_type(ctype, "boolean") then
     if type(value) == "boolean" then
       return true, nil
     end
@@ -230,7 +171,7 @@ function M.validate_value(value, col_meta)
   end
 
   -- Date/timestamp types
-  if DATE_TYPES[ctype] then
+  if is_type(ctype, "date") then
     if type(value) == "string" then
       -- Check common date formats
       if value:match("^%d%d%d%d%-%d%d%-%d%d") then
@@ -258,7 +199,7 @@ function M.validate_value(value, col_meta)
   end
 
   -- JSON types
-  if JSON_TYPES[ctype] then
+  if is_type(ctype, "json") then
     if type(value) == "table" then
       return true, nil
     end
@@ -271,7 +212,7 @@ function M.validate_value(value, col_meta)
   end
 
   -- UUID type
-  if UUID_TYPE[ctype] then
+  if is_type(ctype, "uuid") then
     if type(value) ~= "string" then
       return false, "Expected UUID string, got: " .. type(value)
     end
@@ -282,7 +223,7 @@ function M.validate_value(value, col_meta)
   end
 
   -- text/varchar/char: anything goes
-  if TEXT_TYPES[ctype] then
+  if is_type(ctype, "text") then
     return true, nil
   end
 
@@ -474,9 +415,69 @@ local function get_state()
   return require("poste.state")
 end
 
+local function check_edit_guards(tab)
+  if not tab or not tab.layout then return false end
+  if get_state().sql._raw_mode then
+    vim.notify("Editing is not supported in raw mode", vim.log.levels.WARN)
+    return false
+  end
+  if tab.layout.rows and #tab.layout.rows > 5000 then
+    vim.notify("Editing is not supported for result sets > 5000 rows", vim.log.levels.WARN)
+    return false
+  end
+  if tab.original_sql and M.has_join(tab.original_sql) then
+    vim.notify("Editing is not supported for multi-table (JOIN) queries", vim.log.levels.WARN)
+    return false
+  end
+  M.ensure_primary_key(tab)
+  return true
+end
+
 ---------------------------------------------------------------------------
 -- Primary key introspection
 ---------------------------------------------------------------------------
+
+local METADATA_QUERIES = {
+  primary_keys = {
+    postgres = [[
+      SELECT c.column_name, c.column_default,
+        CASE WHEN pk.attname IS NOT NULL THEN 1 ELSE 0 END AS IS_PK
+      FROM information_schema.columns c
+      LEFT JOIN (
+        SELECT a.attname FROM pg_index i
+        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+        JOIN pg_class cl ON cl.oid = i.indrelid
+        WHERE i.indisprimary AND cl.relname = '%s'
+      ) pk ON pk.attname = c.column_name
+      WHERE c.table_name = '%s' AND c.table_schema = '%s'
+    ]],
+    mysql = [[
+      SELECT c.COLUMN_NAME, c.COLUMN_DEFAULT, c.EXTRA,
+        CASE WHEN k.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PK
+      FROM INFORMATION_SCHEMA.COLUMNS c
+      LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE k
+        ON k.TABLE_NAME = c.TABLE_NAME AND k.COLUMN_NAME = c.COLUMN_NAME
+        AND k.CONSTRAINT_NAME = 'PRIMARY' AND k.TABLE_SCHEMA = c.TABLE_SCHEMA
+      WHERE c.TABLE_NAME = '%s'
+    ]],
+    sqlite = [[
+      SELECT name AS column_name, dflt_value AS column_default, pk AS IS_PK
+      FROM pragma_table_info('%s')
+    ]],
+  },
+  enums = {
+    postgres = [[
+      SELECT t.typname AS type_name, e.enumlabel AS enum_value
+      FROM pg_type t
+      JOIN pg_enum e ON t.oid = e.enumtypid
+      ORDER BY t.typname, e.enumsortorder
+    ]],
+    mysql = [[
+      SELECT COLUMN_NAME, COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_NAME = '%s' AND DATA_TYPE = 'enum'
+    ]],
+  },
+}
 
 -- Cache: { ["connection:database:table"] = true }
 local pk_cache = {}
@@ -487,7 +488,6 @@ local pk_cache = {}
 function M.has_join(sql)
   if not sql or sql == "" then return false end
   local upper = sql:upper()
-  -- Count JOIN keywords (simple heuristic)
   local count = 0
   local idx = 1
   while true do
@@ -502,8 +502,154 @@ function M.has_join(sql)
   return count >= 1
 end
 
+local function build_pk_query(dialect, table_name, db)
+  local template = METADATA_QUERIES.primary_keys[dialect]
+  if not template then return nil end
+  local safe_table = table_name:gsub("'", "''")
+  if dialect == "mysql" then
+    local sql = string.format(template, safe_table)
+    if db and db ~= "" then
+      sql = sql .. string.format(" AND c.TABLE_SCHEMA = '%s'", db:gsub("'", "''"))
+    end
+    return sql
+  elseif dialect == "postgres" then
+    local schema = "public"
+    return string.format(template, safe_table, safe_table, schema:gsub("'", "''"))
+  elseif dialect == "sqlite" then
+    return string.format(template, safe_table)
+  end
+  return nil
+end
+
+local function build_enum_query(dialect, table_name, db)
+  local template = METADATA_QUERIES.enums[dialect]
+  if not template then return nil end
+  local safe_table = table_name:gsub("'", "''")
+  if dialect == "mysql" then
+    local sql = string.format(template, safe_table)
+    if db and db ~= "" then
+      sql = sql .. string.format(" AND TABLE_SCHEMA = '%s'", db:gsub("'", "''"))
+    end
+    return sql
+  elseif dialect == "postgres" then
+    return template
+  end
+  return nil
+end
+
+local function resolve_src_file(tab)
+  local src_file = tab.src_file or ""
+  if src_file ~= "" then return src_file end
+  local ok, buf_name = pcall(vim.api.nvim_buf_get_name, 0)
+  if ok and buf_name and buf_name ~= "" and not buf_name:match("^poste://") then
+    return buf_name
+  end
+  return vim.fn.tempname() .. ".sql"
+end
+
+local function run_introspection_query(query, connection, database, src_file)
+  local binary = get_state().find_poste_binary()
+  if not binary then return nil end
+  local args = { binary, "run", "--stdin", "--line", "2", src_file, "--json" }
+  if database and database ~= "" then
+    table.insert(args, "--database")
+    table.insert(args, database)
+  end
+  local sql_content = "-- @connection " .. connection .. "\n" .. query
+  local output = vim.fn.system(args, sql_content)
+  if vim.v.shell_error ~= 0 then return nil end
+  local ok, parsed = pcall(vim.json.decode, output)
+  if not ok or not parsed then return nil end
+  local body_ok, body = pcall(vim.json.decode, parsed.body or "{}")
+  if not body_ok or not body then return nil end
+  return body
+end
+
+local function parse_pk_results(body, layout, dialect)
+  local defaults = {}
+  local pk_names = {}
+  local is_pk_col_idx = (dialect == "mysql" and 4) or 3
+  for _, res in ipairs(body.results) do
+    if res.rows then
+      for _, row in ipairs(res.rows) do
+        local col_name = tostring(row[1] or "")
+        local col_default = row[2]
+        local is_pk = row[is_pk_col_idx]
+        if col_name ~= "" then
+          defaults[col_name] = (col_default ~= vim.NIL and col_default ~= nil) and col_default or nil
+          if is_pk and (is_pk == 1 or is_pk == "1") then
+            pk_names[col_name] = true
+          end
+        end
+      end
+    end
+  end
+  for _, col in ipairs(layout.columns) do
+    if defaults[col.name] ~= nil then
+      col.default = defaults[col.name]
+    end
+    if pk_names[col.name] then
+      col.primary_key = true
+    end
+  end
+end
+
+local function parse_mysql_enum_body(body, layout)
+  for _, res in ipairs(body.results) do
+    if res.rows then
+      for _, row in ipairs(res.rows) do
+        local col_name = tostring(row[1] or "")
+        local col_type = tostring(row[2] or "")
+        local values = {}
+        for v in col_type:gmatch("'([^']*)'") do
+          table.insert(values, v)
+        end
+        if #values > 0 then
+          for _, col in ipairs(layout.columns) do
+            if col.name == col_name then
+              col.enum_values = values
+              break
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+local function parse_postgres_enum_body(body, layout)
+  local enum_map = {}
+  for _, res in ipairs(body.results) do
+    if res.rows then
+      for _, row in ipairs(res.rows) do
+        local type_name = tostring(row[1] or "")
+        local enum_value = tostring(row[2] or "")
+        if type_name ~= "" and enum_value ~= "" then
+          if not enum_map[type_name] then
+            enum_map[type_name] = {}
+          end
+          table.insert(enum_map[type_name], enum_value)
+        end
+      end
+    end
+  end
+  for _, col in ipairs(layout.columns) do
+    if col.ctype and enum_map[col.ctype:lower()] then
+      col.enum_values = enum_map[col.ctype:lower()]
+    end
+  end
+end
+
+local function parse_enum_results(body, layout, dialect)
+  if dialect == "mysql" then
+    parse_mysql_enum_body(body, layout)
+  elseif dialect == "postgres" then
+    parse_postgres_enum_body(body, layout)
+  end
+end
+
 --- Fetch primary key info for a table via SQL query.
---- Sets primary_key=true on matching columns in layout.
+--- Sets primary_key=true and default/enum_values on matching columns.
 --- @param tab table Tab state with layout
 function M.ensure_primary_key(tab)
   if not tab or not tab.layout then return end
@@ -523,187 +669,29 @@ function M.ensure_primary_key(tab)
     end
   end
 
-  -- Query the database for primary key columns
   local dialect = layout.dialect or ""
-  -- Fallback: extract database from connection string if not set
   local db = database
   if (not db or db == "") and layout.connection then
     db = layout.connection:match("/([^/?]+)$")
   end
-  local meta_query
-  if dialect == "mysql" then
-    meta_query = string.format(
-      "SELECT c.COLUMN_NAME, c.COLUMN_DEFAULT, c.EXTRA, "
-      .. "CASE WHEN k.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PK "
-      .. "FROM INFORMATION_SCHEMA.COLUMNS c "
-      .. "LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE k "
-      .. "ON k.TABLE_NAME = c.TABLE_NAME AND k.COLUMN_NAME = c.COLUMN_NAME "
-      .. "AND k.CONSTRAINT_NAME = 'PRIMARY' AND k.TABLE_SCHEMA = c.TABLE_SCHEMA "
-      .. "WHERE c.TABLE_NAME = '%s'",
-      table_name:gsub("'", "''"))
-    if db and db ~= "" then
-      meta_query = meta_query .. string.format(" AND c.TABLE_SCHEMA = '%s'", db:gsub("'", "''"))
-    end
-  elseif dialect == "postgres" then
-    local schema = "public"
-    meta_query = string.format(
-      "SELECT c.column_name, c.column_default, "
-      .. "CASE WHEN pk.attname IS NOT NULL THEN 1 ELSE 0 END AS IS_PK "
-      .. "FROM information_schema.columns c "
-      .. "LEFT JOIN ("
-      .. "SELECT a.attname FROM pg_index i "
-      .. "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
-      .. "JOIN pg_class cl ON cl.oid = i.indrelid "
-      .. "WHERE i.indisprimary AND cl.relname = '%s'"
-      .. ") pk ON pk.attname = c.column_name "
-      .. "WHERE c.table_name = '%s' AND c.table_schema = '%s'",
-      table_name:gsub("'", "''"), table_name:gsub("'", "''"), schema:gsub("'", "''"))
-  elseif dialect == "sqlite" then
-    meta_query = string.format(
-      "SELECT name AS column_name, dflt_value AS column_default, pk AS IS_PK "
-      .. "FROM pragma_table_info('%s')",
-      table_name:gsub("'", "''"))
-  end
 
-  if not meta_query then
+  local src_file = resolve_src_file(tab)
+  local pk_query = build_pk_query(dialect, table_name, db)
+  if not pk_query then
     pk_cache[cache_key] = true
     return
   end
 
-  local binary = get_state().find_poste_binary()
-  if not binary then return end
-
-  local src_file = tab.src_file or ""
-  if src_file == "" then
-    local ok, buf_name = pcall(vim.api.nvim_buf_get_name, 0)
-    if ok and buf_name and buf_name ~= "" and not buf_name:match("^poste://") then
-      src_file = buf_name
-    else
-      src_file = vim.fn.tempname() .. ".sql"
-    end
+  local body = run_introspection_query(pk_query, connection, database, src_file)
+  if body and body.results then
+    parse_pk_results(body, layout, dialect)
   end
 
-  local args = { binary, "run", "--stdin", "--line", "2", src_file, "--json" }
-  if database and database ~= "" then
-    table.insert(args, "--database")
-    table.insert(args, database)
-  end
-
-  local sql_content = "-- @connection " .. connection .. "\n" .. meta_query
-  local output = vim.fn.system(args, sql_content)
-  if vim.v.shell_error ~= 0 then return end
-
-  local ok, parsed = pcall(vim.json.decode, output)
-  if not ok or not parsed then return end
-
-  local body_ok, body = pcall(vim.json.decode, parsed.body or "{}")
-  if body_ok and body and body.results then
-    local defaults = {}
-    local pk_names = {}
-    local is_pk_col_idx = (dialect == "mysql" and 4) or 3  -- postgres/sqlite=3, mysql=4
-
-    for _, res in ipairs(body.results) do
-      if res.rows then
-        for _, row in ipairs(res.rows) do
-          local col_name = tostring(row[1] or "")
-          local col_default = row[2]
-          local is_pk = row[is_pk_col_idx]
-          if col_name ~= "" then
-            defaults[col_name] = (col_default ~= vim.NIL and col_default ~= nil) and col_default or nil
-            if is_pk and (is_pk == 1 or is_pk == "1") then
-              pk_names[col_name] = true
-            end
-          end
-        end
-      end
-    end
-
-    -- Set metadata on matching columns
-    for _, col in ipairs(layout.columns) do
-      if defaults[col.name] ~= nil then
-        col.default = defaults[col.name]
-      end
-      if pk_names[col.name] then
-        col.primary_key = true
-      end
-    end
-  end
-
-  -- Fetch enum values for ENUM columns
-  do
-    local enum_query
-    if dialect == "mysql" then
-      enum_query = string.format(
-        "SELECT COLUMN_NAME, COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS "
-        .. "WHERE TABLE_NAME = '%s' AND DATA_TYPE = 'enum'",
-        table_name:gsub("'", "''"))
-      if db and db ~= "" then
-        enum_query = enum_query .. string.format(" AND TABLE_SCHEMA = '%s'", db:gsub("'", "''"))
-      end
-    elseif dialect == "postgres" then
-      enum_query = [[
-        SELECT t.typname AS type_name, e.enumlabel AS enum_value
-        FROM pg_type t
-        JOIN pg_enum e ON t.oid = e.enumtypid
-        ORDER BY t.typname, e.enumsortorder
-      ]]
-    end
-    if enum_query then
-      local enum_sql_content = "-- @connection " .. connection .. "\n" .. enum_query
-      local enum_output = vim.fn.system(args, enum_sql_content)
-      if vim.v.shell_error == 0 then
-        local enum_ok, enum_parsed = pcall(vim.json.decode, enum_output)
-        if enum_ok and enum_parsed then
-          local enum_body_ok, enum_body = pcall(vim.json.decode, enum_parsed.body or "{}")
-          if enum_body_ok and enum_body and enum_body.results then
-            if dialect == "mysql" then
-              -- MySQL: COLUMN_TYPE = "enum('a','b','c')" → extract values
-              for _, res in ipairs(enum_body.results) do
-                if res.rows then
-                  for _, row in ipairs(res.rows) do
-                    local col_name = tostring(row[1] or "")
-                    local col_type = tostring(row[2] or "")
-                    local values = {}
-                    for v in col_type:gmatch("'([^']*)'") do
-                      table.insert(values, v)
-                    end
-                    if #values > 0 then
-                      for _, col in ipairs(layout.columns) do
-                        if col.name == col_name then
-                          col.enum_values = values
-                          break
-                        end
-                      end
-                    end
-                  end
-                end
-              end
-            elseif dialect == "postgres" then
-              -- PostgreSQL: group enum values by type_name, match against col.ctype
-              local enum_map = {}
-              for _, res in ipairs(enum_body.results) do
-                if res.rows then
-                  for _, row in ipairs(res.rows) do
-                    local type_name = tostring(row[1] or "")
-                    local enum_value = tostring(row[2] or "")
-                    if type_name ~= "" and enum_value ~= "" then
-                      if not enum_map[type_name] then
-                        enum_map[type_name] = {}
-                      end
-                      table.insert(enum_map[type_name], enum_value)
-                    end
-                  end
-                end
-              end
-              for _, col in ipairs(layout.columns) do
-                if col.ctype and enum_map[col.ctype:lower()] then
-                  col.enum_values = enum_map[col.ctype:lower()]
-                end
-              end
-            end
-          end
-        end
-      end
+  local enum_query = build_enum_query(dialect, table_name, db)
+  if enum_query then
+    local enum_body = run_introspection_query(enum_query, connection, database, src_file)
+    if enum_body and enum_body.results then
+      parse_enum_results(enum_body, layout, dialect)
     end
   end
 
@@ -811,203 +799,162 @@ local function apply_cell_edit(row_idx, col_idx, new_val)
   end
 end
 
+function M.detect_cell_type(col_meta)
+  if M.is_boolean_column(col_meta) then return "boolean" end
+  if M.is_datetime_column(col_meta) then return "datetime" end
+  if M.is_enum_column(col_meta) then return "enum" end
+  return "text"
+end
+
+local cell_editors = {}
+
+function cell_editors.boolean(row_idx, col_idx, col_meta, old_val)
+  local choices = { "(NULL)", "true", "false" }
+  vim.ui.select(choices, {
+    prompt = col_meta.name or "value",
+    format_item = function(item) return item end,
+  }, function(choice)
+    if not choice then return end
+    local new_val
+    if choice == "(NULL)" then
+      new_val = vim.NIL
+    elseif choice == "true" then
+      new_val = true
+    else
+      new_val = false
+    end
+    apply_cell_edit(row_idx, col_idx, new_val)
+  end)
+end
+
+function cell_editors.datetime(row_idx, col_idx, col_meta, old_val)
+  local choices
+  if col_meta.ctype == "date" then
+    choices = { "(NULL)", os.date("%Y-%m-%d") }
+  elseif col_meta.ctype == "time" then
+    choices = { "(NULL)", os.date("%H:%M:%S") }
+  else
+    choices = { "(NULL)", os.date("%Y-%m-%d %H:%M:%S"), "CURRENT_TIMESTAMP" }
+  end
+  table.insert(choices, "Custom…")
+  vim.ui.select(choices, {
+    prompt = (col_meta.name or "value") .. " (" .. (col_meta.ctype or "") .. ")",
+    format_item = function(item) return item end,
+  }, function(choice)
+    if not choice or choice == "(NULL)" then
+      if choice == "(NULL)" then
+        apply_cell_edit(row_idx, col_idx, vim.NIL)
+      end
+      return
+    end
+    if choice == "Custom…" then
+      vim.ui.input({
+        prompt = (col_meta.name or "value") .. ": ",
+        default = os.date(col_meta.ctype == "date" and "%Y-%m-%d" or "%Y-%m-%d %H:%M:%S"),
+      }, function(input)
+        if not input then return end
+        apply_cell_edit(row_idx, col_idx, input)
+      end)
+      return
+    end
+    if choice == "CURRENT_TIMESTAMP" then
+      apply_cell_edit(row_idx, col_idx, "__expr:CURRENT_TIMESTAMP")
+    else
+      apply_cell_edit(row_idx, col_idx, choice)
+    end
+  end)
+end
+
+function cell_editors.enum(row_idx, col_idx, col_meta, old_val)
+  local choices = {}
+  local current_value = (old_val ~= nil and old_val ~= vim.NIL) and tostring(old_val) or nil
+  for _, v in ipairs(col_meta.enum_values) do
+    local display = v
+    if current_value and v == current_value then
+      display = v .. " (current)"
+      table.insert(choices, 1, { value = v, display = display })
+    else
+      table.insert(choices, { value = v, display = display })
+    end
+  end
+  if col_meta.default then
+    table.insert(choices, { value = nil, display = "<default>" })
+  end
+  table.insert(choices, { value = vim.NIL, display = "(NULL)" })
+  vim.ui.select(choices, {
+    prompt = (col_meta.name or "value") .. "  (i=insert, ENTER=confirm)",
+    format_item = function(item) return item.display end,
+  }, function(choice)
+    if not choice then return end
+    apply_cell_edit(row_idx, col_idx, choice.value)
+  end)
+end
+
+function cell_editors.text(row_idx, col_idx, col_meta, old_val)
+  local initial_text
+  if M.is_json_column(col_meta) and type(old_val) == "table" then
+    initial_text = M.format_json_input(old_val)
+  else
+    initial_text = (old_val == nil or old_val == vim.NIL) and "" or tostring(old_val)
+    if type(old_val) == "string" then
+      local expr = old_val:match("^__expr:(.*)$")
+      if expr then initial_text = expr end
+    end
+  end
+  vim.ui.input({
+    prompt = (col_meta.name or "value") .. ": ",
+    default = initial_text,
+  }, function(input)
+    if input == nil then return end
+    local new_val = M.parse_value(input, old_val)
+    if new_val == nil then return end
+    local ok, err = M.validate_value(new_val, col_meta)
+    if not ok then
+      local tab = get_dataset().T()
+      if tab then
+        local es = ensure_edit_state(tab)
+        local row_key = tostring(row_idx) .. ":" .. tostring(col_idx)
+        M.set_cell_error(es, row_key, err)
+        vim.notify("Validation error: " .. err, vim.log.levels.ERROR)
+      end
+      return
+    end
+    local tab = get_dataset().T()
+    if tab then
+      local es = ensure_edit_state(tab)
+      local row_key = tostring(row_idx) .. ":" .. tostring(col_idx)
+      M.clear_cell_error(es, row_key)
+    end
+    apply_cell_edit(row_idx, col_idx, new_val)
+  end)
+end
+
 --- Edit the current cell via floating input.
 function M.edit_cell()
   local tab = get_dataset().T()
-  if not tab or not tab.layout then return end
-
-  -- Guard: raw mode
-  if get_state().sql._raw_mode then
-    vim.notify("Editing is not supported in raw mode", vim.log.levels.WARN)
-    return
-  end
-
-  -- Guard: large result set
-  if tab.layout.rows and #tab.layout.rows > 5000 then
-    vim.notify("Editing is not supported for result sets > 5000 rows", vim.log.levels.WARN)
-    return
-  end
-
-  -- Guard: single-table only (no JOINs)
-  if tab.original_sql and M.has_join(tab.original_sql) then
-    vim.notify("Editing is not supported for multi-table (JOIN) queries", vim.log.levels.WARN)
-    return
-  end
-
-  -- Ensure primary key info is available
-  M.ensure_primary_key(tab)
+  if not check_edit_guards(tab) then return end
 
   local state = get_state()
   local row_idx = state.sql.cell.row
   local col_idx = state.sql.cell.col
   local col_meta = tab.layout.columns[col_idx]
 
-  -- Guard: data row check
   if not M.is_data_row(tab, row_idx) then return end
 
-  -- Guard: editable field
   if not M.is_editable_field(col_meta) then
     vim.notify("Cannot edit " .. (col_meta.ctype or "unknown") .. " field", vim.log.levels.WARN)
     return
   end
 
   local old_val = tab.layout.rows[row_idx][col_idx]
-
-  -- Boolean selector
-  if M.is_boolean_column(col_meta) then
-    local choices = { "(NULL)", "true", "false" }
-    vim.ui.select(choices, {
-      prompt = col_meta.name or "value",
-      format_item = function(item) return item end,
-    }, function(choice)
-      if not choice then return end
-      local new_val
-      if choice == "(NULL)" then
-        new_val = vim.NIL
-      elseif choice == "true" then
-        new_val = true
-      else
-        new_val = false
-      end
-      apply_cell_edit(row_idx, col_idx, new_val)
-    end)
-    return
-  end
-
-  -- Date/time picker
-  if M.is_datetime_column(col_meta) then
-    local now = os.date("*t")
-    local choices = { "(NULL)", "Now" }
-    if col_meta.ctype == "date" then
-      choices = { "(NULL)", os.date("%Y-%m-%d") }
-    elseif col_meta.ctype == "time" then
-      choices = { "(NULL)", os.date("%H:%M:%S") }
-    else
-      choices = { "(NULL)", os.date("%Y-%m-%d %H:%M:%S"), "CURRENT_TIMESTAMP" }
-    end
-    table.insert(choices, "Custom…")
-    vim.ui.select(choices, {
-      prompt = (col_meta.name or "value") .. " (" .. (col_meta.ctype or "") .. ")",
-      format_item = function(item) return item end,
-    }, function(choice)
-      if not choice or choice == "(NULL)" then
-        if choice == "(NULL)" then
-          apply_cell_edit(row_idx, col_idx, vim.NIL)
-        end
-        return
-      end
-      if choice == "Custom…" then
-        vim.ui.input({
-          prompt = (col_meta.name or "value") .. ": ",
-          default = os.date(col_meta.ctype == "date" and "%Y-%m-%d" or "%Y-%m-%d %H:%M:%S"),
-        }, function(input)
-          if not input then return end
-          apply_cell_edit(row_idx, col_idx, input)
-        end)
-        return
-      end
-      if choice == "CURRENT_TIMESTAMP" then
-        apply_cell_edit(row_idx, col_idx, "__expr:CURRENT_TIMESTAMP")
-      else
-        apply_cell_edit(row_idx, col_idx, choice)
-      end
-    end)
-    return
-  end
-
-  -- Enum selector
-  if M.is_enum_column(col_meta) then
-    local choices = {}
-    local current_value = (old_val ~= nil and old_val ~= vim.NIL) and tostring(old_val) or nil
-
-    for _, v in ipairs(col_meta.enum_values) do
-      local display = v
-      if current_value and v == current_value then
-        display = v .. " (current)"
-        table.insert(choices, 1, { value = v, display = display })
-      else
-        table.insert(choices, { value = v, display = display })
-      end
-    end
-
-    if col_meta.default then
-      table.insert(choices, { value = nil, display = "<default>" })
-    end
-    table.insert(choices, { value = vim.NIL, display = "(NULL)" })
-
-    vim.ui.select(choices, {
-      prompt = (col_meta.name or "value") .. "  (i=insert, ENTER=confirm)",
-      format_item = function(item) return item.display end,
-    }, function(choice)
-      if not choice then return end
-      apply_cell_edit(row_idx, col_idx, choice.value)
-    end)
-    return
-  end
-
-  -- Standard text input
-  local initial_text
-  if M.is_json_column(col_meta) and type(old_val) == "table" then
-    initial_text = M.format_json_input(old_val)
-  else
-    initial_text = (old_val == nil or old_val == vim.NIL) and "" or tostring(old_val)
-    -- Strip __expr: prefix for display
-    if type(old_val) == "string" then
-      local expr = old_val:match("^__expr:(.*)$")
-      if expr then initial_text = expr end
-    end
-  end
-
-  vim.ui.input({
-    prompt = (col_meta.name or "value") .. ": ",
-    default = initial_text,
-  }, function(input)
-    if input == nil then return end  -- cancelled
-
-    local new_val = M.parse_value(input, old_val)
-    if new_val == nil then return end  -- no change
-
-    -- Type validation
-    local ok, err = M.validate_value(new_val, col_meta)
-    if not ok then
-      local es = ensure_edit_state(tab)
-      local row_key = tostring(row_idx) .. ":" .. tostring(col_idx)
-      M.set_cell_error(es, row_key, err)
-      vim.notify("Validation error: " .. err, vim.log.levels.ERROR)
-      return
-    end
-
-    -- Clear any previous error
-    local es = ensure_edit_state(tab)
-    local row_key = tostring(row_idx) .. ":" .. tostring(col_idx)
-    M.clear_cell_error(es, row_key)
-
-    apply_cell_edit(row_idx, col_idx, new_val)
-  end)
+  local handler = cell_editors[M.detect_cell_type(col_meta)]
+  handler(row_idx, col_idx, col_meta, old_val)
 end
 
 --- Delete the current row.
 function M.delete_row()
   local tab = get_dataset().T()
-  if not tab or not tab.layout then return end
-
-  if get_state().sql._raw_mode then
-    vim.notify("Editing is not supported in raw mode", vim.log.levels.WARN)
-    return
-  end
-
-  if tab.layout.rows and #tab.layout.rows > 5000 then
-    vim.notify("Editing is not supported for result sets > 5000 rows", vim.log.levels.WARN)
-    return
-  end
-
-  -- Guard: single-table only
-  if tab.original_sql and M.has_join(tab.original_sql) then
-    vim.notify("Editing is not supported for multi-table (JOIN) queries", vim.log.levels.WARN)
-    return
-  end
-
-  M.ensure_primary_key(tab)
+  if not check_edit_guards(tab) then return end
 
   local state = get_state()
   local row_idx = state.sql.cell.row
@@ -1034,24 +981,8 @@ end
 --- Insert a new row at the end of the table.
 function M.insert_row()
   local tab = get_dataset().T()
-  if not tab or not tab.layout then return end
+  if not check_edit_guards(tab) then return end
 
-  if get_state().sql._raw_mode then
-    vim.notify("Editing is not supported in raw mode", vim.log.levels.WARN)
-    return
-  end
-
-  if tab.layout.rows and #tab.layout.rows > 5000 then
-    vim.notify("Editing is not supported for result sets > 5000 rows", vim.log.levels.WARN)
-    return
-  end
-
-  if tab.original_sql and M.has_join(tab.original_sql) then
-    vim.notify("Editing is not supported for multi-table (JOIN) queries", vim.log.levels.WARN)
-    return
-  end
-
-  M.ensure_primary_key(tab)
   local es = ensure_edit_state(tab)
   local num_cols = #tab.layout.columns
   local row_data = {}

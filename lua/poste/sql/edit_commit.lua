@@ -282,49 +282,25 @@ end
 --- @param entry table Log entry fields
 --- @return string JSON line
 function M.format_log_entry(entry)
-  local parts = {}
-  table.insert(parts, '"ts": "' .. os.date("!%Y-%m-%dT%H:%M:%S") .. '"')
-  if entry.source then
-    table.insert(parts, '"source": "' .. entry.source .. '"')
-  end
-  if entry.table_name then
-    table.insert(parts, '"table": "' .. entry.table_name .. '"')
-  end
-  if entry.connection then
-    table.insert(parts, '"connection": "' .. entry.connection .. '"')
-  end
-  if entry.dialect then
-    table.insert(parts, '"dialect": "' .. entry.dialect .. '"')
-  end
-  if entry.database then
-    table.insert(parts, '"database": "' .. entry.database .. '"')
-  end
-  if entry.sql then
-    local escaped = entry.sql:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n"):gsub("\r", "\\r")
-    table.insert(parts, '"sql": "' .. escaped .. '"')
-  end
-  if entry.status then
-    table.insert(parts, '"status": "' .. entry.status .. '"')
-  end
-  if entry.elapsed_ms then
-    table.insert(parts, '"elapsed_ms": ' .. tostring(entry.elapsed_ms))
-  end
-  if entry.error_msg then
-    local escaped = entry.error_msg:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n")
-    table.insert(parts, '"error": "' .. escaped .. '"')
-  end
-  if entry.edit_summary then
-    local s = entry.edit_summary
-    table.insert(parts, '"edit_summary": {'
-      .. '"updates": ' .. tostring(s.updates or 0) .. ', '
-      .. '"inserts": ' .. tostring(s.inserts or 0) .. ', '
-      .. '"deletes": ' .. tostring(s.deletes or 0)
-      .. '}')
-  end
-  return "{" .. table.concat(parts, ", ") .. "}"
+  local data = {
+    ts = os.date("!%Y-%m-%dT%H:%M:%S"),
+  }
+  if entry.source then data.source = entry.source end
+  if entry.table_name then data["table"] = entry.table_name end
+  if entry.connection then data.connection = entry.connection end
+  if entry.dialect then data.dialect = entry.dialect end
+  if entry.database then data.database = entry.database end
+  if entry.sql then data.sql = entry.sql end
+  if entry.status then data.status = entry.status end
+  if entry.elapsed_ms then data.elapsed_ms = entry.elapsed_ms end
+  if entry.error_msg then data.error = entry.error_msg end
+  if entry.edit_summary then data.edit_summary = entry.edit_summary end
+  if entry.affected_rows then data.affected_rows = entry.affected_rows end
+  return vim.json.encode(data)
 end
 
 local MAX_LOG_ENTRIES = 1000
+local _log_write_count = 0
 
 --- Write a log entry to the JSONL file, trimming to MAX_LOG_ENTRIES.
 --- @param entry table Log entry fields
@@ -336,7 +312,10 @@ function M.write_log(entry)
     f:write(line)
     f:close()
   end
-  -- Trim to MAX_LOG_ENTRIES
+  -- Trim to MAX_LOG_ENTRIES (every 10th write to amortize)
+  _log_write_count = _log_write_count + 1
+  if _log_write_count < 10 then return end
+  _log_write_count = 0
   local lines = {}
   for l in io.lines(path) do
     lines[#lines + 1] = l

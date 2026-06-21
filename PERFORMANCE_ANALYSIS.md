@@ -36,7 +36,7 @@ slice_header_to_win() 中的索引迭代 [buffer_nav.lua:68-92]
 - **第 1 次**：`position_cursor()` → `find_cell_ranges()`
 - **第 2 次**：`highlight_cell()` → `find_cell_range()` 
 
-虽然有**一行缓存** (`_cache_line`, `_cache_seps`)，但**位置和高亮不同行**时无法命中缓存。
+有**一行缓存** (`_cache_line`, `_cache_seps`) 且 `move_cell()` 把同一 `line` 字符串引用传给两个函数，所以 Lua 引用相等检查让第二次 `find_cell_ranges` **几乎总是缓存命中**。实际每次 h/l 只做 **1 次有效扫描**，不是 2 次。
 
 ```lua
 local function compute_seps(line)
@@ -58,7 +58,7 @@ end
 - 每条行字符串：**~400-600 字节**
 - 列分隔符（│）：**30 个**
 - 每次扫描：**O(n_bytes × line_length)** 取决于 Lua 字符串查找算法
-- 每 h/l 键按下：**2-4 次扫描**
+- 每 h/l 键按下：2 次调用但第 2 次命中缓存 → 实际 **1 次有效扫描**
 
 #### **2.2 `slice_header_to_win()` 中的索引遍历** (buffer_nav.lua:68-92)
 ```lua
@@ -79,7 +79,6 @@ end
 #### **2.3 `vim.fn.strdisplaywidth()` 的高频调用**
 - `buffer_nav.lua:250` - `position_cursor()` 中调用
 - `buffer_nav.lua:266` - `position_cursor()` 中计算 last_col
-- `buffer.lua:336` - 批量应用高亮时多次调用
 - `format.lua:21,33,55` - 格式化时多次调用
 
 每次 `strdisplaywidth()` 都是 **Neovim C → Lua 的跨语言调用**，成本较高。
@@ -145,9 +144,9 @@ end
 
 ### ✅ **优先级 2：header_index 缓存优化**
 
-**方案 2A**：缓存 `build_header_index()` 结果（已部分实现）
+**方案 2A**：缓存 `build_header_index()` 结果（**尚未实现**）
 
-**修改**：`lua/poste/sql/buffer.lua` 第 287-303 行
+当前 `buffer.lua:282-303` 每次都无条件重建 `tab.header_index`。应加缓存：
 
 ```lua
 -- 当 header_text 变化时，才重新建立索引
@@ -165,9 +164,13 @@ if has_header then
 end
 ```
 
+> **注意**：消费端 `update_header_float()`（`buffer_nav.lua:110-118`）已有自身的 float 缓存（`_float_cache_leftcol/_float_cache_width/_float_cache_header`），避免视口未变时重复计算。但重建 `header_index` 的开销仍在。
+>
+> 同时 `update_header_float()` 中 `slice_header_to_win()` 的索引迭代也**已缓存**——只要 `tab.header_index` 不变就不重做。所以 Priority 2 的收益主要在于减少**渲染页面时的 `build_header_index()` 调用**，对 h/l 滚动的影响比最初估计小。
+
 **改进效果**：
-- `update_header_float()` 中避免重复迭代
-- 减少 15-20% 的总耗时
+- 减少渲染页面的 `build_header_index()` 调用
+- 对 h/l 滚动的实际影响：较小（已有 float 缓存兜底）
 
 ---
 
@@ -225,8 +228,8 @@ state.sql._trace = true
 ```
 
 #### **4.2 考虑 UI 更新优化**
-- `update_header_float()` 中的缓存判断（已有）可进一步精细化
-- 考虑 `sidescrolloff=0` 时减少 header 更新频率
+- `update_header_float()` 已有 float 窗口缓存（`buffer_nav.lua:110-118`）：`_float_cache_leftcol`、`_float_cache_width`、`_float_cache_header`，视口未变时跳过重绘
+- 可进一步精细化：考虑 `sidescrolloff=0` 时减少 header 更新频率
 
 ---
 
@@ -299,11 +302,11 @@ require("poste.state").sql._trace = true
 
 ## 总结
 
-| 问题 | 原因 | 优先级 | 难度 | 收益 |
-|------|------|--------|------|------|
-| `compute_seps()` 双重调用 | 设计不当 | 🔴 1 | 简单 | **40%** |
-| header_index 重复迭代 | 缓存不完整 | 🟡 2 | 中等 | **20%** |
-| 单行缓存命中率低 | 访问模式 | 🟡 3 | 简单 | **15%** |
-| `strdisplaywidth()` 开销 | C 跨界开销 | 🟢 4 | 困难 | **10%** |
+| 问题 | 原因 | 优先级 | 难度 | 收益（修正） |
+|------|------|--------|------|--------------|
+| `compute_seps()` 双重调用 | 设计不当，但已有缓存缓解 | 🔴 1 | 简单 | **~20%**（非 40%） |
+| header_index 重复迭代 | 渲染时无条件重建 | 🟡 2 | 中等 | **~10%**（h/l 时已有 float 缓存） |
+| 单行缓存命中率低 | 访问模式 → 可扩 LRU | 🟡 3 | 简单 | **~10%**（多行连续滚动） |
+| `strdisplaywidth()` 开销 | C 跨界开销 | 🟢 4 | 困难 | **~5%** |
 
 **建议实施顺序**：优先级 1 → 2 → 3 → 4

@@ -1,7 +1,7 @@
 -- @connection my-blog
 -- @database blog
 
-SELECT * FROM posts;
+SELECT * FROM posts WHERE  ;
 
 
 SELECT * FROM authors;

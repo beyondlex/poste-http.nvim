@@ -1,10 +1,8 @@
---- Poste: HTTP/Redis client for Neovim.
---- This is the orchestrator module — all subsystems live in separate modules.
 local state = require("poste.state")
 local blink_ok, blink = pcall(require, "blink.cmp")
 if not blink_ok then blink = nil end
 local util = require("poste.util")
-local highlights = require("poste.http.highlights")  -- auto-registers autocmds on require
+local highlights = require("poste.http.highlights")
 local indicators = require("poste.indicators")
 local format = require("poste.http.format")
 local buffer = require("poste.http.buffer")
@@ -14,1179 +12,30 @@ local request_vars = require("poste.http.request_vars")
 local completion = require("poste.http.completion")
 local symbols = require("poste.http.symbols")
 
+local view = require("poste.http.view")
+local env_mod = require("poste.http.env")
+local nav = require("poste.http.nav")
+local run = require("poste.http.run")
+
 local M = {}
 
----------------------------------------------------------------------------
--- View switching
----------------------------------------------------------------------------
-function M.show_view(view)
-  state.current_view = view
-  if not state.last_response then return end
+M.show_view = view.show_view
+M.set_env = env_mod.set_env
+M.get_env = env_mod.get_env
+M.pick_env = env_mod.pick_env
+M.jump_next = nav.jump_next
+M.jump_prev = nav.jump_prev
+M.show_var_value = nav.show_var_value
+M.goto_definition = nav.goto_definition
+M.goto_references = nav.goto_references
+M.run_request = run.run_request
 
-  local lines, filetype
-  if view == "body" then
-    if not state.last_response.body or state.last_response.body == "" then
-      lines = { "(no response body)" }
-      filetype = "text"
-    else
-      lines = format.format_body(state.last_response)
-      filetype = format.detect_filetype(state.last_response.content_type)
-    end
-  elseif view == "verbose" then
-    lines = format.format_verbose(state.last_response)
-    filetype = "markdown"
-  elseif view == "assertions" then
-    lines = assertions.format_assertions(state.last_assertion_results)
-    filetype = "markdown"
-  elseif view == "script_logs" then
-    lines = scripts.format_script_logs(state.last_script_logs)
-    filetype = "markdown"
-  else
-    lines = { "Unknown view: " .. view }
-    filetype = "text"
-  end
-
-  buffer.render_buffer(lines, filetype)
-  buffer.update_winbar(view)
-
-  if view == "body" and (not state.last_response.body or state.last_response.body == "") then
-    local buf = buffer.get_buf()
-    if buf then
-      local ns = vim.api.nvim_create_namespace("poste_response_hint")
-      vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-      vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
-        end_col = #lines[1],
-        hl_group = "Comment",
-      })
-    end
-  end
-
-  if view == "verbose" and state.last_response.status then
-    local buf = buffer.get_buf()
-    if buf then
-      local sc = state.last_response.status
-      local hl_group
-      if sc < 300 then hl_group = "PosteStatus2xx"
-      elseif sc < 400 then hl_group = "PosteStatus3xx"
-      elseif sc < 500 then hl_group = "PosteStatus4xx"
-      else hl_group = "PosteStatus5xx"
-      end
-      local ns = vim.api.nvim_create_namespace("poste_status_code")
-      vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-      for i, line in ipairs(lines) do
-        local status_start, status_end = line:find("%*%*.-%*%*")
-        if status_start then
-          vim.api.nvim_buf_set_extmark(buf, ns, i - 1, status_start - 1, {
-            end_col = status_end,
-            hl_group = hl_group,
-            priority = 200,
-          })
-          break
-        end
-      end
-    end
-  end
-end
-
--- Wire up buffer tab-switching callbacks
-buffer.on_show_view = M.show_view
-
----------------------------------------------------------------------------
--- Run request
----------------------------------------------------------------------------
-function M.run_request()
-  -- SQL filetype: delegate to SQL module
-  local ft = vim.bo.filetype
-  if ft == "poste_sql" or ft == "poste_sqlite" then
-    require("poste.sql.init").run_sql_request()
-    return
-  end
-
-  local binary = state.find_poste_binary()
-  if not binary then
-    vim.notify("Poste binary not found. Make sure it's in PATH or built locally.", vim.log.levels.ERROR)
-    return
-  end
-
-  -- Reset assertion and script state for this request run
-  state.last_assertion_results = nil
-  state.last_script_logs = nil
-
-  local src_buf = vim.api.nvim_get_current_buf()
-  local line = vim.fn.line(".")
-  state.last_request = { buf = src_buf, line = line }
-
-  -- Use buffer name (file path) for env.json discovery and extension detection.
-  -- The file may not exist on disk — that's fine with --stdin.
-  local file = vim.api.nvim_buf_get_name(src_buf)
-  if file == "" then
-    -- Unnamed buffer: use cwd with default .http extension
-    file = vim.fn.getcwd() .. "/untitled.http"
-  end
-
-  -- Read content directly from the buffer (unsaved changes included)
-  local buf_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
-  local buf_content = table.concat(buf_lines, "\n")
-
-  -- Handle @prompt directives asynchronously, then continue with request execution
-  request_vars.handle_prompt_variables(src_buf, line, buf_content, binary, file, state.current_env, function(modified_content)
-    -- Show spinner immediately before any async operations
-    local req_line = indicators.find_request_line(src_buf, line)
-    indicators.set_indicator(src_buf, req_line, "running")
-
-    -- Capture block bounds early (from original buffer, before content transforms)
-    local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
-
-    -- Resolve request variables asynchronously (callback chain, non-blocking)
-    request_vars.resolve_request_variables(binary, file, state.current_env, src_buf, line, modified_content, function(buf_content)
-
-      -- Extract and run pre-request scripts (< {% ... %} and < ./script.lua)
-      local pre_script_code
-      if block_start then
-        buf_content, pre_script_code = scripts.extract_pre_script_blocks(buf_content, block_start, block_end)
-      end
-
-      if pre_script_code then
-        local pre_result = scripts.run_pre_script(pre_script_code)
-        if pre_result.error then
-          state.log("ERROR", pre_result.error)
-          indicators.set_indicator(src_buf, req_line, "error")
-          state.last_response = {
-            protocol = "error",
-            status = 0,
-            status_text = "Pre-script error",
-            latency_ms = 0,
-            url = "Pre-request script failed",
-            content_type = "text/plain",
-            headers = {},
-            body = pre_result.error,
-            cookies = {},
-            metadata = { method = "", error = pre_result.error },
-          }
-          M.show_view("verbose")
-          return
-        end
-        if #pre_result.logs > 0 then
-          state.last_script_logs = pre_result.logs
-        end
-        if next(pre_result.variables) then
-          local injected_count = 0
-          for _ in pairs(pre_result.variables) do injected_count = injected_count + 1 end
-          buf_content = scripts.inject_pre_script_vars(buf_content, block_start, pre_result.variables)
-          block_end = block_end + injected_count
-          for name, value in pairs(pre_result.variables) do
-            state.script_variables[name] = value
-          end
-        end
-      end
-
-      -- Inject client.global vars as @var lines so {{var}} works across HTTP files
-      if block_start and state.global_vars and next(state.global_vars) then
-        local glines = vim.split(buf_content, "\n", { plain = true })
-        local result = {}
-        for i, line in ipairs(glines) do
-          table.insert(result, line)
-          if i == block_start then
-            for name, value in pairs(state.global_vars) do
-              table.insert(result, string.format("@%s = %s", name, value))
-            end
-          end
-        end
-        buf_content = table.concat(result, "\n")
-      end
-
-      -- Process form data magic variables and file inclusions
-      buf_content = request_vars.process_form_data(src_buf, line, buf_content)
-
-      -- Extract and strip assertion blocks before sending to Rust
-      local assertion_code
-      buf_content, assertion_code = assertions.extract_assertion_blocks(buf_content, block_start, block_end)
-
-      -- Get the current request name for caching
-      local requests = request_vars.collect_requests(src_buf)
-      local current_req_name = nil
-      for _, req in ipairs(requests) do
-        if line >= req.start_line and line <= req.end_line then
-          current_req_name = req.name
-          break
-        end
-      end
-
-      -- Extract the full request block (request line + headers) for error display
-      local req_block = indicators.extract_request_block(src_buf, line)
-      local req_text = req_block.request_line
-
-      local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
-        vim.fn.shellescape(binary),
-        vim.fn.shellescape(file),
-        line,
-        vim.fn.shellescape(state.current_env)
-      )
-
-      state.log("INFO", string.format("cmd: %s", cmd))
-
-      local stderr_buf = {}
-
-      local job_id = vim.fn.jobstart(cmd, {
-        stdin = "pipe",
-        stdout_buffered = true,
-        stderr_buffered = true,
-        on_stdout = function(_, data)
-          data = util.ensure_job_data(data)
-          if #data == 0 then return end
-
-          local output = table.concat(data, "\n")
-          state.log("INFO", "stdout: " .. output:sub(1, 200))
-
-          vim.schedule(function()
-            local ok, parsed = pcall(vim.json.decode, output)
-            if ok and parsed and type(parsed) == "table" then
-              state.last_response = parsed
-              request_vars.cache_response(current_req_name, parsed)
-
-              if assertion_code then
-                state.last_assertion_results = assertions.run_assertions(parsed, assertion_code)
-                state.log("INFO", string.format("Assertions: %d passed, %d failed",
-                  state.last_assertion_results.passed, state.last_assertion_results.failed))
-
-                if state.last_assertion_results.logs and #state.last_assertion_results.logs > 0 then
-                  state.last_script_logs = state.last_script_logs or {}
-                  for _, msg in ipairs(state.last_assertion_results.logs) do
-                    table.insert(state.last_script_logs, msg)
-                  end
-                end
-
-                local is_error = parsed.status and parsed.status >= 400
-                if state.last_assertion_results.failed > 0 then
-                  M.show_view("assertions")
-                  indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms, state.last_assertion_results)
-                elseif is_error then
-                  M.show_view("verbose")
-                  indicators.set_indicator(src_buf, req_line, "error", parsed.latency_ms, state.last_assertion_results)
-                else
-                  M.show_view("body")
-                  indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms, state.last_assertion_results)
-                end
-              else
-                if parsed.status and parsed.status >= 400 then
-                  M.show_view("verbose")
-                  indicators.set_indicator(src_buf, req_line, "error", parsed.latency_ms)
-                else
-                  M.show_view("body")
-                  indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms)
-                end
-              end
-            else
-              state.log("WARN", "JSON parse failed, showing raw output")
-              indicators.set_indicator(src_buf, req_line, "error")
-              state.last_response = {
-                protocol = "error",
-                status = 0,
-                status_text = "JSON parse failed",
-                latency_ms = 0,
-                url = vim.trim(req_text),
-                content_type = "text/plain",
-                headers = req_block.headers,
-                body = output,
-                cookies = {},
-                metadata = {
-                  method = "",
-                  error = "JSON parse failed",
-                  exit_code = "?",
-                  request_line = vim.trim(req_text),
-                  env = state.current_env,
-                },
-              }
-              M.show_view("verbose")
-            end
-          end)
-        end,
-        on_stderr = function(_, data)
-          data = util.ensure_job_data(data)
-          if #data == 0 then return end
-          for _, l in ipairs(data) do
-            table.insert(stderr_buf, l)
-          end
-        end,
-        on_exit = function(_, code)
-          if code ~= 0 then
-            state.log("ERROR", string.format("exit code %d (line %d, env %s)", code, line, state.current_env))
-            vim.schedule(function()
-              indicators.set_indicator(src_buf, req_line, "error")
-              local stderr_text = table.concat(stderr_buf, "\n")
-              state.last_response = {
-                protocol = "error",
-                status = 0,
-                status_text = "Failed (exit " .. code .. ")",
-                latency_ms = 0,
-                url = vim.trim(req_text),
-                content_type = "text/plain",
-                headers = req_block.headers,
-                body = stderr_text ~= "" and stderr_text or "Request failed with exit code " .. code,
-                cookies = {},
-                metadata = {
-                  method = "",
-                  error = stderr_text,
-                  exit_code = tostring(code),
-                  request_line = vim.trim(req_text),
-                  env = state.current_env,
-                },
-              }
-              M.show_view("verbose")
-            end)
-          end
-        end,
-      })
-
-      if job_id > 0 then
-        vim.fn.chansend(job_id, buf_content)
-        vim.fn.chanclose(job_id, "stdin")
-      else
-        indicators.set_indicator(src_buf, req_line, "error")
-        vim.notify("Failed to start poste job", vim.log.levels.ERROR, { title = "Poste" })
-      end
-    end)  -- end of resolve_request_variables callback
-  end)  -- end of handle_prompt_variables callback
-end
-
----------------------------------------------------------------------------
--- Navigation
----------------------------------------------------------------------------
-function M.jump_next()
-  local line = vim.fn.line(".")
-  local total = vim.fn.line("$")
-  for i = line + 1, total do
-    local text = vim.fn.getline(i)
-    if text:match("^###") then
-      vim.api.nvim_win_set_cursor(0, { i, 0 })
-      return
-    end
-  end
-  vim.notify("No more requests", vim.log.levels.INFO)
-end
-
-function M.jump_prev()
-  local line = vim.fn.line(".")
-  for i = line - 1, 1, -1 do
-    local text = vim.fn.getline(i)
-    if text:match("^###") then
-      vim.api.nvim_win_set_cursor(0, { i, 0 })
-      return
-    end
-  end
-  vim.notify("No previous requests", vim.log.levels.INFO)
-end
-
-function M.show_var_value()
-  local buf = vim.api.nvim_get_current_buf()
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local line_num = cursor[1]
-  local col = cursor[2] + 1  -- 0-indexed to 1-indexed
-  local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
-
-  -- Find {{var_name}} under cursor
-  local var_name = nil
-  local s, e = line_text:find("{{[^}]+}}")
-  while s do
-    if col >= s and col <= e then
-      var_name = line_text:sub(s + 2, e - 2):gsub("^%s+", ""):gsub("%s+$", "")
-      break
-    end
-    s, e = line_text:find("{{[^}]+}}", e + 1)
-  end
-
-  if not var_name then
-    vim.notify("Not on a {{variable}} reference", vim.log.levels.WARN, { title = "Poste" })
-    return
-  end
-
-  local resolved = nil
-  local source = nil
-
-  -- 1. Magic variables ($timestamp, $uuid, etc.)
-  local magic_vars = {
-    timestamp = function() return tostring(os.time()) .. math.random(100000, 999999) end,
-    uuid = function()
-      local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
-      return template:gsub("[xy]", function(c)
-        local v = (c == "x") and math.random(0, 15) or math.random(8, 11)
-        return string.format("%x", v)
-      end)
-    end,
-    date = function() return os.date("%Y-%m-%d") end,
-    randomInt = function() return tostring(math.random(0, 9999999)) end,
-  }
-  if var_name:match("^%$") then
-    local magic_name = var_name:sub(2)
-    if magic_vars[magic_name] then
-      resolved = magic_vars[magic_name]()
-      source = "magic var"
-    end
-  end
-
-  -- 2. File-level @var = value definitions (scan preamble before first ###)
-  if not resolved then
-    local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    for _, l in ipairs(all_lines) do
-      if l:match("^###") then break end
-      local def_name, def_op, def_val = l:match("^%s*@(%w+)%s*(=?)(.*)")
-      if def_name and def_name == var_name then
-        resolved = vim.trim(def_val)
-        source = "file variable"
-        break
-      end
-    end
-  end
-
-  -- 3. env.json (check if the resolved value is still a {{var}} ref, resolve chain)
-  if not resolved then
-    local buf_path = vim.api.nvim_buf_get_name(buf)
-    if buf_path ~= "" then
-      local search_dir = vim.fn.fnamemodify(buf_path, ":h")
-      local env_file = util.find_file_upwards("env.json", search_dir)
-      if env_file then
-        local env_lines = vim.fn.readfile(env_file)
-        if env_lines and #env_lines > 0 then
-          local ok, env_data = pcall(vim.json.decode, table.concat(env_lines, "\n"))
-          if ok and type(env_data) == "table" then
-            local env_vars = env_data[state.current_env]
-            if env_vars and type(env_vars) == "table" and env_vars[var_name] then
-              resolved = env_vars[var_name]
-              source = "env.json (" .. state.current_env .. ")"
-            end
-          end
-        end
-      end
-    end
-  end
-
-  if not resolved then
-    resolved = "(unresolved)"
-    source = "unknown"
-  end
-
-  -- Show in float window
-  local title = "{{" .. var_name .. "}}"
-  local lines = { resolved }
-  if source then
-    table.insert(lines, "")
-    table.insert(lines, "— " .. source)
-  end
-
-  local max_width = math.min(math.floor(vim.o.columns * 0.7), 80)
-  local width = 0
-  for _, l in ipairs(lines) do
-    width = math.max(width, vim.fn.strdisplaywidth(l))
-  end
-  width = math.min(width + 4, max_width)
-
-  local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.4))
-  local float_buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
-  vim.bo[float_buf].modifiable = false
-
-  local win_opts = {
-    relative = "editor",
-    row = math.floor((vim.o.lines - height) / 2),
-    col = math.floor((vim.o.columns - width) / 2),
-    width = width, height = height, style = "minimal",
-    border = "rounded", title = title, title_pos = "left",
-  }
-  local ok, win = pcall(vim.api.nvim_open_win, float_buf, true, win_opts)
-  if not ok then
-    win_opts.title = nil; win_opts.title_pos = nil
-    win = vim.api.nvim_open_win(float_buf, true, win_opts)
-  end
-
-  -- Close on q / Esc
-  vim.keymap.set("n", "q", function() pcall(vim.api.nvim_win_close, win, true) end,
-    { buffer = float_buf, noremap = true, silent = true })
-  vim.keymap.set("n", "<Esc>", function() pcall(vim.api.nvim_win_close, win, true) end,
-    { buffer = float_buf, noremap = true, silent = true })
-end
-
-function M.goto_definition()
-  local ft = vim.bo.filetype
-  -- SQL filetypes: delegate to DDL viewer
-  if ft == "poste_sql" or ft == "poste_sqlite" then
-    -- Check if cursor is on a -- @connection <name> line
-    local buf = vim.api.nvim_get_current_buf()
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    local line_num = cursor[1]
-    local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
-    local conn_match = line_text:match("^%s*--%s*@connection%s+(.+)")
-    if conn_match then
-      local conn_name = vim.trim(conn_match)
-      local connections = require("poste.sql.connections")
-      local search_dir = vim.api.nvim_buf_get_name(buf)
-      if search_dir ~= "" then
-        search_dir = vim.fn.fnamemodify(search_dir, ":h")
-      else
-        search_dir = vim.fn.getcwd()
-      end
-      local config_path = connections.find_connections_json(search_dir)
-      if not config_path then
-        vim.notify("connections.json not found", vim.log.levels.WARN)
-        return
-      end
-      local config_lines = vim.fn.readfile(config_path)
-      if not config_lines then
-        vim.notify("Cannot read connections.json", vim.log.levels.WARN)
-        return
-      end
-      local target_line = nil
-      local pattern = '^%s*"' .. vim.pesc(conn_name) .. '"%s*:'
-      for i, l in ipairs(config_lines) do
-        if l:match(pattern) then
-          target_line = i
-          break
-        end
-      end
-      if not target_line then
-        vim.notify("Connection '" .. conn_name .. "' not found in connections.json", vim.log.levels.WARN)
-        return
-      end
-      vim.cmd("normal! m'")
-      vim.cmd("edit " .. vim.fn.fnameescape(config_path))
-      vim.api.nvim_win_set_cursor(0, { target_line, 0 })
-      return
-    end
-    local db_match = line_text:match("^%s*--%s*@database%s+(.+)")
-    if db_match then
-      local db_name = vim.trim(db_match)
-      local ctx = require("poste.sql.context")
-      local full_ctx = ctx.resolve_full_context(buf, line_num)
-      local conn = full_ctx.connection
-      if not conn then
-        vim.notify("No connection context for database '" .. db_name .. "'. Add -- @connection <name> to the file.", vim.log.levels.WARN)
-        return
-      end
-      vim.cmd("normal! m'")
-      require("poste.sql.db_browser").navigate_to(conn, db_name)
-      return
-    end
-    -- Fallback: use Rust context detection to navigate to table or table+column
-    local table_name = vim.fn.expand("<cword>")
-    if table_name and table_name ~= "" then
-      local ctx = require("poste.sql.context")
-      local full_ctx = ctx.resolve_full_context(buf, line_num)
-      if full_ctx.connection then
-        local data = require("poste.sql.completion_data")
-        local bin = data.find_binary()
-        local column_name = nil
-
-        if bin then
-          local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-          local line_text = all_lines[line_num] or ""
-          local col = cursor[2]
-          local line_len = #line_text
-
-          -- Find end of word at cursor (scan forward)
-          local end_col = col
-          while end_col < line_len do
-            local ch = line_text:sub(end_col + 1, end_col + 1)
-            if ch:match("[%w_]") then end_col = end_col + 1 else break end
-          end
-
-          -- Build block text and offset (offset points AFTER the word = completion-style)
-          local block_start = 1
-          if line_num > 1 then
-            for i = line_num - 1, 1, -1 do
-              if all_lines[i] and all_lines[i]:match("^###") then block_start = i + 1; break end
-            end
-          end
-          local block_end = #all_lines
-          for i = line_num + 1, #all_lines do
-            if all_lines[i] and all_lines[i]:match("^###") then block_end = i - 1; break end
-          end
-
-          if block_start <= line_num and line_num <= block_end then
-            local before_parts = {}
-            for i = block_start, line_num - 1 do
-              table.insert(before_parts, all_lines[i] or "")
-            end
-            table.insert(before_parts, line_text:sub(1, end_col))
-            local offset = #table.concat(before_parts, "\n")
-
-            local block_parts = {}
-            for i = block_start, block_end do table.insert(block_parts, all_lines[i] or "") end
-            local sql_text = table.concat(block_parts, "\n")
-
-            -- Add dialect flag for accurate context detection
-            local dialect_flag = ""
-            local conn_config = require("poste.sql.connections").get_connection_config(full_ctx.connection)
-            if conn_config and conn_config.dialect then
-              dialect_flag = " --dialect " .. conn_config.dialect
-            end
-
-            local cmd = string.format("%s context detect %d%s",
-              vim.fn.shellescape(bin), offset, dialect_flag)
-            local output = vim.fn.system(cmd, sql_text)
-            if vim.v.shell_error == 0 then
-              local ok, parsed = pcall(vim.json.decode, output)
-              if ok and parsed then
-                util.clean_nil(parsed)
-
-                local ct = parsed.ctx_type
-                if ct == "dot_column" and parsed.ctx_data then
-                  -- ctx_data is the alias prefix, not resolved table name
-                  local resolved = nil
-                  local prefix = parsed.ctx_data or ""
-                  if parsed.tables then
-                    for _, t in ipairs(parsed.tables) do
-                      if t.alias and t.alias:lower() == prefix:lower() then
-                        resolved = t.name
-                        break
-                      end
-                    end
-                  end
-                  local ad = line_text:sub(end_col + 2)
-                  local cm = ad:match("^([%w_]+)")
-                  table_name = resolved or prefix
-                  column_name = cm or vim.fn.expand("<cword>")
-                elseif ct == "insert_column" and parsed.ctx_data then
-                  local resolved = nil
-                  local prefix = parsed.ctx_data or ""
-                  if parsed.tables then
-                    for _, t in ipairs(parsed.tables) do
-                      if t.alias and t.alias:lower() == prefix:lower() then
-                        resolved = t.name
-                        break
-                      end
-                    end
-                  end
-                  local ad = line_text:sub(end_col + 2)
-                  local cm = ad:match("^([%w_]+)")
-                  table_name = resolved or prefix
-                  column_name = cm or vim.fn.expand("<cword>")
-                elseif (ct == "column" or ct == "keyword") and parsed.tables and #parsed.tables > 0 then
-                  local cword = vim.fn.expand("<cword>")
-                  local cword_lower = cword:lower()
-
-                  -- Detect .column suffix: a.bio → alias=a, column=bio
-                  local after_dot_col = nil
-                  local nxt = line_text:sub(end_col + 1, end_col + 1)
-                  if nxt == "." then
-                    local cm = line_text:match("^([%w_]+)", end_col + 2)
-                    if cm then after_dot_col = cm end
-                  end
-
-                  if after_dot_col then
-                    -- alias.column or table.column → navigate to resolved column
-                    local matched = nil
-                    for _, t in ipairs(parsed.tables) do
-                      local tn = (t.name or ""):lower()
-                      local ta = (t.alias or ""):lower()
-                      if tn == cword_lower or ta == cword_lower then matched = t; break end
-                    end
-                    local resolved = matched and (matched.name or matched.alias) or parsed.ctx_data
-                    if resolved then
-                      table_name = resolved
-                      column_name = after_dot_col
-                    end
-                  else
-                    local matched = nil
-                    for _, t in ipairs(parsed.tables) do
-                      local tn = (t.name or ""):lower()
-                      local ta = (t.alias or ""):lower()
-                      if tn == cword_lower or ta == cword_lower then matched = t; break end
-                    end
-                    if matched then
-                      table_name = matched.name or matched.alias
-                      column_name = nil
-                    else
-                      -- Check if cword is part of alias.column pattern
-                      local alias = nil
-                      local ws = col -- 0-indexed
-                      while ws > 0 do
-                        if not line_text:sub(ws + 1, ws + 1):match("[%w_]") then break end
-                        ws = ws - 1
-                      end
-                      if ws >= 0 and line_text:sub(ws + 1, ws + 1) == "." then
-                        local ae = ws - 1
-                        local ap = ae
-                        while ap >= 0 do
-                          if not line_text:sub(ap + 1, ap + 1):match("[%w_]") then break end
-                          ap = ap - 1
-                        end
-                        if ap + 1 <= ae then alias = line_text:sub(ap + 2, ae + 1) end
-                      end
-                      local resolved = nil
-                      if alias then
-                        for _, t in ipairs(parsed.tables) do
-                          if t.alias and t.alias:lower() == alias:lower() then
-                            resolved = t.name or t.alias; break
-                          end
-                        end
-                      end
-                      if resolved then
-                        table_name = resolved
-                        column_name = cword
-                      else
-                        local target = parsed.tables[1].name or parsed.tables[1].alias
-                        if target then
-                          table_name = target
-                          column_name = cword
-                        end
-                      end
-                    end
-                  end
-                end
-              end
-            end
-          end
-        end
-
-        vim.cmd("normal! m'")
-        require("poste.sql.db_browser").navigate_to_table(full_ctx.connection, full_ctx.database, table_name, column_name)
-        return
-      end
-    end
-    vim.notify("No connection context. Add -- @connection <name> to the file header.", vim.log.levels.WARN)
-  end
-
-  local buf = vim.api.nvim_get_current_buf()
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local line_num = cursor[1]
-  local col = cursor[2]  -- 0-indexed
-
-  local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
-
-  -- Find the {{...}} reference under the cursor on this line
-  local req_name = nil
-  local start_pos = 1
-  while true do
-    local s, e = line_text:find("{{[^}]+}}", start_pos)
-    if not s then break end
-    if col + 1 >= s and col + 1 <= e then  -- col is 0-indexed, s/e are 1-indexed
-      local ref_text = line_text:sub(s + 2, e - 2)  -- strip {{ and }}
-      -- Extract request name (part before the first dot)
-      req_name = vim.trim(ref_text:match("^([^%.]+)%.") or ref_text)
-      break
-    end
-    start_pos = e + 1
-  end
-
-  if not req_name then
-    vim.notify("No named request reference under cursor", vim.log.levels.INFO)
-    return
-  end
-
-  -- Use collect_requests to find the matching ### line
-  local requests = request_vars.collect_requests(buf)
-  for _, req in ipairs(requests) do
-    if req.name == req_name then
-      vim.cmd("normal! m'")
-      vim.api.nvim_win_set_cursor(0, { req.start_line, 0 })
-      return
-    end
-  end
-
-  -- Not a named request: look for @var definition
-  -- Priority: request-level (within current block) > file-level (before first ###)
-  local total = vim.api.nvim_buf_line_count(buf)
-
-  -- Find current request block
-  local current_req = nil
-  for _, req in ipairs(requests) do
-    if line_num >= req.start_line and line_num <= req.end_line then
-      current_req = req
-      break
-    end
-  end
-
-  -- Search for @varname definition
-  local var_pattern = "^%s*@" .. vim.pesc(req_name) .. "[%s=]"
-  local found_line = nil
-
-  -- 1. Request-level: within current block
-  if current_req then
-    for i = current_req.start_line, current_req.end_line do
-      local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-      if text:match(var_pattern) then
-        found_line = i
-        break
-      end
-    end
-  end
-
-  -- 2. File-level: before first ### (or entire file if no blocks)
-  if not found_line then
-    local end_line = #requests > 0 and requests[1].start_line - 1 or total
-    for i = 1, end_line do
-      local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-      if text:match(var_pattern) then
-        found_line = i
-        break
-      end
-    end
-  end
-
-  if found_line then
-    vim.cmd("normal! m'")
-    vim.api.nvim_win_set_cursor(0, { found_line, 0 })
-    return
-  end
-
-  -- 3. env.json: search for variable in environment file
-  local buf_path = vim.api.nvim_buf_get_name(buf)
-  if buf_path == "" then
-    vim.notify("Definition not found: " .. req_name, vim.log.levels.WARN)
-    return
-  end
-
-  -- Search for env.json: start from buffer directory, walk up
-  local search_dir = vim.fn.fnamemodify(buf_path, ":h")
-  local env_file = util.find_file_upwards("env.json", search_dir)
-
-  if not env_file then
-    vim.notify("Definition not found: " .. req_name, vim.log.levels.WARN)
-    return
-  end
-
-  -- Read and parse env.json
-  local env_lines = vim.fn.readfile(env_file)
-  if not env_lines or #env_lines == 0 then
-    vim.notify("Cannot read env.json", vim.log.levels.WARN)
-    return
-  end
-
-  local env_content = table.concat(env_lines, "\n")
-  local ok, env_data = pcall(vim.json.decode, env_content)
-  if not ok or type(env_data) ~= "table" then
-    vim.notify("Cannot parse env.json", vim.log.levels.WARN)
-    return
-  end
-
-  -- Get current environment (e.g., "dev")
-  local current_env = state.current_env
-  local env_vars = env_data[current_env]
-  if not env_vars or type(env_vars) ~= "table" then
-    vim.notify(string.format("Environment '%s' not found in env.json", current_env), vim.log.levels.WARN)
-    return
-  end
-
-  -- Check if variable exists in this environment
-  if env_vars[req_name] then
-    -- Find the current env section start line
-    local env_section_start = nil
-    local env_pattern = '^%s*"' .. vim.pesc(current_env) .. '"%s*:'
-    for i, l in ipairs(env_lines) do
-      if l:match(env_pattern) then
-        env_section_start = i
-        break
-      end
-    end
-
-    -- Find the env section end line by tracking brace depth
-    local env_section_end = #env_lines
-    if env_section_start then
-      local depth = 0
-      local started = false
-      for i = env_section_start, #env_lines do
-        local l = env_lines[i]
-        local opens = (l:match("{") and 1 or 0) - (l:match("}") and 1 or 0)
-        if i == env_section_start then
-          depth = depth + opens
-          started = true
-        elseif started then
-          depth = depth + opens
-          if depth <= 0 then
-            env_section_end = i
-            break
-          end
-        end
-      end
-    end
-
-    -- Find the variable line within the current env section
-    local target_line = nil
-    local start_search = (env_section_start or 0) + 1
-    for i = start_search, env_section_end do
-      local l = env_lines[i]
-      if l:match('^%s*"' .. vim.pesc(req_name) .. '"%s*:') then
-        target_line = i
-        break
-      end
-    end
-
-    if target_line then
-      -- Jump to env.json file
-      vim.cmd("normal! m'")
-      vim.cmd("edit " .. vim.fn.fnameescape(env_file))
-      vim.api.nvim_win_set_cursor(0, { target_line, 0 })
-      return
-    end
-  end
-
-  vim.notify("Definition not found: " .. req_name, vim.log.levels.WARN)
-end
-
-function M.goto_references()
-  local buf = vim.api.nvim_get_current_buf()
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local line_num = cursor[1]
-  local col = cursor[2]  -- 0-indexed
-
-  local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
-  local total = vim.api.nvim_buf_line_count(buf)
-
-  local symbol_name = nil
-  local is_request = false
-
-  -- 1. Check for {{...}} reference under cursor
-  local start_pos = 1
-  while true do
-    local s, e = line_text:find("{{[^}]+}}", start_pos)
-    if not s then break end
-    if col + 1 >= s and col + 1 <= e then
-      local ref_text = line_text:sub(s + 2, e - 2)
-      symbol_name = vim.trim(ref_text:match("^([^%.]+)%.") or ref_text)
-      -- If it contains .response. or .request., it's a named request reference
-      if ref_text:match("%.response%.") or ref_text:match("%.request%.") then
-        is_request = true
-      end
-      break
-    end
-    start_pos = e + 1
-  end
-
-  -- 2. Check for @var definition under cursor
-  if not symbol_name then
-    local var_name = line_text:match("^%s*@(.-)[%s=]")
-    if var_name then
-      symbol_name = vim.trim(var_name)
-    end
-  end
-
-  -- 3. Check for ### Request Name
-  if not symbol_name then
-    local req_name = line_text:match("^%s*###%s*(.+)")
-    if req_name then
-      symbol_name = vim.trim(req_name)
-      is_request = true
-    end
-  end
-
-  if not symbol_name then
-    vim.notify("No variable or request reference under cursor", vim.log.levels.INFO)
-    return
-  end
-
-  local results = {}
-  local seen = {}
-
-  -- Read all lines in a single API call (was N calls, now 1)
-  local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-
-  local function add(line_i, text, ref_col)
-    if not seen[line_i] and line_i ~= line_num then
-      seen[line_i] = true
-      table.insert(results, { line = line_i, text = text, col = ref_col })
-    end
-  end
-
-  local esc = vim.pesc(symbol_name)
-
-  -- Comment pattern: lines starting with # or -- (after optional whitespace)
-  local comment_pat = "^%s*[#%-]"
-
-  if is_request then
-    local def_pat = "^%s*###%s*" .. esc .. "%s*$"
-    local ref_pat = "{{" .. esc .. "[%}%.]"
-    for i = 1, total do
-      local text = all_lines[i] or ""
-      if text:match(def_pat) then
-        add(i, vim.trim(text), 0)
-      elseif not text:match(comment_pat) then
-        -- Skip comment lines — they are documentation, not actual references
-        local ref_col = text:find(ref_pat)
-        if ref_col then
-          add(i, vim.trim(text), ref_col - 1)
-        end
-      end
-    end
-  else
-    local def_pat = "^%s*@" .. esc .. "[%s=]"
-    local ref_pat = "{{" .. esc .. "[%}%.]"
-    for i = 1, total do
-      local text = all_lines[i] or ""
-      if text:match(def_pat) then
-        add(i, vim.trim(text), 0)
-      elseif not text:match(comment_pat) then
-        local ref_col = text:find(ref_pat)
-        if ref_col then
-          add(i, vim.trim(text), ref_col - 1)
-        end
-      end
-    end
-  end
-
-  -- Remove current line from results (manual filter to preserve array structure)
-  local filtered_results = {}
-  for _, r in ipairs(results) do
-    if r.line ~= line_num then
-      table.insert(filtered_results, r)
-    end
-  end
-  results = filtered_results
-
-  if #results == 0 then
-    vim.notify("No other references found for: " .. symbol_name, vim.log.levels.INFO)
-    return
-  end
-
-  -- Sort by line number
-  table.sort(results, function(a, b) return a.line < b.line end)
-
-  -- Single result: jump directly
-  if #results == 1 then
-    local r = results[1]
-    vim.cmd("normal! m'")
-    vim.api.nvim_win_set_cursor(0, { r.line, r.col })
-    return
-  end
-
-  -- Multiple results: use custom picker with lazy preview loading
-  local items = {}
-  local filetype = vim.api.nvim_get_option_value("filetype", {buf = buf})
-
-  for idx, r in ipairs(results) do
-    table.insert(items, string.format("L%d:%d: %s", r.line, r.col, r.text))
-  end
-
-  -- Lazy preview loader: only build preview when needed
-  local preview_data = setmetatable({}, {
-    __index = function(_, idx)
-      local r = results[idx]
-      if not r then return nil end
-
-      -- Build preview on demand
-      local ctx = 5
-      local start_l = math.max(1, r.line - ctx)
-      local end_l = math.min(total, r.line + ctx)
-      local preview_lines = {}
-      for i = start_l, end_l do
-        local ltext = all_lines[i] or ""
-        local prefix = (i == r.line) and "▶ " .. i .. " " or "  " .. i .. " "
-        preview_lines[i - start_l + 1] = prefix .. ltext
-      end
-
-      return {
-        lines = preview_lines,
-        filetype = filetype,
-        highlight_line = r.line - start_l + 1,
-      }
-    end
-  })
-
-  local function jump_to(item)
-    xpcall(function()
-      local target_line, target_col = item:match("^L(%d+):(%d+):")
-      if not target_line then return end
-
-      local line = tonumber(target_line)
-      local col = tonumber(target_col)
-      if not line or not col then return end
-
-      -- Ensure line and col are integers
-      line = math.floor(line)
-      col = math.floor(col)
-
-      -- Validate line is within buffer bounds
-      local line_count = vim.fn.line("$")
-      if line < 1 or line > line_count then return end
-
-      -- Validate col is within line bounds
-      local lines = vim.api.nvim_buf_get_lines(buf, line - 1, line, false)
-      local line_text = (lines and lines[1]) or ""
-      if col < 0 or col > #line_text then col = 0 end
-
-      -- Save position to jumplist and jump
-      vim.cmd("normal! m'")
-      vim.api.nvim_win_set_cursor(0, { line, col })
-    end, function(err)
-      -- Silently ignore any errors
-    end)
-  end
-
-  local select = require("poste.select")
-  select.select(items, "References to '" .. symbol_name .. "'", function(selected)
-    if selected then
-      jump_to(selected)
-    end
-  end, preview_data)
-end
-
----------------------------------------------------------------------------
--- Environment
----------------------------------------------------------------------------
-local function build_http_winbar()
-  local left = string.format(" Env: %s ", state.current_env)
-  local right = " <leader>vv switch "
-  return "%#PosteSqlMeta#" .. left .. "%=" .. "%#PosteSqlMetaDim#" .. right
-end
-
-function M.set_env(env_name)
-  state.current_env = env_name
-  vim.notify("Environment switched to: " .. env_name, vim.log.levels.INFO)
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
-    local buf = vim.api.nvim_win_get_buf(win)
-    local ft = vim.bo[buf].filetype
-    if ft == "poste_http" then
-      vim.wo[win].winbar = build_http_winbar()
-    end
-  end
-end
-
-function M.get_env()
-  return state.current_env
-end
-
-function M.pick_env()
-  local search_dir = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":h")
-  if search_dir == "" then search_dir = vim.fn.getcwd() end
-  local env_file = util.find_file_upwards("env.json", search_dir)
-  if not env_file then
-    vim.notify("No env.json found", vim.log.levels.WARN, { title = "Poste" })
-    return
-  end
-  local ok, data = pcall(vim.fn.readfile, env_file)
-  if not ok or not data then
-    vim.notify("Cannot read env.json", vim.log.levels.WARN, { title = "Poste" })
-    return
-  end
-  local ok2, parsed = pcall(vim.json.decode, table.concat(data, "\n"))
-  if not ok2 or type(parsed) ~= "table" then
-    vim.notify("Cannot parse env.json", vim.log.levels.WARN, { title = "Poste" })
-    return
-  end
-  local envs = {}
-  for name, _ in pairs(parsed) do
-    envs[#envs + 1] = name
-  end
-  table.sort(envs)
-  if #envs == 0 then
-    vim.notify("No environments found in env.json", vim.log.levels.WARN, { title = "Poste" })
-    return
-  end
-  local select_mod = require("poste.select")
-  select_mod.select(envs, "Select Environment", function(choice)
-    if choice then M.set_env(choice) end
-  end)
-end
-
----------------------------------------------------------------------------
--- Setup
----------------------------------------------------------------------------
 function M.setup(opts)
   opts = opts or {}
   state.config = vim.tbl_deep_extend("force", state.config, opts)
 
-  -- Register nvim-cmp source (if available)
   completion.register()
 
-  -- Register SQL completion source (blink.cmp)
   local sql_comp = require("poste.sql.completion")
   local function register_sql_completion()
     local ok_b, blink_mod = pcall(require, "blink.cmp")
@@ -1202,12 +51,10 @@ function M.setup(opts)
     blink_mod.add_filetype_source("poste_sql", "poste_sql")
     blink_mod.add_filetype_source("poste_sqlite", "poste_sql")
 
-    -- Only show poste_sql source in SQL buffers (suppress buffer/lsp word noise)
     local blink_config = require("blink.cmp.config")
     blink_config.sources.per_filetype["poste_sql"]    = { "poste_sql" }
     blink_config.sources.per_filetype["poste_sqlite"] = { "poste_sql" }
 
-    -- Allow space as a trigger character in SQL buffers by removing it from the blocked list
     local orig_blocked = blink_config.completion.trigger.show_on_blocked_trigger_characters
     blink_config.completion.trigger.show_on_blocked_trigger_characters = function()
       local ft = vim.bo.filetype
@@ -1219,7 +66,6 @@ function M.setup(opts)
     end
   end
 
-  -- Defer to avoid crashing startup if blink.cmp is broken
   local ok, err = pcall(register_sql_completion)
   if not ok then
     local group = vim.api.nvim_create_augroup("PosteSQLCmpRegister", { clear = true })
@@ -1280,7 +126,6 @@ function M.setup(opts)
       vim.keymap.set("n", k, function() require("poste.help").open() end, keymap_opts)
     end
 
-    -- Clear indicators when buffer content changes (dd, x, etc.)
     local indicator_ns = vim.api.nvim_create_namespace("poste_indicator")
     local group = vim.api.nvim_create_augroup("PosteClearIndicators_" .. buf, { clear = true })
     vim.api.nvim_create_autocmd("TextChanged", {
@@ -1292,7 +137,6 @@ function M.setup(opts)
     })
   end
 
-  -- Helper to install the DB browser keymap on SQL buffers
   local function setup_db_browser_keymap(buf)
     local k = state.get_keymap("sql_source", "toggle_db_browser", "<leader>db")
     if k then
@@ -1302,7 +146,6 @@ function M.setup(opts)
     end
   end
 
-  -- Commands
   vim.api.nvim_create_user_command("PosteRun", function()
     M.run_request()
   end, { desc = "Run request at cursor" })
@@ -1344,43 +187,38 @@ function M.setup(opts)
     local sql_comp = require("poste.sql.completion")
     local ft = vim.bo.filetype
     local buf = vim.api.nvim_get_current_buf()
-    
+
     local status = {
       "SQL Completion Status:",
       "  Current filetype: " .. ft,
       "  Buffer: " .. buf,
     }
-    
-    -- Test if source is enabled
+
     local instance = sql_comp.new()
     table.insert(status, "  Enabled: " .. tostring(instance:enabled()))
-    
-    -- Check blink.cmp registration
+
     table.insert(status, "  blink.cmp loaded: true")
     local blink_config = require("blink.cmp.config")
     if blink_config.sources and blink_config.sources.providers then
       local has_sql = blink_config.sources.providers.poste_sql ~= nil
       table.insert(status, "  poste_sql provider registered: " .. tostring(has_sql))
     end
-    
-    -- Check connection
+
     local ctx_mod = require("poste.sql.context")
     local ctx = ctx_mod.resolve_context(buf)
     table.insert(status, "  Connection: " .. (ctx.connection or "none"))
     table.insert(status, "  Database: " .. (ctx.database or "none"))
-    
-    -- Test context detection at cursor
+
     local cursor = vim.api.nvim_win_get_cursor(0)
     local line = vim.api.nvim_get_current_line()
-    local col = cursor[2]  -- 0-based column
-    local line_before = line:sub(1, col)  -- up to but not including cursor position
-    
+    local col = cursor[2]
+    local line_before = line:sub(1, col)
+
     table.insert(status, "\nAt cursor position (col=" .. col .. "):")
     table.insert(status, "  Line: " .. line)
     table.insert(status, "  Before cursor: '" .. line_before .. "'")
     table.insert(status, "  After cursor: '" .. line:sub(col + 1) .. "'")
-    
-    -- Call the test interface if available
+
     if sql_comp._test then
       local ctx_type, ctx_data = sql_comp._test.detect_context_for_completion(line_before)
       table.insert(status, "  Detected context: " .. tostring(ctx_type))
@@ -1388,7 +226,7 @@ function M.setup(opts)
         table.insert(status, "  Context data: " .. tostring(ctx_data))
       end
     end
-    
+
     vim.notify(table.concat(status, "\n"), vim.log.levels.INFO)
   end, { desc = "Check SQL completion status" })
 
@@ -1401,7 +239,6 @@ function M.setup(opts)
         local line = vim.api.nvim_get_current_line()
         local col = vim.api.nvim_win_get_cursor(0)[2]
 
-        -- Check if just typed a space after SQL keyword
         if col > 0 and line:sub(col, col) == " " then
           local before = line:sub(1, col - 1)
           local last_word = before:match("(%w+)%s*$")
@@ -1423,11 +260,9 @@ function M.setup(opts)
   end, { desc = "Install SQL auto-trigger for completion" })
 
 vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
-    -- Reload the completion module
     package.loaded["poste.sql.completion"] = nil
     local sql_comp = require("poste.sql.completion")
 
-    -- Re-register with blink.cmp
     local ok_b, blink_mod = pcall(require, "blink.cmp")
     if not ok_b then
       vim.notify("blink.cmp not loaded, cannot re-register", vim.log.levels.WARN)
@@ -1458,7 +293,6 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     local tbls, alias_map = sql_comp._test.extract_from_tables(buf, cursor_lnum)
     local conn = sql_comp._test.conn_key()
 
-    -- Check what blink sources are active for this filetype
     local blink_src = require("blink.cmp.sources.lib")
     local blink_config = require("blink.cmp.config")
     local active_providers = blink_src.get_enabled_provider_ids("insert")
@@ -1492,7 +326,6 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
   end, { desc = "Diagnose SQL completion at cursor" })
 
   vim.api.nvim_create_user_command("PosteSQLDebugSpace", function()
-    -- Test exactly what happens when Space is pressed after WHERE
     local buf = vim.api.nvim_get_current_buf()
     local line = vim.api.nvim_get_current_line()
     local col = vim.api.nvim_win_get_cursor(0)[2]
@@ -1529,30 +362,26 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     local col = cursor[2]
     local line_before = line:sub(1, col)
     local cursor_line = cursor[1]
-    
+
     local status = {
       "SQL Completion Test:",
       "  line_before: '" .. line_before .. "'",
       "  cursor_line: " .. cursor_line,
     }
-    
-    -- Test context detection
+
     if sql_comp._test then
       local ctx_type, ctx_data = sql_comp._test.detect_context_for_completion(line_before)
       table.insert(status, "  Context: " .. tostring(ctx_type))
-      
-      -- If column context, test extract_from_tables
+
       if ctx_type == "column" and sql_comp._test.extract_from_tables then
         local tbls = sql_comp._test.extract_from_tables(buf, cursor_line)
         table.insert(status, "  Tables found: " .. #tbls .. " - " .. vim.inspect(tbls))
       end
-      
-      -- Test connection
+
       local conn = sql_comp._test.conn_key and sql_comp._test.conn_key()
       table.insert(status, "  Connection key: " .. tostring(conn))
     end
-    
-    -- Call get_items directly
+
     if sql_comp._test and sql_comp._test.get_items then
       sql_comp._test.get_items(buf, line_before, cursor_line, function(items)
         table.insert(status, "\nReturned " .. #items .. " items:")
@@ -1579,17 +408,14 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     symbols.show_symbols()
   end, { desc = "Show symbol outline (all HTTP requests)" })
 
-  -- SQL connection management
   vim.api.nvim_create_user_command("PosteConnection", function()
     require("poste.sql.connections").show_menu()
   end, { desc = "Manage SQL connections" })
 
-  -- DB Browser (Phase 3)
   vim.api.nvim_create_user_command("PosteDBBrowser", function()
     require("poste.sql.db_browser").toggle()
   end, { desc = "Toggle database structure browser sidebar" })
 
-  -- Dataset export
   vim.api.nvim_create_user_command("PosteExport", function(args)
     local parts = {}
     for word in args.args:gmatch("%S+") do
@@ -1604,7 +430,6 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     desc = "Export dataset — :PosteExport [format] [destination] [path]",
   })
 
-  -- SQL context switching
   vim.api.nvim_create_user_command("PosteSqlLog", function()
     require("poste.sql.log_viewer").toggle()
   end, { desc = "Toggle SQL execution log viewer" })
@@ -1621,7 +446,6 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     desc = "Switch SQL execution context (connection/database)",
   })
 
-  -- Autocommand: set up keymaps for supported file types
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.http", "*.rest", "*.redis" },
     callback = function()
@@ -1635,15 +459,13 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     end,
   })
 
-  -- Winbar: show current env for HTTP files
   vim.api.nvim_create_autocmd("BufEnter", {
     pattern = { "*.http", "*.rest" },
     callback = function()
-      vim.wo.winbar = build_http_winbar()
+      vim.wo.winbar = env_mod.build_http_winbar()
     end,
   })
 
-  -- SQL files: set up keymaps (same keymaps as HTTP) + DB browser keymap
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.sql", "*.sqlite" },
     callback = function()
@@ -1656,17 +478,14 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
       setup_buffer_keymaps(0)
       require("poste.sql.init").ensure_sql_keymaps(0)
       setup_db_browser_keymap(0)
-      
+
       k = state.get_keymap("sql_source", "trigger_completion", "<C-Space>")
       if k then
         vim.keymap.set("i", k, function()
           pcall(function() require("blink.cmp").show() end)
         end, { buffer = 0, noremap = true, silent = true, desc = "Trigger completion" })
       end
-      
-      -- Trigger completion after SQL keywords via CursorMovedI
-      -- (Space keymap is intercepted by blink.cmp before buffer-local keymaps fire,
-      --  and TextChangedI may not fire for expr-mapped keys)
+
       local sql_keywords = { from=true, join=true, where=true, set=true,
                               on=true, having=true, by=true, ["and"]=true, ["or"]=true,
                               use=true }
@@ -1676,8 +495,7 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
         buffer = 0,
         callback = function()
           local line = vim.api.nvim_get_current_line()
-          local col  = vim.api.nvim_win_get_cursor(0)[2]  -- 0-based
-          -- Only act when cursor is right after a space: char at col-1 is space (1-indexed = col)
+          local col  = vim.api.nvim_win_get_cursor(0)[2]
           if col < 1 or line:sub(col, col) ~= " " then return end
           local last_word = line:sub(1, col - 1):match("(%w+)%s*$")
           if last_word and sql_keywords[last_word:lower()] then
@@ -1687,7 +505,6 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
         end,
       })
 
-      -- Show completion on InsertEnter if cursor is on an existing identifier
       vim.api.nvim_create_autocmd("InsertEnter", {
         group = group,
         buffer = 0,
@@ -1705,12 +522,10 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
         end,
       })
 
-      -- Configure buffer-local blink.cmp settings
       vim.b.blink_cmp_min_keyword_length = 0
     end,
   })
 
-  -- Already-open buffers
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     local name = vim.api.nvim_buf_get_name(buf)
     if name:match("%.http$") or name:match("%.rest$") then
@@ -1732,10 +547,8 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     end
   end
 
-  -- Status line integration
   _G.poste_status = function()
     local parts = { string.format("[env: %s]", state.current_env) }
-    -- Add SQL context if in SQL file
     local ft = vim.bo.filetype
     if ft == "poste_sql" or ft == "poste_sqlite" then
       local sql_status = require("poste.sql.context").get_status_text()

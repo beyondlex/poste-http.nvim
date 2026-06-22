@@ -100,7 +100,8 @@ fn build_response(
     let has_error = results.iter().any(|r| r.error.is_some());
     // A statement is a "query" (SELECT/SHOW/WITH/etc) if affected_rows is None.
     // Mutations (INSERT/UPDATE/DELETE) set affected_rows; 0-row queries still lack it.
-    let is_query = results.iter().any(|r| r.affected_rows.is_none());
+    // Exclude error results — they have affected_rows=None but are not queries.
+    let is_query = results.iter().any(|r| r.affected_rows.is_none() && r.error.is_none());
     let total_rows: usize = results.iter().map(|r| r.row_count).sum();
     let total_affected: u64 = results.iter().filter_map(|r| r.affected_rows).sum();
 

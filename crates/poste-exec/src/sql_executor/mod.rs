@@ -98,8 +98,9 @@ fn build_response(
     total_ms: u64,
 ) -> Result<Response> {
     let has_error = results.iter().any(|r| r.error.is_some());
-    let has_rows = results.iter().any(|r| r.row_count > 0);
-    let has_columns = results.iter().any(|r| !r.columns.is_empty());
+    // A statement is a "query" (SELECT/SHOW/WITH/etc) if affected_rows is None.
+    // Mutations (INSERT/UPDATE/DELETE) set affected_rows; 0-row queries still lack it.
+    let is_query = results.iter().any(|r| r.affected_rows.is_none());
     let total_rows: usize = results.iter().map(|r| r.row_count).sum();
     let total_affected: u64 = results.iter().filter_map(|r| r.affected_rows).sum();
 
@@ -107,7 +108,7 @@ fn build_response(
         .map(|d| d.name().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    let response_type = if has_rows || has_columns { "resultset" } else { "affected" };
+    let response_type = if is_query { "resultset" } else { "affected" };
 
     let json_results: Vec<Value> = results
         .iter()
@@ -152,7 +153,7 @@ fn build_response(
 
     let body = serde_json::to_string(&body_obj)?;
 
-    let status_text = if has_rows || has_columns {
+    let status_text = if is_query {
         format!("{} row{} returned in {}ms", total_rows, if total_rows == 1 { "" } else { "s" }, total_ms)
     } else if total_affected > 0 {
         format!("{} row{} affected in {}ms", total_affected, if total_affected == 1 { "" } else { "s" }, total_ms)
@@ -262,5 +263,47 @@ mod tests {
         assert_eq!(rows.len(), 1);
         pool.close().await;
         std::fs::remove_file(db_path).ok();
+    }
+
+    #[test]
+    fn test_build_response_zero_row_select_is_resultset() {
+        let protocol = Protocol::Postgres;
+        let results = vec![StatementResult {
+            columns: vec![],
+            rows: vec![],
+            row_count: 0,
+            affected_rows: None,
+            execution_time_ms: 3,
+            error: None,
+            connection: None,
+            translated_sql: None,
+            original_sql: None,
+        }];
+        let resp = build_response(&protocol, "test", &None, results, 3).unwrap();
+        let body: serde_json::Value = serde_json::from_str(&resp.body).unwrap();
+        assert_eq!(body["type"], "resultset",
+            "0-row SELECT with affected_rows=None should be resultset");
+        assert!(resp.status_text.contains("0 rows returned"),
+            "status_text should say '0 rows returned', got: {}", resp.status_text);
+    }
+
+    #[test]
+    fn test_build_response_insert_is_affected() {
+        let protocol = Protocol::Postgres;
+        let results = vec![StatementResult {
+            columns: vec![],
+            rows: vec![],
+            row_count: 0,
+            affected_rows: Some(1),
+            execution_time_ms: 5,
+            error: None,
+            connection: None,
+            translated_sql: None,
+            original_sql: None,
+        }];
+        let resp = build_response(&protocol, "test", &None, results, 5).unwrap();
+        let body: serde_json::Value = serde_json::from_str(&resp.body).unwrap();
+        assert_eq!(body["type"], "affected",
+            "INSERT with affected_rows=Some should be affected");
     }
 }

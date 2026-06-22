@@ -135,7 +135,7 @@ local function show_column_info(binary, conn, db, file, table_name, col_name)
           "  Table:    " .. table_name,
           "  Type:     " .. tostring(col.type or ""),
           "  Nullable: " .. tostring(col.nullable == true and "YES" or (col.nullable == false and "NO" or "?")),
-          "  Default:  " .. tostring(col.default or "(null)"),
+          "  Default:  " .. (col.default ~= vim.NIL and col.default or "(null)"),
         }
         if col.extra and col.extra ~= "" and col.extra ~= vim.NIL then
           table.insert(lines, "  Extra:    " .. tostring(col.extra))

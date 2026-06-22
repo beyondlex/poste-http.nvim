@@ -55,6 +55,9 @@ local function ensure_sql_keymaps(buf)
   if vim.b[buf].poste_sql_keymaps_installed then return end
   vim.b[buf].poste_sql_keymaps_installed = true
 
+  -- Ensure signcolumn is visible for boundary box indicators
+  vim.bo[buf].signcolumn = "yes:1"
+
   -- Initial apply of shared SQL syntax highlighting
   apply_source_highlights(buf)
 

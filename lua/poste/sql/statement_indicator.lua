@@ -7,7 +7,7 @@ local M = {}
 
 local ns = vim.api.nvim_create_namespace("poste_sql_stmt_boundary")
 local _debounce_timer = nil
-local _prev_mark_id = nil
+local _prev_mark_ids = nil
 local _prev_buf = nil
 local _disabled = false
 local _job_id = nil
@@ -15,28 +15,38 @@ local _job_id = nil
 local DEBOUNCE_MS = 50
 
 local function clear_prev()
-  if _prev_buf and vim.api.nvim_buf_is_valid(_prev_buf) and _prev_mark_id then
-    pcall(vim.api.nvim_buf_del_extmark, _prev_buf, ns, _prev_mark_id)
+  if _prev_buf and vim.api.nvim_buf_is_valid(_prev_buf) and _prev_mark_ids then
+    for _, id in ipairs(_prev_mark_ids) do
+      pcall(vim.api.nvim_buf_del_extmark, _prev_buf, ns, id)
+    end
   end
-  _prev_mark_id = nil
+  _prev_mark_ids = nil
   _prev_buf = nil
 end
 
 local function apply_range(buf, start_line, end_line)
   clear_prev()
   if not vim.api.nvim_buf_is_valid(buf) then return end
-  local total = vim.api.nvim_buf_line_count(buf)
-  local s = math.max(0, start_line)
-  local e = math.min(end_line, total - 1)
-  if s > e then return end
-  local end_col = #((vim.api.nvim_buf_get_lines(buf, e, e + 1, false) or {""})[1] or "")
-  local mark_id = vim.api.nvim_buf_set_extmark(buf, ns, s, 0, {
-    end_row = e,
-    end_col = end_col,
-    hl_group = "PosteSqlBoundary",
-    priority = 50,
-  })
-  _prev_mark_id = mark_id
+  local marks = {}
+  for line = start_line, end_line do
+    local char
+    if start_line == end_line then
+      char = "─"
+    elseif line == start_line then
+      char = "┌"
+    elseif line == end_line then
+      char = "└"
+    else
+      char = "│"
+    end
+    local id = vim.api.nvim_buf_set_extmark(buf, ns, line, 0, {
+      sign_text = char,
+      sign_hl_group = "PosteSqlBoundaryBorder",
+      priority = 55,
+    })
+    table.insert(marks, id)
+  end
+  _prev_mark_ids = marks
   _prev_buf = buf
 end
 

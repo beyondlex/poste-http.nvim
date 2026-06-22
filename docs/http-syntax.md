@@ -10,12 +10,12 @@
 │
 ├─ ### 请求块 1
 │   │
+│   ├─ < {% pre-script %}
 │   ├─ @variable 定义（块级）
 │   ├─ 请求行（METHOD URL）
 │   ├─ 请求头
 │   ├─ 空行
 │   ├─ 请求体
-│   ├─ < {% pre-script %}
 │   └─ > {% assertion %}
 │
 ├─ ### 请求块 2
@@ -78,7 +78,7 @@ GET {{base_url}}/users?limit={{page_size}}
 
 - 三个 `#` 开头
 - 后跟可选的请求名称
-- `###` 前后应各有一个空行（格式化规则）
+- `###` 前应有一个空行（格式化规则）
 - 文件末尾不需要尾随 `###`
 
 协议变更（仅限 SQL 文件）：
@@ -292,28 +292,6 @@ GET https://prod.example.com/api
 - `###` 行上可附加 `@env=<name>` 指令
 - 覆盖当前选中的环境
 - 未指定时使用 `state.current_env`
-
-### 2.12 连接指令（非 HTTP 协议）
-
-SQL/MongoDB/AMQP 文件中使用：
-
-```
-# @connection=my_database
--- @connection=my_database
-### @connection=my_database
-```
-
-- 注释风格 `#` 或 `--` 均可
-- 可出现在文件级或 `###` 同级
-
-### 2.13 协议指令
-
-```
-### @protocol=mysql
-```
-
-- 仅在 `.sql` 文件中有效
-- 覆盖文件扩展名检测的默认协议
 
 ## 3. 优先级 / 解析顺序
 

@@ -70,7 +70,7 @@ pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) 
                     j = idx;
                     match tokens[idx].kind {
                         TokenKind::LParen => { i = idx; found_lparen = true; break; }
-                        TokenKind::RParen => break,
+                        TokenKind::RParen | TokenKind::Semi => break,
                         _ => continue,
                     }
                 }
@@ -90,7 +90,7 @@ pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) 
                     j = idx;
                     match tokens[idx].kind {
                         TokenKind::LParen => { found_lparen = true; i = idx; break; }
-                        TokenKind::RParen => break,
+                        TokenKind::RParen | TokenKind::Semi => break,
                         _ => continue,
                     }
                 }
@@ -102,6 +102,9 @@ pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) 
     }
 
     if let Some(tbl_idx) = skip_back(tokens, i) {
+        if tokens[tbl_idx].kind == TokenKind::Semi {
+            return None;
+        }
         let tbl_tok = &tokens[tbl_idx];
         if !matches!(tbl_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword) {
             return None;
@@ -109,9 +112,15 @@ pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) 
         let table = tbl_tok.display_text(sql).to_string();
 
         if let Some(into_idx) = skip_back(tokens, tbl_idx) {
+            if tokens[into_idx].kind == TokenKind::Semi {
+                return None;
+            }
             let into_tok = &tokens[into_idx];
             if into_tok.kind == TokenKind::Keyword && kw_eq(into_tok.text(sql), "into") {
                 if let Some(insert_idx) = skip_back(tokens, into_idx) {
+                    if tokens[insert_idx].kind == TokenKind::Semi {
+                        return None;
+                    }
                     let insert_tok = &tokens[insert_idx];
                     if insert_tok.kind == TokenKind::Keyword && kw_eq(insert_tok.text(sql), "insert") {
                         return Some(ContextType::InsertColumn { table });
@@ -121,6 +130,9 @@ pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) 
         }
 
         if let Some(prev_idx) = skip_back(tokens, tbl_idx) {
+            if tokens[prev_idx].kind == TokenKind::Semi {
+                return None;
+            }
             let prev_tok = &tokens[prev_idx];
             if prev_tok.kind == TokenKind::Keyword && kw_eq(prev_tok.text(sql), "copy") {
                 return Some(ContextType::InsertColumn { table });
@@ -161,6 +173,9 @@ pub(crate) fn try_directive(tokens: &[Token], cursor_idx: usize, sql: &str) -> O
     }
 
     if let Some(prev) = skip_back(tokens, cursor_idx) {
+        if tokens[prev].kind == TokenKind::Semi {
+            return None;
+        }
         if tokens[prev].kind == TokenKind::Keyword && kw_eq(tokens[prev].text(sql), "use") {
             return Some(ContextType::Database);
         }
@@ -178,6 +193,9 @@ pub(crate) fn try_show_statement(tokens: &[Token], cursor_idx: usize, sql: &str)
 
     let mut search = start;
     loop {
+        if tokens[search].kind == TokenKind::Semi {
+            return None;
+        }
         if tokens[search].kind == TokenKind::Keyword && kw_eq(tokens[search].text(sql), "show") {
             break;
         }
@@ -220,6 +238,9 @@ pub(crate) fn try_grant_revoke(tokens: &[Token], cursor_idx: usize, sql: &str) -
 
     let mut search = start;
     loop {
+        if tokens[search].kind == TokenKind::Semi {
+            return None;
+        }
         if tokens[search].kind == TokenKind::Keyword && kw_eq(tokens[search].text(sql), "on") {
             break;
         }
@@ -233,6 +254,9 @@ pub(crate) fn try_grant_revoke(tokens: &[Token], cursor_idx: usize, sql: &str) -
     loop {
         match skip_back(tokens, before_on) {
             Some(idx) => {
+                if tokens[idx].kind == TokenKind::Semi {
+                    return None;
+                }
                 let tok = &tokens[idx];
                 match tok.kind {
                     TokenKind::Keyword => {
@@ -265,6 +289,9 @@ pub(crate) fn try_for_update_of(tokens: &[Token], cursor_idx: usize, sql: &str) 
 
     let mut search = start;
     loop {
+        if tokens[search].kind == TokenKind::Semi {
+            return None;
+        }
         if tokens[search].kind == TokenKind::Keyword && kw_eq(tokens[search].text(sql), "of") {
             break;
         }
@@ -300,6 +327,9 @@ pub(crate) fn try_bare_set(tokens: &[Token], cursor_idx: usize, sql: &str) -> Op
 
     let mut search = start;
     loop {
+        if tokens[search].kind == TokenKind::Semi {
+            return None;
+        }
         if tokens[search].kind == TokenKind::Keyword && kw_eq(tokens[search].text(sql), "set") {
             break;
         }

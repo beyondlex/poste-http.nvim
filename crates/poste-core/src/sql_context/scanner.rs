@@ -156,7 +156,10 @@ pub(crate) fn detect_scan_backward(
                     return ContextType::Keyword;
                 }
             }
-            TokenKind::Semi | TokenKind::RParen | TokenKind::StrLit | TokenKind::DollarStr => {}
+            TokenKind::Semi => {
+                return ContextType::Keyword;
+            }
+            TokenKind::RParen | TokenKind::StrLit | TokenKind::DollarStr => {}
             _ => {
                 if after_comma {
                     after_comma = false;

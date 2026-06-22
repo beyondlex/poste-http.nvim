@@ -898,6 +898,31 @@ fn test_detect_show_bare_keyword() {
 }
 
 #[test]
+fn test_detect_show_tables_semicolon_boundary_new_stmt_s() {
+    // show tables; is a completed statement. `s` on next line is a new statement.
+    let result = detect_context("show tables;\ns", 14).unwrap();
+    assert_eq!(result.context_type, ContextType::Keyword,
+        "After show tables;, new 's' should be Keyword, got {:?}", result.context_type);
+    assert_eq!(result.prefix, "s");
+}
+
+#[test]
+fn test_detect_show_tables_semicolon_boundary_new_stmt_select() {
+    // show tables; on one line, SELECT s on the next.
+    let result = detect_context("show tables;\nSELECT s", 21).unwrap();
+    assert_eq!(result.context_type, ContextType::Column,
+        "After show tables;, SELECT s should be Column, got {:?}", result.context_type);
+    assert_eq!(result.prefix, "s");
+}
+
+#[test]
+fn test_detect_show_tables_no_semicolon_still_works() {
+    // Without semicolon, SHOW TABLES should still suggest tables.
+    let result = detect_context("SHOW TABLES ", 12).unwrap();
+    assert_eq!(result.context_type, ContextType::Table);
+}
+
+#[test]
 fn test_detect_analyze() {
     let result = detect_context("ANALYZE ", 8).unwrap();
     assert_eq!(result.context_type, ContextType::Table);

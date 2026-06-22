@@ -137,6 +137,9 @@ local function show_column_info(binary, conn, db, file, table_name, col_name)
           "  Nullable: " .. tostring(col.nullable == true and "YES" or (col.nullable == false and "NO" or "?")),
           "  Default:  " .. tostring(col.default or "(null)"),
         }
+        if col.extra and col.extra ~= "" and col.extra ~= vim.NIL then
+          table.insert(lines, "  Extra:    " .. tostring(col.extra))
+        end
         if col.max_length then
           table.insert(lines, "  Max Len:  " .. tostring(col.max_length))
         end

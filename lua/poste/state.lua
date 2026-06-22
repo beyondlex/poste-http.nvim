@@ -13,6 +13,12 @@ M.config = {
   log_file = vim.fn.stdpath("cache") .. "/poste.log",
   import_chunk_size = 100,
 
+  -- Preferred SQL formatter order. If a formatter fails (e.g. sqlfluff can't
+  -- parse SHOW TABLES), Poste automatically falls back to the next in the list.
+  -- Available: "sqlfluff", "sqlfmt", "sql-formatter", "pg_format"
+  -- Set to an empty list {} to disable formatting entirely.
+  sql_formatters = { "sqlfluff", "sqlfmt", "sql-formatter", "pg_format" },
+
   -- User-overridable keymaps. Set to false to disable a keymap.
   -- Each section maps action names → key strings.
   keymaps = {
@@ -44,6 +50,7 @@ M.config = {
     sql_source = {
       run = "<CR>",
       show_ddl = "K",
+      format = "<leader>ff",
       clear_filter = "<leader>cr",
       toggle_db_browser = "<leader>db",
       trigger_completion = "<C-Space>",

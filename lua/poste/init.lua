@@ -412,6 +412,24 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     require("poste.sql.connections").show_menu()
   end, { desc = "Manage SQL connections" })
 
+  vim.api.nvim_create_user_command("PosteFormat", function()
+    local ok, source_format = pcall(require, "poste.sql.source_format")
+    if ok then
+      source_format.format_buffer()
+    else
+      vim.notify("Poste source_format module not available", vim.log.levels.ERROR)
+    end
+  end, { desc = "Format SQL buffer/selection using detected formatter (sqlfluff/sqlfmt/...)" })
+
+  vim.api.nvim_create_user_command("PosteFormatStatus", function()
+    local ok, source_format = pcall(require, "poste.sql.source_format")
+    if ok then
+      source_format.status()
+    else
+      vim.notify("Poste source_format module not available", vim.log.levels.ERROR)
+    end
+  end, { desc = "Show formatter status: installed, priority, dialect" })
+
   vim.api.nvim_create_user_command("PosteDBBrowser", function()
     require("poste.sql.db_browser").toggle()
   end, { desc = "Toggle database structure browser sidebar" })

@@ -1,141 +1,364 @@
-## 当前已实现的 HTTP 文件语法总结
+# Poste HTTP 文件语法规范
 
-### 1. 请求结构
+> 本文档定义 `.http` / `.rest` 文件所有支持的语法元素，
+> 供 completion、highlight、formatter、Rust CLI 解析器统一参考。
 
-| 语法                    | 说明                           | 示例                                     |
-| ----------------------- | ------------------------------ | ---------------------------------------- |
-| `###`                   | 请求分隔符，分隔多个请求块     | `###`                                    |
-| `### Name`              | 带名称的请求，可用于跨请求引用 | `### Login`                              |
-| `METHOD URL [HTTP/ver]` | 标准 HTTP 请求行               | `POST https://httpbin.org/post HTTP/1.1` |
-| `Key: Value`            | 请求头（请求行后、空行前）     | `Content-Type: application/json`         |
-| (空行后内容)            | 请求体                         | `{"key": "value"}`                       |
+## 1. 文件结构
 
-### 2. 注释
+```
+┌─ @variable 定义（文件级，在第一个 ### 之前）
+│
+├─ ### 请求块 1
+│   │
+│   ├─ @variable 定义（块级）
+│   ├─ 请求行（METHOD URL）
+│   ├─ 请求头
+│   ├─ 空行
+│   ├─ 请求体
+│   ├─ < {% pre-script %}
+│   └─ > {% assertion %}
+│
+├─ ### 请求块 2
+│   └─ ...
+│
+└─ ### 请求块 N
+```
 
-| 语法     | 说明         |
-| -------- | ------------ |
-| `# ...`  | Hash 注释    |
-| `-- ...` | SQL 风格注释 |
+## 2. 语法元素
 
-### 3. 变量系统
+### 2.1 注释
 
-| 语法            | 说明                                                 |
-| --------------- | ---------------------------------------------------- |
-| `@name = value` | 文件级变量（`###` 之前定义，全局可用）               |
-| `@name = value` | 请求级变量（`###` 块内定义，仅块内可用，优先级更高） |
-| `@name=value`   | 紧凑写法（无空格）                                   |
-| `@name value`   | 空格分隔写法（`=` 可省略）                           |
-| `{{var_name}}`  | 变量替换                                             |
+```
+// 双斜杠注释
+# 井号注释
+```
 
-**变量优先级**：请求级 > 文件级 > env.json 环境变量
+- 文件任何位置均可使用
+- `--` 注释风格（SQL 风格）不支持在 HTTP 文件中使用
 
-### 4. 交互式 Prompt（Lua 侧）
+### 2.2 变量定义
 
-| 语法                                   | 说明                                                   |
-| -------------------------------------- | ------------------------------------------------------ |
-| `# @prompt varname`                    | 文本输入弹窗                                           |
-| `# @prompt varname [opt1, opt2, opt3]` | 选择列表（≤10 项用 `inputlist`，>10 项用浮动搜索窗口） |
-| 多个 `# @prompt` 行                    | 按顺序依次弹出                                         |
+**文件级变量**（在第一个 `###` 之前出现）：
 
-### 5. 跨请求引用
+```
+@base_url = https://api.example.com
+@token = eyJhbGciOiJIUzI1NiI
+```
 
-| 语法                                   | 说明                                                   |
-| -------------------------------------- | ------------------------------------------------------ |
-| `{{ReqName.response.body.field.path}}` | 引用其他请求的响应体字段（点号路径，自动执行依赖请求） |
-| `{{ReqName.response.body.arr[0]}}`     | 数组索引访问                                           |
-| `{{ReqName.response.body}}`            | 引用整个响应体                                         |
-| `{{ReqName.response.headers.Name}}`    | 引用响应头（大小写不敏感）                             |
-| `{{ReqName.request.body.field}}`       | 引用请求体字段                                         |
-| `{{ReqName.request.headers.Name}}`     | 引用请求头                                             |
+**块级变量**（在 `###` 和请求行之间出现）：
 
-支持链式引用：C → B → A 自动解析并缓存。
+```
+### Get users
+@page_size = 20
+GET {{base_url}}/users?limit={{page_size}}
+```
 
-### 6. 连接指令（非 HTTP 协议）
+**多行变量**（`=>>> ... <<<`）：
 
-| 语法                                | 说明                                      |
-| ----------------------------------- | ----------------------------------------- |
-| `# @connection redis://host:port`   | Hash 注释风格                             |
-| `-- @connection postgres://host/db` | SQL 注释风格                              |
-| `# @connection {{host}}:{{port}}`   | 支持变量替换                              |
-| 文件级 → 块级回退                   | 块内无 `@connection` 时自动使用文件级定义 |
+```
+@payload =>>>
+{
+  "name": "test",
+  "value": 123
+}
+<<<
+```
 
-### 7. 特殊变量 & 文件包含
+**规则**：
+- 变量名：`@` 开头，后跟 `\w+`（字母数字下划线）
+- 等号前后可有空格
+- 值可以是空字符串
+- 块级变量覆盖文件级同名变量
 
-| 语法                      | 说明                             |
-| ------------------------- | -------------------------------- |
-| `{{$timestamp}}`          | 魔术变量，替换为唯一时间戳       |
-| `< /path/to/file`         | 文件包含（读取文件内容替换该行） |
-| `< ~/Pictures/avatar.png` | 支持 tilde 展开                  |
+### 2.3 请求块分隔
 
-### 8. 协议检测
+```
+### Get all users
+```
 
-基于文件扩展名自动识别：
+- 三个 `#` 开头
+- 后跟可选的请求名称
+- `###` 前后应各有一个空行（格式化规则）
+- 文件末尾不需要尾随 `###`
 
-| 扩展名            | 协议       |
-| ----------------- | ---------- |
-| `.http` / `.rest` | HTTP       |
-| `.redis`          | Redis      |
-| `.sql`            | PostgreSQL |
-| `.mysql`          | MySQL      |
-| `.mongo`          | MongoDB    |
-| `.amqp`           | AMQP       |
+协议变更（仅限 SQL 文件）：
 
-### 9. 其他
+```
+### @protocol=mysql
+### @protocol=postgres
+```
 
-- **Cookie 自动管理**：通过 curl cookie jar (`~/.cache/poste/cookies.txt`) 自动处理，无需语法
-- **env.json 环境变量**：支持多环境（`dev`/`prod` 等），从文件目录向上查找 `env.json`
+### 2.4 请求行
 
-### 尚未实现（ROADMAP）
+```
+GET {{base_url}}/users
+POST https://api.example.com/data HTTP/1.1
+PUT http://localhost:8080/api/items/1
+```
 
-- `@protocol` 指令
-- 测试断言 (`> {% assert ... %}`)
-- Pre/post 请求脚本
-- `{{$guid}}` 等其他魔术变量
-- PostgreSQL / MySQL / MongoDB / AMQP 实际执行（目前仅为 stub）
+**格式**：
 
+```
+<METHOD> <URL> [HTTP/<version>]
+```
 
----- 
+**支持的 METHOD**（来自 `completion.lua`）：
 
+```
+GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS, TRACE, CONNECT
+```
 
-所有 5 个任务已完成。以下是变更摘要：
+**规则**：
+- METHOD 大写
+- 支持完整 URL 和相对路径（配合 `@base_url`）
+- HTTP 版本可选，默认为 `HTTP/1.1`
 
-### 新增文件
+### 2.5 请求头
 
-| 文件                      | 说明                                            |
-| ------------------------- | ----------------------------------------------- |
-| `syntax/poste_http.vim`   | 核心语法文件，定义 19 个高亮组的 Vim regex 模式 |
-| `ftplugin/poste_http.vim` | filetype 配置（commentstring、comments）        |
+```
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+X-Custom-Header: value
+```
 
-### 修改文件
+**规则**：
+- `Key: Value` 格式
+- key 大小写不敏感（推荐首字母大写：`Content-Type`）
+- 值可以是纯文本或 `{{}}` 引用
+- 多行 header 值不支持（当前限制）
 
-| 文件                       | 变更                                                                                    |
-| -------------------------- | --------------------------------------------------------------------------------------- |
-| `ftdetect/poste.vim`       | `.http`/`.rest` → `poste_http`，`.redis` → `poste_redis`                                |
-| `lua/poste/highlights.lua` | `M.setup()` 中新增 14 个语法高亮组的 link 定义，仅在用户未自定义时生效                  |
-| `lua/poste/init.lua`       | autocmd 和 already-open buffers 中 filetype 按扩展名分别设置 `poste_http`/`poste_redis` |
+### 2.6 空行分隔
 
-### 覆盖的语法元素（14 种）
+```
+POST /api/data
+Content-Type: application/json
+                                   ← 空行：headers 结束，body 开始
+{
+  "name": "test"
+}
+```
 
-| 语法元素                           | 高亮组                               | 示例                         |
-| ---------------------------------- | ------------------------------------ | ---------------------------- |
-| `###` 分隔线 + 请求名              | `Delimiter` / `Title`                | `### Get Users`              |
-| `@name = value` 变量定义           | `Identifier` / `Operator` / `String` | `@host = https://...`        |
-| `{{variable}}` 变量引用            | `Identifier`                         | `{{user_id}}`                |
-| `{{$uuid}}` 魔法变量               | `Special`                            | `{{$timestamp}}`             |
-| `GET`/`POST` 等 HTTP 方法          | `Keyword`                            | `GET`                        |
-| URL 路径                           | `Underlined`                         | `https://...`                |
-| `HTTP/1.1` 版本                    | `Constant`                           | `HTTP/1.1`                   |
-| `Key:` Header 键                   | `Type`                               | `Content-Type`               |
-| `# @prompt` / `# @connection` 指令 | `PreProc`                            | `# @connection redis://...`  |
-| `< {% ... %}` 前置脚本             | `PreProc`                            | `< {% client.log(...) %}`    |
-| `> {% ... %}` 后置脚本/断言        | `PreProc`                            | `> {% client.assert(...) %}` |
-| `{%` / `%}` 脚本标记               | `Special`                            | `{%` 和 `%}`                 |
-| `< ./script.lua` 外部脚本引用      | `Include`                            | `< ./scripts/gen.lua`        |
-| `< /path/to/file` 文件包含         | `Include`                            | `< /path/to/file`            |
+- headers 和 body 之间需要一个空行
+- 多个空行被视为一个
 
-### 已知局限
+### 2.7 请求体
 
-- **Header vs Body 歧义**：JSON body 中的 `"key":` 可能被误匹配为 Header（因 JSON key 带引号 `"key":`，而 Header 无引号，实际影响很小）
-- **脚本块内不高亮 Lua 语法**：`< {% ... %}` 内部整体着 PreProc 色，不做 Lua 语法嵌入
+```
+POST /api/data
+Content-Type: application/json
 
-可以在 Neovim 中打开 `examples/api.http` 验证效果。
+{
+  "name": "test",
+  "value": 123
+}
+```
+
+**支持的类型**：
+- 纯文本
+- JSON（Content-Type 含 `json` 时语法高亮）
+- URL-encoded form data（`key=value&key2=value2`）
+- `multipart/form-data`（通过 `request_vars.lua`）
+
+文件上传语法：
+
+```
+POST /api/upload
+Content-Type: multipart/form-data; boundary=----boundary
+
+< /path/to/file.txt
+```
+
+### 2.8 变量引用
+
+```
+{{base_url}}
+{{token}}
+{{uuid}}
+{{login.response.body.token}}
+```
+
+**规则**：
+- `{{` 和 `}}` 包裹
+- 变量名允许字母、数字、点号
+- 解析顺序：请求块变量 → 文件变量 → env.json → magic var
+
+**Magic variables**：
+
+| 名称 | 说明 |
+|---|---|
+| `{{$timestamp}}` | 当前 Unix 时间戳 + 随机数 |
+| `{{$uuid}}` | 随机 UUID v4 |
+| `{{$date}}` | 当前日期 YYYY-MM-DD |
+| `{{$randomInt}}` | 随机 0-9999999 |
+
+**跨请求引用**：
+
+```
+{{request_name.response.body.path.to.value}}
+{{login.response.body.token}}
+```
+
+- 引用之前执行过的请求的响应内容
+- 格式：`{{请求名.response[.body\|.headers\|.status].路径}}`
+
+### 2.9 Pre-request Script
+
+```
+< {%
+  request.variables.set("key", JSON.stringify(request.body));
+  client.log("Pre-processing done");
+%}
+```
+
+**单行格式**：
+
+```
+< {% client.log("pre-flight"); %}
+```
+
+**外部脚本引用**：
+
+```
+< ./scripts/preprocess.lua
+< ../shared/auth.lua
+```
+
+**规则**：
+- `<` 开头（必须在行首）
+- `{% %}` 包裹 JS/Lua 代码
+- 多行 `{%` 单独一行，`%}` 单独一行
+- 外部脚本路径以 `./` 或 `../` 开头，`.lua` 结尾
+
+**可用 API**：
+
+```
+request.variables      — 操作请求变量
+request.headers        — 操作请求头
+request.body           — 读取/修改请求体
+client.log(msg)        — 日志输出
+client.global.set(key, value)  — 全局变量（跨请求）
+client.global.get(key)
+```
+
+### 2.10 Post-request Assertion
+
+```
+> {%
+  client.test("Status is 200", function() {
+    client.assert(response.status === 200, "Expected 200");
+  });
+%}
+```
+
+**单行格式**：
+
+```
+> {% client.assert(response.status === 200); %}
+```
+
+**外部脚本引用**：
+
+```
+> ./scripts/validate.lua
+```
+
+**规则**：
+- `>` 开头（必须在行首）
+- `{% %}` 包裹 JS/Lua 代码
+- 多行 `{%` 单独一行，`%}` 单独一行
+- 外部脚本路径以 `./` 或 `../` 开头，`.lua` 结尾
+
+**可用 API**：
+
+```
+response.status        — HTTP 状态码
+response.body          — 响应体字符串
+response.headers       — 响应头
+response.latency       — 响应时间（ms）
+client.test(name, fn)  — 测试用例
+client.assert(cond, msg)  — 断言
+client.log(msg)        — 日志输出
+```
+
+### 2.11 环境切换
+
+```
+### @env=production
+GET https://prod.example.com/api
+```
+
+**规则**：
+- `###` 行上可附加 `@env=<name>` 指令
+- 覆盖当前选中的环境
+- 未指定时使用 `state.current_env`
+
+### 2.12 连接指令（非 HTTP 协议）
+
+SQL/MongoDB/AMQP 文件中使用：
+
+```
+# @connection=my_database
+-- @connection=my_database
+### @connection=my_database
+```
+
+- 注释风格 `#` 或 `--` 均可
+- 可出现在文件级或 `###` 同级
+
+### 2.13 协议指令
+
+```
+### @protocol=mysql
+```
+
+- 仅在 `.sql` 文件中有效
+- 覆盖文件扩展名检测的默认协议
+
+## 3. 优先级 / 解析顺序
+
+```
+变量解析优先级（高 → 低）：
+  1. 块级 @variable
+  2. 文件级 @variable
+  3. env.json（根据当前环境）
+  4. Magic variables（$timestamp, $uuid...）
+  5. 跨请求响应引用
+
+请求块定位（运行时）：
+  1. 从光标行向前查找最近的 ###
+  2. 以此 ### 到下一个 ### 之间为当前请求块
+```
+
+## 4. 与标准 HTTP 的差异
+
+| 标准 HTTP | Poste HTTP |
+|---|---|
+| 只有请求报文 | 使用 `###` 支持多个请求在同一个文件中 |
+| 无变量 | `{{}}` 引用 + `@variable` 定义 |
+| 无脚本 | `< {% %}` pre-script + `> {% %}` assertion |
+| 无注释 | 支持 `//` 和 `#` 注释 |
+| 无跨请求 | `{{req.response.body.x}}` |
+| `Content-Type` 决定 body 格式 | 通过 Content-Type 推断 + magic 变量 |
+
+## 5. 实现状态检查清单
+
+| 语法 | Parser (Rust) | Completion (Lua) | Highlight (Lua) | Format (todo) |
+|---|---|---|---|---|
+| `//` 注释 | ❌ | — | ❌ | — |
+| `#` 注释 | ✅ 跳过 | — | ❌ | — |
+| `@variable` 定义 | ✅ | ✅ | ❌ | ✅ todo |
+| `@xxx =>>> ... <<<` | ✅ | ❌ | ❌ | ❌ |
+| `###` 分隔 | ✅ | ✅ | ❌ | ✅ todo |
+| `### @env=` | ❌ | ❌ | ❌ | ✅ todo |
+| `METHOD URL` | ✅ | ✅ | ❌ | — |
+| `Key: Value` 头 | ✅ | ✅ | ❌ | ✅ todo |
+| 空行分隔 | ✅ | ✅ | — | ✅ todo |
+| 请求体 | ✅ | — | ❌ | ✅ todo |
+| `{{var}}` 引用 | ✅ | ✅ | ❌ | — |
+| `{{$magic}}` | ❌ Rust 端 | ✅ | ❌ | — |
+| `< {% %} ` | ✅ 跳过 | ✅ | ❌ | ✅ todo |
+| `< ./path.lua` | ✅ 跳过 | ❌ | ❌ | — |
+| `> {% %} ` | ✅ 跳过 | ✅ | ❌ | ✅ todo |
+| `> ./path.lua` | ✅ 跳过 | ❌ | ❌ | — |
+| `# @connection=` | ✅ | ❌ | ❌ | — |

@@ -330,17 +330,24 @@ function M.apply_rendered_page(tab, lines, meta)
   tab.padded = padded
   tab.meta = meta
 
-  -- Store pre-computed column byte offsets for O(1) navigation
+  -- Store pre-computed column byte offsets + display positions for O(1) navigation
   tab.buffer_col_starts = {}
   if meta and meta.col_starts then
     for i, starts in ipairs(meta.col_starts) do
       local line_idx = meta.data_start_line + i - 1
       local padded_starts = {}
+      local cum = D.LEFT_PADDING + 2  -- position after first cell's leading space
       for col_idx, cell in ipairs(starts) do
+        local w = meta.col_widths and meta.col_widths[col_idx] or 0
+        local disp_start = cum
+        local disp_end = disp_start + w + 1  -- position of │ after cell
         padded_starts[col_idx] = {
           ext_start = cell.ext_start + D.LEFT_PADDING,
           ext_end = cell.ext_end + D.LEFT_PADDING,
+          disp_start = disp_start,
+          disp_end = disp_end,
         }
+        cum = disp_end + 2  -- skip │ + leading space for next cell
       end
       tab.buffer_col_starts[line_idx] = padded_starts
     end

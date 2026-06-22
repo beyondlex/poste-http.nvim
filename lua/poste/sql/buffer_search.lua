@@ -61,7 +61,8 @@ local function jump_to_search_match(idx)
   state.sql.cell.row = vis_row
   state.sql.cell.col = match.col
   local line = require("poste.sql.buffer_nav").position_cursor(vis_row, match.col)
-  sql_highlights.highlight_cell(D.dataset_buffer, vis_row, match.col, tab.meta, line)
+  local cs = tab.buffer_col_starts and tab.buffer_col_starts[(tab.meta.data_start_line or 1) + vis_row - 1]
+  sql_highlights.highlight_cell(D.dataset_buffer, vis_row, match.col, tab.meta, line, cs)
   require("poste.sql.buffer_nav").update_header_float()
   M.apply_search_highlights()
   update_winbar()
@@ -287,8 +288,10 @@ function M.find_column()
     local info = lookup[choice]
     if not info then return end
     state.sql.cell.col = info.idx
-    local line = require("poste.sql.buffer_nav").position_cursor(state.sql.cell.row, info.idx)
-    sql_highlights.highlight_cell(D.dataset_buffer, state.sql.cell.row, info.idx, tab.meta, line)
+    local row = state.sql.cell.row
+    local line = require("poste.sql.buffer_nav").position_cursor(row, info.idx)
+    local cs = tab.buffer_col_starts and tab.buffer_col_starts[(tab.meta.data_start_line or 1) + row - 1]
+    sql_highlights.highlight_cell(D.dataset_buffer, row, info.idx, tab.meta, line, cs)
     require("poste.sql.buffer_nav").update_header_float()
   end)
 end

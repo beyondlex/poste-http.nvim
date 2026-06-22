@@ -196,17 +196,18 @@ function M.update_header_float()
   if win_width <= 0 then return end
 
   T_mark("  hdr:winsaveview")
-  local leftcol = vim.api.nvim_win_call(D.dataset_window, function()
-    return vim.fn.winsaveview().leftcol
-  end)
+  local leftcol
+  if vim.api.nvim_get_current_win() == D.dataset_window then
+    leftcol = vim.fn.winsaveview().leftcol
+  else
+    leftcol = vim.api.nvim_win_call(D.dataset_window, function()
+      return vim.fn.winsaveview().leftcol
+    end)
+  end
 
   T_mark("  hdr:cache_check")
   if leftcol == D._float_cache_leftcol and win_width == D._float_cache_width
      and tab.header_text == D._float_cache_header then
-    T_mark("  hdr:still_update_config")
-    if D.float_win and vim.api.nvim_win_is_valid(D.float_win) then
-      pcall(vim.api.nvim_win_set_config, D.float_win, { width = win_width })
-    end
     T_mark("  hdr:cached")
     return
   end
@@ -337,31 +338,31 @@ function M.position_cursor(row, col)
 
   local line_idx = (tab.meta.data_start_line or 1) + row - 1
   local buf = vim.api.nvim_win_get_buf(D.dataset_window)
-
-  T_mark("  pos:get_line")
-  local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
   local last_col = tab.meta.col_count or 0
 
-  -- Use pre-computed column byte offsets when available (O(1), no │ scan)
+  -- Use pre-computed column byte/display offsets when available (O(1), no │ scan)
   local col_starts = tab.buffer_col_starts and tab.buffer_col_starts[line_idx]
-  local target_col
+  local target_col, target_disp, line
   if col_starts then
     local tc = col_starts[col + 1]
-    target_col = tc and tc.ext_start or 0
+    if tc then
+      target_col = tc.ext_start
+      target_disp = tc.disp_start
+    end
     T_mark("  pos:col_starts_lookup")
   else
+    T_mark("  pos:get_line_fallback")
+    line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
     T_mark("  pos:find_cell_ranges")
     local ranges = sql_highlights.find_cell_ranges(line, col + 1, last_col + 1)
     target_col = ranges and ranges.target.cursor_col or 0
+    target_disp = vim.fn.strdisplaywidth(line:sub(1, target_col))
+    T_mark("  pos:strdisp_fallback")
   end
 
-  T_mark("  pos:strdisp_target")
-  local target_disp = vim.fn.strdisplaywidth(line:sub(1, target_col))
-
   T_mark("  pos:winsaveview")
-  local saved_leftcol = vim.api.nvim_win_call(D.dataset_window, function()
-    return vim.fn.winsaveview().leftcol
-  end)
+  local saved = vim.fn.winsaveview()
+  local saved_leftcol = saved.leftcol
   local win_width = vim.api.nvim_win_get_width(D.dataset_window)
 
   local left_margin = 2
@@ -374,8 +375,7 @@ function M.position_cursor(row, col)
     if col_starts then
       local lc = col_starts[last_col + 1]
       if lc then
-        T_mark("  pos:strdisp_last")
-        local last_right_disp = vim.fn.strdisplaywidth(line:sub(1, lc.ext_end + 3))
+        local last_right_disp = lc.disp_end + 1  -- display pos after trailing │
         last_col_fits = last_right_disp <= saved_leftcol + win_width
       end
     elseif ranges and ranges.last then
@@ -392,26 +392,21 @@ function M.position_cursor(row, col)
       vim.api.nvim_set_option_value("sidescrolloff", 0, { win = D.dataset_window })
     end
     pcall(vim.api.nvim_win_set_cursor, D.dataset_window, { line_idx, target_col })
-    pcall(vim.api.nvim_win_call, D.dataset_window, function()
-      local v = vim.fn.winsaveview()
-      v.leftcol = saved_leftcol
-      vim.fn.winrestview(v)
-    end)
     if saved_sso > 0 then
       vim.api.nvim_set_option_value("sidescrolloff", saved_sso, { win = D.dataset_window })
     end
   else
     pcall(vim.api.nvim_win_set_cursor, D.dataset_window, { line_idx, target_col })
     if not last_col_fits then
-      T_mark("  pos:zs")
-      pcall(vim.api.nvim_win_call, D.dataset_window, function()
-        vim.cmd("normal! zs")
-      end)
+      T_mark("  pos:zs_via_api")
+      local v = vim.fn.winsaveview()
+      v.leftcol = target_disp
+      vim.fn.winrestview(v)
     end
   end
 
   T_mark("  pos:done")
-  return line
+  return line or ""
 end
 
 local function json_pretty(val, indent)

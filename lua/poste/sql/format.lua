@@ -533,6 +533,17 @@ function M.render_page(layout, page, page_size)
     lines[line_num] = line
     row_col_starts[#row_col_starts + 1] = starts
   end
+  if page_rows == 0 then
+    line_num = line_num + 1
+    local empty_cells = { "" }
+    for i = 1, #columns do
+      empty_cells[i + 1] = ""
+    end
+    lines[line_num] = data_row(empty_cells, col_widths, {})
+    row_col_starts[#row_col_starts + 1] = {}
+    line_num = line_num + 1
+    lines[line_num] = "  (empty)"
+  end
   local data_end = line_num
 
   line_num = line_num + 1

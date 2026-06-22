@@ -99,6 +99,7 @@ fn build_response(
 ) -> Result<Response> {
     let has_error = results.iter().any(|r| r.error.is_some());
     let has_rows = results.iter().any(|r| r.row_count > 0);
+    let has_columns = results.iter().any(|r| !r.columns.is_empty());
     let total_rows: usize = results.iter().map(|r| r.row_count).sum();
     let total_affected: u64 = results.iter().filter_map(|r| r.affected_rows).sum();
 
@@ -106,7 +107,7 @@ fn build_response(
         .map(|d| d.name().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    let response_type = if has_rows { "resultset" } else { "affected" };
+    let response_type = if has_rows || has_columns { "resultset" } else { "affected" };
 
     let json_results: Vec<Value> = results
         .iter()
@@ -151,7 +152,7 @@ fn build_response(
 
     let body = serde_json::to_string(&body_obj)?;
 
-    let status_text = if has_rows {
+    let status_text = if has_rows || has_columns {
         format!("{} row{} returned in {}ms", total_rows, if total_rows == 1 { "" } else { "s" }, total_ms)
     } else if total_affected > 0 {
         format!("{} row{} affected in {}ms", total_affected, if total_affected == 1 { "" } else { "s" }, total_ms)

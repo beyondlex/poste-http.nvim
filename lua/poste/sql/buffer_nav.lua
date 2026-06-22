@@ -38,7 +38,21 @@ local function T_report()
   state.log("TRACE", "move_cell trace:\n" .. msg)
 end
 
-
+--- Truncate a string to fit within a given display width, preserving UTF-8 validity.
+local function trunc_disp(s, max_dw)
+  local dw = 0
+  local i = 1
+  while i <= #s do
+    local b = s:byte(i)
+    local char_byte_len = b < 128 and 1 or b < 224 and 2 or b < 240 and 3 or 4
+    local char = s:sub(i, i + char_byte_len - 1)
+    local char_dw = vim.fn.strdisplaywidth(char)
+    if dw + char_dw > max_dw then break end
+    dw = dw + char_dw
+    i = i + char_byte_len
+  end
+  return s:sub(1, i - 1)
+end
 
 local function build_header_index(line)
   local sep = "│"
@@ -120,6 +134,7 @@ function M.slice_header_by_col_starts(leftcol, win_width, padded_header, header_
   end
 
   local last_fully_visible_idx
+  local has_partial_right = false
 
   for i, cell in ipairs(header_col_starts) do
     if cell.disp_end <= leftcol then goto continue end
@@ -129,7 +144,19 @@ function M.slice_header_by_col_starts(leftcol, win_width, padded_header, header_
     if cell.disp_start < leftcol then
       text = string.rep(" ", math.min(cell.disp_end, right_edge) - leftcol)
     elseif cell.disp_end > right_edge then
-      text = string.rep(" ", right_edge - cell.disp_start)
+      -- Partially visible on right: show │ + as much content as fits
+      local seg_start
+      if i == 1 then
+        seg_start = D.LEFT_PADDING
+      else
+        seg_start = header_col_starts[i - 1].ext_end
+      end
+      local full_cell = padded_header:sub(seg_start + 1, cell.ext_end)
+      local visible_dw = right_edge - cell.disp_start + 1
+      if visible_dw > 0 then
+        text = trunc_disp(full_cell, visible_dw)
+        has_partial_right = true
+      end
     else
       -- Fully visible: extract │ before this cell + content (no trailing │)
       local seg_start
@@ -141,13 +168,15 @@ function M.slice_header_by_col_starts(leftcol, win_width, padded_header, header_
       text = padded_header:sub(seg_start + 1, cell.ext_end)
       last_fully_visible_idx = i
     end
-    parts[#parts + 1] = text
+    if text then
+      parts[#parts + 1] = text
+    end
 
     ::continue::
   end
 
-  -- Add trailing │ to match data rows (each row ends with │)
-  if last_fully_visible_idx then
+  -- Add trailing │ when last visible column is fully visible (no partial-right column)
+  if last_fully_visible_idx and not has_partial_right then
     local last_cell = header_col_starts[last_fully_visible_idx]
     parts[#parts + 1] = padded_header:sub(last_cell.ext_end + 1, last_cell.ext_end + 3)
   end

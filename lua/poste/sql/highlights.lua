@@ -295,15 +295,24 @@ end
 -- Extmarks always override syntax highlighting's fg attribute regardless
 -- of priority or hl_mode setting.
 
--- One-entry cache for separator positions: most keystrokes only touch one
--- line (the current cursor row), and both position_cursor and highlight_cell
--- query the same line repeatedly per keystroke.
-local _cache_line = nil
-local _cache_seps = nil
+--- O(1) lookup: find cell byte range from pre-computed column positions.
+--- `col_starts` is a 1-indexed array of `{ ext_start, ext_end }` in padded-line
+--- 0-based byte offsets, as stored in tab.buffer_col_starts.
+--- @param col_starts table[] Array of { ext_start, ext_end } for each column
+--- @param col number 1-based column index (1 = row number column)
+--- @return table|nil { ext_start, ext_end, cursor_col } or nil
+local function find_cell_range_by_starts(col_starts, col)
+  local cell = col_starts[col]
+  if not cell then return nil end
+  return { ext_start = cell.ext_start, ext_end = cell.ext_end, cursor_col = cell.ext_start }
+end
 
-local function compute_seps(line)
+--- Fallback: scan line for │ separators to find cell byte range.
+--- Used when col_starts are not available (legacy path).
+local function find_cell_range_scan(line, col)
+  if not line or line == "" then return nil end
   local sep = "│"
-  local sep_len = #sep  -- 3 bytes in UTF-8
+  local sep_len = #sep
   local seps = {}
   local pos = 1
   while true do
@@ -312,38 +321,61 @@ local function compute_seps(line)
     seps[#seps + 1] = pos
     pos = pos + sep_len
   end
-  return seps
+  if col > #seps - 1 then return nil end
+  return { ext_start = seps[col] + 2, ext_end = seps[col + 1] - 1, cursor_col = seps[col] + 2 }
 end
 
---- Find byte ranges for target and optionally last column from one sep scan.
---- Calls compute_seps on first access; subsequent calls for the same line use
---- cached separator positions (O(n_cols) → O(1) after first per-line scan).
---- Reads the actual line content to locate │ separators, so it works
---- regardless of CJK widths, truncation, or multi-byte characters.
---- @param line string The rendered line (from buffer or format output)
+--- Find cell byte range, trying pre-computed col_starts first.
+--- @param line string|nil The rendered line (for fallback scan)
+--- @param col number 1-based column index
+--- @param col_starts table|nil Pre-computed column positions (from tab.buffer_col_starts)
+--- @return table|nil { ext_start, ext_end, cursor_col } or nil
+function M.find_cell_range(line, col, col_starts)
+  if col_starts then
+    local r = find_cell_range_by_starts(col_starts, col)
+    if r then return r end
+  end
+  return find_cell_range_scan(line, col)
+end
+
+--- Find byte ranges for target and optionally last column.
+--- Prefers pre-computed col_starts when available.
+--- @param line string The rendered line (for fallback scan)
 --- @param target_col number 1-based target column index
---- @param last_col number|nil 1-based last column index (optional, for position_cursor)
+--- @param last_col number|nil 1-based last column index
+--- @param col_starts table|nil Pre-computed column positions (from tab.buffer_col_starts)
 --- @return table|nil { target: { ext_start, ext_end, cursor_col }, last?: { ext_start, ext_end, cursor_col } } or nil
-function M.find_cell_ranges(line, target_col, last_col)
+function M.find_cell_ranges(line, target_col, last_col, col_starts)
+  if col_starts then
+    local target = find_cell_range_by_starts(col_starts, target_col)
+    if not target then return nil end
+    local result = { target = target }
+    if last_col then
+      local last = find_cell_range_by_starts(col_starts, last_col)
+      if last then result.last = last end
+    end
+    return result
+  end
+  return M.find_cell_ranges_fallback(line, target_col, last_col)
+end
+
+--- Legacy fallback: scan line for │ separators.
+function M.find_cell_ranges_fallback(line, target_col, last_col)
   if not line or line == "" then return nil end
-
-  local seps
-  if _cache_line == line then
-    seps = _cache_seps
-  else
-    seps = compute_seps(line)
-    _cache_line = line
-    _cache_seps = seps
+  local sep = "│"
+  local sep_len = #sep
+  local seps = {}
+  local pos = 1
+  while true do
+    pos = line:find(sep, pos, true)
+    if not pos then break end
+    seps[#seps + 1] = pos
+    pos = pos + sep_len
   end
-
   if target_col > #seps - 1 then return nil end
-
   local function range_for(col)
-    local next_sep = seps[col]
-    local close_sep = seps[col + 1]
-    return { ext_start = next_sep + 2, ext_end = close_sep - 1, cursor_col = next_sep + 2 }
+    return { ext_start = seps[col] + 2, ext_end = seps[col + 1] - 1, cursor_col = seps[col] + 2 }
   end
-
   local result = { target = range_for(target_col) }
   if last_col and last_col <= #seps - 1 then
     result.last = range_for(last_col)
@@ -351,17 +383,8 @@ function M.find_cell_ranges(line, target_col, last_col)
   return result
 end
 
---- Legacy wrapper: returns only the target cell range.
-function M.find_cell_range(line, col)
-  local ranges = M.find_cell_ranges(line, col)
-  return ranges and ranges.target
-end
-
---- Invalidate the one-entry seps cache (called on new dataset render).
-function M.invalidate_sep_cache()
-  _cache_line = nil
-  _cache_seps = nil
-end
+--- Stub: kept for backward compatibility (called from buffer.lua).
+function M.invalidate_sep_cache() end
 
 --- Highlight the currently selected cell in the dataset.
 --- @param buf number Buffer handle
@@ -369,7 +392,8 @@ end
 --- @param col number 1-based column index
 --- @param meta table Dataset metadata
 --- @param line string|nil Pre-fetched buffer line (avoids extra nvim_buf_get_lines call)
-function M.highlight_cell(buf, row, col, meta, line)
+--- @param col_starts table|nil Pre-computed column positions (from tab.buffer_col_starts[line_idx])
+function M.highlight_cell(buf, row, col, meta, line, col_starts)
   -- Clear previous cell highlight
   vim.api.nvim_buf_clear_namespace(buf, ns_cell, 0, -1)
   if not state.sql.highlight_cell then return end
@@ -381,13 +405,17 @@ function M.highlight_cell(buf, row, col, meta, line)
   if line_idx > meta.data_end_line then return end
 
   -- +1 offset: visual column 1 is the row number column
-  line = line or vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
-  local range = M.find_cell_range(line, col + 1)
+  local range
+  if col_starts then
+    range = find_cell_range_by_starts(col_starts, col + 1)
+  else
+    line = line or vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
+    range = M.find_cell_range(line, col + 1)
+  end
   if not range then return end
 
   -- Clamp to line byte length
-  if range.ext_start > #line then return end
-  range.ext_end = math.min(range.ext_end, #line)
+  if not col_starts and range.ext_start > #line then return end
 
   vim.api.nvim_buf_set_extmark(buf, ns_cell, line_idx - 1, range.ext_start, {
     end_row = line_idx - 1,

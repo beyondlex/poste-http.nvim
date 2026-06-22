@@ -238,7 +238,9 @@ end
 --- @param widths number[] Column widths
 --- @param numeric_cols boolean[] Which columns are numeric (right-align)
 local function data_row(cells, widths, numeric_cols)
-  local parts = {}
+  local line_buf = { "│" }
+  local col_starts = {}
+  local byte_pos = 3
   for i, cell in ipairs(cells) do
     if i > #widths then break end
     local w = widths[i]
@@ -246,12 +248,17 @@ local function data_row(cells, widths, numeric_cols)
       and (truncate_to_displaywidth(cell, w - 1) .. "…")
       or cell
     if numeric_cols[i] then
-      parts[#parts + 1] = " " .. pad_left(s, w) .. " "
+      s = " " .. pad_left(s, w) .. " "
     else
-      parts[#parts + 1] = " " .. pad_right(s, w) .. " "
+      s = " " .. pad_right(s, w) .. " "
     end
+    line_buf[#line_buf + 1] = s
+    col_starts[i] = { ext_start = byte_pos, ext_end = byte_pos + #s }
+    byte_pos = byte_pos + #s
+    line_buf[#line_buf + 1] = "│"
+    byte_pos = byte_pos + 3
   end
-  return "│" .. table.concat(parts, "│") .. "│"
+  return table.concat(line_buf), col_starts
 end
 
 ---------------------------------------------------------------------------
@@ -507,12 +514,14 @@ function M.render_page(layout, page, page_size)
   for i, col in ipairs(columns) do
     header_cells[i + 1] = col.name
   end
-  lines[line_num] = data_row(header_cells, col_widths, {})
+  local header_line_str, header_col_starts = data_row(header_cells, col_widths, {})
+  lines[line_num] = header_line_str
   local header_line = line_num
 
   line_num = line_num + 1
   lines[line_num] = border_line(col_widths, "├", "┼", "┤", "─")
 
+  local row_col_starts = {}
   local data_start = line_num + 1
   for row_idx = start_idx, end_idx do
     line_num = line_num + 1
@@ -520,7 +529,9 @@ function M.render_page(layout, page, page_size)
     for i = 1, #columns do
       cells[i + 1] = cell_to_string(rows[row_idx][i], columns[i])
     end
-    lines[line_num] = data_row(cells, col_widths, numeric_cols)
+    local line, starts = data_row(cells, col_widths, numeric_cols)
+    lines[line_num] = line
+    row_col_starts[#row_col_starts + 1] = starts
   end
   local data_end = line_num
 
@@ -543,6 +554,8 @@ function M.render_page(layout, page, page_size)
     database = layout.database,
     dialect = layout.dialect,
     table_name = layout.table_name,
+    col_starts = row_col_starts,
+    header_col_starts = header_col_starts,
   }
 
   return lines, meta
@@ -583,12 +596,14 @@ function M.render_view(layout, view_indices, page, page_size, opts)
   for i, col in ipairs(columns) do
     header_cells[i + 1] = col.name
   end
-  lines[line_num] = data_row(header_cells, col_widths, {})
+  local header_line_str, header_col_starts = data_row(header_cells, col_widths, {})
+  lines[line_num] = header_line_str
   local header_line = line_num
 
   line_num = line_num + 1
   lines[line_num] = border_line(col_widths, "├", "┼", "┤", "─")
 
+  local row_col_starts = {}
   local data_start = line_num + 1
   for view_pos = start_pos, end_pos do
     line_num = line_num + 1
@@ -599,7 +614,9 @@ function M.render_view(layout, view_indices, page, page_size, opts)
       cells[i + 1] = cell_to_string(rows[src_idx][i], columns[i])
 
     end
-    lines[line_num] = data_row(cells, col_widths, numeric_cols)
+    local line, starts = data_row(cells, col_widths, numeric_cols)
+    lines[line_num] = line
+    row_col_starts[#row_col_starts + 1] = starts
   end
   local data_end = line_num
   line_num = line_num + 1
@@ -621,6 +638,8 @@ function M.render_view(layout, view_indices, page, page_size, opts)
     database = layout.database,
     dialect = layout.dialect,
     table_name = layout.table_name,
+    col_starts = row_col_starts,
+    header_col_starts = header_col_starts,
   }
 
   return lines, meta
@@ -669,6 +688,16 @@ end
 --- @param row_number number Row number to display
 --- @return string Formatted line with │ separators
 function M.render_row(row, layout, row_number)
+  local cells = { tostring(row_number) }
+  for i = 1, #layout.columns do
+    cells[i + 1] = cell_to_string(row[i], layout.columns[i])
+  end
+  return data_row(cells, layout.col_widths, layout.numeric_cols)
+end
+
+--- Returns both line and col_starts (for editor.lua to update single-row cache).
+--- @return string line, table col_starts
+function M.render_row_with_starts(row, layout, row_number)
   local cells = { tostring(row_number) }
   for i = 1, #layout.columns do
     cells[i + 1] = cell_to_string(row[i], layout.columns[i])

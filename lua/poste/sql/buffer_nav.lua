@@ -6,6 +6,13 @@ local M = {}
 local preview_win = nil
 local raw_buffer = nil  -- scratch buffer for raw mode
 
+-- Helper: get pre-computed column positions for a data row
+local function get_col_starts(tab, row)
+  if not tab or not tab.buffer_col_starts or not tab.meta then return nil end
+  local line_idx = (tab.meta.data_start_line or 1) + row - 1
+  return tab.buffer_col_starts[line_idx]
+end
+
 ------------------------------------------------------------------------------
 -- Trace helpers (opt-in via state.sql._trace)
 ------------------------------------------------------------------------------
@@ -91,6 +98,64 @@ local function slice_header_to_win(leftcol, win_width, padded_header, index)
   return table.concat(parts)
 end
 
+--- Slice header using pre-computed column positions (O(#visible_cols), no strdisplaywidth).
+--- @param leftcol number Display-width offset of viewport left edge
+--- @param win_width number Viewport width in display columns
+--- @param padded_header string Header line with padding (includes D.LEFT_PADDING)
+--- @param header_col_starts table[] Pre-computed column positions with disp_start/disp_end
+--- @return string Sliced header text
+function M.slice_header_by_col_starts(leftcol, win_width, padded_header, header_col_starts)
+  if not padded_header or not header_col_starts then return D.PADDING_SPACES end
+  local right_edge = leftcol + win_width
+
+  -- Handle the 2-space left padding (display positions 0-1) before first │
+  local parts = {}
+  if leftcol < D.LEFT_PADDING then
+    local pad_start = math.max(leftcol, 0)
+    local pad_end = math.min(D.LEFT_PADDING, right_edge)
+    local pad_width = pad_end - pad_start
+    if pad_width > 0 then
+      parts[#parts + 1] = string.rep(" ", pad_width)
+    end
+  end
+
+  local last_fully_visible_idx
+
+  for i, cell in ipairs(header_col_starts) do
+    if cell.disp_end <= leftcol then goto continue end
+    if cell.disp_start > right_edge then break end
+
+    local text
+    if cell.disp_start < leftcol then
+      text = string.rep(" ", math.min(cell.disp_end, right_edge) - leftcol)
+    elseif cell.disp_end > right_edge then
+      text = string.rep(" ", right_edge - cell.disp_start)
+    else
+      -- Fully visible: extract │ before this cell + content (no trailing │)
+      local seg_start
+      if i == 1 then
+        seg_start = D.LEFT_PADDING  -- first │ at byte 2
+      else
+        seg_start = header_col_starts[i - 1].ext_end  -- byte of │ between cols
+      end
+      text = padded_header:sub(seg_start + 1, cell.ext_end)
+      last_fully_visible_idx = i
+    end
+    parts[#parts + 1] = text
+
+    ::continue::
+  end
+
+  -- Add trailing │ to match data rows (each row ends with │)
+  if last_fully_visible_idx then
+    local last_cell = header_col_starts[last_fully_visible_idx]
+    parts[#parts + 1] = padded_header:sub(last_cell.ext_end + 1, last_cell.ext_end + 3)
+  end
+
+  if #parts == 0 then return D.PADDING_SPACES end
+  return table.concat(parts)
+end
+
 function M.update_header_float()
   local tab = D.T()
   if not tab or not tab.header_text or not D.dataset_window then T_mark("  hdr:early_exit"); return end
@@ -123,8 +188,13 @@ function M.update_header_float()
 
   T_mark("  hdr:slice_to_win")
   local padded = "  " .. tab.header_text
-  local index = tab.header_index or build_header_index(padded)
-  local text = slice_header_to_win(leftcol, win_width, padded, index)
+  local text
+  if tab.header_col_starts then
+    text = M.slice_header_by_col_starts(leftcol, win_width, padded, tab.header_col_starts)
+  else
+    local index = tab.header_index or build_header_index(padded)
+    text = slice_header_to_win(leftcol, win_width, padded, index)
+  end
 
   local float_buf = D.float_buf
   local float_win = D.float_win
@@ -186,7 +256,7 @@ function M.move_cell(drow, dcol)
   T_mark("position_cursor")
   local line = M.position_cursor(row, col)
   T_mark("highlight_cell")
-  sql_highlights.highlight_cell(D.dataset_buffer, row, col, tab.meta, line)
+  sql_highlights.highlight_cell(D.dataset_buffer, row, col, tab.meta, line, get_col_starts(tab, row))
   T_mark("update_header_float")
   if dcol ~= 0 then
     M.update_header_float()
@@ -200,7 +270,7 @@ function M.goto_first_col()
   if not tab or not tab.meta then return end
   state.sql.cell.col = 1
   local line = M.position_cursor(state.sql.cell.row, 1)
-  sql_highlights.highlight_cell(D.dataset_buffer, state.sql.cell.row, 1, tab.meta, line)
+  sql_highlights.highlight_cell(D.dataset_buffer, state.sql.cell.row, 1, tab.meta, line, get_col_starts(tab, state.sql.cell.row))
   M.update_header_float()
 end
 
@@ -210,7 +280,7 @@ function M.goto_last_col()
   local last = tab.meta.col_count or 1
   state.sql.cell.col = last
   local line = M.position_cursor(state.sql.cell.row, last)
-  sql_highlights.highlight_cell(D.dataset_buffer, state.sql.cell.row, last, tab.meta, line)
+  sql_highlights.highlight_cell(D.dataset_buffer, state.sql.cell.row, last, tab.meta, line, get_col_starts(tab, state.sql.cell.row))
   M.update_header_float()
 end
 
@@ -219,7 +289,7 @@ function M.goto_first_row()
   if not tab or not tab.meta then return end
   state.sql.cell.row = 1
   local line = M.position_cursor(1, state.sql.cell.col)
-  sql_highlights.highlight_cell(D.dataset_buffer, 1, state.sql.cell.col, tab.meta, line)
+  sql_highlights.highlight_cell(D.dataset_buffer, 1, state.sql.cell.col, tab.meta, line, get_col_starts(tab, 1))
 end
 
 function M.goto_last_row()
@@ -228,7 +298,7 @@ function M.goto_last_row()
   local last = tab.meta.row_count or 1
   state.sql.cell.row = last
   local line = M.position_cursor(last, state.sql.cell.col)
-  sql_highlights.highlight_cell(D.dataset_buffer, last, state.sql.cell.col, tab.meta, line)
+  sql_highlights.highlight_cell(D.dataset_buffer, last, state.sql.cell.col, tab.meta, line, get_col_starts(tab, last))
 end
 
 function M.position_cursor(row, col)
@@ -241,11 +311,21 @@ function M.position_cursor(row, col)
 
   T_mark("  pos:get_line")
   local line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
-  T_mark("  pos:find_cell_ranges")
   local last_col = tab.meta.col_count or 0
-  local ranges = sql_highlights.find_cell_ranges(line, col + 1, last_col + 1)
 
-  local target_col = ranges and ranges.target.cursor_col or 0
+  -- Use pre-computed column byte offsets when available (O(1), no │ scan)
+  local col_starts = tab.buffer_col_starts and tab.buffer_col_starts[line_idx]
+  local target_col
+  if col_starts then
+    local tc = col_starts[col + 1]
+    target_col = tc and tc.ext_start or 0
+    T_mark("  pos:col_starts_lookup")
+  else
+    T_mark("  pos:find_cell_ranges")
+    local ranges = sql_highlights.find_cell_ranges(line, col + 1, last_col + 1)
+    target_col = ranges and ranges.target.cursor_col or 0
+  end
+
   T_mark("  pos:strdisp_target")
   local target_disp = vim.fn.strdisplaywidth(line:sub(1, target_col))
 
@@ -261,10 +341,19 @@ function M.position_cursor(row, col)
     and target_disp < saved_leftcol + win_width - right_margin
 
   local last_col_fits = true
-  if last_col > 0 and ranges and ranges.last then
-    T_mark("  pos:strdisp_last")
-    local last_right_disp = vim.fn.strdisplaywidth(line:sub(1, ranges.last.ext_end + 3))
-    last_col_fits = last_right_disp <= saved_leftcol + win_width
+  if last_col > 0 then
+    if col_starts then
+      local lc = col_starts[last_col + 1]
+      if lc then
+        T_mark("  pos:strdisp_last")
+        local last_right_disp = vim.fn.strdisplaywidth(line:sub(1, lc.ext_end + 3))
+        last_col_fits = last_right_disp <= saved_leftcol + win_width
+      end
+    elseif ranges and ranges.last then
+      T_mark("  pos:strdisp_last")
+      local last_right_disp = vim.fn.strdisplaywidth(line:sub(1, ranges.last.ext_end + 3))
+      last_col_fits = last_right_disp <= saved_leftcol + win_width
+    end
   end
 
   T_mark("  pos:cursor_set")
@@ -557,7 +646,7 @@ function M.toggle_cell_highlight()
   local tab = D.T()
   state.sql.highlight_cell = not state.sql.highlight_cell
   if state.sql.highlight_cell then
-    sql_highlights.highlight_cell(D.dataset_buffer, state.sql.cell.row, state.sql.cell.col, tab and tab.meta)
+    sql_highlights.highlight_cell(D.dataset_buffer, state.sql.cell.row, state.sql.cell.col, tab and tab.meta, nil, get_col_starts(tab, state.sql.cell.row))
   else
     sql_highlights.clear_cell_highlight(D.dataset_buffer)
   end

@@ -229,7 +229,8 @@ local function switch_tab(idx)
   if meta and meta.type == "resultset" and meta.row_count > 0 then
     local line_idx = (meta.data_start_line or 1) + tab.cursor.row - 1
     pcall(vim.api.nvim_win_set_cursor, D.dataset_window, { line_idx, 0 })
-    sql_highlights.highlight_cell(D.dataset_buffer, tab.cursor.row, tab.cursor.col, meta)
+    local cs = tab.buffer_col_starts and tab.buffer_col_starts[line_idx]
+    sql_highlights.highlight_cell(D.dataset_buffer, tab.cursor.row, tab.cursor.col, meta, nil, cs)
   end
 
   if tab.header_text then
@@ -296,7 +297,8 @@ function M.apply_rendered_page(tab, lines, meta)
             local before = tab.header_text:sub(1, text_end)
             local after = tab.header_text:sub(text_end + 3)
             tab.header_text = before .. indicator .. after
-          end
+            tab.header_col_starts = nil  -- invalidated by sort modification
+           end
         end
       end
       local padded_h = "  " .. tab.header_text
@@ -327,6 +329,44 @@ function M.apply_rendered_page(tab, lines, meta)
 
   tab.padded = padded
   tab.meta = meta
+
+  -- Store pre-computed column byte offsets for O(1) navigation
+  tab.buffer_col_starts = {}
+  if meta and meta.col_starts then
+    for i, starts in ipairs(meta.col_starts) do
+      local line_idx = meta.data_start_line + i - 1
+      local padded_starts = {}
+      for col_idx, cell in ipairs(starts) do
+        padded_starts[col_idx] = {
+          ext_start = cell.ext_start + D.LEFT_PADDING,
+          ext_end = cell.ext_end + D.LEFT_PADDING,
+        }
+      end
+      tab.buffer_col_starts[line_idx] = padded_starts
+    end
+  end
+  -- Also store header col_starts with left padding offset and display-width positions.
+  -- Uses cumulative byte-count (ASCII column names: byte = display) instead of
+  -- strdisplaywidth of byte-prefixed substrings, which can return wrong values
+  -- when ext_end is near the end of the string.
+  tab.header_col_starts = nil
+  if meta and meta.header_col_starts then
+    local hdr = {}
+    local cum_disp = D.LEFT_PADDING
+    for col_idx, cell in ipairs(meta.header_col_starts) do
+      local cell_disp = cell.ext_end - cell.ext_start
+      local ext_start = cell.ext_start + D.LEFT_PADDING
+      local ext_end = cell.ext_end + D.LEFT_PADDING
+      hdr[col_idx] = {
+        ext_start = ext_start,
+        ext_end = ext_end,
+        disp_start = cum_disp + 1,
+        disp_end = cum_disp + 1 + cell_disp,
+      }
+      cum_disp = cum_disp + 1 + cell_disp
+    end
+    tab.header_col_starts = hdr
+  end
 
   local buf = M.get_dataset_buffer()
   vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
@@ -468,7 +508,8 @@ function M.render_dataset(lines, meta, opts)
               local before = tab.header_text:sub(1, text_end)
               local after = tab.header_text:sub(text_end + 3)
               tab.header_text = before .. indicator .. after
-            end
+              tab.header_col_starts = nil
+             end
           end
         end
         local padded_h = "  " .. tab.header_text
@@ -627,7 +668,8 @@ function M.render_dataset(lines, meta, opts)
       state.sql.cell.row = 1
       state.sql.cell.col = 1
       pcall(vim.api.nvim_win_set_cursor, D.dataset_window, { meta.data_start_line, 0 })
-      sql_highlights.highlight_cell(D.dataset_buffer, 1, 1, meta)
+      local cs = tab.buffer_col_starts and tab.buffer_col_starts[meta.data_start_line]
+      sql_highlights.highlight_cell(D.dataset_buffer, 1, 1, meta, nil, cs)
     else
       pcall(vim.api.nvim_win_set_cursor, D.dataset_window, { 1, 0 })
     end

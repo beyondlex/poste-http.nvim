@@ -289,6 +289,9 @@ local seq = current_seq
         if ok and parsed and type(parsed) == "table" then
           state.last_response = parsed
 
+          -- Clear completion cache to pick up schema changes from DDL
+          require("poste.sql.completion_data").clear_cache()
+
           -- If raw mode was active, restore dataset buffer before rendering new results
           require("poste.sql.buffer_nav").restore_from_raw_mode()
 

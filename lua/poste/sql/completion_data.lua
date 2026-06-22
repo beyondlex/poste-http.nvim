@@ -171,6 +171,16 @@ local cache = {}
 
 function M.get_cache() return cache end
 
+--- Clear the schema cache for the current connection.
+--- Call after DDL execution (CREATE TABLE, ALTER, DROP, etc.)
+--- to force re-fetching on next completion.
+function M.clear_cache()
+  local key = M.conn_key()
+  if key then
+    cache[key] = nil
+  end
+end
+
 function M.resolve_current_context()
   local ok, sql_context = pcall(require, "poste.sql.context")
   if not ok then return state.sql and state.sql.context end

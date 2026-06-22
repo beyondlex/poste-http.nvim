@@ -111,7 +111,7 @@ pub(super) async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> anyhow
             }
             Err(e) => {
                 results.push(StatementResult {
-                    error: Some(format!("{:#}", e)),
+                    error: Some(format!("{}", e)),
                     connection: Some(current_url.clone()),
                     ..Default::default()
                 });

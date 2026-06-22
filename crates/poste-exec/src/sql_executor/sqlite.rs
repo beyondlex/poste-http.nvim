@@ -100,7 +100,7 @@ pub(super) async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> anyho
             Ok(sr) => results.push(sr),
             Err(e) => {
                 results.push(StatementResult {
-                    error: Some(format!("{:#}", e)),
+                    error: Some(format!("{}", e)),
                     ..Default::default()
                 });
             }

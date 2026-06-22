@@ -98,7 +98,5 @@ if not pcall(require, "cmp") then
 end
 EOF
 
-endif
-
 " Undo ftplugin settings when filetype changes
 let b:undo_ftplugin = "setl cms< com<"

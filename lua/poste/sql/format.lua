@@ -335,6 +335,10 @@ function M.format_dataset(r)
         table.insert(lines, msg)
       end
     end
+    if has_err then
+      table.insert(lines, "")
+      return lines, { type = "error" }
+    end
     table.insert(lines, "")
     local db = data.database
     if type(db) ~= "string" then db = nil end

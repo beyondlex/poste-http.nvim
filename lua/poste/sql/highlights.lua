@@ -197,7 +197,19 @@ function M.apply_dataset_highlights(buf, lines, meta)
   M.invalidate_sep_cache()
 
   if not meta or meta.type ~= "resultset" then
-    -- For non-resultset types, just highlight meta lines
+    if meta and meta.type == "error" then
+      for i, line in ipairs(lines) do
+        if line:match("^%s*ERROR") then
+          vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 0, {
+            end_row = i - 1,
+            end_col = #line,
+            hl_group = "PosteSqlError",
+          })
+        end
+      end
+      return
+    end
+    -- For other non-resultset types, highlight meta lines
     for i, line in ipairs(lines) do
       if line:match("^%s*%d+ row") or line:match("^%s*Page") or line:match("^%s*Context") then
         vim.api.nvim_buf_set_extmark(buf, ns, i - 1, 0, {

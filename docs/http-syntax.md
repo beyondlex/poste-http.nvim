@@ -81,13 +81,6 @@ GET {{base_url}}/users?limit={{page_size}}
 - `###` 前应有一个空行（格式化规则）
 - 文件末尾不需要尾随 `###`
 
-协议变更（仅限 SQL 文件）：
-
-```
-### @protocol=mysql
-### @protocol=postgres
-```
-
 ### 2.4 请求行
 
 ```
@@ -284,12 +277,13 @@ client.log(msg)        — 日志输出
 ### 2.11 环境切换
 
 ```
-### @env=production
+### request name
+@env=production
 GET https://prod.example.com/api
 ```
 
 **规则**：
-- `###` 行上可附加 `@env=<name>` 指令
+- `###` 行后可附加 `@env=<name>` 指令
 - 覆盖当前选中的环境
 - 未指定时使用 `state.current_env`
 

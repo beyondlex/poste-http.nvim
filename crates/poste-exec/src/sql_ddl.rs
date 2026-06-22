@@ -10,6 +10,7 @@ pub struct ColumnDef {
     pub nullable: bool,
     pub default: Option<String>,
     pub comment: Option<String>,
+    pub extra: Option<String>,
 }
 
 /// Table schema used when generating CREATE TABLE.
@@ -186,6 +187,11 @@ impl DdlGenerator for MysqlDdl {
             .iter()
             .map(|c| {
                 let mut s = format!("  {}", column_def_sql(c, &q));
+                if let Some(ref extra) = c.extra {
+                    if extra.to_lowercase().contains("auto_increment") {
+                        s.push_str(" AUTO_INCREMENT");
+                    }
+                }
                 if let Some(ref comment) = c.comment {
                     if !comment.is_empty() {
                         s.push_str(&format!(" COMMENT '{}'", comment.replace('\'', "''")));
@@ -423,6 +429,7 @@ mod tests {
                     nullable: false,
                     default: None,
                     comment: None,
+                    extra: None,
                 },
                 ColumnDef {
                     name: "name".to_string(),
@@ -430,6 +437,7 @@ mod tests {
                     nullable: false,
                     default: None,
                     comment: None,
+                    extra: None,
                 },
             ],
             primary_key: Some(vec!["id".to_string()]),
@@ -451,6 +459,7 @@ mod tests {
             nullable: true,
             default: None,
             comment: None,
+            extra: None,
         };
         let sql = ddl.add_column("users", &col);
         assert_eq!(sql, "ALTER TABLE \"users\" ADD COLUMN \"email\" TEXT;");
@@ -508,17 +517,18 @@ mod tests {
             name: "orders".to_string(),
             columns: vec![ColumnDef {
                 name: "id".to_string(),
-                col_type: "INT AUTO_INCREMENT".to_string(),
+                col_type: "INT".to_string(),
                 nullable: false,
                 default: None,
                 comment: None,
+                extra: Some("auto_increment".to_string()),
             }],
             primary_key: Some(vec!["id".to_string()]),
             comment: None,
         };
         let sql = ddl.create_table(&schema);
         assert!(sql.contains("CREATE TABLE `orders`"));
-        assert!(sql.contains("`id` INT AUTO_INCREMENT NOT NULL"));
+        assert!(sql.contains("`id` INT NOT NULL AUTO_INCREMENT"));
         assert!(sql.contains("PRIMARY KEY (`id`)"));
     }
 
@@ -531,6 +541,7 @@ mod tests {
             nullable: false,
             default: Some("'active'".to_string()),
             comment: None,
+            extra: None,
         };
         let sql = ddl.add_column("orders", &col);
         assert!(sql.contains("ALTER TABLE `orders` ADD COLUMN"));
@@ -565,6 +576,7 @@ mod tests {
             nullable: true,
             default: Some("0.0".to_string()),
             comment: None,
+            extra: None,
         };
         let sql = ddl.add_column("players", &col);
         assert!(sql.contains("ALTER TABLE \"players\" ADD COLUMN"));

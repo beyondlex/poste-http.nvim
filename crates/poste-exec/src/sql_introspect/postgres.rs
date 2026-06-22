@@ -180,6 +180,7 @@ async fn build_create_table_from_introspect_postgres(
             nullable: is_nullable == "YES",
             default,
             comment: None,
+            extra: None,
         });
     }
 

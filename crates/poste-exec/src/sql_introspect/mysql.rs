@@ -191,6 +191,7 @@ async fn build_create_table_from_introspect_mysql(
         let mut default = col_opt(row, "Default");
         let key = col(row, "Key");
         let comment = col_opt(row, "Comment");
+        let extra = col_opt(row, "Extra");
 
         if let Some(ref d) = default {
             if mysql_default_needs_quoting(&col_type) && !d.starts_with('\'') {
@@ -208,6 +209,7 @@ async fn build_create_table_from_introspect_mysql(
             nullable,
             default,
             comment,
+            extra,
         });
     }
 

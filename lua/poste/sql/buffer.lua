@@ -584,6 +584,8 @@ function M.render_dataset(lines, meta, opts)
     if not is_error then
       sql_highlights.apply_dataset_highlights(write_buf, padded, meta)
       require("poste.sql.buffer_search").apply_search_highlights()
+    elseif meta and meta.type == "error" then
+      sql_highlights.apply_dataset_highlights(write_buf, padded, meta)
     end
   end
 

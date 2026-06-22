@@ -31,9 +31,8 @@ local function apply_source_highlights(buf)
   vim.api.nvim_buf_clear_namespace(buf, _syn_ns, 0, -1)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   for i, line in ipairs(lines) do
-    local trimmed = line:match("^%s*(.-)%s*$") or ""
-    if trimmed ~= "" and not trimmed:match("^%-%-") and not trimmed:match("^###") then
-      syntax.highlight_line(buf, _syn_ns, i, trimmed, 0)
+    if line ~= "" and not line:match("^%s*%-%-") and not line:match("^%s*###") then
+      syntax.highlight_line(buf, _syn_ns, i, line, 0)
     end
   end
 end

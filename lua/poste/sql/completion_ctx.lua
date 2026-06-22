@@ -44,12 +44,21 @@ function M.func_items(prefix, funcs)
   return items
 end
 
-function M.kw_items(prefix)
+function M.kw_items(prefix, dialect)
   local low = prefix:lower()
   local items = {}
   for _, kw in ipairs(data.KEYWORDS) do
     if kw:lower():sub(1, #low) == low then
       table.insert(items, { label = kw, kind = 14, insertText = kw, sortText = "0" .. kw, documentation = "keyword" })
+    end
+  end
+  -- Include dialect-specific keywords
+  if dialect then
+    local extra = data.DIALECT_KEYWORDS[dialect] or {}
+    for _, kw in ipairs(extra) do
+      if kw:lower():sub(1, #low) == low then
+        table.insert(items, { label = kw, kind = 14, insertText = kw, sortText = "0" .. kw, documentation = "keyword" })
+      end
     end
   end
   for _, t in ipairs(data.DATA_TYPES) do

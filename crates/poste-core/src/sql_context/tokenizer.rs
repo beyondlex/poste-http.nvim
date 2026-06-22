@@ -204,7 +204,7 @@ pub(crate) fn is_known_keyword(word: &str) -> bool {
     let up_slice = &buf[..w.len()];
 
     const KWS: &[&[u8]] = &[
-        b"ADD", b"AFTER", b"ALL", b"ALTER", b"ANALYZE", b"AND", b"ANY", b"AS", b"ASC", b"AVG",
+        b"ADD", b"AFTER", b"ALL", b"ALTER", b"ANALYZE", b"AND", b"ANY", b"AS", b"ASC", b"AUTO_INCREMENT", b"AUTOINCREMENT", b"AVG",
         b"BEGIN", b"BETWEEN", b"BY", b"BOOL",
         b"CALL", b"CASCADE", b"CASE", b"CAST", b"CHAR", b"CLUSTER", b"COALESCE", b"COLUMN", b"COLUMNS", b"COMMENT", b"COMMIT", b"COPY", b"COUNT", b"CREATE", b"CROSS",
         b"CURRENT_DATE", b"CURRENT_TIMESTAMP",
@@ -359,6 +359,7 @@ mod tests {
             "UNIQUE", "DEFAULT", "REFERENCES", "COMMENT", "AFTER",
             "BEGIN", "COMMIT", "ROLLBACK", "DESC", "SHOW", "USE",
             "DELETE", "ADD", "DROP", "RENAME", "MODIFY",
+            "AUTO_INCREMENT", "AUTOINCREMENT",
         ];
         for &kw in single_word_keywords {
             assert!(

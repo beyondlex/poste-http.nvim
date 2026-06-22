@@ -167,6 +167,7 @@ end
 
 local function get_items(bufnr, line_before, cursor_line, callback)
   local prefix = line_before:match("[%w_]*$") or ""
+  local dialect = get_dialect_flag()
 
   debug.begin()
   debug.set("line_before", line_before)
@@ -320,7 +321,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
         })
       end
       if #items == 0 then
-        items = ctx.kw_items(tbl_prefix)
+        items = ctx.kw_items(tbl_prefix, dialect)
       end
       callback(ctx.filter(items, tbl_prefix))
     end)
@@ -335,7 +336,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
       if done then return end
       done = true
       if #all_items == 0 then
-        callback(ctx.kw_items(prefix))
+        callback(ctx.kw_items(prefix, dialect))
         return
       end
       callback(ctx.filter(all_items, prefix))
@@ -357,7 +358,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
       if pending <= 0 then flush() end
     end)
     if pending > 0 then
-      callback(ctx.kw_items(prefix))
+      callback(ctx.kw_items(prefix, dialect))
     end
     return
   end
@@ -381,7 +382,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     end
 
     if #real_tbls == 0 then
-      local items = ctx.kw_items(prefix)
+      local items = ctx.kw_items(prefix, dialect)
       vim.list_extend(items, ctx.func_items(prefix, rust_functions))
       callback(items)
       return
@@ -404,7 +405,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
       -- (e.g. WHERE after SET col = val w).  Empty prefix means the
       -- user just triggered completion — default context suffices.
       if #prefix > 0 then
-        vim.list_extend(items, ctx.kw_items(prefix))
+        vim.list_extend(items, ctx.kw_items(prefix, dialect))
       end
       callback(items)
     end
@@ -501,7 +502,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
       local key = data.conn_key()
       local cache = data.get_cache()
       local tbls = cache[key] and cache[key].tables or {}
-      local items = ctx.kw_items(prefix)
+      local items = ctx.kw_items(prefix, dialect)
       vim.list_extend(items, ctx.func_items(prefix))
       for _, item in ipairs(ctx.filter(ctx.make_items(tbls, 7, "table: "), prefix)) do
         table.insert(items, item)
@@ -509,7 +510,7 @@ local function get_items(bufnr, line_before, cursor_line, callback)
       callback(items)
     end)
   else
-    local items = ctx.kw_items(prefix)
+    local items = ctx.kw_items(prefix, dialect)
     vim.list_extend(items, ctx.func_items(prefix, rust_functions))
     callback(items)
   end

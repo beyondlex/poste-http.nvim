@@ -229,7 +229,7 @@ run #auth.Login
 # Place cursor on `run` line below, press <leader>r.
 # `@token = abc123` auto-injected after `### Login` marker;
 # `{{token}}` becomes available in the target request.
-run #auth.LoginWithToken (@token=abc123)
+run #auth.LoginWithToken (@token=run_token)
 
 
 ### 0.7c run ./helper_batch.http — execute all requests from file

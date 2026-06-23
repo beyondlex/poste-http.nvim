@@ -514,6 +514,18 @@ function M.goto_definition()
     start_pos = e + 1
   end
 
+  -- Script block variable reference: variables.xxx / env.xxx
+  if not req_name then
+    local cword = vim.fn.expand("<cword>")
+    if cword and cword ~= "" then
+      local before_cursor = line_text:sub(1, col + 1)
+      local var_prefix = before_cursor:match("(%w+)%." .. vim.pesc(cword) .. "%s*$")
+      if var_prefix == "variables" or var_prefix == "env" then
+        req_name = cword
+      end
+    end
+  end
+
   if not req_name then
     vim.notify("No named request reference under cursor", vim.log.levels.INFO)
     return

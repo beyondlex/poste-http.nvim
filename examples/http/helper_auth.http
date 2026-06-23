@@ -2,6 +2,7 @@
 # Requests are imported into p0_features.http via `import ./helper_auth.http as auth`
 
 @base_url = http://postman-echo.com
+@token = file_token
 
 ### Login
 POST {{base_url}}/post
@@ -10,6 +11,7 @@ Content-Type: application/json
 {"username": "admin", "password": "secret123"}
 
 ### LoginWithToken
+@token = request_token
 POST {{base_url}}/post
 Content-Type: application/json
 

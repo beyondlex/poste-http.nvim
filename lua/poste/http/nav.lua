@@ -703,6 +703,22 @@ function M.goto_references()
     end
   end
 
+  -- Script block variable reference: variables.xxx / env.xxx
+  if not symbol_name then
+    local cword = vim.fn.expand("<cword>")
+    if cword and cword ~= "" then
+      local before_cursor = line_text:sub(1, col + 1)
+      local dot_pos = before_cursor:find("%.[%w_]*$")
+      if dot_pos then
+        local pre_dot = before_cursor:sub(1, dot_pos - 1)
+        local prefix = pre_dot:match("(%w+)$")
+        if prefix == "variables" or prefix == "env" then
+          symbol_name = cword
+        end
+      end
+    end
+  end
+
   if not symbol_name then
     local req_name = line_text:match("^%s*###%s*(.+)")
     if req_name then
@@ -781,6 +797,21 @@ function M.goto_references()
   else
     local def_pat = "^%s*@" .. esc .. "[%s=]"
     local ref_pat = "{{" .. esc .. "[%}%.]"
+
+    local function find_script_ref(text)
+      for _, prefix in ipairs({ "variables", "env" }) do
+        local s = text:find(prefix .. "%." .. esc)
+        if s then
+          local after = s + #prefix + 1 + #symbol_name
+          local next_char = text:sub(after, after)
+          if next_char == "" or not next_char:match("[%w_]") then
+            return s + #prefix
+          end
+        end
+      end
+      return nil
+    end
+
     for i = 1, total do
       local text = all_lines[i] or ""
       if text:match(def_pat) then
@@ -789,6 +820,11 @@ function M.goto_references()
         local ref_col = text:find(ref_pat)
         if ref_col then
           add(i, vim.trim(text), ref_col - 1)
+        else
+          local script_col = find_script_ref(text)
+          if script_col then
+            add(i, vim.trim(text), script_col)
+          end
         end
       end
     end

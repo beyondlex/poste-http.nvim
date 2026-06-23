@@ -688,6 +688,38 @@ function M.goto_references()
     end
   end
 
+  -- Import/run alias detection
+  local is_import_ref = false
+  if not symbol_name then
+    local trimmed_l = vim.trim(line_text)
+    if trimmed_l:match("^import%s+") then
+      local alias = trimmed_l:match("^import%s+%S+%s+as%s+(%S+)")
+      if alias then
+        local as_pos = line_text:find("%s+as%s+" .. vim.pesc(alias) .. "%s*$")
+        if as_pos then
+          local alias_start = as_pos + 4
+          if col >= alias_start - 1 and col <= alias_start - 1 + #alias then
+            symbol_name = alias
+            is_import_ref = true
+          end
+        end
+      end
+    elseif trimmed_l:match("^run%s+#") then
+      local ref = trimmed_l:match("^run%s+#(.+)$")
+      if ref then
+        local dot_pos = ref:find("%.")
+        if dot_pos then
+          local alias = ref:sub(1, dot_pos - 1)
+          local cword = vim.fn.expand("<cword>")
+          if cword == alias then
+            symbol_name = alias
+            is_import_ref = true
+          end
+        end
+      end
+    end
+  end
+
   if not symbol_name then
     vim.notify("No variable or request reference under cursor", vim.log.levels.INFO)
     return
@@ -736,6 +768,20 @@ function M.goto_references()
           add(i, vim.trim(text), ref_col - 1)
         end
       end
+    end
+  end
+
+  -- Import/run reference scanning (aliased imports)
+  if is_import_ref and symbol_name then
+    local esc_alias = vim.pesc(symbol_name)
+    local def_pat = "^%s*import%s+%S+%s+as%s+" .. esc_alias .. "%s*$"
+    local ref_pat = "^%s*run%s+#" .. esc_alias .. "%."
+    for i = 1, total do
+      local text = all_lines[i] or ""
+      local def_col = text:find(def_pat)
+      if def_col then add(i, text, def_col - 1) end
+      local ref_col = text:find(ref_pat)
+      if ref_col then add(i, text, ref_col - 1) end
     end
   end
 

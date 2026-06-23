@@ -407,8 +407,10 @@ function M.goto_definition()
           for i = 1, total do
             local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
             if text:match("^%s*import%s+%S+%s+as%s+" .. esc_alias .. "%s*$") then
+              local as_find = text:find(" as " .. esc_alias .. "%s*$")
+              local target_col = (as_find and as_find + 3) or 0
               vim.cmd("normal! m'")
-              vim.api.nvim_win_set_cursor(0, { i, 0 })
+              vim.api.nvim_win_set_cursor(0, { i, target_col })
               found = true
               break
             end
@@ -424,7 +426,9 @@ function M.goto_definition()
           if resolved.action == "execute" and resolved.path then
             vim.cmd("normal! m'")
             vim.cmd("edit " .. vim.fn.fnameescape(resolved.path))
-            vim.api.nvim_win_set_cursor(0, { resolved.line, 0 })
+            local target_text = (vim.api.nvim_buf_get_lines(0, resolved.line - 1, resolved.line, false) or {})[1] or ""
+            local name_col = (target_text:find(vim.pesc(name)) or 2) - 1
+            vim.api.nvim_win_set_cursor(0, { resolved.line, name_col })
           else
             vim.notify(resolved.error or "Cannot resolve reference", vim.log.levels.WARN)
           end
@@ -439,7 +443,9 @@ function M.goto_definition()
           if resolved.action == "execute" and resolved.path then
             vim.cmd("normal! m'")
             vim.cmd("edit " .. vim.fn.fnameescape(resolved.path))
-            vim.api.nvim_win_set_cursor(0, { resolved.line, 0 })
+            local target_text = (vim.api.nvim_buf_get_lines(0, resolved.line - 1, resolved.line, false) or {})[1] or ""
+            local name_col = (target_text:find(vim.pesc(name)) or 2) - 1
+            vim.api.nvim_win_set_cursor(0, { resolved.line, name_col })
           else
             vim.notify(resolved.error or "Cannot resolve reference", vim.log.levels.WARN)
           end
@@ -775,14 +781,22 @@ function M.goto_references()
   -- Import/run reference scanning (aliased imports)
   if is_import_ref and symbol_name then
     local esc_alias = vim.pesc(symbol_name)
-    local def_pat = "^%s*import%s+%S+%s+as%s+" .. esc_alias .. "%s*$"
-    local ref_pat = "^%s*run%s+#" .. esc_alias .. "%."
+    local as_marker = " as " .. esc_alias .. "%s*$"
+    local hash_marker = "#" .. esc_alias .. "%."
     for i = 1, total do
       local text = all_lines[i] or ""
-      local def_col = text:find(def_pat)
-      if def_col then add(i, text, def_col - 1) end
-      local ref_col = text:find(ref_pat)
-      if ref_col then add(i, text, ref_col - 1) end
+      -- Definition: cursor on alias word after " as "
+      local def_raw = text:find("^%s*import%s+%S+%s+as%s+" .. esc_alias .. "%s*$")
+      if def_raw then
+        local as_pos = text:find(as_marker)
+        if as_pos then add(i, text, as_pos + 3) end
+      end
+      -- Reference: cursor on alias word after "#"
+      local ref_raw = text:find("^%s*run%s+#" .. esc_alias .. "%.")
+      if ref_raw then
+        local hash_pos = text:find(hash_marker)
+        if hash_pos then add(i, text, hash_pos) end
+      end
     end
   end
 

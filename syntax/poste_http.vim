@@ -26,7 +26,12 @@ syn match PosteImportAliasOpt '\<as\>' contained nextgroup=PosteImportAlias skip
 syn match PosteImportAlias '\S\+' contained
 
 syn match PosteRun '^\s*run' nextgroup=PosteRunTarget skipwhite
-syn match PosteRunTarget '\S\+' contained
+syn match PosteRunTarget '\S\+' contained nextgroup=PosteRunVars skipwhite
+syn match PosteRunVars '([^)]*)' contained
+  \ contains=PosteRunVarDef,PosteRunVarAssign,PosteRunVarValue
+syn match PosteRunVarDef '@\w\+' contained
+syn match PosteRunVarAssign '=' contained
+syn match PosteRunVarValue '[^,)= \t]\+' contained
 
 " ─── Variable definitions: @name = value / @name value ──
 syn match PosteVarDef '^\s*@\w\+'
@@ -160,8 +165,11 @@ hi def link PosteImport       Include
 hi def link PosteImportPath   String
 hi def link PosteImportAliasOpt Operator
 hi def link PosteImportAlias  Identifier
-hi def link PosteRun          Include
-hi def link PosteRunTarget    Special
+hi def PosteRun gui=bold guifg=#AA66FF cterm=bold ctermfg=141
+hi def link PosteRunTarget String
+hi def link PosteRunVarDef  PosteVarDef
+hi def link PosteRunVarAssign Operator
+hi def link PosteRunVarValue String
 hi def link PosteDirective   PreProc
 hi def link PostePreScript   PreProc
 hi def link PosteAssertion   PreProc

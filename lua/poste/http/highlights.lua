@@ -57,8 +57,9 @@ function M.setup()
     { "PosteImportPath",   "String" },
     { "PosteImportAliasOpt", "Operator" },
     { "PosteImportAlias",  "Identifier" },
-    { "PosteRun",          "Include" },
-    { "PosteRunTarget",    "Special" },
+    { "PosteRunVarDef",    "PosteVarDef" },
+    { "PosteRunVarAssign", "Operator" },
+    { "PosteRunVarValue",  "String" },
     { "PosteDirective",    "PreProc" },
     { "PostePreScript",    "PreProc" },
     { "PosteAssertion",    "PreProc" },
@@ -90,6 +91,10 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteMethodPATCH",  { fg = 0xc678dd, bold = true }) -- magenta
   vim.api.nvim_set_hl(0, "PosteMethodHEAD",   { fg = 0x56b6c2, bold = true }) -- cyan
   vim.api.nvim_set_hl(0, "PosteMethodOther",  { fg = 0x5c6370, bold = true }) -- gray
+
+  -- Run directive: bold purple for "run", green for target
+  vim.api.nvim_set_hl(0, "PosteRun", { fg = 0xAA66FF, bold = true })
+  vim.api.nvim_set_hl(0, "PosteRunTarget", { fg = 0x44CC88 })
 
   -- Request name: bold with a distinct color
   vim.api.nvim_set_hl(0, "PosteRequestName", { fg = 0x61afef, bold = true }) -- blue bold
@@ -141,7 +146,7 @@ function M.setup()
     "PosteMethodPATCH", "PosteMethodHEAD", "PosteMethodOPTIONS", "PosteMethodOther",
     "PosteUrl", "PosteHttpVersion", "PosteHeaderKey",
     "PosteImport", "PosteImportPath", "PosteImportAliasOpt", "PosteImportAlias",
-    "PosteRun", "PosteRunTarget",
+    "PosteRun", "PosteRunTarget", "PosteRunVarDef", "PosteRunVarAssign", "PosteRunVarValue",
     "PosteDirective",
     "PostePreScript", "PosteAssertion", "PosteScriptMarker", "PosteExternalScript",
     "PosteFileInclude",

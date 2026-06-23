@@ -232,6 +232,30 @@ function M.extract_assertion_blocks(content, start_line, end_line)
           table.insert(code_parts, code)
         end
         table.insert(result, "")  -- preserve line count
+
+      -- External assertion script: > ./path.lua or > ../path.lua
+      elseif trimmed:match("^>%s*%.?%.") and trimmed:match("%.lua%s*$") then
+        local path = trimmed:match("^>%s*(%S+)%s*$")
+        if path and (not start_line or (i >= start_line and i <= end_line)) then
+          -- Resolve relative path against .http file directory
+          local file_dir = vim.fn.expand("%:p:h")
+          if path:sub(1, 1) == "." then
+            path = file_dir .. "/" .. path
+          end
+          -- Read external script file
+          local f = io.open(path, "r")
+          if f then
+            local script_content = f:read("*a")
+            f:close()
+            table.insert(code_parts, "-- external: " .. path .. "\n" .. script_content)
+            state.log("INFO", "Loaded external assertion script: " .. path)
+          else
+            state.log("ERROR", "Cannot open assertion script file: " .. path)
+            table.insert(code_parts, 'error("Cannot open assertion script file: ' .. path .. '")')
+          end
+        end
+        table.insert(result, "")  -- preserve line count
+
       elseif trimmed:match("^>%s*{%%") then
         -- Multi-line start: > {%
         in_block = true
@@ -269,11 +293,15 @@ end
 ---------------------------------------------------------------------------
 
 --- Run assertion code in a sandboxed environment.
+--- @param response_data table  Parsed response from Rust CLI
+--- @param code string  Assertion code to execute
+--- @param script_vars table|nil  { variables = { name = value }, env = { key = value } }
 --- Returns: { tests = [...], logs = [...], total = N, passed = N, failed = N }
-function M.run_assertions(response_data, code)
+function M.run_assertions(response_data, code, script_vars)
   local tests = {}
   local logs = {}
   local current_test = nil
+  script_vars = script_vars or { variables = {}, env = {} }
 
   -- Build case-insensitive headers table
   local headers = {}
@@ -377,11 +405,13 @@ function M.run_assertions(response_data, code)
   end
 
   -- Build sandbox environment
-  local env = {
+  local sandbox_env = {
     response = response,
     request = request,
     client = client,
     assert = assert_fn,
+    variables = script_vars.variables,
+    env = script_vars.env,
     error = error,
     pcall = pcall,
     tostring = tostring,
@@ -398,7 +428,7 @@ function M.run_assertions(response_data, code)
   }
 
   -- Execute code in sandbox
-  local fn, load_err = load(code, "assertions", "t", env)
+  local fn, load_err = load(code, "assertions", "t", sandbox_env)
   if not fn then
     return {
       tests = {},
@@ -477,7 +507,9 @@ function M.format_assertions(results)
     table.insert(lines, "## Logs")
     table.insert(lines, "")
     for _, msg in ipairs(results.logs) do
-      table.insert(lines, msg)
+      for line in msg:gmatch("[^\r\n]+") do
+        table.insert(lines, line)
+      end
     end
   end
 

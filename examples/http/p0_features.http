@@ -1,0 +1,222 @@
+# P0 Feature Verification Suite
+# Tests for Phase 0 features implemented in http-impl-guide.md
+#
+# Run individual requests in order. Results appear in the response buffer.
+
+# File-level @variable (used by 0.5 variables.* sandbox)
+@base_url = https://httpbin.org
+@api_version = v1
+
+# ────────────────────────────────────────────────────────────────────
+# 0.1 {{$magic}} — magic variable substitution
+# ────────────────────────────────────────────────────────────────────
+# Tests that Rust parser generates $timestamp, $uuid, $date, $randomInt.
+
+### 0.1 Magic variables: all four types
+POST {{base_url}}/post
+Content-Type: application/json
+
+{
+  "test": "magic_vars",
+  "uuid": "{{$uuid}}",
+  "timestamp": "{{$timestamp}}",
+  "date": "{{$date}}",
+  "randomInt": {{$randomInt}},
+  "same_uuid": "{{$uuid}}"
+}
+
+> {%
+  client.test("0.1: All magic vars substituted", function()
+    local j = response.body.json
+    client.assert(j.uuid ~= nil, "uuid should be set")
+    client.assert(j.uuid:match("^%x%x%x%x%x%x%x%x%-") ~= nil, "uuid format: " .. tostring(j.uuid))
+    client.assert(j.timestamp:match("^%d+$") ~= nil, "timestamp should be numeric: " .. tostring(j.timestamp))
+    client.assert(j.date:match("^%d%d%d%d%-%d%d%-%d%d$") ~= nil, "date format YYYY-MM-DD: " .. tostring(j.date))
+    client.assert(tonumber(j.randomInt) ~= nil, "randomInt should be numeric: " .. tostring(j.randomInt))
+    client.assert(j.uuid == j.same_uuid, "uuid should be consistent within one request")
+  end)
+%}
+
+# ────────────────────────────────────────────────────────────────────
+# 0.2 Pre/Post script syntax highlighting (Vim)
+# ────────────────────────────────────────────────────────────────────
+# Visual check: open this file in Neovim.
+# - < {% and > {% regions should be highlighted
+# - client.test, response.status, request.variables inside blocks
+#   should appear in Function color (PosteScriptAPI)
+
+### 0.2 Syntax highlighting check (visual only)
+< {%
+  local x = os.time()
+  request.variables.set("ts", tostring(x))
+  client.log("Pre-script: timestamp " .. x)
+%}
+GET {{base_url}}/get?ts={{ts}}
+
+> {%
+  client.test("0.2: syntax placeholders work", function()
+    client.assert(response.status == 200, "Expected 200")
+  end)
+  client.log("Post-script: response status " .. response.status)
+%}
+
+# ────────────────────────────────────────────────────────────────────
+# 0.3 Completion for variables.* / env.* (Neovim)
+# ────────────────────────────────────────────────────────────────────
+# Visual check: type "variables." or "env." inside a < {% block.
+# Should see completions like variables.base_url, env.api_key.
+
+### 0.3 Completion check (visual only — type inside the block below)
+< {%
+  -- In insert mode, type "variables." and verify completion offers:
+  --   variables.base_url, variables.api_version
+  -- Type "env." and verify offers env key names.
+  client.log("variables.base_url = " .. tostring(variables.base_url))
+  client.log("env.api_key = " .. tostring(env.api_key))
+  request.variables.set("from_vars", variables.base_url .. "/" .. variables.api_version)
+%}
+GET {{base_url}}/get?url={{from_vars}}
+
+# ────────────────────────────────────────────────────────────────────
+# 0.4 > ./path.lua — external assertion script
+# ────────────────────────────────────────────────────────────────────
+# Tests that assertions.lua loads and executes external .lua files.
+
+### 0.4 External assertion script
+GET {{base_url}}/get?source=external_assertion
+
+> ./scripts/assert_response.lua
+
+# ────────────────────────────────────────────────────────────────────
+# 0.5 variables.* / env.* in sandbox
+# ────────────────────────────────────────────────────────────────────
+# Tests that @var definitions are available as variables.name
+# and env.json keys as env.name inside pre/post scripts.
+
+### 0.5.1 Pre-script: read @file vars via variables.*
+< {%
+  client.log("variables.base_url = " .. tostring(variables.base_url))
+  client.log("variables.api_version = " .. tostring(variables.api_version))
+  request.variables.set("resolved_url", variables.base_url .. "/" .. variables.api_version .. "/test")
+%}
+GET {{base_url}}/get?url={{resolved_url}}
+
+> {%
+  client.test("0.5.1: variables.* in pre-script", function()
+    client.assert(response.status == 200, "Expected 200")
+    local args = response.body.args
+    client.assert(args.url ~= nil, "url arg should exist")
+    client.assert(args.url:find("httpbin%.org") ~= nil, "url should contain base_url")
+  end)
+%}
+
+### 0.5.2 Post-script: read variables.* in assertions
+GET {{base_url}}/get
+
+> {%
+  client.test("0.5.2: variables.* in post-script", function()
+    -- variables available here too:
+    client.log("variables.base_url = " .. tostring(variables.base_url))
+    client.log("env.api_key = " .. tostring(env.api_key))
+    client.assert(response.status == 200, "Expected 200")
+  end)
+%}
+
+### 0.5.3 Block-level var overrides file-level var
+@base_url = https://postman-echo.com
+< {%
+  client.log("variables.base_url should be postman-echo.com: " .. tostring(variables.base_url))
+  request.variables.set("final_url", variables.base_url .. "/get")
+%}
+GET {{base_url}}/get?override={{base_url}}
+
+> {%
+  client.test("0.5.3: block-level override", function()
+    client.assert(response.status == 200, "Expected 200")
+    client.log("Response from: " .. response.url)
+  end)
+%}
+
+### 0.5.4 env.* available in post-script
+GET {{base_url}}/get
+
+> {%
+  client.test("0.5.4: env.* in post-script", function()
+    local env_desc = ""
+    for k, v in pairs(env) do
+      env_desc = env_desc .. k .. "=" .. tostring(v) .. " "
+    end
+    client.log("env keys: " .. env_desc)
+    client.assert(response.status == 200, "Expected 200")
+  end)
+%}
+
+# ────────────────────────────────────────────────────────────────────
+# 0.6 < path — file content inclusion (kulala syntax)
+# ────────────────────────────────────────────────────────────────────
+# Tests that request_vars.lua replaces < path with file contents.
+# Uses a relative path to a JSON file in the examples directory.
+
+### 0.6 File include in body
+POST {{base_url}}/post
+Content-Type: application/json
+
+< ./request_body.json
+
+> {%
+  client.test("0.6: file include in body", function()
+    client.assert(response.status == 200, "Expected 200")
+    local body = response.body
+    client.log("Included file size: " .. tostring(#body.data))
+    client.assert(#body.data > 0, "Body should contain file contents")
+    client.assert(body.data:find("Alice") ~= nil, "Body should contain 'Alice' from the file")
+    client.assert(body.data:find("admin") ~= nil, "Body should contain 'admin' from the file")
+  end)
+%}
+
+# ────────────────────────────────────────────────────────────────────
+# 0.6b < path — multipart form-data file upload
+# ────────────────────────────────────────────────────────────────────
+# Tests that < path in multipart form-data reads file content and uploads it.
+# Uses a simple text file.
+
+### 0.6b File upload via multipart form-data
+POST {{base_url}}/post
+Content-Type: multipart/form-data; boundary=boundary-{{$timestamp}}
+
+--boundary-{{$timestamp}}
+Content-Disposition: form-data; name="file"; filename="upload_test.txt"
+
+< ./upload_test.txt
+--boundary-{{$timestamp}}--
+
+> {%
+  client.test("0.6b: file upload in multipart form-data", function()
+    client.assert(response.status == 200, "Expected 200")
+    local files = response.body.files
+    client.assert(files ~= nil, "Response should contain 'files' field")
+    client.log("Uploaded file content: " .. tostring(files["file"]))
+    client.assert(files["file"] ~= nil, "File should be in uploaded files")
+    client.assert(files["file"]:find("Hello from Poste") ~= nil, "File content should match")
+  end)
+%}
+
+# ────────────────────────────────────────────────────────────────────
+# 0.7 import / run (Rust parser structure)
+# ────────────────────────────────────────────────────────────────────
+# import/run are parsed at the Rust level (importer.rs).
+# Run-time execution via Lua plugin is not wired yet.
+# These directives are syntactically valid and will be used when
+# the full import pipeline is implemented.
+
+### 0.7 import/run directive placeholder
+# import ./auth.http as auth
+# run #auth.Login
+GET {{base_url}}/get?msg=import_ready
+
+> {%
+  client.test("0.7: import directives parsed", function()
+    client.assert(response.status == 200, "Expected 200")
+    client.log("import/run support: Rust parser complete, Lua integration pending")
+  end)
+%}

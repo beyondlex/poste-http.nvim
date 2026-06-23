@@ -19,7 +19,6 @@ X-User-Id: {{user_id}}
     client.assert(auth:find("^Bearer token%-") ~= nil,
       "Expected Bearer token, got: " .. tostring(auth))
   end)
-  -- Save token for use in subsequent requests
   client.global.set("last_token", request.variables.get("auth_token"))
 %}
 
@@ -53,12 +52,10 @@ GET {{host}}/get?step=1
   client.global.set("session_id", "sess-" .. os.time())
   client.global.set("step_count", "1")
   client.log("Session started: " .. client.global.get("session_id"))
-  client.log("You can now run the next request to use this global")
 %}
 
-### Pre-script: read global from previous request (run AFTER the request above)
+### Pre-script: read global from previous request
 < {%
-  -- Bridge client.global values into {{...}} template variables
   local sid = client.global.get("session_id")
   if sid then
     request.variables.set("session_id", sid)
@@ -73,9 +70,9 @@ GET {{host}}/get?session={{session_id}}
   client.test("Session persisted", function()
     local sid = client.global.get("session_id")
     if not sid then
-      client.log("ERROR: session_id is nil. Run the 'Post-script: client.global persistence' request first!")
+      client.log("ERROR: session_id is nil. Run the session persistence request first!")
     end
-    client.assert(sid ~= nil, "session_id should be set from previous request (run it first!)")
+    client.assert(sid ~= nil, "session_id should be set from previous request")
     if sid then
       client.log("Using session: " .. sid)
     end
@@ -110,4 +107,3 @@ Content-Type: application/json
   this_will_cause_an_error()
 %}
 GET {{host}}/get
-

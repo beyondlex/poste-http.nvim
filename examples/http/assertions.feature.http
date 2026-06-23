@@ -18,31 +18,13 @@ GET https://httpbin.org/get?name=test&value=123
 GET https://httpbin.org/get
 
 > {%
-  client.test("Status is 404", function()
+  client.test("Status is 404 (intentional failure demo)", function()
     client.assert(response.status == 404, "Expected status 404 but got " .. response.status)
   end)
   client.test("Response has missing field", function()
     client.assert(response.body.missing_field ~= nil, "Expected missing_field to exist")
   end)
 %}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 ### Test POST with JSON body
 POST https://httpbin.org/post
@@ -52,6 +34,7 @@ Content-Type: application/json
   "user": "alice",
   "age": 30
 }
+
 > {%
   client.test("POST successful", function()
     client.assert(response.status == 200, "Expected 200")
@@ -60,13 +43,5 @@ Content-Type: application/json
   end)
 %}
 
-### Test without assertions (should work as before)
+### Test without assertions
 GET https://httpbin.org/status/201
-
-
-
-
-
-
-
-

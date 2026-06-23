@@ -28,6 +28,9 @@ function M.show_view(view)
   elseif view == "script_logs" then
     lines = scripts.format_script_logs(state.last_script_logs)
     filetype = "markdown"
+  elseif view == "request" then
+    lines = format.format_request_payload(state.last_response)
+    filetype = "text"
   else
     lines = { "Unknown view: " .. view }
     filetype = "text"

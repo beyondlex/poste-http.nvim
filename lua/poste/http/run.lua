@@ -45,12 +45,14 @@ function M.run_request()
     request_vars.resolve_request_variables(binary, file, state.current_env, src_buf, line, modified_content, function(buf_content)
 
       local pre_script_code
+      local script_vars = nil
       if block_start then
         buf_content, pre_script_code = scripts.extract_pre_script_blocks(buf_content, block_start, block_end)
+        script_vars = scripts.collect_script_variables(buf_content, block_start, block_end)
       end
 
       if pre_script_code then
-        local pre_result = scripts.run_pre_script(pre_script_code)
+        local pre_result = scripts.run_pre_script(pre_script_code, script_vars)
         if pre_result.error then
           state.log("ERROR", pre_result.error)
           indicators.set_indicator(src_buf, req_line, "error")
@@ -143,7 +145,7 @@ function M.run_request()
               request_vars.cache_response(current_req_name, parsed)
 
               if assertion_code then
-                state.last_assertion_results = assertions.run_assertions(parsed, assertion_code)
+                state.last_assertion_results = assertions.run_assertions(parsed, assertion_code, script_vars)
                 state.log("INFO", string.format("Assertions: %d passed, %d failed",
                   state.last_assertion_results.passed, state.last_assertion_results.failed))
 

@@ -42,28 +42,35 @@ unlet! b:current_syntax
 " ─── Pre-request script blocks ──────────────────────
 " Multi-line: < {% ... %}
 syn region PostePreScript start='<\s*{%$' end='^%}'
-  \ contains=PosteScriptMarker,@PosteLua keepend
+  \ contains=PosteScriptMarker,PosteScriptAPI,@PosteLua keepend
 " Single-line: < {% ... %}
 syn match PostePreScript '<\s*{%.*%}'
-  \ contains=PosteScriptMarker,@PosteLua
+  \ contains=PosteScriptMarker,PosteScriptAPI,@PosteLua
 
 " ─── Assertion / post-request script blocks ─────────
 " Multi-line: > {% ... %}
 syn region PosteAssertion start='>\s*{%$' end='^%}'
-  \ contains=PosteScriptMarker,@PosteLua keepend
+  \ contains=PosteScriptMarker,PosteScriptAPI,@PosteLua keepend
 " Single-line: > {% ... %}
 syn match PosteAssertion '>\s*{%.*%}'
-  \ contains=PosteScriptMarker,@PosteLua
+  \ contains=PosteScriptMarker,PosteScriptAPI,@PosteLua
 
 " Script markers (contained in PreScript / Assertion regions)
 syn match PosteScriptMarker '{%' contained
 syn match PosteScriptMarker '%}' contained
 
+" Script API keywords (contained in script regions)
+syn match PosteScriptAPI 'client\.\%(test\|assert\|log\|global\.\%(set\|get\)\)' contained
+syn match PosteScriptAPI 'response\.\%(status\|body\|headers\|latency_ms\|content_type\|url\)' contained
+syn match PosteScriptAPI 'request\.\%(variables\.\%(set\|get\)\|headers\|body\)' contained
+syn match PosteScriptAPI 'variables\.\w\+' contained
+syn match PosteScriptAPI 'env\.\w\+' contained
+
 " ─── External script reference ──────────────────────
 syn match PosteExternalScript '<\s\+\./\S*\.lua\s*$'
 
 " ─── File inclusion in body ─────────────────────────
-syn match PosteFileInclude '<\s\+/\S\+'
+syn match PosteFileInclude '<\s\+\S\+'
 
 " ─── HTTP request line ──────────────────────────────
 " Methods MUST be defined before PosteHeaderKey to take precedence
@@ -143,6 +150,7 @@ hi def link PosteDirective   PreProc
 hi def link PostePreScript   PreProc
 hi def link PosteAssertion   PreProc
 hi def link PosteScriptMarker Special
+hi def link PosteScriptAPI  Function
 hi def link PosteExternalScript Include
 hi def link PosteFileInclude Include
 hi def link PosteJsonString  String

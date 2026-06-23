@@ -18,7 +18,8 @@ M.on_show_view = nil
 local function get_active_tabs()
   local tabs = {
     { id = "body",    label = "Body [H]" },
-    { id = "verbose", label = "Verbose [L]" },
+    { id = "request", label = "Rqst [R]" },
+    { id = "verbose", label = "Verb [L]" },
   }
   -- Only show Asserts tab when assertions were run
   if state.last_assertion_results then
@@ -103,6 +104,10 @@ local function get_response_buffer()
   k = state.get_keymap("http_response", "view_body", "B")
   if k then
     vim.keymap.set("n", k, function() if M.on_show_view then M.on_show_view("body") end end, opts)
+  end
+  k = state.get_keymap("http_response", "view_request", "R")
+  if k then
+    vim.keymap.set("n", k, function() if M.on_show_view then M.on_show_view("request") end end, opts)
   end
   k = state.get_keymap("http_response", "view_verbose", "I")
   if k then

@@ -24,7 +24,6 @@ Content-Type: application/json
       "date format invalid: " .. tostring(body.date))
     client.assert(tonumber(body.random_id) >= 0 and tonumber(body.random_id) <= 9999999,
       "randomInt out of range: " .. tostring(body.random_id))
-    -- Same request = same value (generated once per request)
     client.assert(body.uuid == body.same_uuid_again, "uuid should be same within one request")
     client.assert(body.timestamp == body.same_timestamp_again, "timestamp should be same within one request")
   end)

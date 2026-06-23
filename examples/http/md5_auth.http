@@ -2,7 +2,6 @@
 
 ### Login with MD5 hashed password
 < {%
-  -- Hash password with MD5 before sending
   local password = "mysecretpassword"
   local password_hash = md5(password)
   request.variables.set("password_hash", password_hash)
@@ -19,7 +18,6 @@ Content-Type: application/json
 > {%
   client.test("MD5 hash sent correctly", function()
     client.assert(response.status == 200, "Expected 200")
-    -- MD5 of "mysecretpassword"
     local expected = "4cab2a2db6a3c31b01d804def28276e6"
     client.assert(response.body.json.password == expected,
       "Password hash mismatch: " .. response.body.json.password)

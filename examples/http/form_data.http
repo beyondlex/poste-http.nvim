@@ -24,7 +24,7 @@ admin@example.com
 Content-Disposition: form-data; name="avatar"; filename="test.txt"
 Content-Type: text/plain
 
-< README_request_variables.md
+< ../README_request_variables.md
 ------WebKitFormBoundary{{$timestamp}}--
 
 ### Simple JSON POST
@@ -48,10 +48,10 @@ This is a test upload with multiple files
 Content-Disposition: form-data; name="file1"; filename="variables.http"
 Content-Type: text/plain
 
-< variables.http
+< ../variables.http
 ------Boundary{{$timestamp}}
 Content-Disposition: form-data; name="file2"; filename="prompt.http"
 Content-Type: text/plain
 
-< prompt_variables.http
+< ../prompt_variables.http
 ------Boundary{{$timestamp}}--

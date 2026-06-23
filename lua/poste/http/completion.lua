@@ -841,6 +841,58 @@ local function build_keyword_items(keywords, kind)
   return items
 end
 
+--- Build completion items for variables.* and env.* in script context.
+--- Dynamically collects file-level, request-level, and env vars.
+local function build_script_variable_items(line_text, buf, cursor_line)
+  local KIND_VARIABLE = 6
+  local items = {}
+  buf = buf or vim.api.nvim_get_current_buf()
+
+  -- Check if typing variables. or env. prefix
+  local prefix_match = line_text:match("^(%w+)%.")
+  if not prefix_match then
+    -- No prefix yet, still offer top-level prefixes
+    -- Only add these if user has typed part of the word (to avoid noise)
+    return items
+  end
+
+  if prefix_match == "variables" then
+    local all_vars = {}
+    local cache = get_buffer_cache(buf)
+    for name in pairs(cache.file_vars) do
+      all_vars[name] = true
+    end
+    local req_vars = collect_request_vars(buf, cursor_line or vim.api.nvim_win_get_cursor(0)[1])
+    for name in pairs(req_vars) do
+      all_vars[name] = true
+    end
+    for name in pairs(all_vars) do
+      table.insert(items, {
+        label = "variables." .. name,
+        kind = KIND_VARIABLE,
+        insertText = "variables." .. name,
+        filterText = "variables." .. name,
+        sortText = "1" .. name,
+        detail = "file/request variable",
+      })
+    end
+  elseif prefix_match == "env" then
+    local env_vars = collect_env_vars()
+    for name in pairs(env_vars) do
+      table.insert(items, {
+        label = "env." .. name,
+        kind = KIND_VARIABLE,
+        insertText = "env." .. name,
+        filterText = "env." .. name,
+        sortText = "1" .. name,
+        detail = "environment variable",
+      })
+    end
+  end
+
+  return items
+end
+
 --- Get completion items for a given line context.
 --- Shared between both engines.
 local function get_items_for_context(line_before_cursor, buf, cursor_line, cursor_col)
@@ -858,10 +910,24 @@ local function get_items_for_context(line_before_cursor, buf, cursor_line, curso
   if ctx == "pre_script" then
     -- Pre-request script context: provide request.* and client.* keywords
     items = build_keyword_items(pre_script_keywords, KIND_FUNCTION)
+
+    -- Dynamic variables.* and env.* completions
+    local var_items = build_script_variable_items(extra or "", buf, cursor_line)
+    for _, item in ipairs(var_items) do
+      table.insert(items, item)
+    end
+
     return items
   elseif ctx == "post_script" then
     -- Post-request assertion context: provide client.test, response.*, etc.
     items = build_keyword_items(post_script_keywords, KIND_FUNCTION)
+
+    -- Dynamic variables.* and env.* completions
+    local var_items = build_script_variable_items(extra or "", buf, cursor_line)
+    for _, item in ipairs(var_items) do
+      table.insert(items, item)
+    end
+
     return items
   elseif ctx == "status_code" then
     -- HTTP status code completion inside assertion (response.status == ...)
@@ -1295,6 +1361,7 @@ M._test = {
   detect_script_context = detect_script_context,
   build_items = build_items,
   build_keyword_items = build_keyword_items,
+  build_script_variable_items = build_script_variable_items,
   get_items_for_context = get_items_for_context,
   get_buffer_cache = get_buffer_cache,
   collect_file_vars = collect_file_vars,

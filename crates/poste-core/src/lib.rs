@@ -1,6 +1,7 @@
 //! Poste core: request parsing and environment management
 
 pub mod env;
+pub mod importer;
 pub mod parser;
 pub mod request;
 pub mod sql_context;

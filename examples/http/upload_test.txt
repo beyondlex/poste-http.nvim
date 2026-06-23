@@ -1,0 +1,3 @@
+Hello from Poste file upload test!
+This file should appear as the content of the uploaded file.
+line three

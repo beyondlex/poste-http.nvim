@@ -129,6 +129,11 @@ impl Parser {
                 continue;
             }
 
+            // External assertion script: > ./path.lua
+            if trimmed.starts_with(">") && (trimmed.contains("./") || trimmed.contains("../")) && trimmed.ends_with(".lua") {
+                continue;
+            }
+
             if trimmed.starts_with("###") {
                 // Extract name after ###
                 name = Some(trimmed.trim_start_matches("###").trim().to_string());
@@ -164,8 +169,8 @@ impl Parser {
                     request_lines.push(line);
                 }
             } else {
-                // After request line, add to request body (but skip assertion markers)
-                if !trimmed.starts_with(">") {
+                // After request line, add to request body (skip assertion markers and comments)
+                if !trimmed.starts_with(">") && !trimmed.starts_with('#') {
                     request_lines.push(line);
                 }
             }
@@ -348,13 +353,19 @@ impl Parser {
         for _ in 0..20 {
             let next = re.replace_all(&result, |caps: &regex::Captures| {
                 let var_name = &caps[1];
-                // Priority: request_vars > file_vars > env
-                request_vars
+                // Priority: request_vars > file_vars > env > magic vars
+                if let Some(val) = request_vars
                     .get(var_name)
                     .or_else(|| file_vars.get(var_name))
                     .or_else(|| self.env.get(var_name))
-                    .cloned()
-                    .unwrap_or_else(|| caps[0].to_string())
+                {
+                    return val.clone();
+                }
+                // Magic variables ($timestamp, $uuid, etc.)
+                if let Some(val) = Self::resolve_magic_var(var_name) {
+                    return val;
+                }
+                caps[0].to_string()
             }).to_string();
             if next == result {
                 break;
@@ -362,6 +373,31 @@ impl Parser {
             result = next;
         }
         result
+    }
+
+    /// Resolve magic variables ({{$timestamp}}, {{$uuid}}, {{$date}}, {{$randomInt}}).
+    fn resolve_magic_var(name: &str) -> Option<String> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        match name {
+            "$timestamp" => {
+                let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                let rnd: u64 = rand::random::<u64>() % 900000 + 100000;
+                Some(format!("{}{}", ts, rnd))
+            }
+            "$uuid" => {
+                let uuid = uuid::Uuid::new_v4();
+                Some(uuid.to_string())
+            }
+            "$date" => {
+                let now = chrono::Local::now();
+                Some(now.format("%Y-%m-%d").to_string())
+            }
+            "$randomInt" => {
+                let val: u64 = rand::random::<u64>() % 10000000;
+                Some(val.to_string())
+            }
+            _ => None,
+        }
     }
 }
 
@@ -553,6 +589,24 @@ GET http://{{host}}:{{port}}/{{timeout}}
     }
 
     #[test]
+    fn test_assertion_external_stripped() {
+        let parser = Parser::new(HashMap::new());
+        let block = "### Request 1\nGET /api/data\n> ./scripts/check.lua\n";
+        let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        assert!(request.body.contains("GET /api/data"));
+        assert!(!request.body.contains("check.lua"));
+    }
+
+    #[test]
+    fn test_assertion_external_stripped_multi_block() {
+        let parser = Parser::new(HashMap::new());
+        let content = "### Request 1\nGET /api/data\n> ./scripts/check.lua\n\n### Request 2\nGET /api/other\n";
+        let request = parser.parse_at_line(content, 2, "http").unwrap();
+        assert!(request.body.contains("GET /api/data"));
+        assert!(!request.body.contains("check.lua"));
+    }
+
+    #[test]
     fn test_prescript_injected_vars() {
         let parser = Parser::new(HashMap::new());
         let block = "### Request 1\n@auth_token = injected-value\nGET /api?token={{auth_token}}\n";
@@ -706,6 +760,70 @@ Authorization: {{token}}
 "#;
         let req = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
         assert!(req.body.contains("Authorization: secret"));
+    }
+
+    #[test]
+    fn test_magic_var_timestamp() {
+        let parser = Parser::new(HashMap::new());
+        let result = parser.substitute_vars("{{$timestamp}}", &HashMap::new(), &HashMap::new());
+        // Should be a long numeric string (timestamp + random)
+        assert!(result.len() > 10);
+        assert!(result.chars().all(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn test_magic_var_uuid() {
+        let parser = Parser::new(HashMap::new());
+        let result = parser.substitute_vars("{{$uuid}}", &HashMap::new(), &HashMap::new());
+        // UUID format: 8-4-4-4-12
+        assert_eq!(result.len(), 36);
+        assert_eq!(result.chars().filter(|&c| c == '-').count(), 4);
+    }
+
+    #[test]
+    fn test_magic_var_date() {
+        let parser = Parser::new(HashMap::new());
+        let result = parser.substitute_vars("{{$date}}", &HashMap::new(), &HashMap::new());
+        // YYYY-MM-DD
+        assert_eq!(result.len(), 10);
+        assert_eq!(&result[4..5], "-");
+        assert_eq!(&result[7..8], "-");
+    }
+
+    #[test]
+    fn test_magic_var_randomInt() {
+        let parser = Parser::new(HashMap::new());
+        let result = parser.substitute_vars("{{$randomInt}}", &HashMap::new(), &HashMap::new());
+        let val: u64 = result.parse().unwrap();
+        assert!(val < 10000000);
+    }
+
+    #[test]
+    fn test_magic_var_not_found_preserved() {
+        let parser = Parser::new(HashMap::new());
+        let result = parser.substitute_vars("{{$unknown}}", &HashMap::new(), &HashMap::new());
+        assert_eq!(result, "{{$unknown}}");
+    }
+
+    #[test]
+    fn test_comments_between_blocks_excluded_from_body() {
+        let parser = Parser::new(HashMap::new());
+        let content = "### Request 1\nGET /api/one\n\n> {% client.test(\"a\", function() end) %}\n\n# ─────────────────\n# Comment between blocks\n# ─────────────────\n\n### Request 2\nGET /api/two\n";
+        let request = parser.parse_at_line(content, 2, "http").unwrap();
+        assert!(request.body.contains("GET /api/one"));
+        assert!(!request.body.contains("Comment between blocks"), "body should not contain inter-block comments");
+        assert!(!request.body.contains("──"), "body should not contain inter-block comment decorations");
+    }
+
+    #[test]
+    fn test_magic_var_in_body() {
+        let parser = Parser::new(HashMap::new());
+        let content = "### Request\nPOST /api/log\nContent-Type: application/json\n\n{\"ts\": \"{{$timestamp}}\", \"uuid\": \"{{$uuid}}\"}\n";
+        let request = parser.parse_block(content, Protocol::Http, &HashMap::new()).unwrap();
+        assert!(!request.body.contains("{{$timestamp}}"));
+        assert!(!request.body.contains("{{$uuid}}"));
+        assert!(request.body.contains("\"ts\": \""));
+        assert!(request.body.contains("\"uuid\": \""));
     }
 
     #[test]

@@ -5,10 +5,10 @@ GET https://httpbin.org/get?items[]=apple&items[]=banana&items[]=cherry&items[]=
 # @prompt fruit [{{Get Items.response.body.args.items}}]
 GET https://httpbin.org/get?fruit={{fruit}}
 
-### Static Options (existing feature)
+### Static Options
 # @prompt method [GET, POST, PUT, DELETE]
 GET https://httpbin.org/get?method={{method}}
 
-### Text Input (existing feature)
+### Text Input
 # @prompt username
 GET https://httpbin.org/get?user={{username}}

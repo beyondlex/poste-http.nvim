@@ -444,6 +444,8 @@ local http_status_codes = {
 -- Data: Pre-request script keywords (< {% ... %})
 ---------------------------------------------------------------------------
 local pre_script_keywords = {
+  { name = "variables",              desc = "File/request/block-level variables" },
+  { name = "env",                    desc = "Environment variables from env.json" },
   { name = "request.variables.set",  desc = "Set variable for request" },
   { name = "request.variables.get",  desc = "Get variable value" },
   { name = "client.global.set",      desc = "Set persistent global variable" },
@@ -900,11 +902,17 @@ local function build_script_variable_items(line_text, buf, cursor_line)
   local items = {}
   buf = buf or vim.api.nvim_get_current_buf()
 
-  -- Check if typing variables. or env. prefix
-  local prefix_match = line_text:match("^(%w+)%.")
+  -- Find the last `word.` prefix in the line (handles indentation and
+  -- function calls like `client.log("variables.`)
+  local prefix_match = nil
+  local pos = 1
+  while true do
+    local s, e, word = line_text:find("(%w+)%.", pos)
+    if not s then break end
+    prefix_match = word
+    pos = e + 1
+  end
   if not prefix_match then
-    -- No prefix yet, still offer top-level prefixes
-    -- Only add these if user has typed part of the word (to avoid noise)
     return items
   end
 

@@ -469,6 +469,8 @@ local post_script_keywords = {
   { name = "response.content_type",  desc = "Content-Type header" },
   { name = "response.latency_ms",    desc = "Request duration in milliseconds" },
   { name = "response.url",           desc = "Request URL" },
+  { name = "variables",              desc = "File/request/block-level variables" },
+  { name = "env",                    desc = "Environment variables from env.json" },
   -- Also include pre-request keywords (client.global, client.log available)
   { name = "client.global.set",      desc = "Set persistent global variable" },
   { name = "client.global.get",      desc = "Get persistent global variable" },

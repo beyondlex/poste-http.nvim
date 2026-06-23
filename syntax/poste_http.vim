@@ -19,6 +19,15 @@ syn match PosteDirective
 syn match PosteComment '^\s*#\s.*$'
 syn match PosteComment '^\s*--.*$'
 
+" ─── import/run cross-file reference directives ─────
+syn match PosteImport '^\s*import' nextgroup=PosteImportPath skipwhite
+syn match PosteImportPath '\S\+' contained nextgroup=PosteImportAliasOpt skipwhite
+syn match PosteImportAliasOpt '\<as\>' contained nextgroup=PosteImportAlias skipwhite
+syn match PosteImportAlias '\S\+' contained
+
+syn match PosteRun '^\s*run' nextgroup=PosteRunTarget skipwhite
+syn match PosteRunTarget '\S\+' contained
+
 " ─── Variable definitions: @name = value / @name value ──
 syn match PosteVarDef '^\s*@\w\+'
   \ nextgroup=PosteVarAssign,PosteVarValue skipwhite
@@ -110,7 +119,8 @@ syn match PosteHeaderSep ':' contained
 syn region PosteBody start=+^\s*\n+ end=+\n\ze\s*\%(###\|<\s*{%\|>\s*{%\)\|\%$+ keepend
   \ contains=PosteJsonString,PosteJsonNumber,PosteJsonBoolean,PosteJsonNull,
   \PosteJsonBraces,PosteJsonBrackets,PosteJsonColon,PosteJsonComma,
-  \PosteVarRef,PosteMagicVar,PosteVarDef,PosteVarAssign,PosteMultiVarEnd,PosteComment
+  \PosteVarRef,PosteMagicVar,PosteVarDef,PosteVarAssign,PosteMultiVarEnd,PosteComment,
+  \PosteImport,PosteRun
 
 syn match  PosteJsonNumber  '[-]\?\%(\d\+\.\d\+\|\d\+\)' contained
 syn match  PosteJsonBoolean '\<\%(true\|false\)\>' contained
@@ -146,6 +156,12 @@ hi def link PosteUrl         Underlined
 hi def link PosteHttpVersion Constant
 hi def link PosteHeaderKey   Type
 hi def link PosteHeaderSep   Delimiter
+hi def link PosteImport       Include
+hi def link PosteImportPath   String
+hi def link PosteImportAliasOpt Operator
+hi def link PosteImportAlias  Identifier
+hi def link PosteRun          Include
+hi def link PosteRunTarget    Special
 hi def link PosteDirective   PreProc
 hi def link PostePreScript   PreProc
 hi def link PosteAssertion   PreProc

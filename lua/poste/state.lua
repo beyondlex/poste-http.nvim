@@ -46,6 +46,8 @@ M.config = {
       next_tab = "<Tab>",
       prev_tab = "<S-Tab>",
       rerun = "r",
+      next_response = "]",
+      prev_response = "[",
     },
     sql_source = {
       run = "<CR>",

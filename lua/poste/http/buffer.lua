@@ -39,6 +39,15 @@ function M.update_winbar(active)
 
   local tabs = get_active_tabs()
   local parts = {}
+
+  -- Multi-response index: [1/3] GetIP
+  if state.last_responses and #state.last_responses > 0 then
+    local idx = state.response_index or 1
+    local name = (state.last_responses[idx] and state.last_responses[idx].name) or ""
+    local label = string.format("[%d/%d] %s", idx, #state.last_responses, name)
+    table.insert(parts, "%#TabLineFill# " .. label .. " %*")
+  end
+
   for _, tab in ipairs(tabs) do
     if tab.id == active then
       table.insert(parts, "%#TabLineSel# " .. tab.label .. " %*")
@@ -48,6 +57,20 @@ function M.update_winbar(active)
   end
 
   vim.wo[response_window].winbar = table.concat(parts)
+end
+
+--- Navigate to the next/previous response in multi-response mode.
+--- direction: 1 = next, -1 = previous
+function M.navigate_response(direction)
+  if not state.last_responses or #state.last_responses <= 1 then return end
+  local idx = (state.response_index or 1) + direction
+  if idx < 1 then idx = #state.last_responses
+  elseif idx > #state.last_responses then idx = 1 end
+  state.response_index = idx
+  state.last_response = state.last_responses[idx].response
+  if state.current_view and M.on_show_view then
+    M.on_show_view(state.current_view)
+  end
 end
 
 --- Cycle to the next/previous tab. direction: 1 = forward, -1 = backward
@@ -154,6 +177,16 @@ local function get_response_buffer()
       state.last_response = nil
       require("poste").run_request()
     end, opts)
+  end
+
+  -- Multi-response navigation
+  k = state.get_keymap("http_response", "next_response", "]")
+  if k then
+    vim.keymap.set("n", k, function() M.navigate_response(1) end, opts)
+  end
+  k = state.get_keymap("http_response", "prev_response", "[")
+  if k then
+    vim.keymap.set("n", k, function() M.navigate_response(-1) end, opts)
   end
 
   return response_buffer

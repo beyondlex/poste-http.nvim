@@ -5,6 +5,7 @@ local request_vars = require("poste.http.request_vars")
 local scripts = require("poste.http.scripts")
 local assertions = require("poste.http.assertions")
 local view = require("poste.http.view")
+local import_mod = require("poste.http.import")
 
 local M = {}
 
@@ -35,6 +36,56 @@ function M.run_request()
 
   local buf_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
   local buf_content = table.concat(buf_lines, "\n")
+
+  -- Check if this is a `run` directive (import/run cross-file execution)
+  local resolved = import_mod.resolve_run_at_cursor(src_buf, line)
+  if resolved.action ~= "none" then
+    if resolved.warnings and #resolved.warnings > 0 then
+      for _, w in ipairs(resolved.warnings) do
+        state.log("WARN", w)
+      end
+    end
+
+    if resolved.error then
+      vim.notify(resolved.error, vim.log.levels.ERROR, { title = "Poste" })
+      indicators.set_indicator(src_buf, line - 1, "error")
+      return
+    end
+
+    state.log("INFO", string.format("Import/run directive resolved: %s -> %s line %d",
+      resolved.action, resolved.path or "", resolved.line or 0))
+
+    -- Place indicator on the run directive line itself
+    indicators.set_indicator(src_buf, line - 1, "running")
+
+    import_mod.execute_run_directive(resolved, function(success, response)
+      vim.schedule(function()
+        if success and response then
+          -- Batch execution: response is an array of {name, response}
+          if type(response) == "table" and response[1] and response[1].response then
+            state.last_responses = response
+            state.response_index = 1
+            state.last_response = response[1].response
+          else
+            state.last_responses = nil
+            state.response_index = 1
+            state.last_response = response
+          end
+
+          if state.last_response.status and state.last_response.status >= 400 then
+            view.show_view("verbose")
+            indicators.set_indicator(src_buf, line - 1, "error", state.last_response.latency_ms)
+          else
+            view.show_view("body")
+            indicators.set_indicator(src_buf, line - 1, "success", state.last_response.latency_ms)
+          end
+        else
+          indicators.set_indicator(src_buf, line - 1, "error")
+        end
+      end)
+    end)
+    return
+  end
 
   request_vars.handle_prompt_variables(src_buf, line, buf_content, binary, file, state.current_env, function(modified_content)
     local req_line = indicators.find_request_line(src_buf, line)

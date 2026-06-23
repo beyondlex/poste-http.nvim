@@ -156,6 +156,60 @@ pub fn build_index(imports: &[ImportDirective]) -> (ImportIndex, Vec<String>) {
     (index, errors)
 }
 
+/// Extract all named request blocks from file content.
+/// Returns (1-indexed line_number, name) for each `### Name` block.
+pub fn extract_request_names(content: &str) -> Vec<(usize, String)> {
+    let mut names = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if let Some(name) = trimmed.strip_prefix("###") {
+            let name = name.trim().to_string();
+            if !name.is_empty() {
+                names.push((i + 1, name));
+            }
+        }
+    }
+    names
+}
+
+/// Find the content of a named request block (`### Name ...` until next `###` or EOF).
+/// Returns the block content (including the `###` line) and its starting line (1-indexed).
+pub fn find_block_by_name(content: &str, name: &str) -> Option<(usize, String)> {
+    let pattern = format!("### {}", name);
+    let mut block_lines: Vec<&str> = Vec::new();
+    let mut capture = false;
+    let mut start_line = 0;
+
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("###") {
+            if capture {
+                // End of the block we were capturing
+                break;
+            }
+            if trimmed == pattern || trimmed == format!("###{}", name) {
+                capture = true;
+                start_line = i + 1;
+                block_lines.push(line);
+            }
+        } else if capture {
+            block_lines.push(line);
+        }
+    }
+
+    if capture {
+        Some((start_line, block_lines.join("\n")))
+    } else {
+        None
+    }
+}
+
+/// Check if a line is an import or run directive.
+pub fn is_import_or_run_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with("import ") || trimmed.starts_with("run ")
+}
+
 /// Check for name collisions among bare imports.
 /// Returns a list of warning messages.
 pub fn check_bare_collisions(requests_by_file: &[(&str, Vec<&str>)]) -> Vec<String> {
@@ -321,5 +375,98 @@ mod tests {
             path: "./my_orders.http".to_string(),
             alias: "my_orders".to_string(),
         });
+    }
+
+    // ---- extract_request_names ----
+
+    #[test]
+    fn test_extract_request_names_basic() {
+        let content = "import ./auth.http\n\n### Login\nGET /api/login\n\n### Logout\nGET /api/logout\n";
+        let names = extract_request_names(content);
+        assert_eq!(names.len(), 2);
+        assert_eq!(names[0], (3, "Login".to_string()));
+        assert_eq!(names[1], (6, "Logout".to_string()));
+    }
+
+    #[test]
+    fn test_extract_request_names_empty() {
+        let content = "import ./auth.http\n\n@var = value\n";
+        let names = extract_request_names(content);
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_extract_request_names_no_name() {
+        let content = "###\nGET /api\n";
+        let names = extract_request_names(content);
+        assert!(names.is_empty());
+    }
+
+    // ---- find_block_by_name ----
+
+    #[test]
+    fn test_find_block_by_name_basic() {
+        let content = "### Login\nGET /api/login\n\n### Logout\nGET /api/logout\n";
+        let (line, block) = find_block_by_name(content, "Login").unwrap();
+        assert_eq!(line, 1);
+        assert!(block.contains("GET /api/login"));
+        assert!(!block.contains("Logout"));
+    }
+
+    #[test]
+    fn test_find_block_by_name_not_found() {
+        let content = "### Login\nGET /api/login\n";
+        assert!(find_block_by_name(content, "Missing").is_none());
+    }
+
+    #[test]
+    fn test_find_block_by_name_second_block() {
+        let content = "### Login\nGET /api/login\n\n### Logout\nGET /api/logout\n";
+        let (line, block) = find_block_by_name(content, "Logout").unwrap();
+        assert_eq!(line, 4);
+        assert!(block.contains("GET /api/logout"));
+    }
+
+    #[test]
+    fn test_find_block_by_name_without_space() {
+        let content = "###Login\nGET /api/login\n";
+        let (line, block) = find_block_by_name(content, "Login").unwrap();
+        assert_eq!(line, 1);
+        assert!(block.contains("GET /api/login"));
+    }
+
+    // ---- is_import_or_run_line ----
+
+    #[test]
+    fn test_is_import_line() {
+        assert!(is_import_or_run_line("import ./auth.http"));
+        assert!(is_import_or_run_line("import ./orders.http as orders"));
+        assert!(is_import_or_run_line("  import ./auth.http"));
+    }
+
+    #[test]
+    fn test_is_run_line() {
+        assert!(is_import_or_run_line("run #Login"));
+        assert!(is_import_or_run_line("run #orders.ListOrders"));
+        assert!(is_import_or_run_line("run ./batch.http"));
+        assert!(is_import_or_run_line("  run #Login (@token=xyz)"));
+    }
+
+    #[test]
+    fn test_is_not_import_or_run() {
+        assert!(!is_import_or_run_line("### Login"));
+        assert!(!is_import_or_run_line("@var = value"));
+        assert!(!is_import_or_run_line("GET /api"));
+        assert!(!is_import_or_run_line(""));
+    }
+
+    #[test]
+    fn test_extract_request_names_with_imports() {
+        let content = "import ./auth.http\nimport ./orders.http as orders\n\n### Login\nGET /api/login\n\n### Logout\nGET /api/logout\n";
+        let names = extract_request_names(content);
+        assert_eq!(names.len(), 2);
+        // Import lines before first ### should not produce request names
+        assert_eq!(names[0].1, "Login");
+        assert_eq!(names[1].1, "Logout");
     }
 }

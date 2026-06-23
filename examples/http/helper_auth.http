@@ -1,0 +1,19 @@
+# Import helper for P0.7 import/run tests
+# Requests are imported into p0_features.http via `import ./helper_auth.http as auth`
+
+@base_url = http://postman-echo.com
+
+### Login
+POST {{base_url}}/post
+Content-Type: application/json
+
+{"username": "admin", "password": "secret123"}
+
+### LoginWithToken
+POST {{base_url}}/post
+Content-Type: application/json
+
+{"username": "admin", "password": "{{token}}"}
+
+### Profile
+GET {{base_url}}/get?user_id=42&role=admin

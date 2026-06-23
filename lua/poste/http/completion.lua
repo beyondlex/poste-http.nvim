@@ -632,6 +632,30 @@ local function collect_request_names(buf)
   return get_buffer_cache(buf).req_names
 end
 
+--- Collect import index for the buffer (cached, invalidated on buffer change).
+--- Builds the index by parsing import directives and reading target files.
+--- @param buf number|nil  Buffer number
+--- @return table  Import index from build_import_index()
+local function collect_import_index(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  local cache = get_buffer_cache(buf)
+  if cache.import_index then
+    return cache.import_index
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local full_content = table.concat(lines, "\n")
+  local import_mod = require("poste.http.import")
+  local directives = import_mod.collect_directives(full_content)
+
+  local buf_name = vim.api.nvim_buf_get_name(buf)
+  local buf_dir = buf_name ~= "" and vim.fn.fnamemodify(buf_name, ":h") or vim.fn.getcwd()
+  local index = import_mod.build_import_index(directives.imports, buf_dir)
+
+  cache.import_index = index
+  return index
+end
+
 --- Magic variables matching request_vars.lua definitions.
 local magic_var_defs = {
   { name = "timestamp", desc = "Unix epoch + random digits" },
@@ -737,8 +761,36 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     end
   end
 
-  -- Fast-path: empty or whitespace-only → method completion
   local trimmed = vim.trim(line_before_cursor)
+
+  -- import/run directive detection (before empty-line check so "import" on blank line still triggers)
+  if trimmed:match("^import") then
+    if trimmed:match("^import%s+%S+%s+as?$") or trimmed:match("^import%s+%S+%s+a$") then
+      return "import_alias", nil
+    end
+    if trimmed:match("^import%s+%S+") then
+      return nil, nil  -- already has path + optional alias name
+    end
+    return "import_path", nil
+  end
+  if trimmed:match("^run") then
+    -- run #Name or run #alias.Name
+    if trimmed:match("^run%s+#") then
+      local rest = trimmed:match("^run%s+#(.*)$")
+      if rest and rest:find("%.") then
+        local alias, partial = rest:match("^([^%.]+)%.(.*)$")
+        return "run_target_alias", { alias = alias, partial = partial or "" }
+      end
+      return "run_target_hash", rest or ""
+    end
+    if trimmed:match("^run%s+") then
+      local target = trimmed:match("^run%s+(.*)$")
+      return "run_target", target or ""
+    end
+    return "run_target", nil
+  end
+
+  -- Fast-path: empty or whitespace-only → method completion
   if trimmed == "" then
     return "method", nil
   end
@@ -944,6 +996,88 @@ local function get_items_for_context(line_before_cursor, buf, cursor_line, curso
     return items
   end
 
+  if ctx == "import_path" then
+    -- Suggest path prefix after `import`
+    items = build_items({ "./", "../" }, KIND_VALUE)
+    return items
+  elseif ctx == "import_alias" then
+    -- Suggest `as` keyword after `import ./path`
+    items = {
+      {
+        label = "as",
+        kind = KIND_KEYWORD,
+        insertText = "as ",
+        filterText = "as",
+        sortText = "as",
+        detail = "alias for the imported requests",
+      },
+    }
+    return items
+  elseif ctx == "run_target" then
+    -- Suggest reference prefix after `run`
+    items = build_items({ "#", "./" }, KIND_REFERENCE)
+    return items
+  elseif ctx == "run_target_hash" then
+    -- Suggest bare request names + alias prefixes after `run #`
+    local partial = extra or ""
+    local import_index = collect_import_index(buf)
+
+    for _, entry in ipairs(import_index.bare or {}) do
+      for _, req in ipairs(entry.requests or {}) do
+        if req.name:sub(1, #partial) == partial then
+          table.insert(items, {
+            label = "#" .. req.name,
+            kind = KIND_REFERENCE,
+            insertText = "#" .. req.name,
+            filterText = "#" .. req.name,
+            sortText = req.name,
+            detail = entry.path,
+          })
+        end
+      end
+    end
+
+    for alias, entry in pairs(import_index.aliased or {}) do
+      if alias:sub(1, #partial) == partial then
+        local label = "#" .. alias
+        table.insert(items, {
+          label = label,
+          kind = KIND_REFERENCE,
+          insertText = label,
+          filterText = label,
+          sortText = "~" .. alias,
+          detail = string.format("alias: %s (%d requests)", entry.path, #(entry.requests or {})),
+        })
+      end
+    end
+
+    return items
+  elseif ctx == "run_target_alias" then
+    -- Suggest request names under a specific alias after `run #alias.`
+    local data = extra or {}
+    local alias = data.alias or ""
+    local partial = data.partial or ""
+    local import_index = collect_import_index(buf)
+
+    local entry = (import_index.aliased or {})[alias]
+    if entry then
+      for _, req in ipairs(entry.requests or {}) do
+        if req.name:sub(1, #partial) == partial then
+          table.insert(items, {
+            label = req.name,
+            kind = KIND_REFERENCE,
+            insertText = req.name,
+            filterText = "#" .. alias .. "." .. req.name,
+            sortText = req.name,
+            detail = string.format("%s:%d", entry.path, req.line),
+          })
+        end
+      end
+    end
+
+    return items
+  end
+
   if ctx == "variable" then
     -- Variable reference context: {{...}}
     local after_open = extra or ""
@@ -1033,10 +1167,14 @@ local function get_items_for_context(line_before_cursor, buf, cursor_line, curso
   elseif ctx == "method" or ctx == "method_or_header" then
     local method_items = build_items(http_methods, KIND_KEYWORD)
     local header_items = build_items(header_names, KIND_PROPERTY)
+    local directive_items = build_items({ "import", "run" }, KIND_REFERENCE)
     for _, item in ipairs(method_items) do
       table.insert(items, item)
     end
     for _, item in ipairs(header_items) do
+      table.insert(items, item)
+    end
+    for _, item in ipairs(directive_items) do
       table.insert(items, item)
     end
   elseif ctx == "header_value" and extra then
@@ -1099,7 +1237,7 @@ end
 
 --- blink.cmp: trigger characters that activate this source.
 function M:get_trigger_characters()
-  return { " ", ":", "/", "-", "{" }
+  return { " ", ":", "/", "-", "{", "." }
 end
 
 --- blink.cmp: get completion items.
@@ -1149,7 +1287,7 @@ function source.get_keyword_pattern()
 end
 
 function source:get_trigger_characters()
-  return { " ", ":", "/", "-", "{" }
+  return { " ", ":", "/", "-", "{", "." }
 end
 
 function source:get_debug_name()
@@ -1368,6 +1506,7 @@ M._test = {
   collect_env_vars = collect_env_vars,
   collect_request_vars = collect_request_vars,
   collect_request_names = collect_request_names,
+  collect_import_index = collect_import_index,
   pre_script_keywords = pre_script_keywords,
   post_script_keywords = post_script_keywords,
   http_status_codes = http_status_codes,

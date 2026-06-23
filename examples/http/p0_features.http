@@ -4,6 +4,11 @@
 # Run individual requests in order. Results appear in the response buffer.
 
 # File-level @variable (used by 0.5 variables.* sandbox)
+# Import helpers for 0.7 cross-file execution tests
+
+import ./helper_auth.http as auth
+import ./helper_batch.http as batch
+
 @base_url = https://httpbin.org
 @api_version = v1
 
@@ -202,21 +207,33 @@ Content-Disposition: form-data; name="file"; filename="upload_test.txt"
 %}
 
 # ────────────────────────────────────────────────────────────────────
-# 0.7 import / run (Rust parser structure)
+# 0.7 import / run — cross-file request execution
 # ────────────────────────────────────────────────────────────────────
-# import/run are parsed at the Rust level (importer.rs).
-# Run-time execution via Lua plugin is not wired yet.
-# These directives are syntactically valid and will be used when
-# the full import pipeline is implemented.
+# File-level `import` directives loaded:
+#   import ./helper_auth.http as auth    ← Login + Profile
+#   import ./helper_batch.http as batch  ← GetIP + GetUA
+#
+# Place cursor on a `run` line below and press <leader>r to execute
+# the imported request. Available variants:
+#
+#   run #auth.Login                     # single request via alias
+#   run #auth.Login (@token=abc123)     # with inline variable override
+#   run ./helper_batch.http             # all requests from file
 
-### 0.7 import/run directive placeholder
-# import ./auth.http as auth
-# run #auth.Login
-GET {{base_url}}/get?msg=import_ready
+### 0.7a run #auth.Login — single imported request via alias
+# Place cursor on `run` line below, press <leader>r.
+# Expected: POST to httpbin.org/post → 200 + request JSON echoed back.
+run #auth.Login
 
-> {%
-  client.test("0.7: import directives parsed", function()
-    client.assert(response.status == 200, "Expected 200")
-    client.log("import/run support: Rust parser complete, Lua integration pending")
-  end)
-%}
+### 0.7b run #auth.Login (@token=abc123) — with variable override
+# Place cursor on `run` line below, press <leader>r.
+# `@token = abc123` auto-injected after `### Login` marker;
+# `{{token}}` becomes available in the target request.
+run #auth.LoginWithToken (@token=abc123)
+
+
+### 0.7c run ./helper_batch.http — execute all requests from file
+# Place cursor on `run` line below, press <leader>r.
+# Expected: GetIP + GetUA execute sequentially; responses shown
+# in result buffer with per-request progress notifications.
+run ./helper_batch.http

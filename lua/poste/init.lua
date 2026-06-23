@@ -175,6 +175,33 @@ function M.setup(opts)
     require("poste.help").open()
   end, { desc = "Show Poste keymap help" })
 
+  vim.api.nvim_create_user_command("PosteImportResolve", function()
+    local import = require("poste.http.import")
+    local lines = import.status()
+    -- Display in a floating scratch buffer
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_name(buf, "poste://import-status")
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].filetype = "poste"
+    vim.bo[buf].modifiable = false
+    local width = 80
+    local height = math.min(#lines + 2, 20)
+    local win = vim.api.nvim_open_win(buf, true, {
+      relative = "editor",
+      width = width,
+      height = height,
+      row = math.max(0, (vim.o.lines - height) / 2 - 1),
+      col = math.max(0, (vim.o.columns - width) / 2),
+      style = "minimal",
+      border = "single",
+      title = " Import Resolution Status ",
+      title_pos = "center",
+    })
+    vim.keymap.set("n", "q", function() pcall(vim.api.nvim_win_close, win, true) end,
+      { buffer = buf, noremap = true, silent = true })
+    vim.api.nvim_buf_attach(buf, false, { on_detach = function() pcall(vim.api.nvim_win_close, win, true) end })
+  end, { desc = "Show import resolution status" })
+
   vim.api.nvim_create_user_command("PosteCmpStatus", function()
     vim.notify(completion.status(), vim.log.levels.INFO)
   end, { desc = "Check poste completion status" })

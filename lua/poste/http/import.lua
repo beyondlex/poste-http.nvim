@@ -517,7 +517,9 @@ function M.execute_all_requests(file_path, content, vars, callback)
 end
 
 --- Inject variable overrides into a request block.
---- Inserts `@var = value` lines after the `### Name` line.
+--- Scans forward past existing @var defs, blanks, and entire < {% %} script blocks,
+--- then inserts @var lines right before the HTTP request line. This ensures overrides
+--- are processed LAST (HashMap.insert wins for same key) → highest priority.
 --- @param content string  Full file content
 --- @param block_line number  Line number of the ### marker (1-indexed)
 --- @param vars table  { var_name = value, ... }
@@ -526,11 +528,36 @@ function M.apply_variable_overrides(content, block_line, vars)
   if not vars or not next(vars) then return content end
 
   local lines = vim.split(content, "\n", { plain = true })
-  local result = {}
 
+  -- Find injection point: past all @var defs, blanks, and < {% %} blocks
+  local inject_at = block_line
+  local i = block_line + 1
+  while i <= #lines do
+    local trimmed = vim.trim(lines[i])
+    if trimmed:match("^@") or trimmed == "" then
+      inject_at = i
+      i = i + 1
+    elseif trimmed:match("^<%s*{%%") then
+      -- Skip entire pre-script block: < {% ... %}
+      inject_at = i
+      i = i + 1
+      while i <= #lines do
+        if lines[i]:find("%%}") then
+          inject_at = i
+          i = i + 1
+          break
+        end
+        i = i + 1
+      end
+    else
+      break
+    end
+  end
+
+  local result = {}
   for i, line in ipairs(lines) do
     table.insert(result, line)
-    if i == block_line then
+    if i == inject_at then
       for name, value in pairs(vars) do
         table.insert(result, string.format("@%s = %s", name, value))
       end

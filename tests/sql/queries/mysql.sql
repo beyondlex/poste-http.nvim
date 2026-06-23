@@ -21,7 +21,7 @@ UPDATE posts SET status='', slug='', author_id=1 WHERE id = 1;
 
 -- SELECT * FROM posts WHERE id IN (SELECT id FROM posts WHERE author_id IS NULL)
 
-UPDATE posts SET aluthor_id=1, id=1, bio='' WHERE;
+-- UPDATE posts SET aluthor_id=1, id=1, bio='' WHERE;
 
 SELECT id, page_id, url, measured_at, metric_01 from web_vitals ;
 SELECT * from web_vitals ;
@@ -32,7 +32,8 @@ SELECT p.slug, a.bio FROM posts p LEFT JOIN authors a on a.id = p.author_id;
 SELECT * from comments;
 SELECT * FROM posts;
 
-ALTER TABLE authors ADD COLUMN name   ;
+-- ALTER TABLE authors 
+-- ADD COLUMN name   ;
 
 SELECT * FROM categories;
 
@@ -46,21 +47,11 @@ SELECT * FROM  suppliers;
 SELECT * FROM  stock;
 
 
-
-
-
-
-
-
-
-
-
 show tables;
 
 use blog;
 
 select * from posts;
-
 
 
 use inventory;
@@ -80,11 +71,10 @@ SELECT s.*, p.title FROM authors s LEFT JOIN posts p on p.author_id = s.id;
 update posts SET title = CONCAT(title, '.') WHERE id = 1;
 
 
-###
 SELECT s.*, p.title FROM authors s LEFT JOIN posts p on p.author_id = s.id;
 
 USE blog;
-show tables;
+-- show tables;
 
 select * from posts;
 desc posts;
@@ -141,7 +131,7 @@ JOIN warehouses w ON w.id = s.warehouse_id
 WHERE s.quantity < 100
 ORDER BY s.quantity ASC;
 
-### Active shipments
+-- Active shipments
 SELECT sh.id AS shipment_id,
        wf.name AS `from`,
        wt.name AS `to`,

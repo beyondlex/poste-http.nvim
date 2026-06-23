@@ -67,8 +67,9 @@ impl Region {
                 ScriptStyle::Inline(s) => s.clone(),
                 ScriptStyle::Multiline(lines) => {
                     let mut s = String::from("< {%\n");
-                    for l in lines {
-                        s.push_str(l.trim_start());
+                    let indented = Formatter::reindent_code(lines);
+                    for l in &indented {
+                        s.push_str(l);
                         s.push('\n');
                     }
                     s.push_str("%}");
@@ -79,8 +80,9 @@ impl Region {
                 ScriptStyle::Inline(s) => s.clone(),
                 ScriptStyle::Multiline(lines) => {
                     let mut s = String::from("> {%\n");
-                    for l in lines {
-                        s.push_str(l.trim_start());
+                    let indented = Formatter::reindent_code(lines);
+                    for l in &indented {
+                        s.push_str(l);
                         s.push('\n');
                     }
                     s.push_str("%}");
@@ -689,6 +691,50 @@ fn format_request_block(regions: &[&Region], out: &mut String) {
             .collect::<Vec<_>>()
             .join("-")
     }
+
+    /// Re-indent script code lines with 2-space nesting.
+    /// Strips original indent, then applies structural indent based on Lua/JS keywords.
+    fn reindent_code(lines: &[String]) -> Vec<String> {
+        let stripped: Vec<&str> = lines.iter().map(|l| l.trim()).collect();
+        let mut result: Vec<String> = Vec::with_capacity(lines.len());
+        let mut indent: usize = 0;
+
+        for line in &stripped {
+            if line.is_empty() {
+                result.push(String::new());
+                continue;
+            }
+
+            let first_word = line.split_whitespace().next().unwrap_or("");
+            let dedent = first_word.starts_with("end")
+                || first_word == "else"
+                || first_word == "elseif"
+                || first_word == "until"
+                || first_word.starts_with('}')
+                || first_word.starts_with("})");
+
+            if dedent && indent > 0 {
+                indent -= 1;
+            }
+
+            result.push(format!("{:indent$}{}", "", line, indent = indent * 2));
+
+            let trimmed = line.trim_end();
+            let indent_next = trimmed.contains("function(")
+                || trimmed.ends_with('{')
+                || trimmed.ends_with("then")
+                || trimmed.ends_with("do")
+                || trimmed.ends_with("else")
+                || trimmed.ends_with("elseif")
+                || trimmed == "repeat";
+
+            if indent_next {
+                indent += 1;
+            }
+        }
+
+        result
+    }
 }
 
 #[cfg(test)]
@@ -1028,5 +1074,149 @@ mod tests {
         let output = Formatter::format(input);
         assert!(output.contains("< ./scripts/gen.lua"));
         assert!(output.contains("> ./scripts/check.lua"));
+    }
+
+    #[test]
+    fn test_reindent_empty() {
+        let result = Formatter::reindent_code(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_reindent_no_nesting() {
+        let lines = vec!["    client.log(1)".to_string(), "  client.log(2)".to_string()];
+        let result = Formatter::reindent_code(&lines);
+        assert_eq!(result, vec!["client.log(1)", "client.log(2)"]);
+
+        let output = Formatter::format("### Test\n< {%\n    client.log(1)\n  client.log(2)\n%}\nGET /api\n");
+        assert!(output.contains("client.log(1)\nclient.log(2)"));
+    }
+
+    #[test]
+    fn test_reindent_function_body() {
+        let lines = vec![
+            "client.test(\"ok\", function()".to_string(),
+            "client.assert(true)".to_string(),
+            "end)".to_string(),
+        ];
+        let result = Formatter::reindent_code(&lines);
+        assert_eq!(result[0], "client.test(\"ok\", function()");
+        assert_eq!(result[1], "  client.assert(true)");
+        assert_eq!(result[2], "end)");
+    }
+
+    #[test]
+    fn test_reindent_nested_functions() {
+        let lines = vec![
+            "fn_a(function()".to_string(),
+            "fn_b(function()".to_string(),
+            "inner()".to_string(),
+            "end)".to_string(),
+            "end)".to_string(),
+        ];
+        let result = Formatter::reindent_code(&lines);
+        assert_eq!(result[0], "fn_a(function()");
+        assert_eq!(result[1], "  fn_b(function()");
+        assert_eq!(result[2], "    inner()");
+        assert_eq!(result[3], "  end)");
+        assert_eq!(result[4], "end)");
+    }
+
+    #[test]
+    fn test_reindent_if_then_end() {
+        let lines = vec![
+            "if x then".to_string(),
+            "do_it()".to_string(),
+            "end".to_string(),
+        ];
+        let result = Formatter::reindent_code(&lines);
+        assert_eq!(result[0], "if x then");
+        assert_eq!(result[1], "  do_it()");
+        assert_eq!(result[2], "end");
+    }
+
+    #[test]
+    fn test_reindent_if_else_end() {
+        let lines = vec![
+            "if x then".to_string(),
+            "a()".to_string(),
+            "else".to_string(),
+            "b()".to_string(),
+            "end".to_string(),
+        ];
+        let result = Formatter::reindent_code(&lines);
+        assert_eq!(result[0], "if x then");
+        assert_eq!(result[1], "  a()");
+        assert_eq!(result[2], "else");
+        assert_eq!(result[3], "  b()");
+        assert_eq!(result[4], "end");
+    }
+
+    #[test]
+    fn test_reindent_braces() {
+        let lines = vec![
+            "client.test(\"ok\", function() {".to_string(),
+            "client.assert(true);".to_string(),
+            "});".to_string(),
+        ];
+        let result = Formatter::reindent_code(&lines);
+        assert_eq!(result[0], "client.test(\"ok\", function() {");
+        assert_eq!(result[1], "  client.assert(true);");
+        assert_eq!(result[2], "});");
+    }
+
+    #[test]
+    fn test_reindent_for_do_end() {
+        let lines = vec![
+            "for i=1,10 do".to_string(),
+            "process(i)".to_string(),
+            "end".to_string(),
+        ];
+        let result = Formatter::reindent_code(&lines);
+        assert_eq!(result[0], "for i=1,10 do");
+        assert_eq!(result[1], "  process(i)");
+        assert_eq!(result[2], "end");
+    }
+
+    #[test]
+    fn test_reindent_blank_lines_preserved() {
+        let lines = vec![
+            "if x then".to_string(),
+            "".to_string(),
+            "do_it()".to_string(),
+            "end".to_string(),
+        ];
+        let result = Formatter::reindent_code(&lines);
+        assert_eq!(result[0], "if x then");
+        assert_eq!(result[1], "");
+        assert_eq!(result[2], "  do_it()");
+        assert_eq!(result[3], "end");
+    }
+
+    #[test]
+    fn test_reindent_multiline_comment_no_false_positive() {
+        let lines = vec![
+            "do_it()".to_string(),
+            "-- this is not an end".to_string(),
+        ];
+        let result = Formatter::reindent_code(&lines);
+        assert_eq!(result[0], "do_it()");
+        assert_eq!(result[1], "-- this is not an end");
+    }
+
+    #[test]
+    fn test_format_prescript_reindented() {
+        let input = "### Test\n< {%\n  client.test(\"ok\", function()\n    client.assert(true)\n  end)\n%}\nGET /api\n";
+        let output = Formatter::format(input);
+        let expected = "### Test\n< {%\nclient.test(\"ok\", function()\n  client.assert(true)\nend)\n%}\nGET /api\n";
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_format_prescript_fixes_bad_indent() {
+        let input = "### Test\n< {%\n        client.test(\"ok\", function()\n                client.assert(true)\n        end)\n%}\nGET /api\n";
+        let output = Formatter::format(input);
+        let expected = "### Test\n< {%\nclient.test(\"ok\", function()\n  client.assert(true)\nend)\n%}\nGET /api\n";
+        assert_eq!(output, expected);
     }
 }

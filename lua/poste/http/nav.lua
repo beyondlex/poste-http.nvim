@@ -519,9 +519,13 @@ function M.goto_definition()
     local cword = vim.fn.expand("<cword>")
     if cword and cword ~= "" then
       local before_cursor = line_text:sub(1, col + 1)
-      local var_prefix = before_cursor:match("(%w+)%." .. vim.pesc(cword) .. "%s*$")
-      if var_prefix == "variables" or var_prefix == "env" then
-        req_name = cword
+      local dot_pos = before_cursor:find("%.[%w_]*$")
+      if dot_pos then
+        local pre_dot = before_cursor:sub(1, dot_pos - 1)
+        local prefix = pre_dot:match("(%w+)$")
+        if prefix == "variables" or prefix == "env" then
+          req_name = cword
+        end
       end
     end
   end

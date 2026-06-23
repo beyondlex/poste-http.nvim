@@ -1,168 +1,219 @@
-# HTTP 文件格式化设计
+# Poste HTTP Formatter 设计
 
-## 问题
+## 1. 背景
 
-Poste 的 `.http`/`.rest` 文件包含混合内容：`###` 请求块、`@variable` 定义、HTTP 请求行、headers、JSON 请求体、`< {% %}` pre-script、`> {% %}` assertion 块。没有现成的全文件 formatter 能理解这种混合格式。
+`.http` / `.rest` 文件包含混合内容：`###` 请求块、`@variable` 定义、HTTP 请求行、headers、JSON 请求体、`< {% %}` pre-script、`> {% %}` assertion。没有现成的 formatter 能理解这种混合格式。
 
-```
-@base_url = https://api.example.com
-@token = abc123
+语法规范见 `docs/http-syntax.md`。实施计划见 `docs/http-impl-guide.md`。
 
-### Get users
-GET {{base_url}}/users
-Authorization: Bearer {{token}}
-Content-Type: application/json
+当前大量语法元素的实现尚未完成（详见 `docs/http-syntax.md#5`），立即做 formatter 会导致反复重写。必须先完成 `docs/http-impl-guide.md#Phase-0` 的全部前提条件。
 
-{"name":"test","value":123}
+## 2. 架构选择：Rust `poste fmt`
 
-> {% client.test("ok", function() {
-  client.assert(response.status === 200);
-}) %}
-```
+**不采用 Lua 实现**（否决 `docs/http-format-design.md` 旧方案）。
 
-## 设计目标
+### 理由
 
-1. 零安装 — 纯 Lua 实现，随 poste 发布
-2. 安全 — 只格式化确定性高的部分，不破坏手写排版
-3. 可扩展 — 后续可拆分为独立 `poste-fmt` binary
-4. conform 集成 — 注册 `formatters_by_ft["poste_http"]`
+| 维度 | Rust `poste fmt` | Lua 纯实现 |
+|---|---|---|
+| 复用现有基础设施 | ✅ `poste-core` token/region 能力 | ❌ 需重写解析 |
+| CI / pre-commit | ✅ `poste fmt --check` | ❌ 依赖 Neovim |
+| 跨编辑器 | ✅ Helix, VS Code 等都能用 | ❌ 锁死 Neovim |
+| conform 集成 | ✅ `format_command` | ✅ 也行 |
+| 维护 | 一份解析逻辑 | 两份（Rust parser + Lua formatter）|
 
-## 架构
+用户已有 Rust binary（`poste run` 必须编译），`poste fmt` 只是加一个 subcommand，零额外安装。
+
+### 整体架构
 
 ```
-lua/poste/http/source_format.lua       ← 入口，全文件格式化
-lua/poste/http/format_json.lua         ← JSON body 美化
-lua/poste/http/format_script.lua       ← {% %} JS 格式化
+poste fmt [--check] [--stdin] [file...]
 ```
 
-## 格式化规则
+流程：
 
-### 1. `###` 分隔符
-- 确保 `###` 前有且仅有一个空行
+```
+Input (.http text)
+    ↓
+Tokenizer ──→ Region list (无损, 保留注释/空白/script 原内容)
+    ↓
+Formatter  ──→ 按 region 类型应用规则
+    ↓
+Output (.http text)
+```
+
+Tokenizer vs Parser：
+
+| | `parser.rs` (现有) | Tokenizer (新) |
+|---|---|---|
+| 目标 | 提取 `Request` 结构体 | 标注所有 region 边界 |
+| 是否保留空白 | ❌ 合并 | ✅ 原样保留 |
+| 是否处理 script | ❌ 剥离 | ✅ 标注为 PreScript/PostScript region |
+| 文件包含 | ❌ 不处理 | ✅ 标注 FileInclude region |
+| 输出 | `Request { name, body }` | `Vec<Region>` |
+
+### Region 类型
+
+```rust
+enum Region {
+    /// ### Request Name 行
+    Separator(String),
+    /// # 注释行
+    Comment(String),
+    /// @var = value 定义（文件级或块级）
+    VarDef { name: String, value: String, raw: String },
+    /// METHOD URL [HTTP/version]
+    RequestLine { method: String, url: String, version: Option<String>, raw: String },
+    /// Key: Value 请求头
+    Header { key: String, value: String, raw: String },
+    /// 空行
+    BlankLine,
+    /// 请求体（文本/JSON/form-url-encoded）
+    Body { content: String, content_type: Option<String> },
+    /// < {% code %} 或 < {% ... %}
+    PreScript { code: String, style: ScriptStyle },
+    /// > {% code %} 或 > {% ... %}
+    PostScript { code: String, style: ScriptStyle },
+    /// 外部脚本引用
+    ExternalScript { path: String, script_type: ScriptType },
+    /// </path/to/file> 文件包含
+    FileInclude(String),
+    /// < /path/to/file 文件上传标记
+    FileUpload(String),
+    /// # @prompt varname [opts]
+    Prompt(String),
+    /// # @connection=xxx
+    Connection(String),
+    /// @env 块级变量
+    EnvVar(String),
+    /// 其他未知内容（原样保留）
+    Raw(String),
+}
+
+enum ScriptStyle { Inline(String), Multiline(Vec<String>) }
+enum ScriptType { Pre, Post }
+```
+
+## 3. 格式化规则（分阶段实现）
+
+### Phase 1 — 结构格式化（纯 text 操作）
+
+不需要理解语义，只做机械转换。
+
+**规则 1：`###` 分隔符**
+- `###` 前确保**有且仅有一个空行**
+- 文件开头的第一个 `###` 前不需要空行
 - `###` 后的标题保留原样
 
 ```
 ### Get users
 ...
-                                         ← 空行
+                              ← 空行（确保一个）
 ### Create user
 ```
 
-### 2. `@variable` 对齐
-- 等号前后统一空格
-- 不对齐列（避免 diff 噪音）
-
-```
-@base_url = https://api.example.com
-@token = abc123
-```
-
-### 3. HTTP 请求行
-- 不修改 METHOD（GET/POST/PUT...）
-- URL 中的 `{{}}` 保留原样
-- HTTP 版本不修改
-
-```
-GET {{base_url}}/users
-POST https://api.example.com/data
-```
-
-### 4. Headers
-- header 名首字母大写（`Content-Type` 而非 `content-type`）
-- 冒号后统一加一个空格
+**规则 2：请求头 Key 规范化**
+- header key 首字母大写（`content-type` → `Content-Type`）
+- `Key:` 冒号后统一一个空格
 - 不改变 header 顺序
 
 ```
-content-type: application/json          ← 改前
-Content-Type: application/json          ← 改后
-
-AUTHORIZATION: Bearer x                 ← 改前
-Authorization: Bearer x                 ← 改后
+content-type: application/json        ← 改前
+Content-Type: application/json        ← 改后
 ```
 
-### 5. JSON 请求体
-- 空行后、headers 后的内容
-- 如果 Content-Type 包含 json → 用 `vim.json.encode/decode` 美化
+**规则 3：空白行清理**
+- 文件末尾：确保一个换行符
+- 多余连续空行：压缩为最多一个空行
+
+**规则 4：尾部空白**
+- 移除所有行尾部空白
+
+**规则 5：`###` 前空行**
+- Request Name 后如有空行 → 保留或压缩
+- 格式：`###` 行后紧跟变量或请求行
+
+### Phase 2 — JSON Body 美化
+
+**规则 6：JSON 请求体格式化**
+- 检测 header 中 `Content-Type` 含 `json`（大小写不敏感）
+- 用 `serde_json` 解析 → `serde_json::to_string_pretty`
 - 如果解析失败 → 保持原样（可能不是 JSON 或语法错误）
 
 ```
 {"name":"test","value":123}
-                                      ↓
+                              ↓
 {
   "name": "test",
   "value": 123
 }
 ```
 
-### 6. `< {% %} ` Pre-script / `> {% %} ` Assertion
-- 提取 `{% %}` 之间的 JS 内容
-- 如果安装了 `prettier`（detect 后 jobstart 调用）→ prettier 格式化
-- 否则做基本缩进对齐（2-space indent）
-- `{% %}` 包裹符保持原样
+### Phase 3 — Script 格式化
+
+**规则 7：`{% %}` 内部格式化**
+- 保持 `{%` 和 `%}` 边界行
+- 内部代码：2-space 缩进
+- 可选：检测 `prettierd` 并 `jobstart` 调用（如果可用）
 
 ```
 > {% client.test("ok", function() {
-client.assert(response.status === 200);
+client.assert(response.status == 200);
 }) %}
-                                      ↓
+                              ↓
 > {%
   client.test("ok", function() {
-    client.assert(response.status === 200);
-  });
+    client.assert(response.status == 200);
+  })
 %}
 ```
 
-### 7. 空白行清理
-- 文件末尾：确保一个换行符
-- 多余连续空行：压缩为最多一个空行
+## 4. Poste CLI 集成
 
-## M.format() API
+```
+USAGE:
+    poste fmt [OPTIONS] [FILE]...
 
-```lua
---- 格式化整个 HTTP buffer。
---- @param opts? { bufnr?: number }
-M.format = function(opts)
-  -- 1. 解析 buffer 为请求块列表
-  -- 2. 对每个块依次应用规则
-  -- 3. 替换 buffer 内容
-  -- 4. 恢复光标位置
-end
+ARGS:
+    <FILE>...    Files to format (default: stdin)
+
+OPTIONS:
+    --check          Check formatting without modifying (exit 1 if unformatted)
+    --stdin          Read from stdin (default if no file args)
+    -i, --in-place   Modify files in-place (default)
+    -h, --help       Print help
 ```
 
-## 集成
-
-### conform
+### conform.nvim 集成
 
 ```lua
-conform.formatters_by_ft["poste_http"] = { "poste-http" }
+require("conform").formatters.poste_http = {
+  command = "poste",
+  args = { "fmt", "--stdin" },
+  stdin = true,
+}
+
+require("conform").formatters_by_ft["poste_http"] = { "poste_http" }
 ```
 
-### LazyVim
+### CI / pre-commit 集成
 
-```lua
-LazyVim.format.register({
-  name = "PosteHTTP",
-  primary = true,
-  priority = 150,
-  format = function(buf) M.format({ bufnr = buf }) end,
-  sources = function(buf)
-    if vim.bo[buf].filetype == "poste_http" then return { "PosteHTTP" } end
-    return {}
-  end,
-})
+```yaml
+# .pre-commit-config.yaml
+- repo: local
+  hooks:
+    - id: poste-http-fmt
+      name: Format .http files
+      entry: poste fmt --check
+      language: system
+      files: \.(http|rest)$
 ```
 
-## 降级策略
+## 5. 实施
 
-| 条件 | 行为 |
-|---|---|
-| 无 `prettier` | JS 只做缩进对齐 |
-| JSON 解析失败 | 保持原样 |
-| 未知 block 类型 | 保持原样 |
-| 整个文件不可解析 | 不修改 |
+所有实施步骤以 `docs/http-impl-guide.md` 为准，按 Phase 0 → Phase 1-4 → 后续推进。
 
-## 未来方向
+与 formatter 设计直接相关的后续事项（不在 `impl-guide.md` 中）：
 
-1. 如果格式化规则变复杂 → 拆为独立 `poste-fmt` Rust/TS binary
-2. 添加 `kulala-fmt` 作为优先选项（如果已安装）
-3. 支持配置化（缩进大小、header 大小写策略）
+- [ ] `kulala-fmt` 兼容适配（复用或借鉴其格式化规则）
+

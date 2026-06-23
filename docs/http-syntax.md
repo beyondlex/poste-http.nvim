@@ -6,7 +6,9 @@
 ## 1. 文件结构
 
 ```
-┌─ @variable 定义（文件级，在第一个 ### 之前）
+┌─ import / run 引用（文件级，在第一个 ### 之前）
+│
+├─ @variable 定义（文件级，在第一个 ### 之前）
 │
 ├─ ### 请求块 1
 │   │
@@ -21,6 +23,8 @@
 ├─ ### 请求块 2
 │   └─ ...
 │
+├─ import / run 引用（块间，与 `###` 同层）
+│
 └─ ### 请求块 N
 ```
 
@@ -29,7 +33,6 @@
 ### 2.1 注释
 
 ```
-// 双斜杠注释
 # 井号注释
 ```
 
@@ -153,7 +156,7 @@ Content-Type: application/json
 - URL-encoded form data（`key=value&key2=value2`）
 - `multipart/form-data`（通过 `request_vars.lua`）
 
-文件上传语法：
+文件上传语法（兼容 JetBrains HTTP Client）：
 
 ```
 POST /api/upload
@@ -162,12 +165,21 @@ Content-Type: multipart/form-data; boundary=----boundary
 < /path/to/file.txt
 ```
 
+文件内容包含语法（将文件内容嵌入请求体，当前尚未实现）：
+
+```
+POST /api/data
+Content-Type: application/json
+
+</path/to/payload.json>
+```
+
 ### 2.8 变量引用
 
 ```
 {{base_url}}
 {{token}}
-{{uuid}}
+{{$uuid}}
 {{login.response.body.token}}
 ```
 
@@ -232,6 +244,8 @@ request.body           — 读取/修改请求体
 client.log(msg)        — 日志输出
 client.global.set(key, value)  — 全局变量（跨请求）
 client.global.get(key)
+variables.*                — 读取 @variable 定义（文件级 + 块级，块级覆盖文件级，尚未实现）
+env.*                      — 读取当前 env.json 配置（尚未实现）
 ```
 
 ### 2.10 Post-request Assertion
@@ -239,7 +253,7 @@ client.global.get(key)
 ```
 > {%
   client.test("Status is 200", function() {
-    client.assert(response.status === 200, "Expected 200");
+    client.assert(response.status == 200, "Expected 200");
   });
 %}
 ```
@@ -247,7 +261,7 @@ client.global.get(key)
 **单行格式**：
 
 ```
-> {% client.assert(response.status === 200); %}
+> {% client.assert(response.status == 200); %}
 ```
 
 **外部脚本引用**：
@@ -272,20 +286,99 @@ response.latency       — 响应时间（ms）
 client.test(name, fn)  — 测试用例
 client.assert(cond, msg)  — 断言
 client.log(msg)        — 日志输出
+variables.*            — 读取 @variable 定义（文件级 + 块级，块级覆盖文件级，尚未实现）
+env.*                  — 读取当前 env.json 配置（尚未实现）
 ```
 
 ### 2.11 环境切换
 
 ```
 ### request name
-@env=production
+@env = production
 GET https://prod.example.com/api
 ```
 
 **规则**：
-- `###` 行后可附加 `@env=<name>` 指令
+- `@env` 作为块级变量，放在 `###` 和请求行之间
 - 覆盖当前选中的环境
 - 未指定时使用 `state.current_env`
+- 当前尚未实现
+
+### 2.12 变量提示
+
+```
+# @prompt username
+# @prompt role [admin, user, guest]
+# @prompt item [{{listItems.response.body.items}}]
+```
+
+**规则**：
+- `# @prompt` 后跟变量名，在请求执行时弹出输入框让用户输入值
+- 支持方括号 `[]` 提供选项列表，用户通过选择器选取
+- 选项列表可引用其他请求的响应：`[{{ReqName.response.body.field}}]`
+- 提示变量解析为 `@varname = value` 注入到请求块中
+
+**实现状态**：Completion (Lua) ❌，Highlight ❌
+
+### 2.13 文件引用（import / run）
+
+兼容 [kulala](https://kulala.app/usage/import-and-run) 的 `import` 和 `run` 机制，
+用于跨文件复用请求。
+
+**语法格式**：
+
+```
+import ./auth.http
+import ./orders.http as orders
+
+### Get users
+GET https://api.example.com/users
+
+run #Login                       ← 无别名：从所有无别名 import 中查找
+
+run #orders.ListOrders           ← 有别名：只从 orders 别名中查找
+
+run #orders.ListOrders (@status=pending)
+
+run ./batch.http (@env=staging)
+
+run ./batch.http
+```
+
+**规则**：
+
+**import 基础**
+- `import <path>` — 将目标文件中的所有命名请求导入当前文件
+- 多个 import 可引用同路径，各自独立解析
+- 支持嵌套：被 import 的文件自身也可以 import 其他文件
+
+**import as 别名（扩展语法）**
+- `import <path> as <alias>` — 带别名的导入，命名空间隔离
+- 别名必须唯一：同一文件中 `import ./a as ns` 后再 `import ./b as ns` → 报错
+- 别名命名规则：`\w[\w_]*`（同 `@variable`）
+
+**别名访问语法**
+- `#alias.RequestName` — 访问别名命名空间下的请求
+- 分隔符使用 `.`，与跨请求引用 `{{Name.res.body.x}}` 一致
+
+**别名与裸名混用规则**
+- 混用时，裸名 `#Login` 只查找无别名 import 的请求
+- 有别名 import 的请求只能通过 `#alias.RequestName` 访问
+- 无别名 import 之间有同名请求 → 后面覆盖前面，报 warning
+
+**run 执行**
+- `run <path>` — 运行目标文件中的所有请求
+- `run #Name` — 运行已导入的指定命名请求
+- `run #alias.Name` — 运行别名命名空间下的指定请求
+- `run #Name (@var=value, ...)` — 运行时覆盖变量
+- 变量覆盖只作用于本次执行，不修改原始请求
+
+**变量 / 指令传播**
+- 导入的文件级 `@var` 合并到当前文件的共享作用域（同 kulala）
+- 变量覆盖优先级：`run` 行内 `@var` > 块级 `@var` > 文件级 `@var`
+- 文件级 compat 指令（`# @kulala-*`）传播到被 import 的块
+
+**实现状态**：全部未实现
 
 ## 3. 优先级 / 解析顺序
 
@@ -309,28 +402,31 @@ GET https://prod.example.com/api
 | 只有请求报文 | 使用 `###` 支持多个请求在同一个文件中 |
 | 无变量 | `{{}}` 引用 + `@variable` 定义 |
 | 无脚本 | `< {% %}` pre-script + `> {% %}` assertion |
-| 无注释 | 支持 `//` 和 `#` 注释 |
+| 无注释 | 支持 `#` 注释 |
 | 无跨请求 | `{{req.response.body.x}}` |
 | `Content-Type` 决定 body 格式 | 通过 Content-Type 推断 + magic 变量 |
+| 单文件 | `import` / `run` 跨文件引用（兼容 kulala） |
 
 ## 5. 实现状态检查清单
 
 | 语法 | Parser (Rust) | Completion (Lua) | Highlight (Lua) | Format (todo) |
-|---|---|---|---|---|
-| `//` 注释 | ❌ | — | ❌ | — |
+|---|---|---|---|---|---|
 | `#` 注释 | ✅ 跳过 | — | ❌ | — |
 | `@variable` 定义 | ✅ | ✅ | ❌ | ✅ todo |
 | `@xxx =>>> ... <<<` | ✅ | ❌ | ❌ | ❌ |
 | `###` 分隔 | ✅ | ✅ | ❌ | ✅ todo |
-| `### @env=` | ❌ | ❌ | ❌ | ✅ todo |
+| `@env` 块级变量 | ❌ | ❌ | ❌ | ✅ todo |
 | `METHOD URL` | ✅ | ✅ | ❌ | — |
 | `Key: Value` 头 | ✅ | ✅ | ❌ | ✅ todo |
 | 空行分隔 | ✅ | ✅ | — | ✅ todo |
 | 请求体 | ✅ | — | ❌ | ✅ todo |
+| `</path/to/file>` 文件包含 | ❌ | — | ❌ | ❌ |
 | `{{var}}` 引用 | ✅ | ✅ | ❌ | — |
 | `{{$magic}}` | ❌ Rust 端 | ✅ | ❌ | — |
 | `< {% %} ` | ✅ 跳过 | ✅ | ❌ | ✅ todo |
 | `< ./path.lua` | ✅ 跳过 | ❌ | ❌ | — |
 | `> {% %} ` | ✅ 跳过 | ✅ | ❌ | ✅ todo |
-| `> ./path.lua` | ✅ 跳过 | ❌ | ❌ | — |
+| `> ./path.lua` | ❌ 跳过 | ❌ | ❌ | — |
 | `# @connection=` | ✅ | ❌ | ❌ | — |
+| `# @prompt` 变量提示 | — | ❌ | ❌ | — |
+| `import` / `run` 文件引用 | ❌ | ❌ | ❌ | ❌ |

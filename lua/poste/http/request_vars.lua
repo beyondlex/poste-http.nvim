@@ -32,7 +32,8 @@ local magic_vars = {
 
 --- Process form data magic variables and file inclusions in the request body.
 --- - Replaces {{$timestamp}}, {{$uuid}}, {{$date}}, {{$randomInt}}
---- - Replaces lines like `< /path/to/file` with actual file contents
+--- - Replaces lines like `</path/to/file>` with actual file contents
+--- - Lines like `< /path/to/file` are kept as-is (JetBrains HTTP file upload syntax)
 --- Operates on the current request block only.
 function M.process_form_data(src_buf, cursor_line, content)
   local start_line, end_line = require("poste.indicators").find_request_block_bounds(src_buf, cursor_line)
@@ -55,10 +56,9 @@ function M.process_form_data(src_buf, cursor_line, content)
         processed = processed:gsub("{{%$" .. name .. "}}", value)
       end
 
-      -- Check if this is a file inclusion line: `< /path/to/file`
-      local file_path = processed:match("^%s*<%s+(.+)$")
+      -- Check if this is a file inclusion line: `</path/to/file>`
+      local file_path = processed:match("^%s*<(%S+)>$")
       if file_path then
-        file_path = vim.trim(file_path)
         -- Expand ~ to home directory
         if file_path:sub(1, 1) == "~" then
           file_path = vim.fn.expand("~") .. file_path:sub(2)

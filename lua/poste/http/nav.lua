@@ -394,10 +394,11 @@ function M.goto_definition()
     local cword = vim.fn.expand("<cword>")
     local ref = trimmed:match("^run%s+#(.+)$")
     if ref then
-      local dot_pos = ref:find("%.")
+      local name_only = ref:match("^(%S+)") or ref
+      local dot_pos = name_only:find("%.")
       if dot_pos then
-        local alias = ref:sub(1, dot_pos - 1)
-        local name = ref:sub(dot_pos + 1)
+        local alias = name_only:sub(1, dot_pos - 1)
+        local name = name_only:sub(dot_pos + 1)
         if cword == alias then
           -- Jump to import alias definition in this file
           local esc_alias = vim.pesc(alias)
@@ -430,7 +431,7 @@ function M.goto_definition()
           return
         end
       else
-        local name = ref
+        local name = name_only
         if cword == name then
           -- Jump to request in bare import
           local import_mod = require("poste.http.import")

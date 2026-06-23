@@ -388,6 +388,112 @@ function M.goto_definition()
 
   local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
 
+  -- Import/run go-to-definition
+  local trimmed = vim.trim(line_text)
+  if trimmed:match("^run%s+#") then
+    local cword = vim.fn.expand("<cword>")
+    local ref = trimmed:match("^run%s+#(.+)$")
+    if ref then
+      local dot_pos = ref:find("%.")
+      if dot_pos then
+        local alias = ref:sub(1, dot_pos - 1)
+        local name = ref:sub(dot_pos + 1)
+        if cword == alias then
+          -- Jump to import alias definition in this file
+          local esc_alias = vim.pesc(alias)
+          local total = vim.api.nvim_buf_line_count(buf)
+          local found = false
+          for i = 1, total do
+            local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+            if text:match("^%s*import%s+%S+%s+as%s+" .. esc_alias .. "%s*$") then
+              vim.cmd("normal! m'")
+              vim.api.nvim_win_set_cursor(0, { i, 0 })
+              found = true
+              break
+            end
+          end
+          if not found then
+            vim.notify("Alias '" .. alias .. "' not found in import directives", vim.log.levels.WARN)
+          end
+          return
+        elseif cword == name then
+          -- Jump to request in imported file
+          local import_mod = require("poste.http.import")
+          local resolved = import_mod.resolve_run_at_cursor(buf, line_num)
+          if resolved.action == "execute" and resolved.path then
+            vim.cmd("normal! m'")
+            vim.cmd("edit " .. vim.fn.fnameescape(resolved.path))
+            vim.api.nvim_win_set_cursor(0, { resolved.line, 0 })
+          else
+            vim.notify(resolved.error or "Cannot resolve reference", vim.log.levels.WARN)
+          end
+          return
+        end
+      else
+        local name = ref
+        if cword == name then
+          -- Jump to request in bare import
+          local import_mod = require("poste.http.import")
+          local resolved = import_mod.resolve_run_at_cursor(buf, line_num)
+          if resolved.action == "execute" and resolved.path then
+            vim.cmd("normal! m'")
+            vim.cmd("edit " .. vim.fn.fnameescape(resolved.path))
+            vim.api.nvim_win_set_cursor(0, { resolved.line, 0 })
+          else
+            vim.notify(resolved.error or "Cannot resolve reference", vim.log.levels.WARN)
+          end
+          return
+        end
+      end
+    end
+  elseif trimmed:match("^run%s+%.") then
+    -- run ./path — open target file at line 1
+    local path = trimmed:match("^run%s+(%S+)")
+    if path then
+      local path_pos = line_text:find(vim.pesc(path))
+      if path_pos and col >= path_pos - 1 and col <= path_pos - 1 + #path then
+        local buf_name = vim.api.nvim_buf_get_name(buf)
+        local buf_dir = buf_name ~= "" and vim.fn.fnamemodify(buf_name, ":h") or vim.fn.getcwd()
+        local full_path = vim.fn.simplify(buf_dir .. "/" .. path)
+        if vim.fn.filereadable(full_path) == 1 then
+          vim.cmd("normal! m'")
+          vim.cmd("edit " .. vim.fn.fnameescape(full_path))
+        else
+          vim.notify("File not found: " .. full_path, vim.log.levels.WARN)
+        end
+        return
+      end
+    end
+  elseif trimmed:match("^import%s+") then
+    local path = trimmed:match("^import%s+(%S+)")
+    if path then
+      local path_start = line_text:find(vim.pesc(path))
+      if path_start and col >= path_start - 1 and col <= path_start - 1 + #path then
+        local buf_name = vim.api.nvim_buf_get_name(buf)
+        local buf_dir = buf_name ~= "" and vim.fn.fnamemodify(buf_name, ":h") or vim.fn.getcwd()
+        local full_path = vim.fn.simplify(buf_dir .. "/" .. path)
+        if vim.fn.filereadable(full_path) == 1 then
+          vim.cmd("normal! m'")
+          vim.cmd("edit " .. vim.fn.fnameescape(full_path))
+        else
+          vim.notify("File not found: " .. full_path, vim.log.levels.WARN)
+        end
+        return
+      end
+    end
+    local alias = trimmed:match("^import%s+%S+%s+as%s+(%S+)")
+    if alias then
+      local as_pos = line_text:find("%s+as%s+" .. vim.pesc(alias) .. "%s*$")
+      if as_pos then
+        local alias_start = as_pos + 4 -- skip " as "
+        if col >= alias_start - 1 and col <= alias_start - 1 + #alias then
+          vim.notify("Alias '" .. alias .. "' defined here", vim.log.levels.INFO)
+          return
+        end
+      end
+    end
+  end
+
   local req_name = nil
   local start_pos = 1
   while true do

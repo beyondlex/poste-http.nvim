@@ -156,7 +156,7 @@ Content-Type: application/json
 - URL-encoded form data（`key=value&key2=value2`）
 - `multipart/form-data`（通过 `request_vars.lua`）
 
-文件上传语法（兼容 JetBrains HTTP Client）：
+**文件内容包含/上传语法**（统一使用 `< path` 格式）：
 
 ```
 POST /api/upload
@@ -165,14 +165,20 @@ Content-Type: multipart/form-data; boundary=----boundary
 < /path/to/file.txt
 ```
 
-文件内容包含语法（将文件内容嵌入请求体，当前尚未实现）：
-
 ```
 POST /api/data
 Content-Type: application/json
 
-</path/to/payload.json>
+< /path/to/payload.json
 ```
+
+**规则**：
+- `<` 后跟一个空格，然后是文件路径
+- 路径支持绝对路径、`./` 相对路径、`~/` home 目录
+- **Content-Type 含 `json`**：文件内容直接嵌入请求体（替换 `< path` 行）
+- **Content-Type 含 `multipart/form-data`**：作为文件上传处理
+- 文件不存在时保留原始行，报 warning
+- 此语法**不**是 `</path>`（无空格、有 `>` 结尾）— 那是旧设计，已废弃
 
 ### 2.8 变量引用
 
@@ -420,13 +426,12 @@ run ./batch.http
 | `Key: Value` 头 | ✅ | ✅ | ❌ | ✅ todo |
 | 空行分隔 | ✅ | ✅ | — | ✅ todo |
 | 请求体 | ✅ | — | ❌ | ✅ todo |
-| `</path/to/file>` 文件包含 | ❌ | — | ❌ | ❌ |
+| `< path` 文件包含/上传 | ✅ Lua | — | ✅ `PosteFileUpload` | ✅ todo |
 | `{{var}}` 引用 | ✅ | ✅ | ❌ | — |
 | `{{$magic}}` | ❌ Rust 端 | ✅ | ❌ | — |
 | `< {% %} ` | ✅ 跳过 | ✅ | ❌ | ✅ todo |
 | `< ./path.lua` | ✅ 跳过 | ❌ | ❌ | — |
 | `> {% %} ` | ✅ 跳过 | ✅ | ❌ | ✅ todo |
 | `> ./path.lua` | ❌ 跳过 | ❌ | ❌ | — |
-| `# @connection=` | ✅ | ❌ | ❌ | — |
 | `# @prompt` 变量提示 | — | ❌ | ❌ | — |
 | `import` / `run` 文件引用 | ❌ | ❌ | ❌ | ❌ |

@@ -457,6 +457,15 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     end
   end, { desc = "Show formatter status: installed, priority, dialect" })
 
+  vim.api.nvim_create_user_command("PosteFormatHttp", function()
+    local binary = state.find_poste_binary()
+    if not binary then
+      vim.notify("poste binary not found. Run :PosteInstall or set vim.g.poste_binary", vim.log.levels.ERROR)
+      return
+    end
+    vim.cmd(string.format("%%!%s fmt --stdin", vim.fn.shellescape(binary)))
+  end, { desc = "Format .http buffer using poste fmt" })
+
   vim.api.nvim_create_user_command("PosteDBBrowser", function()
     require("poste.sql.db_browser").toggle()
   end, { desc = "Toggle database structure browser sidebar" })

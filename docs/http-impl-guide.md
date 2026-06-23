@@ -145,23 +145,31 @@ end)
 - `run.lua:146` — 传 `variables` 给 `assertions.run_assertions`
 - `assertions.lua:380-398` — 沙盒加 `variables` / `env` 表
 
-### 0.6 `</path/to/file>` 文件包含
+### 0.6 `< path` 文件包含/上传
 
 **参考**：`docs/http-syntax.md` 2.7
+
+**语法**：`< path/to/file`（`<` + 空格 + 路径）
+
+语义取决于 Content-Type：
+- **JSON** → 文件内容嵌入请求体（替换 `< path` 行）
+- **multipart/form-data** → 文件上传
+
+已实现于 `request_vars.lua:59`（`process_form_data`），需要集成测试验证完整链路。
+
+> **注意**：旧设计 `</path/to/file>`（无空格、有 `>`）已废弃，代码中只有 `< path`（有空格）。
 
 **测试先写**：
 ```lua
 describe("request_vars.process_form_data", function()
-  it("replaces </path/to/file> with file contents", function()
-  end)
-  it("keeps < /path/to/file unchanged (file upload)", function()
+  it("replaces < path with file contents in JSON body", function()
   end)
   it("handles relative paths", function()
   end)
+  it("handles ~/ paths", function()
+  end)
 end)
 ```
-
-**改什么**：已改 `request_vars.lua:60`，需要集成测试验证完整链路
 
 ### 0.7 `import` / `run` 跨文件引用
 
@@ -216,9 +224,9 @@ end)
 
 每阶段的核心任务：
 
-- **Phase 1** — 实现 Tokenizer（`Region` enum）、`poste fmt` CLI、结构格式化规则
-- **Phase 2** — JSON body 美化（serde_json）
-- **Phase 3** — Script 格式化（`{% %}` 内部缩进）
+- **Phase 1** — 实现 Tokenizer（`Region` enum，含 `Import`/`Run` variant）、`poste fmt` CLI、结构格式化规则（规则 1–9）
+- **Phase 2** — JSON body 美化（规则 10，serde_json）
+- **Phase 3** — Script 格式化（规则 11，`{% %}` 内部缩进）
 - **Phase 4** — `--check` / `--diff` / pre-commit hook
 
 每个子任务同样遵循：

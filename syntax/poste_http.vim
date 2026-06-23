@@ -53,6 +53,13 @@ syn match PosteVarRef '{{[^}]\+}}'
 syn include @PosteLua syntax/lua.vim
 unlet! b:current_syntax
 
+" ─── External script reference ──────────────────────
+syn match PosteExternalScript '<\s\+\./\S*\.lua\s*$'
+
+" ─── File inclusion in body ─────────────────────────
+" Defined before PreScript/Assertion so their more specific patterns win.
+syn match PosteFileInclude '<\s\+\S\+'
+
 " ─── Pre-request script blocks ──────────────────────
 " Multi-line: < {% ... %}
 syn region PostePreScript start='<\s*{%$' end='^%}'
@@ -79,12 +86,6 @@ syn match PosteScriptAPI 'response\.\%(status\|body\|headers\|latency_ms\|conten
 syn match PosteScriptAPI 'request\.\%(variables\.\%(set\|get\)\|headers\|body\)' contained
 syn match PosteScriptAPI 'variables\.\w\+' contained
 syn match PosteScriptAPI 'env\.\w\+' contained
-
-" ─── External script reference ──────────────────────
-syn match PosteExternalScript '<\s\+\./\S*\.lua\s*$'
-
-" ─── File inclusion in body ─────────────────────────
-syn match PosteFileInclude '<\s\+\S\+'
 
 " ─── HTTP request line ──────────────────────────────
 " Methods MUST be defined before PosteHeaderKey to take precedence
@@ -125,7 +126,7 @@ syn region PosteBody start=+^\s*\n+ end=+\n\ze\s*\%(###\|<\s*{%\|>\s*{%\)\|\%$+ 
   \ contains=PosteJsonString,PosteJsonNumber,PosteJsonBoolean,PosteJsonNull,
   \PosteJsonBraces,PosteJsonBrackets,PosteJsonColon,PosteJsonComma,
   \PosteVarRef,PosteMagicVar,PosteVarDef,PosteVarAssign,PosteMultiVarEnd,PosteComment,
-  \PosteImport,PosteRun
+  \PosteImport,PosteRun,PosteFileInclude
 
 syn match  PosteJsonNumber  '[-]\?\%(\d\+\.\d\+\|\d\+\)' contained
 syn match  PosteJsonBoolean '\<\%(true\|false\)\>' contained

@@ -532,10 +532,19 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
       local name = vim.api.nvim_buf_get_name(0)
       if name:match("%.redis$") then
         vim.bo.filetype = "poste_redis"
+        setup_buffer_keymaps(0)
       else
         vim.bo.filetype = "poste_http"
+        setup_buffer_keymaps(0)
+        local bg = vim.api.nvim_create_augroup("PosteHttpBoundary_" .. vim.api.nvim_get_current_buf(), { clear = true })
+        vim.api.nvim_create_autocmd("CursorMoved", {
+          group = bg,
+          buffer = 0,
+          callback = function()
+            require("poste.http.boundary_indicator").refresh(0, vim.fn.line("."))
+          end,
+        })
       end
-      setup_buffer_keymaps(0)
     end,
   })
 
@@ -611,6 +620,14 @@ vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     if name:match("%.http$") or name:match("%.rest$") then
       vim.api.nvim_buf_set_option(buf, "filetype", "poste_http")
       setup_buffer_keymaps(buf)
+      local bg = vim.api.nvim_create_augroup("PosteHttpBoundary_" .. buf, { clear = true })
+      vim.api.nvim_create_autocmd("CursorMoved", {
+        group = bg,
+        buffer = buf,
+        callback = function()
+          require("poste.http.boundary_indicator").refresh(buf, vim.fn.line("."))
+        end,
+      })
     elseif name:match("%.redis$") then
       vim.api.nvim_buf_set_option(buf, "filetype", "poste_redis")
       setup_buffer_keymaps(buf)

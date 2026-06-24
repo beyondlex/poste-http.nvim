@@ -144,7 +144,10 @@ function M.setup()
 
   -- Statement boundary indicator (JetBrains-style box border)
   vim.api.nvim_set_hl(0, "PosteSqlBoundary", { bg = 0x302e8c })
-  vim.api.nvim_set_hl(0, "PosteSqlBoundaryBorder", { fg = 0x665cff })                    -- subtle blue-gray
+  vim.api.nvim_set_hl(0, "PosteSqlBoundaryBorder", { fg = 0x665cff })
+
+  -- HTTP request block boundary (same visual style)
+  vim.api.nvim_set_hl(0, "PosteHttpBoundaryBorder", { fg = 0x665cff })                    -- subtle blue-gray
 
   -- Status code coloring in verbose view
   vim.api.nvim_set_hl(0, "PosteStatus2xx", { fg = 0x98c379, bold = true })          -- green
@@ -174,6 +177,7 @@ function M.setup()
     "PosteSqlHeader", "PosteSqlNull", "PosteSqlMeta", "PosteSqlBorder",
     "PosteSqlCellSelected", "PosteSqlModified", "PosteSqlDeleted", "PosteSqlAdded",
     "PosteSqlBoundary", "PosteSqlBoundaryBorder",
+    "PosteHttpBoundaryBorder",
     "PosteStatus2xx", "PosteStatus3xx", "PosteStatus4xx", "PosteStatus5xx",
   })
 end

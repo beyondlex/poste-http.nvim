@@ -134,8 +134,11 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
   if first_char == "#" then
     -- After ### (request name line) → no completion
     if trimmed:sub(2, 2) == "#" then return nil, nil end
-    -- Comment lines → no completion
-    return nil, nil
+    -- @prompt directive: allow completion inside {{...}}
+    if not trimmed:match("^#%s*@prompt%s") then
+      -- Regular comment lines → no completion
+      return nil, nil
+    end
   end
 
   -- Comment: -- (direct check instead of pattern)

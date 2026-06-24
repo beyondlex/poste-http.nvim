@@ -96,6 +96,17 @@ describe("detect_context", function()
       assert.is_nil(ctx)
     end)
 
+    it("returns 'variable' for # @prompt line with unclosed {{", function()
+      local ctx, extra = detect_context("# @prompt fruit [{{Get Items.resp")
+      assert.equals("variable", ctx)
+      assert.equals("Get Items.resp", extra)
+    end)
+
+    it("returns nil for # @prompt line with closed {{", function()
+      local ctx = detect_context("# @prompt fruit [{{Get Items.response.body}}]")
+      assert.is_nil(ctx)
+    end)
+
     it("returns nil for request name lines starting with ###", function()
       local ctx = detect_context("### Request Name")
       assert.is_nil(ctx)

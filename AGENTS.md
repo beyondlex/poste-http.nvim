@@ -15,8 +15,9 @@ File-driven, keyboard-first multi-protocol request executor (Rust CLI + Neovim).
 | Redis, Mongo, AMQP | `executor.rs` + shared | sql + http Lua modules |
 | Rust CLI (`poste run/conn/introspect/fmt/context`) | `main.rs` + both skills | — |
 
-Use `.opencode/skills/` skills for detailed file indexes. `docs/dev/file-index.md` has the
-complete file lookup table.
+Use `.opencode/skills/` skills for detailed file indexes. For SQL completion
+specifically, load `.opencode/skills/sql-completion/SKILL.md` in addition to
+the general SQL skill. `docs/dev/file-index.md` has the complete file lookup table.
 
 ## Protocols
 

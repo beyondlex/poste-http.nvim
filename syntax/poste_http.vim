@@ -190,7 +190,6 @@ hi def link PosteScriptMarker Special
 hi def link PosteScriptAPI  Function
 hi def link PosteExternalScript Include
 hi def link PosteFileUpload Include
-hi def link PosteFileRef Include
 hi def link PosteJsonString  String
 hi def link PosteJsonNumber  Number
 hi def link PosteJsonBoolean Boolean

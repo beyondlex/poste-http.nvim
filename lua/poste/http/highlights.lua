@@ -86,6 +86,16 @@ function M.setup()
     end
   end
 
+  -- File references (< ./path / > ./path): underline like Include
+  local include_hl = resolve_hl("Include")
+  vim.api.nvim_set_hl(0, "PosteFileRef", {
+    fg = include_hl.fg or 0x5c6370,
+    sp = include_hl.fg or 0x5c6370,
+    underline = true,
+    bold = include_hl.bold,
+    italic = include_hl.italic,
+  })
+
   -- HTTP method colors: GET=green, POST=yellow, PUT=orange, DELETE=red
   vim.api.nvim_set_hl(0, "PosteMethodGET",    { fg = 0x98c379, bold = true }) -- green
   vim.api.nvim_set_hl(0, "PosteMethodPOST",   { fg = 0xe5c07b, bold = true }) -- yellow

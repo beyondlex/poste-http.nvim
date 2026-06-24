@@ -143,7 +143,7 @@ function M.setup(opts)
       vim.api.nvim_buf_clear_namespace(buf, fileref_ns, 0, -1)
       local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
       for i, line in ipairs(lines) do
-        if line:match("^%s*[<>]%s+%S") and not line:match("{%") then
+        if line:match("^%s*[<>]%s+%S") and not line:find("{%", 1, true) then
           local path_start = line:match("^%s*[<>]%s+()")
           if path_start then
             vim.api.nvim_buf_set_extmark(buf, fileref_ns, i - 1, path_start - 1, {

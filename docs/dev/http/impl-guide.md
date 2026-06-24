@@ -3,14 +3,14 @@
 > 本文档是 **入口文档**。AI agent 以此文档为起点，按 Phase 顺序实施。
 >
 > 引用文档：
-> - `docs/http-syntax.md` — 语法规范，定义每个语法元素的精确格式
-> - `docs/http-format-design.md` — Formatter 设计，定义 Region 类型、格式化规则、CLI 集成
+> - `syntax.md` — 语法规范，定义每个语法元素的精确格式
+> - `format-design.md` — Formatter 设计，定义 Region 类型、格式化规则、CLI 集成
 >
 > 三份文档关系：
 > ```
 > http-impl-guide.md  ← 入口，告诉 agent 先做什么、怎么做
->     ├── 引用 http-syntax.md      → 某个语法的精确格式长什么样
->     └── 引用 http-format-design.md → formatter 的架构、Region、集成方式
+>     ├── 引用 syntax.md      → 某个语法的精确格式长什么样
+>     └── 引用 format-design.md → formatter 的架构、Region、集成方式
 > ```
 
 ## 原则
@@ -35,7 +35,7 @@
 
 ### 0.1 `{{$magic}}` Rust 端解析
 
-**参考**：`docs/http-syntax.md` 2.8 Magic variables
+**参考**：`syntax.md` 2.8 Magic variables
 
 **测试先写**：
 ```rust
@@ -51,7 +51,7 @@ fn test_substitute_magic_vars_preserved_in_body() {
 
 ### 0.2 Pre/Post script 语法高亮
 
-**参考**：`docs/http-syntax.md` 2.9 / 2.10
+**参考**：`syntax.md` 2.9 / 2.10
 
 **测试先写**：
 ```lua
@@ -71,7 +71,7 @@ end)
 
 ### 0.3 Pre/Post script completion
 
-**参考**：`docs/http-syntax.md` 2.9 / 2.10
+**参考**：`syntax.md` 2.9 / 2.10
 
 **测试先写**：
 ```lua
@@ -89,7 +89,7 @@ end)
 
 ### 0.4 `> ./path.lua` 支持
 
-**参考**：`docs/http-syntax.md` 2.10（外部断言脚本）
+**参考**：`syntax.md` 2.10（外部断言脚本）
 
 **测试先写**：
 ```rust
@@ -115,7 +115,7 @@ end)
 
 ### 0.5 Pre/Post script 沙盒注入 `variables` + `env`
 
-**参考**：`docs/http-syntax.md` 2.9 / 2.10（新增可用 API）
+**参考**：`syntax.md` 2.9 / 2.10（新增可用 API）
 
 **测试先写**：
 ```lua
@@ -147,7 +147,7 @@ end)
 
 ### 0.6 `< path` 文件包含/上传
 
-**参考**：`docs/http-syntax.md` 2.7
+**参考**：`syntax.md` 2.7
 
 **语法**：`< path/to/file`（`<` + 空格 + 路径）
 
@@ -173,7 +173,7 @@ end)
 
 ### 0.7 `import` / `run` 跨文件引用
 
-**参考**：`docs/http-syntax.md#2.13`
+**参考**：`syntax.md#2.13`
 
 **核心语义**：
 ```
@@ -220,7 +220,7 @@ end)
 
 ## Phase 1-4 实施步骤
 
-见 `docs/http-format-design.md` 第 3 节（格式化规则）和第 4 节（CLI 集成）。
+见 `format-design.md` 第 3 节（格式化规则）和第 4 节（CLI 集成）。
 
 每阶段的核心任务：
 
@@ -256,8 +256,8 @@ cargo test && tests/run.sh
 ```
 feat(http-{scope}): {summary}
 
-Ref: docs/http-syntax.md#2.{section}
-Ref: docs/http-format-design.md#{phase}
+Ref: syntax.md#2.{section}
+Ref: format-design.md#{phase}
 ```
 
 示例：
@@ -265,6 +265,6 @@ Ref: docs/http-format-design.md#{phase}
 ```
 feat(http-parser): support {{$magic}} variable substitution
 
-Ref: docs/http-syntax.md#2.8
-Ref: docs/http-format-design.md#71
+Ref: syntax.md#2.8
+Ref: format-design.md#71
 ```

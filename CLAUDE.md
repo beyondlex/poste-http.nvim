@@ -25,7 +25,7 @@ File-driven, keyboard-first multi-protocol request executor (Rust CLI + Neovim).
 `lua/poste/` — Neovim plugin
 `lua/poste/sql/` — SQL-only (isolated from HTTP)
 `syntax/` — Vim syntax files
-`docs/` — design docs
+`docs/` — user docs + dev docs
 `tests/` — Lua tests + SQL integration (Docker)
 `examples/` — sample .http/.sql/.redis
 
@@ -76,7 +76,7 @@ SQL **Phase 5 — Import/Export + Pagination** (27/38 steps, see `PROGRESS.md`):
 | 30 | `sql/pagination.lua` — result pagination | new |
 | 31 | Phase 5 integration tests | — |
 
-Flow: find `[ ]` in `PROGRESS.md` → read `docs/sql-design.md` → implement → `cargo test` → mark `[x]`.
+Flow: find `[ ]` in `PROGRESS.md` → read `docs/dev/sql/design.md` → implement → `cargo test` → mark `[x]`.
 
 ## File Index
 
@@ -84,9 +84,9 @@ Flow: find `[ ]` in `PROGRESS.md` → read `docs/sql-design.md` → implement �
 |------|------|
 | Architecture | `CLAUDE.md` (this) |
 | SQL progress | `PROGRESS.md` |
-| SQL design | `docs/sql-design.md` |
-| Dataset UI | `docs/dataset-ui-design.md` |
-| HTTP syntax | `docs/http-syntax.md` |
+| SQL design | `docs/dev/sql/design.md` |
+| Dataset UI | `docs/dev/sql/dataset-ui-design.md` |
+| HTTP syntax | `docs/user/http/syntax.md` |
 | HTTP entry (Lua) | `lua/poste/init.lua` → `run_request()` |
 | SQL entry (Lua) | `lua/poste/sql/init.lua` |
 | SQL entry (Rust) | `crates/poste-exec/src/sql_executor.rs` |

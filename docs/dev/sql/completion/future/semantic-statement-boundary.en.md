@@ -81,8 +81,8 @@ The same paren-depth tracking is essential for semantic boundary detection — i
 - `crates/poste-core/src/sql_context/context.rs:170` — `find_statement_token_range`
 - `crates/poste-core/src/sql_context/scope.rs` — paren-depth tracking for subquery isolation
 - `lua/poste/sql/statement.lua` — `find_stmt_lines`, `extract_stmt_at_cursor`
-- `docs/sql-completion-p0-p4/p0/poste-sql-file-syntax.en.md §3` — current boundary rules
-- `docs/sql-completion-p0-p4/p0/poste-sql-file-syntax.en.md §3.6` — Visual Boundary Indicator (independent of how boundaries are computed)
+- `docs/sql/completion/p0/poste-sql-file-syntax.en.md §3` — current boundary rules
+- `docs/sql/completion/p0/poste-sql-file-syntax.en.md §3.6` — Visual Boundary Indicator (independent of how boundaries are computed)
 
 ## Relationship to Visual Boundary Indicator (§3.6)
 

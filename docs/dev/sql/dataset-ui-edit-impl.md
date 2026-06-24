@@ -1,6 +1,6 @@
 # Dataset 数据编辑功能 — 实施与验收文档
 
-> 基于 `docs/dataset-ui-design.md` §3 核心突破：极简的"数据编辑"流。
+> 基于 `dataset-ui-design.md` §3 核心突破：极简的"数据编辑"流。
 > 当前状态：PROGRESS.md Step 32 (sql/editor.lua) + Step 33 (Edit commit) — 均未开始。
 
 ---

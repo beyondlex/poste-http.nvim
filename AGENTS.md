@@ -25,7 +25,7 @@ File-driven, keyboard-first multi-protocol request executor (Rust CLI + Neovim).
 `lua/poste/` — Neovim plugin
 `lua/poste/sql/` — SQL-only (isolated from HTTP)
 `syntax/` — Vim syntax files
-`docs/` — design docs
+`docs/` — user docs + dev docs
 `tests/` — Lua tests + SQL integration (Docker)
 `examples/` — sample .http/.sql/.redis
 
@@ -75,9 +75,9 @@ All P0-P2 SQL completion tasks done (15/15). See `PROGRESS.md` for next prioriti
 |------|------|
 | Architecture | `AGENTS.md` (this) |
 | SQL progress | `PROGRESS.md` |
-| SQL design | `docs/sql-design.md` |
-| Dataset UI | `docs/dataset-ui-design.md` |
-| HTTP syntax | `docs/http-syntax.md` |
+| SQL design | `docs/dev/sql/design.md` |
+| Dataset UI | `docs/dev/sql/dataset-ui-design.md` |
+| HTTP syntax | `docs/user/http/syntax.md` |
 | HTTP entry (Lua) | `lua/poste/init.lua` → `run_request()` |
 | SQL entry (Lua) | `lua/poste/sql/init.lua` |
 | SQL entry (Rust) | `crates/poste-exec/src/sql_executor.rs` |

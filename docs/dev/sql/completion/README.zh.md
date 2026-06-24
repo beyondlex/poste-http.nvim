@@ -35,8 +35,8 @@
 
 新增文档：
 
-- `docs/sql-completion-p0-p4/poste-sql-file-syntax.zh.md`
-- `docs/sql-completion-p0-p4/poste-sql-file-syntax.en.md`
+- `completion/poste-sql-file-syntax.zh.md`
+- `completion/poste-sql-file-syntax.en.md`
 
 最少要定义：
 

@@ -2,7 +2,7 @@
 name: sql-completion
 description: >
   Agent guide for SQL completion changes in Poste. Source-of-truth rules,
-  workflow, common pitfalls, file index. Syntax spec in docs/sql-completion-p0-p4/.
+  workflow, common pitfalls, file index. Syntax spec in docs/dev/sql/completion/.
 allowed-tools:
   - Read
   - Write
@@ -15,7 +15,7 @@ metadata:
 
 # SQL Completion — Agent Skill
 
-Architecture and completion modes: see `docs/sql-completion-p0-p4/`. This skill
+Architecture and completion modes: see `docs/dev/sql/completion/`. This skill
 covers what docs don't: workflow, rules of thumb, historical pitfalls.
 
 ## When to Load

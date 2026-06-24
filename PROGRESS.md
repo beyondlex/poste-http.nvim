@@ -1,7 +1,7 @@
 # SQL Dev Progress
 
-> Design, isolation strategy, JSON format → `docs/sql-design.md`
-> Dataset UI design → `docs/dataset-ui-design.md`
+> Design, isolation strategy, JSON format → `docs/dev/sql/design.md`
+> Dataset UI design → `docs/dev/sql/dataset-ui-design.md`
 
 ---
 
@@ -176,45 +176,45 @@
 
 ## Phase 5 — Import/Export + Pagination
 
-[ ] **Step 28: sql/export.lua — export**
+[x] **Step 28: sql/export.lua — export**
 - Deps: Step 12
 - New: `lua/poste/sql/export.lua`
 - Keys: ec(CSV)/ej(JSON)/es(SQL INSERT)
 
-[ ] **Step 29: sql/import.lua — import**
+[x] **Step 29: sql/import.lua — import**
 - Deps: Step 12, 19
 - New: `lua/poste/sql/import.lua`
 - Cmd: `:PosteImport <file>`
 
-[ ] **Step 30: sql/pagination.lua — result pagination**
+[x] **Step 30: sql/pagination.lua — result pagination**
 - Deps: Step 11
 - New: `lua/poste/sql/pagination.lua`
 - Keys: n/p/f/l/g — LIMIT/OFFSET page
 
-[ ] **Step 31: Phase 5 integration tests**
+[x] **Step 31: Phase 5 integration tests**
 
 ---
 
 ## Phase 6 — Advanced Features
 
-[ ] **Step 32: sql/editor.lua — dataset editing**
+[x] **Step 32: sql/editor.lua — dataset editing**
 - Deps: Step 11
 - New: `lua/poste/sql/editor.lua`
 - Keys: i/a/cc edit, dd delete row, o/O insert row, u undo
 
-[ ] **Step 33: Edit commit — diff + DML gen**
+[x] **Step 33: Edit commit — diff + DML gen**
 - Deps: Step 32
 - Cmd: `:W` submit → gen UPDATE/INSERT/DELETE → execute
 
-[ ] **Step 34: Header sort & filter**
+[x] **Step 34: Header sort & filter**
 - Deps: Step 11, 30
 - Header row: s sort(ASC/DESC/Clear), f filter
 
-[ ] **Step 35: Column copy + FK jump**
+[x] **Step 35: Column copy + FK jump**
 - Deps: Step 11, 20
 - Keys: yy copy cell, leader+yc copy column, gd FK jump
 
-[ ] **Step 36: Multi-result tabs**
+[x] **Step 36: Multi-result tabs**
 - Deps: Step 11
 - Winbar [1] [2] tabs, number keys switch
 
@@ -247,7 +247,7 @@ Phase 6:   11→32→33,34,35,36    5→37    12→38
 ## AI Agent Quickstart
 
 1. **Locate**: find first `[ ]` Step above
-2. **Read design**: `docs/sql-design.md` — isolation strategy + arch decisions
+2. **Read design**: `docs/dev/sql/design.md` — isolation strategy + arch decisions
 3. **Read step**: deps + files + requirements
 4. **Implement + verify**: `[ ]` → `[x]`, run `cargo test`
 5. **Commit**
@@ -263,7 +263,7 @@ Phase 6:   11→32→33,34,35,36    5→37    12→38
 | Result format pattern | `lua/poste/format.lua` → `format_redis_body()` |
 | Response buffer pattern | `lua/poste/buffer.lua` |
 | SQL example file | `examples/queries.sql` |
-| Dataset UI design | `docs/dataset-ui-design.md` |
+| Dataset UI design | `docs/dev/sql/dataset-ui-design.md` |
 
 ---
 

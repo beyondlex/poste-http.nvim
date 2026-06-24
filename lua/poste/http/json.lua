@@ -2,6 +2,7 @@ local state = require("poste.state")
 local format = require("poste.http.format")
 
 local M = {}
+local hl_ns = vim.api.nvim_create_namespace("poste_jq_input")
 
 local function filter_paths(paths, input)
   if not input or input == "" then return paths end
@@ -16,7 +17,7 @@ local function filter_paths(paths, input)
 end
 
 --- Interactive jq input with a completion dropdown.
---- Float shows typed text + filtered key paths; Tab/Up/Down to navigate, Enter to confirm.
+--- Float shows input line + filtered key paths; Tab/arrows to navigate, Enter to confirm.
 function M.start_interactive_input()
   local paths = M.get_key_paths()
   if #paths == 0 then
@@ -34,12 +35,17 @@ function M.start_interactive_input()
 
   local function redraw()
     matches = filter_paths(paths, input)
-    local lines = { "jq> " .. input }
+    local lines = { "jq> " .. input .. "█" }
     for i, p in ipairs(matches) do
       if #lines >= 15 then break end
-      lines[#lines + 1] = (i == selected) and "▸ " .. p or "  " .. p
+      lines[#lines + 1] = "  " .. p
     end
     vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
+
+    vim.api.nvim_buf_clear_namespace(float_buf, hl_ns, 0, -1)
+    if selected > 0 then
+      vim.api.nvim_buf_add_highlight(float_buf, hl_ns, "Visual", selected, 0, -1)
+    end
   end
 
   local max_w = 0
@@ -80,15 +86,15 @@ function M.start_interactive_input()
       pcall(vim.api.nvim_win_close, float_win, true)
       return
 
-    elseif c == "\t" or c == "\x0e" then
+    elseif c == "\t" or c == "\x0e" or c == "<Down>" then
       if #matches > 0 then selected = (selected % #matches) + 1 end
       redraw()
 
-    elseif c == "\x10" then
+    elseif c == "\x10" or c == "<Up>" then
       if #matches > 0 then selected = (selected - 2) % #matches + 1 end
       redraw()
 
-    elseif c == "\x7f" or c == "\x08" then
+    elseif c == "\x7f" or c == "\x08" or c == "<BS>" then
       if #input > 0 then
         input = input:sub(1, -2)
         selected = 0
@@ -112,8 +118,8 @@ function M.get_key_paths()
   local paths = {}
   local function walk(obj, prefix)
     if type(obj) ~= "table" then return end
-    local is_array = #obj > 0
-    if is_array then
+    local is_arr = #obj > 0
+    if is_arr then
       for i, v in ipairs(obj) do
         local p = prefix .. "[" .. tostring(i - 1) .. "]"
         table.insert(paths, p)
@@ -121,13 +127,21 @@ function M.get_key_paths()
       end
     else
       for k, v in pairs(obj) do
-        local p = (#prefix > 0 and prefix .. "." or "") .. k
+        local p = prefix .. "." .. k
         table.insert(paths, p)
         walk(v, p)
       end
     end
   end
-  walk(data, "")
+  if #data > 0 then
+    walk(data, ".")
+  else
+    for k, v in pairs(data) do
+      local p = "." .. k
+      table.insert(paths, p)
+      walk(v, p)
+    end
+  end
   table.sort(paths)
   return paths
 end

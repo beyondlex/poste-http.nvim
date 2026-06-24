@@ -4,6 +4,7 @@ local ns = vim.api.nvim_create_namespace("poste_http_boundary")
 local _marks = {}
 local _prev_buf = nil
 local _timer = nil
+local _gen = 0
 local _disabled = false
 
 local DEBOUNCE_MS = 50
@@ -21,6 +22,7 @@ end
 local function apply_range(buf, start, stop)
   clear_prev()
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   for line = start, stop do
     local char
     if start == stop then char = "─"
@@ -80,8 +82,12 @@ local function update(buf, cursor)
 end
 
 function M.refresh(buf, cursor)
+  if _disabled then return end
+  _gen = _gen + 1
+  local my_gen = _gen
   if _timer then _timer:stop(); _timer:close(); _timer = nil end
   _timer = vim.defer_fn(function()
+    if my_gen ~= _gen then return end
     _timer = nil
     update(buf, cursor)
   end, DEBOUNCE_MS)

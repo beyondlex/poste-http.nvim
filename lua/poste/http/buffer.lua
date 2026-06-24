@@ -202,9 +202,12 @@ local function get_response_buffer()
     vim.keymap.set("n", k, function()
       local buf = vim.api.nvim_get_current_buf()
       if vim.bo[buf].filetype ~= "json" then return end
+      local json = require("poste.http.json")
+      local close_hint = json.open_key_hint()
       vim.ui.input({ prompt = "jq> " }, function(query)
+        close_hint()
         if not query or query == "" then return end
-        require("poste.http.json").apply_filter(query)
+        json.apply_filter(query)
       end)
     end, opts)
   end

@@ -3,6 +3,89 @@ local format = require("poste.http.format")
 
 local M = {}
 
+local hint_win = nil
+local hint_buf = nil
+
+local function close_hint()
+  if hint_win and vim.api.nvim_win_is_valid(hint_win) then
+    vim.api.nvim_win_close(hint_win, true)
+    hint_win = nil
+    hint_buf = nil
+  end
+end
+
+local function show_hint_float(paths)
+  close_hint()
+  if #paths == 0 then return end
+
+  hint_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(hint_buf, 0, -1, false, paths)
+  vim.bo[hint_buf].modifiable = false
+
+  local max_w = 0
+  for _, p in ipairs(paths) do
+    if #p > max_w then max_w = #p end
+  end
+  local width = math.min(max_w + 2, 64)
+  local height = math.min(#paths, 12)
+
+  local ui = vim.api.nvim_list_uis()[1]
+  local row = math.floor(ui.height * 0.1)
+  local col = ui.width - width - 1
+
+  hint_win = vim.api.nvim_open_win(hint_buf, false, {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    style = "minimal",
+    border = "rounded",
+    title = " Keys ",
+    title_pos = "center",
+  })
+end
+
+function M.get_key_paths()
+  local r = state.last_response
+  if not r or not r.body then return {} end
+  local ok, data = pcall(vim.json.decode, r.body)
+  if not ok or type(data) ~= "table" then return {} end
+
+  local paths = {}
+  local function walk(obj, prefix)
+    if type(obj) ~= "table" then return end
+    local is_array = #obj > 0
+    if is_array then
+      for i, v in ipairs(obj) do
+        local p = prefix .. "[" .. tostring(i - 1) .. "]"
+        table.insert(paths, p)
+        walk(v, p)
+      end
+    else
+      for k, v in pairs(obj) do
+        local p = (#prefix > 0 and prefix .. "." or "") .. k
+        table.insert(paths, p)
+        walk(v, p)
+      end
+    end
+  end
+  walk(data, "")
+  table.sort(paths)
+  return paths
+end
+
+--- Open a float window with key paths as reference for jq input.
+--- Float auto-closes when the returned close function is called.
+--- @return function close_hint_fn
+function M.open_key_hint()
+  local paths = M.get_key_paths()
+  if #paths > 0 then
+    show_hint_float(paths)
+  end
+  return close_hint
+end
+
 function M.setup_buffer(buf)
   local win = vim.fn.bufwinid(buf)
   if win < 0 then return end

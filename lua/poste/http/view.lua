@@ -30,7 +30,16 @@ function M.show_view(view)
     filetype = "markdown"
   elseif view == "request" then
     lines = format.format_request_payload(state.last_response)
-    filetype = "text"
+    local r = state.last_response
+    local ct = ""
+    local req_headers = r.metadata and r.metadata.request_headers
+    if req_headers then
+      for l in req_headers:gmatch("[^\r\n]+") do
+        local k, v = l:match("^([^:]+):%s*(.+)$")
+        if k and k:lower() == "content-type" then ct = v end
+      end
+    end
+    filetype = format.detect_filetype(ct)
   else
     lines = { "Unknown view: " .. view }
     filetype = "text"

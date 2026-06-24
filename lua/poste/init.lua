@@ -148,7 +148,6 @@ function M.setup(opts)
           if path_start then
             vim.api.nvim_buf_set_extmark(buf, fileref_ns, i - 1, path_start - 1, {
               end_col = #line,
-              underline = true,
               hl_group = "PosteFileRef",
             })
           end

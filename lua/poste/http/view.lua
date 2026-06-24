@@ -52,6 +52,12 @@ function M.show_view(view)
   buffer.render_buffer(lines, filetype)
   buffer.update_winbar(view)
 
+  if filetype == "json" then
+    local json = require("poste.http.json")
+    local buf = buffer.get_buf()
+    json.setup_buffer(buf)
+  end
+
   if view == "body" and (not state.last_response.body or state.last_response.body == "") then
     local buf = buffer.get_buf()
     if buf then

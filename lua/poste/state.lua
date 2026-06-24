@@ -48,6 +48,10 @@ M.config = {
       rerun = "r",
       next_response = "]",
       prev_response = "[",
+      json_filter = "<leader>j",
+      json_restore = "<leader>jc",
+      json_toggle_raw = "<leader>jr",
+      json_outline = "<leader>jo",
     },
     sql_source = {
       run = "<CR>",
@@ -142,6 +146,16 @@ M.current_view = "body"          -- "body" | "headers" | "verbose" | "assertions
 -- Script variable stores
 M.global_vars = {}               -- client.global.set/get persistence (session-scoped)
 M.script_variables = {}          -- request.variables from post-scripts (available to next request)
+
+---------------------------------------------------------------------------
+-- JSON response UX state (isolated from SQL)
+---------------------------------------------------------------------------
+M._json = {
+  original_lines = nil,
+  query = nil,
+  is_filtered = false,
+  pretty_mode = true,
+}
 
 ---------------------------------------------------------------------------
 -- SQL-specific state (isolated from HTTP/Redis)

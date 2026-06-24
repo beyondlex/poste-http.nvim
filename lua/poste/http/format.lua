@@ -402,7 +402,7 @@ end
 --- Parse multipart/form-data boundary from Content-Type header.
 local function extract_boundary(content_type)
   if not content_type then return nil end
-  local b = content_type:match("boundary=([^;%s]+)")
+  local b = content_type:match('boundary="([^"]+)"') or content_type:match("boundary=([^;%s]+)")
   return b
 end
 
@@ -734,27 +734,31 @@ function M.format_request_payload(r)
   end
 
   -- Multipart form-data: show parsed parts
-  if ct:find("multipart/form%-data") then
-    local parts = parse_multipart_parts(req_body, extract_boundary(ct))
+  if ct:lower():find("multipart/form%-data") then
+    local boundary = extract_boundary(ct)
+    local parts = boundary and parse_multipart_parts(req_body, boundary)
     if parts then
       table.insert(lines, "## Multipart Form Data")
       table.insert(lines, "")
       for i, part in ipairs(parts) do
         local disp = ""
         for _, h in ipairs(part.headers) do
-          if h:find("Content%-Disposition") then disp = h end
+          if h:lower():find("content%-disposition") then disp = h end
         end
         local name = disp:match('name="([^"]*)"') or ("part " .. i)
         local fn = disp:match('filename="([^"]*)"')
         if fn then
           table.insert(lines, string.format("**%s** (file: %s, %d bytes)", name, fn, #part.body))
         else
-          table.insert(lines, string.format("**%s**: %s", name, part.body:gsub("\n$", "")))
+          table.insert(lines, string.format("**%s**: %s", name, part.body:gsub("[\r\n]+$", "")))
         end
         table.insert(lines, "")
       end
       return lines
     end
+    -- parsed nil → show summary line instead of raw body
+    table.insert(lines, "(multipart form data, " .. #req_body .. " bytes)")
+    return lines
   end
 
   -- JSON: pretty-print

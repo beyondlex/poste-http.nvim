@@ -35,6 +35,11 @@ function M.get_key_paths()
     if type(obj) ~= "table" then return end
     local is_arr = #obj > 0
     if is_arr then
+      local wild = prefix .. "[]"
+      table.insert(paths, wild)
+      if #obj > 0 then
+        walk(obj[1], wild)
+      end
       for i, v in ipairs(obj) do
         local p = prefix .. "[" .. tostring(i - 1) .. "]"
         table.insert(paths, p)

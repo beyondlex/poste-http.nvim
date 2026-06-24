@@ -15,8 +15,8 @@ File-driven, keyboard-first multi-protocol request executor (Rust CLI + Neovim).
 | Redis, Mongo, AMQP | `executor.rs` + shared | sql + http Lua modules |
 | Rust CLI (`poste run/conn/introspect/fmt/context`) | `main.rs` + both skills | — |
 
-Use `.opencode/skills/` skills for detailed file indexes. The AGENTS.md file index
-below is a quick reference only.
+Use `.opencode/skills/` skills for detailed file indexes. `docs/dev/file-index.md` has the
+complete file lookup table.
 
 ## Protocols
 
@@ -66,11 +66,28 @@ cd tests/sql && docker compose up -d   # PG+MySQL on 15432/13306
 
 ## Code Conventions
 
-**Rust**: Edition 2021, `anyhow::Result` (app) / `thiserror` (lib), no `unwrap()` outside tests, Tokio, workspace deps, `#[cfg(test)]` for new features.
+**Protocol directory discipline.** New Lua code for HTTP goes in `lua/poste/http/`,
+for SQL in `lua/poste/sql/`. Never put SQL logic in `lua/poste/http/` or vice versa.
+Rust: HTTP in `executor.rs`, SQL in `sql_executor.rs`. Shared infra (`state.lua`,
+`init.lua` dispatch, `Protocol` enum) lives at the parent level.
 
-**Lua**: `vim.api.*` conventions, `local M = {} ... return M` exports, HTTP/SQL isolated, shared state in `state.lua`.
+**TDD first.** Write the test before the implementation. For Rust: `#[cfg(test)]`
+inline tests. For Lua: add to `tests/` and run `tests/run.sh`. The HTTP implementation
+guide at `docs/dev/http/impl-guide.md` documents the TDD workflow.
 
-**SQL isolation**: share only at infra layer — `state.lua` (`.sql` ns), `init.lua` (filetype dispatch), `executor.rs` (Protocol enum), `ftdetect/poste.vim` (ext → filetype). Changing HTTP must not affect SQL and vice versa.
+**Update docs on change.** Every new feature or behavior change must update the
+relevant `docs/dev/` or `docs/user/` file. If the change affects what a skill
+(`.opencode/skills/`) describes, update the skill too — stale skills waste tokens.
+
+**Rust**: Edition 2021, `anyhow::Result` (app) / `thiserror` (lib), no `unwrap()`
+outside tests, Tokio, workspace deps, `#[cfg(test)]` for new features.
+
+**Lua**: `vim.api.*` conventions, `local M = {} ... return M` exports, HTTP/SQL
+isolated, shared state in `state.lua`.
+
+**SQL isolation**: share only at infra layer — `state.lua` (`.sql` ns),
+`init.lua` (filetype dispatch), `executor.rs` (Protocol enum), `ftdetect/poste.vim`
+(ext → filetype). Changing HTTP must not affect SQL and vice versa.
 
 ## SQL Integration Tests
 
@@ -79,28 +96,14 @@ Connections: `pg-ecommerce`, `pg-analytics`, `my-blog`, `my-inventory`.
 Init scripts in `tests/sql/init/`. Run: `docker compose down -v && docker compose up -d` after changes.
 Queries: `tests/sql/queries/`. Execute: `cargo run -- run tests/sql/queries/postgres.sql --line 4 --env dev`.
 
-## Current Focus
+## References
 
-All P0-P2 SQL completion tasks done (15/15). See `PROGRESS.md` for next priorities.
-
-## File Index
-
-| Want | File |
-|------|------|
-| Architecture | `AGENTS.md` (this) |
-| SQL progress | `PROGRESS.md` |
+| Want | Go to |
+|------|-------|
+| Complete file index | `docs/dev/file-index.md` |
+| Architecture overview | `docs/dev/architecture-overview.md` |
+| HTTP user syntax | `docs/user/http/syntax.md` |
+| HTTP implementation guide (TDD) | `docs/dev/http/impl-guide.md` |
 | SQL design | `docs/dev/sql/design.md` |
-| Dataset UI | `docs/dev/sql/dataset-ui-design.md` |
-| HTTP syntax | `docs/user/http/syntax.md` |
-| HTTP entry (Lua) | `lua/poste/init.lua` → `run_request()` |
-| SQL entry (Lua) | `lua/poste/sql/init.lua` |
-| SQL entry (Rust) | `crates/poste-exec/src/sql_executor.rs` |
-| Parser | `crates/poste-core/src/parser.rs` |
-| SQL parser | `crates/poste-core/src/sql_parser.rs` |
-| Connection mgmt | `crates/poste-exec/src/sql_connection.rs` |
-| Dialect trait | `crates/poste-exec/src/sql_dialect.rs` |
-| Shared state | `lua/poste/state.lua` |
-| Response struct | `crates/poste-exec/src/response.rs` |
-| HTTP result buf | `lua/poste/buffer.lua` |
-| SQL result buf | `lua/poste/sql/buffer.lua` |
-| Completion | `lua/poste/sql/completion.lua` (SQL), `lua/poste/completion.lua` (HTTP) |
+| Testing guide | `docs/dev/testing.md` |
+| Progress tracking | `PROGRESS.md` |

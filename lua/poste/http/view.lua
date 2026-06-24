@@ -39,7 +39,11 @@ function M.show_view(view)
         if k and k:lower() == "content-type" then ct = v end
       end
     end
-    filetype = format.detect_filetype(ct)
+    if ct:lower():find("multipart/form%-data") then
+      filetype = "markdown"
+    else
+      filetype = format.detect_filetype(ct)
+    end
   else
     lines = { "Unknown view: " .. view }
     filetype = "text"

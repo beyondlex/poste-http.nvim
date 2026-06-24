@@ -17,7 +17,7 @@ import ./helper_batch.http as batch
 
 ### 0.1 Magic variables: all four types
 POST {{base_url}}/post
-content-type: application/json
+Content-Type: application/json
 
 {
   "test": "magic_vars",

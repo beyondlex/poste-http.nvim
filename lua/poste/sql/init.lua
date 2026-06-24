@@ -464,4 +464,417 @@ M.show_table_ddl = sql_introspect.show_table_ddl
 
 M._test = statement._test
 
+-------------------------------------------------------------------------------
+-- SQL setup — called from poste.init.setup()
+-------------------------------------------------------------------------------
+
+local buffer_setup = require("poste.buffer_setup")
+
+local function register_sql_completion()
+  local ok_b, blink_mod = pcall(require, "blink.cmp")
+  if not ok_b then return end
+  blink_mod.add_source_provider("poste_sql", {
+    module = "poste.sql.completion",
+    name = "PosteSQL",
+    async = true,
+    score_offset = 1000,
+    min_keyword_length = 0,
+    should_show_items = true,
+  })
+  blink_mod.add_filetype_source("poste_sql", "poste_sql")
+  blink_mod.add_filetype_source("poste_sqlite", "poste_sql")
+
+  local blink_config = require("blink.cmp.config")
+  blink_config.sources.per_filetype["poste_sql"]    = { "poste_sql" }
+  blink_config.sources.per_filetype["poste_sqlite"] = { "poste_sql" }
+
+  local orig_blocked = blink_config.completion.trigger.show_on_blocked_trigger_characters
+  blink_config.completion.trigger.show_on_blocked_trigger_characters = function()
+    local ft = vim.bo.filetype
+    if ft == "poste_sql" or ft == "poste_sqlite" then
+      local blocked = type(orig_blocked) == "function" and orig_blocked() or orig_blocked
+      return vim.tbl_filter(function(c) return c ~= " " end, blocked)
+    end
+    return type(orig_blocked) == "function" and orig_blocked() or orig_blocked
+  end
+end
+
+local function setup_db_browser_keymap(buf)
+  local k = state.get_keymap("sql_source", "toggle_db_browser", "<leader>db")
+  if k then
+    vim.keymap.set("n", k, function()
+      require("poste.sql.db_browser").toggle()
+    end, { buffer = buf, noremap = true, silent = true, desc = "Toggle DB Browser" })
+  end
+end
+
+function M.setup(opts)
+  opts = opts or {}
+
+  local ok, err = pcall(register_sql_completion)
+  if not ok then
+    local group = vim.api.nvim_create_augroup("PosteSQLCmpRegister", { clear = true })
+    vim.api.nvim_create_autocmd("InsertEnter", {
+      group = group,
+      once = true,
+      callback = function()
+        pcall(register_sql_completion)
+        vim.api.nvim_del_augroup_by_name("PosteSQLCmpRegister")
+      end,
+    })
+  end
+
+  vim.api.nvim_create_user_command("PosteSQLCmpStatus", function()
+    local sql_comp = require("poste.sql.completion")
+    local ft = vim.bo.filetype
+    local buf = vim.api.nvim_get_current_buf()
+
+    local status = {
+      "SQL Completion Status:",
+      "  Current filetype: " .. ft,
+      "  Buffer: " .. buf,
+    }
+
+    local instance = sql_comp.new()
+    table.insert(status, "  Enabled: " .. tostring(instance:enabled()))
+
+    table.insert(status, "  blink.cmp loaded: true")
+    local blink_config = require("blink.cmp.config")
+    if blink_config.sources and blink_config.sources.providers then
+      local has_sql = blink_config.sources.providers.poste_sql ~= nil
+      table.insert(status, "  poste_sql provider registered: " .. tostring(has_sql))
+    end
+
+    local ctx_mod = require("poste.sql.context")
+    local ctx = ctx_mod.resolve_context(buf)
+    table.insert(status, "  Connection: " .. (ctx.connection or "none"))
+    table.insert(status, "  Database: " .. (ctx.database or "none"))
+
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local line = vim.api.nvim_get_current_line()
+    local col = cursor[2]
+    local line_before = line:sub(1, col)
+
+    table.insert(status, "\nAt cursor position (col=" .. col .. "):")
+    table.insert(status, "  Line: " .. line)
+    table.insert(status, "  Before cursor: '" .. line_before .. "'")
+    table.insert(status, "  After cursor: '" .. line:sub(col + 1) .. "'")
+
+    if sql_comp._test then
+      local ctx_type, ctx_data = sql_comp._test.detect_context_for_completion(line_before)
+      table.insert(status, "  Detected context: " .. tostring(ctx_type))
+      if ctx_data then
+        table.insert(status, "  Context data: " .. tostring(ctx_data))
+      end
+    end
+
+    vim.notify(table.concat(status, "\n"), vim.log.levels.INFO)
+  end, { desc = "Check SQL completion status" })
+
+  vim.api.nvim_create_user_command("PosteSQLAutoTrigger", function()
+    local group = vim.api.nvim_create_augroup("PosteSQLAutoComplete", { clear = true })
+    vim.api.nvim_create_autocmd("TextChangedI", {
+      group = group,
+      buffer = 0,
+      callback = function()
+        local line = vim.api.nvim_get_current_line()
+        local col = vim.api.nvim_win_get_cursor(0)[2]
+
+        if col > 0 and line:sub(col, col) == " " then
+          local before = line:sub(1, col - 1)
+          local last_word = before:match("(%w+)%s*$")
+
+          if last_word then
+            local lw = last_word:lower()
+            if lw == "from" or lw == "join" or lw == "where" or
+               lw == "set" or lw == "on" or lw == "having" or
+               lw == "by" or lw == "and" or lw == "or" then
+              vim.schedule(function()
+                pcall(function() require("blink.cmp").show() end)
+              end)
+            end
+          end
+        end
+      end
+    })
+    vim.notify("SQL auto-trigger installed for current buffer", vim.log.levels.INFO)
+  end, { desc = "Install SQL auto-trigger for completion" })
+
+  vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
+    package.loaded["poste.sql.completion"] = nil
+    local sql_comp = require("poste.sql.completion")
+
+    local ok_b, blink_mod = pcall(require, "blink.cmp")
+    if not ok_b then
+      vim.notify("blink.cmp not loaded, cannot re-register", vim.log.levels.WARN)
+      return
+    end
+    blink_mod.add_source_provider("poste_sql", {
+      module = "poste.sql.completion",
+      name = "PosteSQL",
+      score_offset = 1000,
+      min_keyword_length = 0,
+      should_show_items = true,
+    })
+    blink_mod.add_filetype_source("poste_sql", "poste_sql")
+    blink_mod.add_filetype_source("poste_sqlite", "poste_sql")
+    vim.notify("SQL completion reloaded and re-registered with blink.cmp", vim.log.levels.INFO)
+  end, { desc = "Reload SQL completion provider" })
+
+  vim.api.nvim_create_user_command("PosteSQLDiag", function()
+    local sql_comp = require("poste.sql.completion")
+    local buf = vim.api.nvim_get_current_buf()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local line = vim.api.nvim_get_current_line()
+    local col = cursor[2]
+    local line_before = line:sub(1, col)
+    local cursor_lnum = cursor[1]
+
+    local ctx_type, ctx_data = sql_comp._test.detect_context_for_completion(line_before)
+    local tbls, alias_map = sql_comp._test.extract_from_tables(buf, cursor_lnum)
+    local conn = sql_comp._test.conn_key()
+
+    local blink_src = require("blink.cmp.sources.lib")
+    local blink_config = require("blink.cmp.config")
+    local active_providers = blink_src.get_enabled_provider_ids("insert")
+    local per_ft = "(unavailable)"
+    if blink_config.sources and blink_config.sources.per_filetype then
+      per_ft = vim.inspect(blink_config.sources.per_filetype["poste_sql"])
+    end
+    local runtime_ft = vim.inspect(blink_src.per_filetype_provider_ids)
+
+    local msg = {
+      "line_before: '" .. line_before .. "'",
+      "ctx: " .. tostring(ctx_type),
+      "conn_key: " .. tostring(conn),
+      "cursor_lnum: " .. cursor_lnum,
+      "ft: " .. vim.bo.filetype,
+      "active blink providers: " .. vim.inspect(active_providers),
+      "static per_filetype[poste_sql]: " .. per_ft,
+      "runtime per_filetype_provider_ids: " .. runtime_ft,
+    }
+    local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, cursor_lnum, false)
+    for i, l in ipairs(buf_lines) do
+      table.insert(msg, "  " .. i .. ": " .. l)
+    end
+    table.insert(msg, "tables: " .. vim.inspect(tbls))
+    table.insert(msg, "alias_map: " .. vim.inspect(alias_map))
+
+    sql_comp._test.get_items(buf, line_before, cursor_lnum, function(items)
+      table.insert(msg, "items(" .. #items .. "): " .. vim.inspect(vim.list_slice(items, 1, 3)))
+      vim.notify(table.concat(msg, "\n"), vim.log.levels.WARN)
+    end)
+  end, { desc = "Diagnose SQL completion at cursor" })
+
+  vim.api.nvim_create_user_command("PosteSQLDebugSpace", function()
+    local buf = vim.api.nvim_get_current_buf()
+    local line = vim.api.nvim_get_current_line()
+    local col = vim.api.nvim_win_get_cursor(0)[2]
+    local before = line:sub(1, col)
+    local last_word = before:match("(%w+)%s*$")
+
+    local blink_mod = pcall(require, "blink.cmp") and require("blink.cmp") or nil
+    local menu_open = false
+    local ok_m, menu_mod = pcall(require, "blink.cmp.completion.windows.menu")
+    menu_open = ok_m and menu_mod.win:is_open()
+
+    local msg = {
+      "PosteSQLDebugSpace:",
+      "  line_before cursor: '" .. before .. "'",
+      "  last_word: " .. tostring(last_word),
+      "  blink loaded: " .. tostring(blink_mod ~= nil),
+      "  blink.show exists: " .. tostring(blink_mod and blink_mod.show ~= nil),
+      "  menu currently open: " .. tostring(menu_open),
+    }
+
+    if blink_mod and blink_mod.show then
+      vim.notify(table.concat(msg, "\n") .. "\n  → calling blink.show() now...", vim.log.levels.WARN)
+      blink_mod.show()
+    else
+      vim.notify(table.concat(msg, "\n"), vim.log.levels.ERROR)
+    end
+  end, { desc = "Debug SQL space completion trigger" })
+
+  vim.api.nvim_create_user_command("PosteSQLCmpTest", function()
+    local sql_comp = require("poste.sql.completion")
+    local buf = vim.api.nvim_get_current_buf()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local line = vim.api.nvim_get_current_line()
+    local col = cursor[2]
+    local line_before = line:sub(1, col)
+    local cursor_line = cursor[1]
+
+    local status = {
+      "SQL Completion Test:",
+      "  line_before: '" .. line_before .. "'",
+      "  cursor_line: " .. cursor_line,
+    }
+
+    if sql_comp._test then
+      local ctx_type, ctx_data = sql_comp._test.detect_context_for_completion(line_before)
+      table.insert(status, "  Context: " .. tostring(ctx_type))
+
+      if ctx_type == "column" and sql_comp._test.extract_from_tables then
+        local tbls = sql_comp._test.extract_from_tables(buf, cursor_line)
+        table.insert(status, "  Tables found: " .. #tbls .. " - " .. vim.inspect(tbls))
+      end
+
+      local conn = sql_comp._test.conn_key and sql_comp._test.conn_key()
+      table.insert(status, "  Connection key: " .. tostring(conn))
+    end
+
+    if sql_comp._test and sql_comp._test.get_items then
+      sql_comp._test.get_items(buf, line_before, cursor_line, function(items)
+        table.insert(status, "\nReturned " .. #items .. " items:")
+        for i, item in ipairs(items) do
+          if i <= 10 then
+            table.insert(status, "  " .. item.label .. " (" .. (item.documentation or "") .. ")")
+          end
+        end
+        if #items > 10 then
+          table.insert(status, "  ... and " .. (#items - 10) .. " more")
+        end
+        vim.notify(table.concat(status, "\n"), vim.log.levels.INFO)
+      end)
+    else
+      vim.notify(table.concat(status, "\n"), vim.log.levels.INFO)
+    end
+  end, { desc = "Test SQL completion at cursor" })
+
+  vim.api.nvim_create_user_command("PosteSQLCmpDebug", function()
+    require("poste.sql.completion_debug").toggle()
+  end, { desc = "Toggle SQL completion debug floating window" })
+
+  vim.api.nvim_create_user_command("PosteConnection", function()
+    require("poste.sql.connections").show_menu()
+  end, { desc = "Manage SQL connections" })
+
+  vim.api.nvim_create_user_command("PosteFormat", function()
+    local ok, source_format = pcall(require, "poste.sql.source_format")
+    if ok then
+      source_format.format_buffer()
+    else
+      vim.notify("Poste source_format module not available", vim.log.levels.ERROR)
+    end
+  end, { desc = "Format SQL buffer/selection using detected formatter (sqlfluff/sqlfmt/...)" })
+
+  vim.api.nvim_create_user_command("PosteFormatStatus", function()
+    local ok, source_format = pcall(require, "poste.sql.source_format")
+    if ok then
+      source_format.status()
+    else
+      vim.notify("Poste source_format module not available", vim.log.levels.ERROR)
+    end
+  end, { desc = "Show formatter status: installed, priority, dialect" })
+
+  vim.api.nvim_create_user_command("PosteDBBrowser", function()
+    require("poste.sql.db_browser").toggle()
+  end, { desc = "Toggle database structure browser sidebar" })
+
+  vim.api.nvim_create_user_command("PosteExport", function(args)
+    local parts = {}
+    for word in args.args:gmatch("%S+") do
+      table.insert(parts, word)
+    end
+    require("poste.sql.export").run(parts[1], parts[2], parts[3])
+  end, {
+    nargs = "*",
+    complete = function(ArgLead, CmdLine)
+      return require("poste.sql.export").complete(ArgLead, CmdLine)
+    end,
+    desc = "Export dataset — :PosteExport [format] [destination] [path]",
+  })
+
+  vim.api.nvim_create_user_command("PosteSqlLog", function()
+    require("poste.sql.log_viewer").toggle()
+  end, { desc = "Toggle SQL execution log viewer" })
+
+  vim.api.nvim_create_user_command("PosteSQLContext", function(args)
+    local context = require("poste.sql.context")
+    local parts = {}
+    for word in args.args:gmatch("%S+") do
+      table.insert(parts, word)
+    end
+    context.switch_context(parts)
+  end, {
+    nargs = "*",
+    desc = "Switch SQL execution context (connection/database)",
+  })
+
+  vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
+    pattern = { "*.sql", "*.sqlite" },
+    callback = function()
+      local name = vim.api.nvim_buf_get_name(0)
+      if name:match("%.sqlite$") then
+        vim.bo.filetype = "poste_sqlite"
+      else
+        vim.bo.filetype = "poste_sql"
+      end
+      buffer_setup.setup_buffer_keymaps(0)
+      ensure_sql_keymaps(0)
+      setup_db_browser_keymap(0)
+
+      local k = state.get_keymap("sql_source", "trigger_completion", "<C-Space>")
+      if k then
+        vim.keymap.set("i", k, function()
+          pcall(function() require("blink.cmp").show() end)
+        end, { buffer = 0, noremap = true, silent = true, desc = "Trigger completion" })
+      end
+
+      local sql_keywords = { from=true, join=true, where=true, set=true,
+                              on=true, having=true, by=true, ["and"]=true, ["or"]=true,
+                              use=true }
+      local group = vim.api.nvim_create_augroup("PosteSQLTrigger_" .. vim.api.nvim_get_current_buf(), { clear = true })
+      vim.api.nvim_create_autocmd("CursorMovedI", {
+        group = group,
+        buffer = 0,
+        callback = function()
+          local line = vim.api.nvim_get_current_line()
+          local col  = vim.api.nvim_win_get_cursor(0)[2]
+          if col < 1 or line:sub(col, col) ~= " " then return end
+          local last_word = line:sub(1, col - 1):match("(%w+)%s*$")
+          if last_word and sql_keywords[last_word:lower()] then
+            local trigger = require("blink.cmp.completion.trigger")
+            trigger.show({ force = true, trigger_kind = "manual" })
+          end
+        end,
+      })
+
+      vim.api.nvim_create_autocmd("InsertEnter", {
+        group = group,
+        buffer = 0,
+        callback = function()
+          local line = vim.api.nvim_get_current_line()
+          local col = vim.api.nvim_win_get_cursor(0)[2]
+          local before = line:sub(1, col)
+          local prefix = before:match("[%w_]*$") or ""
+          if #prefix > 0 then
+            vim.schedule(function()
+              local trigger = require("blink.cmp.completion.trigger")
+              trigger.show({ force = true, trigger_kind = "manual" })
+            end)
+          end
+        end,
+      })
+
+      vim.b.blink_cmp_min_keyword_length = 0
+    end,
+  })
+
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    local name = vim.api.nvim_buf_get_name(buf)
+    if name:match("%.sqlite$") then
+      vim.api.nvim_buf_set_option(buf, "filetype", "poste_sqlite")
+      buffer_setup.setup_buffer_keymaps(buf)
+      ensure_sql_keymaps(buf)
+      setup_db_browser_keymap(buf)
+    elseif name:match("%.sql$") then
+      vim.api.nvim_buf_set_option(buf, "filetype", "poste_sql")
+      buffer_setup.setup_buffer_keymaps(buf)
+      ensure_sql_keymaps(buf)
+      setup_db_browser_keymap(buf)
+    end
+  end
+end
+
 return M

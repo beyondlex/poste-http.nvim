@@ -130,6 +130,7 @@ function M.run_request()
           for _ in pairs(pre_result.variables) do injected_count = injected_count + 1 end
           buf_content = scripts.inject_pre_script_vars(buf_content, block_start, pre_result.variables)
           block_end = block_end + injected_count
+          line = line + injected_count
           for name, value in pairs(pre_result.variables) do
             state.script_variables[name] = value
           end
@@ -139,6 +140,8 @@ function M.run_request()
       if block_start and state.global_vars and next(state.global_vars) then
         local glines = vim.split(buf_content, "\n", { plain = true })
         local result = {}
+        local gcount = 0
+        for name, _ in pairs(state.global_vars) do gcount = gcount + 1 end
         for i, line in ipairs(glines) do
           table.insert(result, line)
           if i == block_start then
@@ -148,6 +151,7 @@ function M.run_request()
           end
         end
         buf_content = table.concat(result, "\n")
+        line = line + gcount
       end
 
       buf_content = request_vars.process_form_data(src_buf, line, buf_content)
@@ -192,6 +196,9 @@ function M.run_request()
           vim.schedule(function()
             local ok, parsed = pcall(vim.json.decode, output)
             if ok and parsed and type(parsed) == "table" then
+              state._json.query = nil
+              state._json.original_lines = nil
+              state._json.is_filtered = false
               state.last_response = parsed
               request_vars.cache_response(current_req_name, parsed)
 

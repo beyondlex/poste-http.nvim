@@ -1,3 +1,6 @@
+local state = require("poste.state")
+local format = require("poste.http.format")
+
 local M = {}
 
 function M.setup_buffer(buf)
@@ -6,6 +9,103 @@ function M.setup_buffer(buf)
   vim.wo[win].foldmethod = "indent"
   vim.wo[win].foldlevel = 99
   vim.wo[win].foldcolumn = "1"
+end
+
+function M.apply_filter(query)
+  local r = state.last_response
+  if not r or not r.body then return end
+
+  if not state._json.original_lines then
+    local buf = require("poste.http.buffer").get_buf()
+    state._json.original_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  end
+
+  local result
+  if vim.fn.executable("jq") == 1 then
+    local ok, output = pcall(vim.fn.system, { "jq", query, "-r" }, r.body)
+    if ok then
+      local parsed, _ = pcall(vim.json.decode, output)
+      if parsed then
+        result = format.pretty_body(output, "application/json")
+      else
+        result = output
+      end
+    else
+      vim.notify("jq error: " .. (output or "unknown"), vim.log.levels.ERROR)
+      return
+    end
+  else
+    result = M._jsonpath_query(r.body, query)
+  end
+
+  if not result then return end
+
+  local buf = require("poste.http.buffer").get_buf()
+  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(result, "\n"))
+  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+
+  state._json.query = query
+  state._json.is_filtered = true
+
+  require("poste.http.buffer").update_winbar(state.current_view)
+end
+
+function M.restore_original()
+  if not state._json.original_lines then return end
+
+  local buf = require("poste.http.buffer").get_buf()
+  vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, state._json.original_lines)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+
+  state._json.original_lines = nil
+  state._json.query = nil
+  state._json.is_filtered = false
+
+  require("poste.http.buffer").update_winbar(state.current_view)
+end
+
+function M._jsonpath_query(body, query)
+  local ok, data = pcall(vim.json.decode, body)
+  if not ok then
+    vim.notify("Invalid JSON body", vim.log.levels.ERROR)
+    return nil
+  end
+
+  local steps = {}
+  for step in query:gmatch("[^.]+") do
+    table.insert(steps, step)
+  end
+
+  local current = data
+  for _, step in ipairs(steps) do
+    if type(current) ~= "table" then
+      vim.notify("Cannot traverse: value is " .. type(current), vim.log.levels.WARN)
+      return nil
+    end
+
+    local idx = step:match("^%[(%d+)%]$")
+    if idx then
+      current = current[tonumber(idx) + 1]
+    elseif step:match("^%[%]$") then
+      local results = {}
+      for _, item in ipairs(current) do
+        table.insert(results, item)
+      end
+      current = results
+    else
+      local key = step:match("^%.(.+)") or step
+      if current[key] ~= nil then
+        current = current[key]
+      else
+        vim.notify("Key '" .. key .. "' not found", vim.log.levels.WARN)
+        return nil
+      end
+    end
+  end
+
+  return format.pretty_body(vim.json.encode(current), "application/json")
 end
 
 return M

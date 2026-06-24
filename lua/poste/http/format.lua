@@ -787,4 +787,6 @@ function M.format_request_payload(r)
   return lines
 end
 
+M.pretty_body = pretty_body
+
 return M

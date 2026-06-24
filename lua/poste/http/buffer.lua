@@ -16,8 +16,12 @@ M.on_show_view = nil
 
 --- Get list of active tabs based on current state
 local function get_active_tabs()
+  local body_label = "Body [H]"
+  if state._json.is_filtered and state._json.query then
+    body_label = "Body [H] | jq: " .. state._json.query
+  end
   local tabs = {
-    { id = "body",    label = "Body [H]" },
+    { id = "body",    label = body_label },
     { id = "request", label = "Rqst [R]" },
     { id = "verbose", label = "Verb [L]" },
   }
@@ -68,6 +72,9 @@ function M.navigate_response(direction)
   elseif idx > #state.last_responses then idx = 1 end
   state.response_index = idx
   state.last_response = state.last_responses[idx].response
+  state._json.original_lines = nil
+  state._json.query = nil
+  state._json.is_filtered = false
   if state.current_view and M.on_show_view then
     M.on_show_view(state.current_view)
   end
@@ -187,6 +194,29 @@ local function get_response_buffer()
   k = state.get_keymap("http_response", "prev_response", "[")
   if k then
     vim.keymap.set("n", k, function() M.navigate_response(-1) end, opts)
+  end
+
+  -- JSON filter prompt (<leader>j)
+  k = state.get_keymap("http_response", "json_filter", "<leader>j")
+  if k then
+    vim.keymap.set("n", k, function()
+      local buf = vim.api.nvim_get_current_buf()
+      if vim.bo[buf].filetype ~= "json" then return end
+      vim.ui.input({ prompt = "jq> " }, function(query)
+        if not query or query == "" then return end
+        require("poste.http.json").apply_filter(query)
+      end)
+    end, opts)
+  end
+
+  -- JSON restore original (<leader>jc)
+  k = state.get_keymap("http_response", "json_restore", "<leader>jc")
+  if k then
+    vim.keymap.set("n", k, function()
+      local buf = vim.api.nvim_get_current_buf()
+      if vim.bo[buf].filetype ~= "json" then return end
+      require("poste.http.json").restore_original()
+    end, opts)
   end
 
   return response_buffer

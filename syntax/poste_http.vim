@@ -63,7 +63,11 @@ syn match PosteExternalScript '<\s\+\./\S*\.lua\s*$'
 
 " ─── File inclusion in body ─────────────────────────
 " Defined before PreScript/Assertion so their more specific patterns win.
-syn match PosteFileUpload '<\s\+\S\+'
+" Negative lookahead ({%)\@! excludes pre-request script blocks.
+syn match PosteFileUpload '<\s\+\({%\)\@!\S\+'
+
+" ─── Post-request script / assertion file references ───
+syn match PosteFileRef '>\s\+\({%\)\@!\S\+'
 
 " ─── Pre-request script blocks ──────────────────────
 " Multi-line: < {% ... %}
@@ -132,7 +136,7 @@ syn region PosteBody start=+^\s*\n+ end=+\n\ze\s*\%(###\|<\s*{%\|>\s*{%\)\|\%$+ 
   \PosteJsonBraces,PosteJsonBrackets,PosteJsonColon,PosteJsonComma,
   \PosteVarRef,PosteMagicVar,PosteVarDef,PosteVarAssign,PosteMultiVarEnd,
   \PostePromptLine,PosteComment,
-  \PosteImport,PosteRun,PosteFileUpload
+  \PosteImport,PosteRun,PosteFileUpload,PosteFileRef
 
 syn match  PosteJsonNumber  '[-]\?\%(\d\+\.\d\+\|\d\+\)' contained
 syn match  PosteJsonBoolean '\<\%(true\|false\)\>' contained
@@ -186,6 +190,7 @@ hi def link PosteScriptMarker Special
 hi def link PosteScriptAPI  Function
 hi def link PosteExternalScript Include
 hi def link PosteFileUpload Include
+hi def link PosteFileRef Include
 hi def link PosteJsonString  String
 hi def link PosteJsonNumber  Number
 hi def link PosteJsonBoolean Boolean

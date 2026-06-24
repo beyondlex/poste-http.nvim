@@ -135,6 +135,33 @@ function M.setup(opts)
         vim.api.nvim_buf_clear_namespace(buf, indicator_ns, 0, -1)
       end,
     })
+
+    -- File reference markers: underline for < ./path and > ./path
+    local fileref_ns = vim.api.nvim_create_namespace("poste_fileref_" .. buf)
+    local function refresh_fileref_marks()
+      if not vim.api.nvim_buf_is_valid(buf) then return end
+      vim.api.nvim_buf_clear_namespace(buf, fileref_ns, 0, -1)
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      for i, line in ipairs(lines) do
+        if line:match("^%s*[<>]%s+%S") and not line:match("{%") then
+          local path_start = line:match("^%s*[<>]%s+()")
+          if path_start then
+            vim.api.nvim_buf_set_extmark(buf, fileref_ns, i - 1, path_start - 1, {
+              end_col = #line,
+              underline = true,
+              hl_group = "PosteFileRef",
+            })
+          end
+        end
+      end
+    end
+    refresh_fileref_marks()
+    local frg = vim.api.nvim_create_augroup("PosteFileref_" .. buf, { clear = true })
+    vim.api.nvim_create_autocmd("TextChanged", {
+      group = frg,
+      buffer = buf,
+      callback = refresh_fileref_marks,
+    })
   end
 
   local function setup_db_browser_keymap(buf)

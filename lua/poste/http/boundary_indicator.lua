@@ -47,13 +47,25 @@ local function find_block(lines, cursor)
     end
   end
   if not start then return nil, nil end
-  local stop = #lines
+
+  local next_sep = #lines + 1
   for i = cursor + 1, #lines do
     if (lines[i] or ""):match("^###") then
-      stop = i - 1
+      next_sep = i
       break
     end
   end
+
+  local stop = nil
+  for i = next_sep - 1, start, -1 do
+    local trimmed = (lines[i] or ""):match("^%s*(.-)%s*$")
+    if trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
+      stop = i
+      break
+    end
+  end
+  if not stop then stop = start end
+
   return start, stop
 end
 

@@ -19,18 +19,21 @@ Use `.opencode/skills/` skills for detailed file indexes. For SQL completion
 specifically, load `.opencode/skills/sql-completion/SKILL.md` in addition to
 the general SQL skill. `docs/dev/file-index.md` has the complete file lookup table.
 
-## Layout
+## Design Principles
 
-`crates/poste-core/` — parser, sql_parser, request, env (no I/O)
-`crates/poste-exec/` — executor, sql_executor, sql_connection, sql_dialect, response, cookie_jar
-`crates/poste-cli/` — `poste run/connection/introspect`
+**Extensibility over speed.** Write code that's easy to extend and maintain
+tomorrow. Don't cut corners for a quick win — technical debt compounds fast
+in a multi-protocol project.
 
-`lua/poste/` — Neovim plugin
-`lua/poste/sql/` — SQL-only (isolated from HTTP)
-`syntax/` — Vim syntax files
-`docs/` — user docs + dev docs
-`tests/` — Lua tests + SQL integration (Docker)
-`examples/` — sample .http/.sql/.redis
+**Best practices, not over-engineering.** Always seek the right pattern for
+the problem. But don't abstract before you have at least two concrete cases.
+A simple solution that works is better than a generic one that's unfinished.
+
+**Vim ergonomics first.** Every interaction should feel natural to a Vim user:
+- Keyboard-driven, no modal dialogs or mouse requirements
+- Consistent keymap patterns across HTTP, SQL, and Redis
+- Minimal keystrokes for common operations
+- Visual feedback (indicators, winbar, syntax highlights) for every action
 
 ## Code Conventions
 

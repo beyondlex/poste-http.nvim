@@ -3,67 +3,25 @@ local format = require("poste.http.format")
 
 local M = {}
 
---- omnifunc callback for the input buffer.
---- Called by Vim via v:lua bridge.
-function M._omnifunc(mode, base)
-  if mode == 1 then
-    return vim.fn.col(".") - 1
-  end
-  local paths = M.get_key_paths()
-  if #paths == 0 then return {} end
-  local results = {}
-  local lower = (base or ""):lower()
-  for _, p in ipairs(paths) do
-    if p:lower():find(lower, 1, true) then
-      table.insert(results, { word = p })
-    end
-  end
-  return results
-end
-
---- Float-based jq input with insert-mode completion.
---- Sets omnifunc so nvim-cmp (omni), blink.cmp (omni), or <C-x><C-o> show key paths.
---- Esc to confirm, C-c to cancel.
+--- Select a jq query from key paths or type a custom one.
+--- Uses vim.ui.select for path picking, vim.ui.input for custom queries.
 function M.start_interactive_input()
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[buf].bufhidden = "wipe"
-
-  local width = 64
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = "cursor",
-    width = width,
-    height = 1,
-    row = 1,
-    col = 0,
-    style = "minimal",
-    border = "rounded",
-    title = " jq ",
-    title_pos = "center",
-  })
-
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
-  vim.bo[buf].omnifunc = "v:lua.require('poste.http.json')._omnifunc"
-
-  local augroup = vim.api.nvim_create_augroup("poste_jq_input", { clear = true })
-  vim.api.nvim_create_autocmd("InsertLeave", {
-    group = augroup,
-    buffer = buf,
-    callback = function()
-      local lines = vim.api.nvim_buf_get_lines(buf, 0, 1, false)
-      local query = vim.trim(lines[1] or "")
-      pcall(vim.api.nvim_win_close, win, true)
-      if query ~= "" then M.apply_filter(query) end
-    end,
-  })
-  vim.api.nvim_create_autocmd("BufLeave", {
-    group = augroup,
-    buffer = buf,
-    callback = function()
-      pcall(vim.api.nvim_win_close, win, true)
-    end,
-  })
-
-  vim.cmd("startinsert!")
+  local paths = M.get_key_paths()
+  if #paths > 0 then
+    local items = vim.list_extend({}, paths)
+    vim.ui.select(items, {
+      prompt = "jq filter",
+      format_item = function(item) return item end,
+    }, function(choice)
+      if choice then
+        M.apply_filter(choice)
+      end
+    end)
+  else
+    vim.ui.input({ prompt = "jq> " }, function(query)
+      if query and query ~= "" then M.apply_filter(query) end
+    end)
+  end
 end
 
 function M.get_key_paths()

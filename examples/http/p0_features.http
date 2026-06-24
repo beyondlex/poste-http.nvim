@@ -9,6 +9,7 @@ import ./helper_batch.http as batch
 # Import helpers for 0.7 cross-file execution tests
 # :%!./target/debug/poste fmt --stdin
 @base_url = https://httpbin.org
+@base_url = https://postman-echo.com
 @api_version = v1
 # ────────────────────────────────────────────────────────────────────
 # 0.1 {{$magic}} — magic variable substitution

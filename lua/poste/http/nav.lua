@@ -1,8 +1,113 @@
 local state = require("poste.state")
 local util = require("poste.util")
 local request_vars = require("poste.http.request_vars")
+local context_detector = require("poste.http.context_detector")
+local data = require("poste.http.data")
 
 local M = {}
+
+--- Show documentation for script API keywords (client.*, response.*, request.*, etc.)
+--- inside pre/post script blocks (< {% %} / > {% %}).
+--- Returns true if doc was shown, false otherwise.
+function M.show_script_api_doc()
+  local buf = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local line_num = cursor[1]
+  local col_1idx = cursor[2] + 1
+  local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
+
+  local ctx = context_detector.detect_script_context(buf, line_num, col_1idx)
+  if not ctx then return false end
+
+  local ctx_key = ctx == "pre_script" and "pre" or "post"
+  local docs = data.script_api_docs[ctx_key]
+  if not docs then return false end
+
+  -- Extract the full dotted identifier under cursor
+  local start = col_1idx
+  while start > 1 do
+    local ch = line_text:sub(start - 1, start - 1)
+    if ch:match("[%w_]") or ch == "." then start = start - 1 else break end
+  end
+
+  local finish = col_1idx
+  while finish < #line_text do
+    local ch = line_text:sub(finish + 1, finish + 1)
+    if ch:match("[%w_]") or ch == "." then finish = finish + 1 else break end
+  end
+
+  local identifier = start <= finish and line_text:sub(start, finish) or nil
+  if not identifier then return false end
+
+  -- Determine which dotted segment the cursor is on, then walk up
+  -- e.g. response.body.json: cursor on response → lookup response;
+  --      cursor on body → lookup response.body;
+  --      cursor on json → lookup response.body.json (walk up to response.body)
+  local entry = nil
+  local rel = col_1idx - start + 1
+  local seg_start = 1
+  local prefix_parts = {}
+
+  for segment in identifier:gmatch("[^%.]+") do
+    local seg_end = seg_start + #segment - 1
+    table.insert(prefix_parts, segment)
+    if rel >= seg_start and rel <= seg_end then
+      local lookup_path = table.concat(prefix_parts, ".")
+      entry = docs[lookup_path]
+      while not entry and lookup_path:find("%.") do
+        lookup_path = lookup_path:match("^(.+)%.[^%.]+$")
+        entry = docs[lookup_path]
+      end
+      break
+    end
+    seg_start = seg_end + 2
+  end
+  -- Fallback: try just the word under cursor (for assert, variables, env)
+  if not entry then
+    local cword = vim.fn.expand("<cword>")
+    if cword and cword ~= "" then entry = docs[cword] end
+  end
+  if not entry then return false end
+
+  -- Build floating window content
+  local lines = {}
+  table.insert(lines, entry.sig)
+  table.insert(lines, "")
+  table.insert(lines, entry.desc)
+
+  local max_width = math.min(math.floor(vim.o.columns * 0.7), 80)
+  local width = 0
+  for _, l in ipairs(lines) do
+    width = math.max(width, vim.fn.strdisplaywidth(l))
+  end
+  width = math.min(width + 4, max_width)
+
+  local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.4))
+  local float_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
+  vim.bo[float_buf].modifiable = false
+
+  local title = ctx == "pre_script" and "Pre-script API" or "Post-script API"
+  local win_opts = {
+    relative = "editor",
+    row = math.floor((vim.o.lines - height) / 2),
+    col = math.floor((vim.o.columns - width) / 2),
+    width = width, height = height, style = "minimal",
+    border = "rounded", title = title, title_pos = "left",
+  }
+  local ok, win = pcall(vim.api.nvim_open_win, float_buf, true, win_opts)
+  if not ok then
+    win_opts.title = nil; win_opts.title_pos = nil
+    win = vim.api.nvim_open_win(float_buf, true, win_opts)
+  end
+
+  vim.keymap.set("n", "q", function() pcall(vim.api.nvim_win_close, win, true) end,
+    { buffer = float_buf, noremap = true, silent = true })
+  vim.keymap.set("n", "<Esc>", function() pcall(vim.api.nvim_win_close, win, true) end,
+    { buffer = float_buf, noremap = true, silent = true })
+
+  return true
+end
 
 function M.jump_next()
   local line = vim.fn.line(".")
@@ -30,6 +135,9 @@ function M.jump_prev()
 end
 
 function M.show_var_value()
+  -- Try script API documentation first (inside < {% %} / > {% %} blocks)
+  if M.show_script_api_doc() then return end
+
   local buf = vim.api.nvim_get_current_buf()
   local cursor = vim.api.nvim_win_get_cursor(0)
   local line_num = cursor[1]

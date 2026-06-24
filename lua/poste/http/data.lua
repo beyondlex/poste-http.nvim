@@ -476,4 +476,274 @@ M.magic_var_defs = {
   { name = "randomInt", desc = "Random integer 0-9999999" },
 }
 
+---------------------------------------------------------------------------
+-- Rich documentation for script API keywords (used by K hover)
+---------------------------------------------------------------------------
+M.script_api_docs = {
+  pre = {
+    ["request"] = {
+      sig = "request",
+      desc = "Object to access and modify the current request.",
+    },
+    ["request.variables"] = {
+      sig = "request.variables.set(name, value) / request.variables.get(name)",
+      desc = "Read/write variables for the current request. Values set here can be referenced in the request via {{variables.name}}.",
+    },
+    ["request.variables.set"] = {
+      sig = "request.variables.set(name, value)",
+      desc = "Set a request variable. Value is converted to string and available as {{variables.name}} later.",
+    },
+    ["request.variables.get"] = {
+      sig = "request.variables.get(name)",
+      desc = "Get a previously set request variable value.",
+    },
+    ["request.headers"] = {
+      sig = "request.headers",
+      desc = "Access or modify request headers before sending.",
+    },
+    ["request.body"] = {
+      sig = "request.body",
+      desc = "Read or modify the request body before sending.",
+    },
+    ["client"] = {
+      sig = "client",
+      desc = "Client object for logging and cross-request global state.",
+    },
+    ["client.log"] = {
+      sig = "client.log(msg)",
+      desc = "Log a message. Output appears in the Script Logs tab of the response buffer.",
+    },
+    ["client.global"] = {
+      sig = "client.global",
+      desc = "Persistent global variable store shared across all requests in the session.",
+    },
+    ["client.global.set"] = {
+      sig = "client.global.set(name, value)",
+      desc = "Set a persistent global variable. Available across all requests via client.global.get().",
+    },
+    ["client.global.get"] = {
+      sig = "client.global.get(name)",
+      desc = "Get a persistent global variable previously set by any request.",
+    },
+    ["variables"] = {
+      sig = "variables",
+      desc = "Table of file/block-level @variable definitions from the current file.",
+    },
+    ["env"] = {
+      sig = "env",
+      desc = "Table of environment variables from the active env.json environment.",
+    },
+    ["md5"] = {
+      sig = "md5(value)",
+      desc = "Compute the MD5 hash of a string value.",
+    },
+    -- Lua standard library (injected into sandbox)
+    ["tostring"] = {
+      sig = "tostring(value)",
+      desc = "Convert a value to its string representation.",
+    },
+    ["tonumber"] = {
+      sig = "tonumber(value [, base])",
+      desc = "Convert a value to a number. Optional base for string-to-integer conversion.",
+    },
+    ["type"] = {
+      sig = "type(value)",
+      desc = "Return the type name of a value ('string', 'number', 'table', etc.).",
+    },
+    ["pcall"] = {
+      sig = "pcall(fn, ...)",
+      desc = "Protected call: calls fn in protected mode, returns (ok, result_or_error).",
+    },
+    ["error"] = {
+      sig = "error(message [, level])",
+      desc = "Raise an error with the given message. Halts execution unless caught by pcall.",
+    },
+    ["ipairs"] = {
+      sig = "ipairs(t)",
+      desc = "Iterator for array-like tables (indices 1..n).",
+    },
+    ["pairs"] = {
+      sig = "pairs(t)",
+      desc = "Iterator over all key-value pairs in a table.",
+    },
+    -- String methods (callable via str:method(...))
+    ["match"] = {
+      sig = "str:match(pattern [, init])",
+      desc = "Match a pattern against a string. Returns captures or the matched substring.",
+    },
+    ["format"] = {
+      sig = "string.format(fmt, ...)",
+      desc = "Format a string using printf-style placeholders (%s, %d, %x, etc.).",
+    },
+    ["gsub"] = {
+      sig = "str:gsub(pattern, repl [, n])",
+      desc = "Global substitution: replaces all (or up to n) occurrences of pattern.",
+    },
+    ["sub"] = {
+      sig = "str:sub(i [, j])",
+      desc = "Return substring from position i to j (inclusive, 1-indexed).",
+    },
+    ["find"] = {
+      sig = "str:find(pattern [, init [, plain]])",
+      desc = "Find the first occurrence of pattern in a string. Returns start, end positions.",
+    },
+    ["lower"] = {
+      sig = "str:lower()",
+      desc = "Convert a string to lowercase.",
+    },
+    ["upper"] = {
+      sig = "str:upper()",
+      desc = "Convert a string to uppercase.",
+    },
+  },
+  post = {
+    ["response"] = {
+      sig = "response",
+      desc = "Object containing the HTTP response data after the request completes.",
+    },
+    ["response.status"] = {
+      sig = "response.status",
+      desc = "HTTP status code of the response (e.g. 200, 404, 500).",
+    },
+    ["response.body"] = {
+      sig = "response.body",
+      desc = "Parsed JSON response body. If JSON parsing fails, returns the raw string body.",
+    },
+    ["response.headers"] = {
+      sig = "response.headers",
+      desc = "Table of response headers. Keys are lowercase header names. Access: response.headers['content-type']",
+    },
+    ["response.content_type"] = {
+      sig = "response.content_type",
+      desc = "Value of the Content-Type response header.",
+    },
+    ["response.latency_ms"] = {
+      sig = "response.latency_ms",
+      desc = "Request duration in milliseconds.",
+    },
+    ["response.url"] = {
+      sig = "response.url",
+      desc = "The final URL after any redirects.",
+    },
+    ["request"] = {
+      sig = "request",
+      desc = "Object to access request variables in post-scripts/assertions.",
+    },
+    ["request.variables"] = {
+      sig = "request.variables.set(name, value) / request.variables.get(name)",
+      desc = "Read/write variables for use by subsequent requests in the chain.",
+    },
+    ["request.variables.set"] = {
+      sig = "request.variables.set(name, value)",
+      desc = "Set a variable for use by subsequent requests in the chain.",
+    },
+    ["request.variables.get"] = {
+      sig = "request.variables.get(name)",
+      desc = "Get a previously set variable value.",
+    },
+    ["client"] = {
+      sig = "client",
+      desc = "Client object for testing, assertions, logging, and global state.",
+    },
+    ["client.test"] = {
+      sig = "client.test(name, fn)",
+      desc = "Define a named test block. Execute assertions inside the function to validate the response.",
+    },
+    ["client.assert"] = {
+      sig = "client.assert(condition, message)",
+      desc = "Assert a condition is true. Throws an error with the message if the condition is false. Use inside client.test() blocks.",
+    },
+    ["client.log"] = {
+      sig = "client.log(msg)",
+      desc = "Log a message. Output appears in the Script Logs tab of the response buffer.",
+    },
+    ["client.global"] = {
+      sig = "client.global",
+      desc = "Persistent global variable store shared across all requests in the session.",
+    },
+    ["client.global.set"] = {
+      sig = "client.global.set(name, value)",
+      desc = "Set a persistent global variable. Available across all requests via client.global.get().",
+    },
+    ["client.global.get"] = {
+      sig = "client.global.get(name)",
+      desc = "Get a persistent global variable previously set by any request.",
+    },
+    ["assert"] = {
+      sig = "assert(condition, message)",
+      desc = "Top-level assert shorthand. Throws an error with the message if the condition is false.",
+    },
+    ["variables"] = {
+      sig = "variables",
+      desc = "Table of file/block-level @variable definitions from the current file.",
+    },
+    ["env"] = {
+      sig = "env",
+      desc = "Table of environment variables from the active env.json environment.",
+    },
+    ["md5"] = {
+      sig = "md5(value)",
+      desc = "Compute the MD5 hash of a string value.",
+    },
+    -- Lua standard library (injected into sandbox)
+    ["tostring"] = {
+      sig = "tostring(value)",
+      desc = "Convert a value to its string representation.",
+    },
+    ["tonumber"] = {
+      sig = "tonumber(value [, base])",
+      desc = "Convert a value to a number. Optional base for string-to-integer conversion.",
+    },
+    ["type"] = {
+      sig = "type(value)",
+      desc = "Return the type name of a value ('string', 'number', 'table', etc.).",
+    },
+    ["pcall"] = {
+      sig = "pcall(fn, ...)",
+      desc = "Protected call: calls fn in protected mode, returns (ok, result_or_error).",
+    },
+    ["error"] = {
+      sig = "error(message [, level])",
+      desc = "Raise an error with the given message. Halts execution unless caught by pcall.",
+    },
+    ["ipairs"] = {
+      sig = "ipairs(t)",
+      desc = "Iterator for array-like tables (indices 1..n).",
+    },
+    ["pairs"] = {
+      sig = "pairs(t)",
+      desc = "Iterator over all key-value pairs in a table.",
+    },
+    -- String methods (callable via str:method(...))
+    ["match"] = {
+      sig = "str:match(pattern [, init])",
+      desc = "Match a pattern against a string. Returns captures or the matched substring.",
+    },
+    ["format"] = {
+      sig = "string.format(fmt, ...)",
+      desc = "Format a string using printf-style placeholders (%s, %d, %x, etc.).",
+    },
+    ["gsub"] = {
+      sig = "str:gsub(pattern, repl [, n])",
+      desc = "Global substitution: replaces all (or up to n) occurrences of pattern.",
+    },
+    ["sub"] = {
+      sig = "str:sub(i [, j])",
+      desc = "Return substring from position i to j (inclusive, 1-indexed).",
+    },
+    ["find"] = {
+      sig = "str:find(pattern [, init [, plain]])",
+      desc = "Find the first occurrence of pattern in a string. Returns start, end positions.",
+    },
+    ["lower"] = {
+      sig = "str:lower()",
+      desc = "Convert a string to lowercase.",
+    },
+    ["upper"] = {
+      sig = "str:upper()",
+      desc = "Convert a string to uppercase.",
+    },
+  },
+}
+
 return M

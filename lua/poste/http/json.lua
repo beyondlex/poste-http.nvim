@@ -2,12 +2,14 @@ local state = require("poste.state")
 local format = require("poste.http.format")
 
 local M = {}
-local hl_ns = vim.api.nvim_create_namespace("poste_jq_input")
 
-local function filter_paths(paths, input)
-  if not input or input == "" then return paths end
-  local lower = input:lower()
+--- Completion handler for vim.ui.input customlist.
+--- Called by VimL glue function PosteJqComplete(lead, cmdline, pos).
+function M._complete(lead)
+  local paths = M.get_key_paths()
+  if #paths == 0 then return {} end
   local results = {}
+  local lower = lead:lower()
   for _, p in ipairs(paths) do
     if p:lower():find(lower, 1, true) then
       table.insert(results, p)
@@ -16,97 +18,24 @@ local function filter_paths(paths, input)
   return results
 end
 
---- Interactive jq input with a completion dropdown.
---- Float shows input line + filtered key paths; Tab/arrows to navigate, Enter to confirm.
+vim.api.nvim_exec([[
+  function! PosteJqComplete(lead, cmdline, pos)
+    return luaeval("require('poste.http.json')._complete(_A)", a:lead)
+  endfunction
+]], false)
+
+--- Open jq input prompt with cmdline completion.
+--- Uses Vim's built-in customlist completion (Tab/C-n/C-p to navigate).
+--- Integrates with blink.cmp / nvim-cmp if cmdline completion is configured.
 function M.start_interactive_input()
   local paths = M.get_key_paths()
-  if #paths == 0 then
-    vim.ui.input({ prompt = "jq> " }, function(query)
-      if query and query ~= "" then M.apply_filter(query) end
-    end)
-    return
+  local opts = { prompt = "jq> " }
+  if #paths > 0 then
+    opts.completion = "customlist,PosteJqComplete"
   end
-
-  local input = ""
-  local matches = paths
-  local selected = 0
-  local float_buf = vim.api.nvim_create_buf(false, true)
-  local float_win
-
-  local function redraw()
-    matches = filter_paths(paths, input)
-    local lines = { "jq> " .. input .. "█" }
-    for i, p in ipairs(matches) do
-      if #lines >= 15 then break end
-      lines[#lines + 1] = "  " .. p
-    end
-    vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
-
-    vim.api.nvim_buf_clear_namespace(float_buf, hl_ns, 0, -1)
-    if selected > 0 then
-      vim.api.nvim_buf_add_highlight(float_buf, hl_ns, "Visual", selected, 0, -1)
-    end
-  end
-
-  local max_w = 0
-  for _, p in ipairs(paths) do
-    if #p + 3 > max_w then max_w = #p + 3 end
-  end
-  local width = math.min(math.max(max_w, 14), 64)
-  local height = math.min(#paths + 1, 15)
-
-  float_win = vim.api.nvim_open_win(float_buf, false, {
-    relative = "cursor",
-    width = width,
-    height = height,
-    row = 1,
-    col = 0,
-    style = "minimal",
-    border = "rounded",
-    title = " jq ",
-    title_pos = "center",
-    focusable = false,
-  })
-
-  redraw()
-  vim.cmd("redraw")
-
-  while true do
-    local char = vim.fn.getchar()
-    local t = type(char)
-    local c = t == "number" and vim.fn.nr2char(char) or tostring(char)
-
-    if c == "\r" or c == "\n" then
-      local query = selected > 0 and selected <= #matches and matches[selected] or input
-      pcall(vim.api.nvim_win_close, float_win, true)
-      if query and query ~= "" then M.apply_filter(query) end
-      return
-
-    elseif c == "\x1b" then
-      pcall(vim.api.nvim_win_close, float_win, true)
-      return
-
-    elseif c == "\t" or c == "\x0e" or c == "<Down>" then
-      if #matches > 0 then selected = (selected % #matches) + 1 end
-      redraw()
-
-    elseif c == "\x10" or c == "<Up>" then
-      if #matches > 0 then selected = (selected - 2) % #matches + 1 end
-      redraw()
-
-    elseif c == "\x7f" or c == "\x08" or c == "<BS>" then
-      if #input > 0 then
-        input = input:sub(1, -2)
-        selected = 0
-        redraw()
-      end
-
-    elseif t == "number" and char >= 32 then
-      input = input .. c
-      selected = 0
-      redraw()
-    end
-  end
+  vim.ui.input(opts, function(query)
+    if query and query ~= "" then M.apply_filter(query) end
+  end)
 end
 
 function M.get_key_paths()

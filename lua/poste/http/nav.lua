@@ -489,6 +489,24 @@ function M.goto_definition()
         return
       end
     end
+  elseif trimmed:match("^<%s+") then
+    -- < ./path — open file include / file upload target
+    local path = trimmed:match("^<%s+(%S+)")
+    if path then
+      local path_pos = line_text:find(vim.pesc(path))
+      if path_pos and col >= path_pos - 1 and col <= path_pos - 1 + #path then
+        local buf_name = vim.api.nvim_buf_get_name(buf)
+        local buf_dir = buf_name ~= "" and vim.fn.fnamemodify(buf_name, ":h") or vim.fn.getcwd()
+        local full_path = vim.fn.simplify(buf_dir .. "/" .. path)
+        if vim.fn.filereadable(full_path) == 1 then
+          vim.cmd("normal! m'")
+          vim.cmd("edit " .. vim.fn.fnameescape(full_path))
+        else
+          vim.notify("File not found: " .. full_path, vim.log.levels.WARN)
+        end
+        return
+      end
+    end
   elseif trimmed:match("^import%s+") then
     local path = trimmed:match("^import%s+(%S+)")
     if path then

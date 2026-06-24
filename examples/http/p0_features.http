@@ -17,7 +17,7 @@ import ./helper_batch.http as batch
 
 ### 0.1 Magic variables: all four types
 POST {{base_url}}/post
-Content-Type: application/json
+content-type: application/json
 
 {
   "test": "magic_vars",
@@ -193,6 +193,10 @@ Content-Type: multipart/form-data; boundary=boundary-{{$timestamp}}
 Content-Disposition: form-data; name="file"; filename="upload_test.txt"
 
 < ./upload_test.txt
+--boundary-{{$timestamp}}
+Content-Disposition: form-data; name="foo"
+
+bar
 --boundary-{{$timestamp}}--
 
 > {%

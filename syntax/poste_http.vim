@@ -16,7 +16,7 @@ syn match PosteSeparator '^###' contained
 " ─── Comments & Directives ──────────────────────────
 syn match PosteDirective
   \ '^\s*[#-]\{-}\s*@\%(prompt\|connection\)\s\+.*$'
-syn match PosteComment '^\s*#\s.*$'
+syn match PosteComment '^\s*#\([^#].*\|$\)'
 syn match PosteComment '^\s*--.*$'
 
 " ─── import/run cross-file reference directives ─────

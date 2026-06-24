@@ -3,22 +3,22 @@ local format = require("poste.http.format")
 
 local M = {}
 
-local function setup_omnifunc(buf)
-  vim.bo[buf].omnifunc = function(mode, base)
-    if mode == 1 then
-      return vim.fn.col(".") - 1
-    end
-    local paths = M.get_key_paths()
-    if #paths == 0 then return {} end
-    local results = {}
-    local lower = (base or ""):lower()
-    for _, p in ipairs(paths) do
-      if p:lower():find(lower, 1, true) then
-        table.insert(results, { word = p })
-      end
-    end
-    return results
+--- omnifunc callback for the input buffer.
+--- Called by Vim via v:lua bridge.
+function M._omnifunc(mode, base)
+  if mode == 1 then
+    return vim.fn.col(".") - 1
   end
+  local paths = M.get_key_paths()
+  if #paths == 0 then return {} end
+  local results = {}
+  local lower = (base or ""):lower()
+  for _, p in ipairs(paths) do
+    if p:lower():find(lower, 1, true) then
+      table.insert(results, { word = p })
+    end
+  end
+  return results
 end
 
 --- Float-based jq input with insert-mode completion.
@@ -42,7 +42,7 @@ function M.start_interactive_input()
   })
 
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
-  setup_omnifunc(buf)
+  vim.bo[buf].omnifunc = "v:lua.require('poste.http.json')._omnifunc"
 
   local augroup = vim.api.nvim_create_augroup("poste_jq_input", { clear = true })
   vim.api.nvim_create_autocmd("InsertLeave", {

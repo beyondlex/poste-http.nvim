@@ -4,9 +4,9 @@
 
 `.http` / `.rest` 文件包含混合内容：`###` 请求块、`@variable` 定义、HTTP 请求行、headers、JSON 请求体、`< {% %}` pre-script、`> {% %}` assertion。没有现成的 formatter 能理解这种混合格式。
 
-语法规范见 `syntax.md`。实施计划见 `impl-guide.md`。
+语法规范见 `syntax.md`。实施计划见 archived `http-impl-guide.md`。
 
-当前大量语法元素的实现尚未完成（详见 `syntax.md#5`），立即做 formatter 会导致反复重写。必须先完成 `impl-guide.md#Phase-0` 的全部前提条件。
+当前大量语法元素的实现尚未完成（详见 `syntax.md#5`），立即做 formatter 会导致反复重写。必须先完成前置条件（参见 archived `http-impl-guide.md`）。
 
 ## 2. 架构选择：Rust `poste fmt`
 
@@ -265,9 +265,9 @@ require("conform").formatters_by_ft["poste_http"] = { "poste_http" }
 
 ## 5. 实施
 
-所有实施步骤以 `impl-guide.md` 为准，按 Phase 0 → Phase 1-4 → 后续推进。
+所有实施步骤以 archived `http-impl-guide.md` 为准，按 Phase 0 → Phase 1-4 → 后续推进。
 
-与 formatter 设计直接相关的后续事项（不在 `impl-guide.md` 中）：
+与 formatter 设计直接相关的后续事项（不在 archived `http-impl-guide.md` 中）：
 
 - [ ] `kulala-fmt` 兼容适配（复用或借鉴其格式化规则）
 

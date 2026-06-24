@@ -211,7 +211,7 @@ lua/poste ──→ Rust CLI (通过 system/jobstart)
 
 - [HTTP 协议文档](./http/README.md)
 - [SQL 协议文档](./sql/README.md)
-- [HTTP 实施指南](./http/impl-guide.md)
+- [HTTP 实施指南](./http/tdd-guide.md)
 - [SQL 功能完整规划](./sql/design.md)
 - [插件安装](./plugin-install.md)
 - [测试指南](./testing.md)

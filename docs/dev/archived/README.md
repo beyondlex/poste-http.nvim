@@ -20,3 +20,4 @@ Outdated plans, historical reports, and resolved issue diagnoses preserved for r
 | `SQL_COMPLETION_FIX.md` | SQL completion fix summary | Issues resolved |
 | `TODO-sql-completion.md` | SQL completion & context detection TODO | Completed (P0-P4) |
 | `TODO.md` | Brief old todo list | Mostly completed, not maintained |
+| `http-impl-guide.md` | HTTP Phase 0-4 implementation plan (format, script, import) | Specific feature plan, not a general TDD guide. Replaced by `docs/dev/http/tdd-guide.md` |

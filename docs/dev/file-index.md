@@ -112,7 +112,7 @@
 | [SQL 用户文档](../user/sql/README.md) | SQL 用户文档组 |
 | [SQL 开发者文档](./sql/README.md) | SQL 开发者文档组 |
 | [架构概览](./architecture-overview.md) | 整体架构设计 |
-| [HTTP 实施指南](./http/impl-guide.md) | TDD 实施步骤 |
+| [HTTP 实施指南](./http/tdd-guide.md) | TDD 实施步骤 |
 | [HTTP 语法规范](../user/http/syntax.md) | 完整语法定义 |
 | [HTTP 快速参考](../user/http/quick-reference.md) | 语法速查表 |
 | [HTTP Formatter 设计](./http/format-design.md) | 格式化器架构 |

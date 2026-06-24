@@ -15,7 +15,7 @@
 | 2 | Connection & context mgmt | 15-19 | ✅ |
 | 3 | DB structure browser | 20-23 | ✅ |
 | 4 | Table ops + DDL + completion | 24-27 | ✅ |
-| 5 | Import/export + pagination | 28-31 | ⏳ |
+| 5 | Import/export + pagination | 28-31 | ✅ |
 | 6 | Advanced features | 32-38 | ⏳ |
 
 **Tests: 300 passed (230 Rust + 70 Lua)** · 27/38 steps done

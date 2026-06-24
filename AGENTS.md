@@ -72,8 +72,8 @@ Rust: HTTP in `executor.rs`, SQL in `sql_executor.rs`. Shared infra (`state.lua`
 `init.lua` dispatch, `Protocol` enum) lives at the parent level.
 
 **TDD first.** Write the test before the implementation. For Rust: `#[cfg(test)]`
-inline tests. For Lua: add to `tests/` and run `tests/run.sh`. The HTTP implementation
-guide at `docs/dev/http/impl-guide.md` documents the TDD workflow.
+inline tests. For Lua: add to `tests/` and run `tests/run.sh`. The HTTP TDD
+guide at `docs/dev/http/tdd-guide.md` covers workflow and patterns.
 
 **Update docs on change.** Every new feature or behavior change must update the
 relevant `docs/dev/` or `docs/user/` file. If the change affects what a skill
@@ -103,7 +103,7 @@ Queries: `tests/sql/queries/`. Execute: `cargo run -- run tests/sql/queries/post
 | Complete file index | `docs/dev/file-index.md` |
 | Architecture overview | `docs/dev/architecture-overview.md` |
 | HTTP user syntax | `docs/user/http/syntax.md` |
-| HTTP implementation guide (TDD) | `docs/dev/http/impl-guide.md` |
+| HTTP TDD guide | `docs/dev/http/tdd-guide.md` |
 | SQL design | `docs/dev/sql/design.md` |
 | Testing guide | `docs/dev/testing.md` |
 | Progress tracking | `PROGRESS.md` |

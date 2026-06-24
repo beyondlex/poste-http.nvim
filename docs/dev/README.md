@@ -18,7 +18,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [实施指南](./http/impl-guide.md) | **入口** — TDD 步骤、Phase 0-4 |
+| [TDD 指南](./http/tdd-guide.md) | HTTP TDD 工作流和测试模式 |
 | [Formatter 设计](./http/format-design.md) | `poste fmt` 架构 |
 | [JSON 响应 UX](./http/json-response-ux.md) | JSON 折叠与 jq 探索 |
 
@@ -39,7 +39,7 @@
 ### HTTP 文档链
 
 ```
-http/impl-guide.md (入口)
+http/tdd-guide.md (TDD 工作流)
     ├── 引用 → ../user/http/syntax.md (语法规范)
     └── 引用 → http/format-design.md (Formatter 设计)
 ```

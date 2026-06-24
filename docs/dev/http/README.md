@@ -4,7 +4,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [实施指南](./impl-guide.md) | **入口文档** — TDD 步骤、测试定位、Phase 0-4 |
+| [TDD 指南](./tdd-guide.md) | TDD 工作流和测试模式 |
 | [Formatter 设计](./format-design.md) | `poste fmt` 架构 — Region 类型、格式化规则、CLI 集成 |
 | [JSON 响应 UX](./json-response-ux.md) | JSON 折叠与 jq 过滤体验设计 |
 

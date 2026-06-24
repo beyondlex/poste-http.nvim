@@ -196,19 +196,13 @@ local function get_response_buffer()
     vim.keymap.set("n", k, function() M.navigate_response(-1) end, opts)
   end
 
-  -- JSON filter prompt (<leader>j)
+  -- JSON filter prompt (<leader>j) — interactive float with completion dropdown
   k = state.get_keymap("http_response", "json_filter", "<leader>j")
   if k then
     vim.keymap.set("n", k, function()
       local buf = vim.api.nvim_get_current_buf()
       if vim.bo[buf].filetype ~= "json" then return end
-      local json = require("poste.http.json")
-      local close_hint = json.open_key_hint()
-      vim.ui.input({ prompt = "jq> " }, function(query)
-        close_hint()
-        if not query or query == "" then return end
-        json.apply_filter(query)
-      end)
+      require("poste.http.json").start_interactive_input()
     end, opts)
   end
 

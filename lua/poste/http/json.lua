@@ -3,47 +3,104 @@ local format = require("poste.http.format")
 
 local M = {}
 
-local hint_win = nil
-local hint_buf = nil
-
-local function close_hint()
-  if hint_win and vim.api.nvim_win_is_valid(hint_win) then
-    vim.api.nvim_win_close(hint_win, true)
-    hint_win = nil
-    hint_buf = nil
+local function filter_paths(paths, input)
+  if not input or input == "" then return paths end
+  local lower = input:lower()
+  local results = {}
+  for _, p in ipairs(paths) do
+    if p:lower():find(lower, 1, true) then
+      table.insert(results, p)
+    end
   end
+  return results
 end
 
-local function show_hint_float(paths)
-  close_hint()
-  if #paths == 0 then return end
+--- Interactive jq input with a completion dropdown.
+--- Float shows typed text + filtered key paths; Tab/Up/Down to navigate, Enter to confirm.
+function M.start_interactive_input()
+  local paths = M.get_key_paths()
+  if #paths == 0 then
+    vim.ui.input({ prompt = "jq> " }, function(query)
+      if query and query ~= "" then M.apply_filter(query) end
+    end)
+    return
+  end
 
-  hint_buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(hint_buf, 0, -1, false, paths)
-  vim.bo[hint_buf].modifiable = false
+  local input = ""
+  local matches = paths
+  local selected = 0
+  local float_buf = vim.api.nvim_create_buf(false, true)
+  local float_win
+
+  local function redraw()
+    matches = filter_paths(paths, input)
+    local lines = { "jq> " .. input }
+    for i, p in ipairs(matches) do
+      if #lines >= 15 then break end
+      lines[#lines + 1] = (i == selected) and "▸ " .. p or "  " .. p
+    end
+    vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
+  end
 
   local max_w = 0
   for _, p in ipairs(paths) do
-    if #p > max_w then max_w = #p end
+    if #p + 3 > max_w then max_w = #p + 3 end
   end
-  local width = math.min(max_w + 2, 64)
-  local height = math.min(#paths, 12)
+  local width = math.min(math.max(max_w, 14), 64)
+  local height = math.min(#paths + 1, 15)
 
-  local ui = vim.api.nvim_list_uis()[1]
-  local row = math.floor(ui.height * 0.1)
-  local col = ui.width - width - 1
-
-  hint_win = vim.api.nvim_open_win(hint_buf, false, {
-    relative = "editor",
+  float_win = vim.api.nvim_open_win(float_buf, false, {
+    relative = "cursor",
     width = width,
     height = height,
-    row = row,
-    col = col,
+    row = 1,
+    col = 0,
     style = "minimal",
     border = "rounded",
-    title = " Keys ",
+    title = " jq ",
     title_pos = "center",
+    focusable = false,
   })
+
+  redraw()
+  vim.cmd("redraw")
+
+  while true do
+    local char = vim.fn.getchar()
+    local t = type(char)
+    local c = t == "number" and vim.fn.nr2char(char) or tostring(char)
+
+    if c == "\r" or c == "\n" then
+      local query = selected > 0 and selected <= #matches and matches[selected] or input
+      pcall(vim.api.nvim_win_close, float_win, true)
+      if query and query ~= "" then M.apply_filter(query) end
+      return
+
+    elseif c == "\x1b" then
+      pcall(vim.api.nvim_win_close, float_win, true)
+      return
+
+    elseif c == "\t" or c == "\x0e" then
+      if #matches > 0 then selected = (selected % #matches) + 1 end
+      redraw()
+
+    elseif c == "\x10" then
+      if #matches > 0 then selected = (selected - 2) % #matches + 1 end
+      redraw()
+
+    elseif c == "\x7f" or c == "\x08" then
+      if #input > 0 then
+        input = input:sub(1, -2)
+        selected = 0
+        redraw()
+      end
+
+    elseif t == "number" and char >= 32 then
+      input = input .. c
+      selected = 0
+      redraw()
+    end
+  end
 end
 
 function M.get_key_paths()
@@ -73,17 +130,6 @@ function M.get_key_paths()
   walk(data, "")
   table.sort(paths)
   return paths
-end
-
---- Open a float window with key paths as reference for jq input.
---- Float auto-closes when the returned close function is called.
---- @return function close_hint_fn
-function M.open_key_hint()
-  local paths = M.get_key_paths()
-  if #paths > 0 then
-    show_hint_float(paths)
-  end
-  return close_hint
 end
 
 function M.setup_buffer(buf)

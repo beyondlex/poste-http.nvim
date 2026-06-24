@@ -412,9 +412,9 @@ local function parse_multipart_parts(body, boundary)
   if not body or not boundary then return nil end
   local parts = {}
   local delim = "--" .. boundary
-  local start = body:find(delim)
+  local start = body:find(delim, 1, true)
   while start do
-    local part_end = body:find("\n" .. delim, start + #delim)
+    local part_end = body:find("\n" .. delim, start + #delim, true)
     if not part_end then break end
     local raw = body:sub(start + #delim + 1, part_end - 1)
     raw = raw:gsub("^\r?\n", "")
@@ -431,7 +431,7 @@ local function parse_multipart_parts(body, boundary)
       end
       table.insert(parts, { headers = hdrs, body = body_str })
     end
-    start = body:find(delim, part_end)
+    start = body:find(delim, part_end, true)
   end
   return #parts > 0 and parts or nil
 end

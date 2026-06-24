@@ -586,7 +586,7 @@ fn format_request_block(regions: &[&Region], out: &mut String) {
         Self::emit_body(&classified.body, classified.body_separator, &classified.post_scripts, out);
         Self::emit_post_scripts(&classified.post_scripts, out);
         Self::emit_after_post(&classified.after_post, out);
-        Self::emit_trailing(&classified.trailing, classified.body_separator, out);
+        Self::emit_trailing(&classified.trailing, classified.request_line.is_some(), out);
     }
 
     fn classify_request_block(regions: &[&Region]) -> ClassifiedBlock {
@@ -751,11 +751,13 @@ fn format_request_block(regions: &[&Region], out: &mut String) {
         Self::compress_blank_lines(&stripped, out);
     }
 
-    fn emit_trailing(trailing: &[String], body_separator: bool, out: &mut String) {
-        if trailing.is_empty() || !body_separator {
+    fn emit_trailing(trailing: &[String], has_request: bool, out: &mut String) {
+        if trailing.is_empty() {
             return;
         }
-        out.push('\n');
+        if has_request {
+            out.push('\n');
+        }
         for s in trailing {
             out.push_str(s);
             out.push('\n');

@@ -275,6 +275,13 @@ fn test_format_run_preserved() {
 }
 
 #[test]
+fn test_format_run_in_comment_block() {
+    let input = "### 0.7a run #auth.Login — single imported request via alias\n# Place cursor on `run` line below, press <leader>r.\n# Expected: POST to httpbin.org/post → 200 + request JSON echoed back.\nrun #auth.Login\n";
+    let output = Formatter::format(input);
+    assert!(output.contains("run #auth.Login"));
+}
+
+#[test]
 fn test_format_multiline_var_preserved() {
     let input = "@headers =>>>\nAuthorization: token\nX-Custom: yes\n<<<\n\n### Test\nGET /api\n{{headers}}\n";
     let output = Formatter::format(input);

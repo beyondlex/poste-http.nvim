@@ -3,39 +3,67 @@ local format = require("poste.http.format")
 
 local M = {}
 
---- Completion handler for vim.ui.input customlist.
---- Called by VimL glue function PosteJqComplete(lead, cmdline, pos).
-function M._complete(lead)
-  local paths = M.get_key_paths()
-  if #paths == 0 then return {} end
-  local results = {}
-  local lower = lead:lower()
-  for _, p in ipairs(paths) do
-    if p:lower():find(lower, 1, true) then
-      table.insert(results, p)
+local function setup_omnifunc(buf)
+  vim.bo[buf].omnifunc = function(mode, base)
+    if mode == 1 then
+      return vim.fn.col(".") - 1
     end
+    local paths = M.get_key_paths()
+    if #paths == 0 then return {} end
+    local results = {}
+    local lower = (base or ""):lower()
+    for _, p in ipairs(paths) do
+      if p:lower():find(lower, 1, true) then
+        table.insert(results, { word = p })
+      end
+    end
+    return results
   end
-  return results
 end
 
-vim.api.nvim_exec([[
-  function! PosteJqComplete(lead, cmdline, pos)
-    return luaeval("require('poste.http.json')._complete(_A)", a:lead)
-  endfunction
-]], false)
-
---- Open jq input prompt with cmdline completion.
---- Uses Vim's built-in customlist completion (Tab/C-n/C-p to navigate).
---- Integrates with blink.cmp / nvim-cmp if cmdline completion is configured.
+--- Float-based jq input with insert-mode completion.
+--- Sets omnifunc so nvim-cmp (omni), blink.cmp (omni), or <C-x><C-o> show key paths.
+--- Esc to confirm, C-c to cancel.
 function M.start_interactive_input()
-  local paths = M.get_key_paths()
-  local opts = { prompt = "jq> " }
-  if #paths > 0 then
-    opts.completion = "customlist,PosteJqComplete"
-  end
-  vim.ui.input(opts, function(query)
-    if query and query ~= "" then M.apply_filter(query) end
-  end)
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].bufhidden = "wipe"
+
+  local width = 64
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "cursor",
+    width = width,
+    height = 1,
+    row = 1,
+    col = 0,
+    style = "minimal",
+    border = "rounded",
+    title = " jq ",
+    title_pos = "center",
+  })
+
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
+  setup_omnifunc(buf)
+
+  local augroup = vim.api.nvim_create_augroup("poste_jq_input", { clear = true })
+  vim.api.nvim_create_autocmd("InsertLeave", {
+    group = augroup,
+    buffer = buf,
+    callback = function()
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, 1, false)
+      local query = vim.trim(lines[1] or "")
+      pcall(vim.api.nvim_win_close, win, true)
+      if query ~= "" then M.apply_filter(query) end
+    end,
+  })
+  vim.api.nvim_create_autocmd("BufLeave", {
+    group = augroup,
+    buffer = buf,
+    callback = function()
+      pcall(vim.api.nvim_win_close, win, true)
+    end,
+  })
+
+  vim.cmd("startinsert!")
 end
 
 function M.get_key_paths()

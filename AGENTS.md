@@ -35,6 +35,19 @@ A simple solution that works is better than a generic one that's unfinished.
 - Minimal keystrokes for common operations
 - Visual feedback (indicators, winbar, syntax highlights) for every action
 
+## Session Start
+
+At the beginning of a session:
+1. Read `AGENTS.md` (this file) — rules and conventions
+2. Identify the task protocol via the **Protocol First** table
+3. Load the relevant `.opencode/skills/<protocol>/SKILL.md` for file index
+4. Read `docs/dev/file-index.md` for quick file lookup
+5. Read `LEARNINGS.md` — check if similar issues were solved before
+6. Read relevant `docs/` files for the specific feature area
+
+Do NOT scan the entire codebase. Use the file index and skills to load only
+what's needed. This saves tokens and avoids confusion.
+
 ## Code Conventions
 
 **Protocol directory discipline.** New Lua code for HTTP goes in `lua/poste/http/`,
@@ -49,6 +62,16 @@ guide at `docs/dev/http/tdd-guide.md` covers workflow and patterns.
 **Update docs on change.** Every new feature or behavior change must update the
 relevant `docs/dev/` or `docs/user/` file. If the change affects what a skill
 (`.opencode/skills/`) describes, update the skill too — stale skills waste tokens.
+
+**Learn from mistakes.** When you fix a bug or encounter a non-obvious pitfall,
+log it in `LEARNINGS.md`. Use a brief format:
+
+```
+- YYYY-MM-DD: <scope> — <one-line problem>. Fix: <one-line fix>. See <file>:<line>.
+```
+
+Check `LEARNINGS.md` before starting any task. Similar issues may have been solved
+before. This lets the agent self-evolve across sessions.
 
 **Rust**: Edition 2021, `anyhow::Result` (app) / `thiserror` (lib), no `unwrap()`
 outside tests, Tokio, workspace deps, `#[cfg(test)]` for new features.
@@ -71,4 +94,5 @@ isolated, shared state in `state.lua`.
 | SQL syntax & config | `docs/user/sql/quick-reference.md` |
 | HTTP TDD guide | `docs/dev/http/tdd-guide.md` |
 | SQL design | `docs/dev/sql/design.md` |
+| Agent learnings | `LEARNINGS.md` |
 | Progress tracking | `PROGRESS.md` |

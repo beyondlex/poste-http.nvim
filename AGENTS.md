@@ -4,6 +4,20 @@ File-driven, keyboard-first multi-protocol request executor (Rust CLI + Neovim).
 
 `.http`/`.sql`/`.redis` → execute → results in editable Vim buffer.
 
+## Protocol First
+
+**Identify the protocol before loading context.** 
+
+| Task mentions | Load | Skip |
+|---------------|------|------|
+| `.http`, `curl`, `jq`, pre-script, assertion, `{{var}}`, import, env vars | HTTP skill + shared files | `lua/poste/sql/`, `sql_executor`, `sql_parser`, `sql_context` |
+| `.sql`, `pg`, `mysql`, `sqlite`, completion, table/column/schema, dataset, db_browser | SQL skill + shared files | `lua/poste/http/`, `executor.rs` (curl) |
+| Redis, Mongo, AMQP | `executor.rs` + shared | sql + http Lua modules |
+| Rust CLI (`poste run/conn/introspect/fmt/context`) | `main.rs` + both skills | — |
+
+Use `.opencode/skills/` skills for detailed file indexes. The AGENTS.md file index
+below is a quick reference only.
+
 ## Protocols
 
 | Proto | Ext | Status | Impl |

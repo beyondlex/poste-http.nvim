@@ -83,7 +83,7 @@ function M.run_request()
 
           if type(response) == "table" and response[1] and response[1].response then
             for _, item in ipairs(response) do
-              local item_name = item.name or ("Request #" .. (item.line or ""))
+              local item_name = (item.name or "") ~= "" and item.name or ("Request #" .. (item.line or ""))
               history.add_entry(item_name, item.response, nil, nil, resolved.path or file)
             end
           else
@@ -244,7 +244,7 @@ function M.run_request()
                   indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms)
                 end
               end
-              local hist_name = current_req_name or ("Request #" .. line)
+              local hist_name = (current_req_name or "") ~= "" and current_req_name or ("Request #" .. line)
               history.add_entry(hist_name, state.last_response, state.last_assertion_results, state.last_script_logs, file)
             else
               state.log("WARN", "JSON parse failed, showing raw output")
@@ -268,7 +268,7 @@ function M.run_request()
                 },
               }
               view.show_view("verbose")
-              local err_name = current_req_name or ("Request #" .. line)
+              local err_name = (current_req_name or "") ~= "" and current_req_name or ("Request #" .. line)
               history.add_entry(err_name, state.last_response, state.last_assertion_results, state.last_script_logs, file)
             end
           end)
@@ -305,7 +305,7 @@ function M.run_request()
                 },
               }
               view.show_view("verbose")
-              local err_name = current_req_name or ("Request #" .. line)
+              local err_name = (current_req_name or "") ~= "" and current_req_name or ("Request #" .. line)
               history.add_entry(err_name, state.last_response, state.last_assertion_results, state.last_script_logs, file)
             end)
           end

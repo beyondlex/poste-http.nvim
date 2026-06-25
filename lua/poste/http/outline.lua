@@ -115,21 +115,24 @@ end
 local function build_label(item)
   local win_width = active and vim.api.nvim_win_get_width(active.out_win) or 40
   local method = item.method or "--"
-  local method_part = #method + 2
-  local remaining = math.max(10, win_width - method_part)
-  local name_max = math.max(3, math.min(16, math.floor(remaining * 0.35)))
+  local method_len = #method
+  local remaining = math.max(10, win_width - method_len - 2)
+  local name_max = math.max(4, math.min(16, math.floor(remaining * 0.35)))
   local path_max = math.max(3, remaining - name_max - 1)
 
   local path_display = item.url_path and ellipsis(item.url_path, path_max) or ""
-  local name_display = "#" .. ellipsis(item.name, name_max)
+  local name_display = "-" .. ellipsis(item.name, name_max - 1)
 
   if method == "@" then
+    item._name_start = 1
     local val = path_display ~= "" and (" " .. path_display) or ""
     return "@" .. item.name:sub(2) .. val
   end
   if path_display == "" then
+    item._name_start = method_len + 2
     return method .. "  " .. name_display
   end
+  item._name_start = method_len + #path_display + 3
   return method .. "  " .. path_display .. " " .. name_display
 end
 
@@ -147,12 +150,10 @@ local function render()
   vim.api.nvim_buf_clear_namespace(active.out_buf, hl_ns, 0, -1)
 
   for i, item in ipairs(items) do
-    local label = lines[i]
     local m_end = (item.method or "--"):len() + 1
     vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, method_hl(item.method), i - 1, 0, m_end)
-    local hash_start = label:find("#")
-    if hash_start then
-      vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, "Comment", i - 1, hash_start - 1, -1)
+    if item._name_start then
+      vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, "Comment", i - 1, item._name_start - 1, -1)
     end
   end
 
@@ -186,17 +187,14 @@ local function highlight_current()
 
   local current = find_current_item(items, cursor_line[1])
   local data_win = active.out_win
-  local lines = vim.api.nvim_buf_get_lines(active.out_buf, 0, -1, false)
 
   vim.api.nvim_buf_clear_namespace(active.out_buf, hl_ns, 0, -1)
 
   for i, item in ipairs(items) do
-    local label = lines[i] or ""
     local m_end = (item.method or "--"):len() + 1
     vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, method_hl(item.method), i - 1, 0, m_end)
-    local hash_start = label:find("#")
-    if hash_start then
-      vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, "Comment", i - 1, hash_start - 1, -1)
+    if item._name_start then
+      vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, "Comment", i - 1, item._name_start - 1, -1)
     end
 
     if current and item.line == current.line then

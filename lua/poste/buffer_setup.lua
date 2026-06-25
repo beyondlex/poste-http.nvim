@@ -41,10 +41,10 @@ function M.setup_buffer_keymaps(buf)
       copy.copy_to_clipboard("+")
     end, keymap_opts)
   end
-  k = km("source_buffer", "show_symbols", "gs")
+  k = km("source_buffer", "toggle_outline", "gs")
   if k then
     vim.keymap.set("n", k, function()
-      require("poste.http.symbols").show_symbols()
+      require("poste.http.outline").toggle()
     end, keymap_opts)
   end
   k = km("source_buffer", "pick_env", "<leader>vv")

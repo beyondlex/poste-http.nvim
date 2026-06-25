@@ -107,6 +107,10 @@ function M.setup(opts)
     symbols.show_symbols()
   end, { desc = "Show symbol outline (all HTTP requests)" })
 
+  vim.api.nvim_create_user_command("PosteOutline", function()
+    require("poste.http.outline").toggle()
+  end, { desc = "Toggle outline sidebar for .http file" })
+
   vim.api.nvim_create_user_command("PosteFormatHttp", function()
     local binary = state.find_poste_binary()
     if not binary then

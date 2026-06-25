@@ -36,6 +36,10 @@ local function extract_method_url(buf, start_line, total_lines)
         ) or nil
         return method, (path and path ~= "" and path or nil)
       end
+      local run_target = trimmed:match("^run%s+(%S+)")
+      if run_target then
+        return "run", run_target
+      end
       return nil, nil
     end
   end
@@ -64,6 +68,7 @@ end
 
 local function method_hl(method)
   if not method then return "PosteMethodOther" end
+  if method == "run" then return "PosteRun" end
   local m = method:upper()
   if m == "GET" then return "PosteMethodGET"
   elseif m == "POST" then return "PosteMethodPOST"
@@ -213,7 +218,7 @@ function M.open()
   vim.bo[out_buf].filetype = "poste_outline"
   vim.bo[out_buf].modifiable = true
 
-  local out_win = vim.api.nvim_open_win(out_buf, false, {
+  local out_win = vim.api.nvim_open_win(out_buf, true, {
     split = "right",
     win = src_win,
   })

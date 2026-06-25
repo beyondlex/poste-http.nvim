@@ -49,7 +49,7 @@ function M.run_request()
 
     if resolved.error then
       vim.notify(resolved.error, vim.log.levels.ERROR, { title = "Poste" })
-      indicators.set_indicator(src_buf, line - 1, "error")
+      indicators.set_indicator(src_buf, (resolved.run_line or line) - 1, "error")
       return
     end
 
@@ -57,7 +57,8 @@ function M.run_request()
       resolved.action, resolved.path or "", resolved.line or 0))
 
     -- Place indicator on the run directive line itself
-    indicators.set_indicator(src_buf, line - 1, "running")
+    local indicator_line = (resolved.run_line or line) - 1
+    indicators.set_indicator(src_buf, indicator_line, "running")
 
     import_mod.execute_run_directive(resolved, function(success, response)
       vim.schedule(function()
@@ -75,10 +76,10 @@ function M.run_request()
 
           if state.last_response.status and state.last_response.status >= 400 then
             view.show_view("verbose")
-            indicators.set_indicator(src_buf, line - 1, "error", state.last_response.latency_ms)
+            indicators.set_indicator(src_buf, indicator_line, "error", state.last_response.latency_ms)
           else
             view.show_view("body")
-            indicators.set_indicator(src_buf, line - 1, "success", state.last_response.latency_ms)
+            indicators.set_indicator(src_buf, indicator_line, "success", state.last_response.latency_ms)
           end
 
           if type(response) == "table" and response[1] and response[1].response then
@@ -87,10 +88,10 @@ function M.run_request()
               history.add_entry(item_name, item.response, nil, nil, resolved.path or file)
             end
           else
-            history.add_entry(response.name or "Import", response, nil, nil, resolved.path or file)
+            history.add_entry(resolved.request_name or "Import", response, nil, nil, resolved.path or file)
           end
         else
-          indicators.set_indicator(src_buf, line - 1, "error")
+          indicators.set_indicator(src_buf, indicator_line, "error")
         end
       end)
     end)

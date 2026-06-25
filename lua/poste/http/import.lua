@@ -260,13 +260,33 @@ function M.resolve_run_at_cursor(buf, cursor_line)
 
   local buf_name = vim.api.nvim_buf_get_name(buf)
   local buf_dir = buf_name ~= "" and vim.fn.fnamemodify(buf_name, ":h") or vim.fn.getcwd()
-
-  -- Get the line content
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local line_text = lines[cursor_line] or ""
+  local total = #lines
 
-  -- Parse run directive
-  local run = parse_run_line(line_text)
+  -- Find block start (### marker above cursor), then walk forward to find `run` line
+  local block_start = 0
+  for i = cursor_line, 1, -1 do
+    local text = (lines[i] or "")
+    if text:match("^%s*###") then
+      block_start = i
+      break
+    end
+  end
+
+  local run = nil
+  local run_line = nil
+  for i = block_start + 1, total do
+    local text = (lines[i] or "")
+    if text:match("^%s*###") then
+      break
+    end
+    local maybe_run = parse_run_line(text)
+    if maybe_run then
+      run = maybe_run
+      run_line = i
+      break
+    end
+  end
   if not run then
     return { action = "none" }
   end
@@ -278,7 +298,7 @@ function M.resolve_run_at_cursor(buf, cursor_line)
       return { action = "none", error = string.format("Cannot open '%s': %s", run.path, err or "unknown") }
     end
     -- Execute all requests in the file
-    return { action = "execute_all", path = file_path, content = content, vars = run.vars }
+    return { action = "execute_all", path = file_path, content = content, vars = run.vars, run_line = run_line }
   end
 
   -- by_name or by_alias: need to resolve through imports
@@ -306,6 +326,8 @@ function M.resolve_run_at_cursor(buf, cursor_line)
     path = resolved.path,
     line = resolved.line,
     vars = run.vars,
+    request_name = resolved.request.name,
+    run_line = run_line,
     warnings = index.warnings,
   }
 end

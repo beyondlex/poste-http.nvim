@@ -18,6 +18,7 @@ local DESCRIPTIONS = {
     toggle_outline = "Toggle outline sidebar",
     pick_env = "Pick environment",
     show_var_value = "Show variable value / response chain",
+    show_history = "Open request history",
     help = "Show this help window",
   },
     http_response = {
@@ -101,6 +102,11 @@ local DESCRIPTIONS = {
     close = "Close introspect window",
     close_alt = "Close introspect window",
   },
+  http_history = {
+    close = "Close history window",
+    delete_entry = "Delete current history entry",
+    focus_detail = "Focus detail pane",
+  },
 }
 
 local SECTION_TITLES = {
@@ -111,13 +117,14 @@ local SECTION_TITLES = {
   sql_table_ops = "SQL Table Ops",
   db_browser = "DB Browser",
   introspect_float = "Introspect Float",
+  http_history = "HTTP Request History",
 }
 
 function M.open()
   local lines = {}
   local width = 50
 
-  for _, section in ipairs({ "source_buffer", "http_response", "sql_source", "sql_dataset", "sql_table_ops", "db_browser", "introspect_float" }) do
+  for _, section in ipairs({ "source_buffer", "http_response", "sql_source", "sql_dataset", "sql_table_ops", "db_browser", "introspect_float", "http_history" }) do
     local title = SECTION_TITLES[section] or section
     local km = state.config.keymaps[section] or {}
     local desc = DESCRIPTIONS[section] or {}

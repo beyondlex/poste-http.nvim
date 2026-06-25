@@ -35,6 +35,7 @@ M.config = {
       toggle_outline = "gs",
       pick_env = "<leader>vv",
       show_var_value = "K",
+      show_history = "<leader>l",
       help = "g?",
     },
     http_response = {

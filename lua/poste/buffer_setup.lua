@@ -57,6 +57,12 @@ function M.setup_buffer_keymaps(buf)
   if k then vim.keymap.set("n", k, require("poste.http.env").pick_env, keymap_opts) end
   k = km("source_buffer", "show_var_value", "K")
   if k then vim.keymap.set("n", k, nav.show_var_value, keymap_opts) end
+  k = km("source_buffer", "show_history", "<leader>l")
+  if k then
+    vim.keymap.set("n", k, function()
+      require("poste.http.history").show()
+    end, keymap_opts)
+  end
   k = km("source_buffer", "help", "g?")
   if k then
     vim.keymap.set("n", k, function() require("poste.help").open() end, keymap_opts)

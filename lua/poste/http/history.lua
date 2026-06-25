@@ -204,8 +204,11 @@ local function render_detail()
   update_winbar()
 
   if filetype == "json" then
-    local json = require("poste.http.json")
-    json.setup_buffer(detail_buf)
+    if detail_win and vim.api.nvim_win_is_valid(detail_win) then
+      vim.wo[detail_win].foldmethod = "indent"
+      vim.wo[detail_win].foldlevel = 99
+      vim.wo[detail_win].foldcolumn = "0"
+    end
   end
 
   if detail_view == "body" and (not r or not r.body or r.body == "") then
@@ -275,8 +278,11 @@ local function history_jq_filter(query)
   vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, lines)
   vim.api.nvim_buf_set_option(detail_buf, "modifiable", false)
 
-  local json = require("poste.http.json")
-  json.setup_buffer(detail_buf)
+  if detail_win and vim.api.nvim_win_is_valid(detail_win) then
+    vim.wo[detail_win].foldmethod = "indent"
+    vim.wo[detail_win].foldlevel = 99
+    vim.wo[detail_win].foldcolumn = "0"
+  end
 
   update_winbar()
 end
@@ -451,7 +457,7 @@ local function setup_detail_keymaps()
   if k then vim.keymap.set("n", k, function() cycle_tab(-1) end, opts) end
 
   local nopts = { buffer = detail_buf, noremap = true, silent = true, nowait = true }
-  vim.keymap.set("n", "<C-W>h", wincmd_list, nopts)
+  vim.keymap.set("n", "<C-h>", wincmd_list, nopts)
 
   k = state.get_keymap("http_response", "json_filter", "<leader>j")
   if k then

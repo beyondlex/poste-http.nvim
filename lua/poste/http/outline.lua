@@ -3,8 +3,14 @@ local request_vars = require("poste.http.request_vars")
 
 local M = {}
 
-local active = nil  -- { src_buf, src_win, out_buf, out_win, augroup, items }
+local active = nil
 local hl_ns = vim.api.nvim_create_namespace("poste_outline")
+
+local function ellipsis(s, max)
+  if not s then return "" end
+  if #s <= max then return s end
+  return s:sub(1, max - 1) .. "…"
+end
 
 -----------------------------------------------------------------------------
 -- Parse request blocks
@@ -16,15 +22,12 @@ local function extract_method_url(buf, start_line, total_lines)
   for _, line in ipairs(lines) do
     local trimmed = line:match("^%s*(.-)%s*$") or line
     if trimmed == "" then
-      -- skip empty
     elseif trimmed:match("^<%s*{%%") then
       in_pre = true
     elseif in_pre then
       if trimmed:match("%%}") then in_pre = false end
     elseif trimmed:match("^@%w") then
-      -- var def
     elseif trimmed:match("^#") then
-      -- comment
     else
       local method = trimmed:match("^(%u+)%s")
       if method then
@@ -34,6 +37,7 @@ local function extract_method_url(buf, start_line, total_lines)
           or url:match("}}(.*)")
           or url:match("^(/.*)")
         ) or nil
+        if path then path = path:gsub("%?.*", "") end
         return method, (path and path ~= "" and path or nil)
       end
       local run_target = trimmed:match("^run%s+(%S+)")
@@ -46,10 +50,38 @@ local function extract_method_url(buf, start_line, total_lines)
   return nil, nil
 end
 
+local function collect_file_scope_vars(buf)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local items = {}
+  for i, line in ipairs(lines) do
+    if line:match("^###") then break end
+    local name, val = line:match("^%s*@(%w+)%s*[= ](.*)")
+    if name then
+      table.insert(items, {
+        name = "@" .. name,
+        line = i,
+        method = "@",
+        url_path = vim.trim(val),
+      })
+    else
+      local bare = line:match("^%s*@(%w+)%s*$")
+      if bare then
+        table.insert(items, {
+          name = "@" .. bare,
+          line = i,
+          method = "@",
+          url_path = nil,
+        })
+      end
+    end
+  end
+  return items
+end
+
 local function collect_items(buf)
+  local items = collect_file_scope_vars(buf)
   local requests = request_vars.collect_requests(buf)
   local total = vim.api.nvim_buf_line_count(buf)
-  local items = {}
   for _, req in ipairs(requests) do
     local method, url_path = extract_method_url(buf, req.start_line, total)
     table.insert(items, {
@@ -67,8 +99,9 @@ end
 -----------------------------------------------------------------------------
 
 local function method_hl(method)
-  if not method then return "PosteMethodOther" end
+  if not method or method == "--" then return "PosteMethodOther" end
   if method == "run" then return "PosteRun" end
+  if method == "@" then return "PreProc" end
   local m = method:upper()
   if m == "GET" then return "PosteMethodGET"
   elseif m == "POST" then return "PosteMethodPOST"
@@ -79,18 +112,27 @@ local function method_hl(method)
   else return "PosteMethodOther" end
 end
 
+local function build_label(item)
+  local method = item.method or "--"
+  local path_display = item.url_path and ellipsis(item.url_path, 22) or ""
+  local name_display = "#" .. ellipsis(item.name, 16)
+  if method == "@" then
+    local val = path_display ~= "" and (" " .. path_display) or ""
+    return "@" .. item.name:sub(2) .. val
+  end
+  if path_display == "" then
+    return method .. "  " .. name_display
+  end
+  return method .. "  " .. path_display .. "  " .. name_display
+end
+
 local function render()
   if not active or not vim.api.nvim_buf_is_valid(active.out_buf) then return end
   local items = collect_items(active.src_buf)
 
   local lines = {}
   for _, item in ipairs(items) do
-    local method = item.method or "--"
-    local label = method .. "  " .. item.name
-    if item.url_path then
-      label = label .. "  " .. item.url_path
-    end
-    table.insert(lines, label)
+    table.insert(lines, build_label(item))
   end
 
   vim.bo[active.out_buf].modifiable = true
@@ -98,10 +140,13 @@ local function render()
   vim.api.nvim_buf_clear_namespace(active.out_buf, hl_ns, 0, -1)
 
   for i, item in ipairs(items) do
-    local m = item.method or "--"
-    local m_end = #m + 1
+    local label = lines[i]
+    local m_end = (item.method or "--"):len() + 1
     vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, method_hl(item.method), i - 1, 0, m_end)
-    vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, "PosteRequestName", i - 1, m_end + 2, m_end + 2 + #item.name)
+    local hash_start = label:find("#")
+    if hash_start then
+      vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, "Comment", i - 1, hash_start - 1, -1)
+    end
   end
 
   vim.bo[active.out_buf].modifiable = false
@@ -134,23 +179,24 @@ local function highlight_current()
 
   local current = find_current_item(items, cursor_line[1])
   local data_win = active.out_win
+  local lines = vim.api.nvim_buf_get_lines(active.out_buf, 0, -1, false)
 
-  -- Clear previous extmarks
   vim.api.nvim_buf_clear_namespace(active.out_buf, hl_ns, 0, -1)
 
-  -- Re-apply method+name highlights, then highlight current line
   for i, item in ipairs(items) do
-    local m = item.method or "--"
-    local m_end = #m + 1
+    local label = lines[i] or ""
+    local m_end = (item.method or "--"):len() + 1
     vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, method_hl(item.method), i - 1, 0, m_end)
-    vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, "PosteRequestName", i - 1, m_end + 2, m_end + 2 + #item.name)
+    local hash_start = label:find("#")
+    if hash_start then
+      vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, "Comment", i - 1, hash_start - 1, -1)
+    end
 
     if current and item.line == current.line then
       vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, "PosteSymbolCurrent", i - 1, 0, -1)
     end
   end
 
-  -- Scroll outline to keep current item visible
   if current then
     local target_line = nil
     for i, item in ipairs(items) do
@@ -165,7 +211,6 @@ local function highlight_current()
     end
   end
 
-  -- Re-mark modifiable state
   vim.bo[active.out_buf].modifiable = false
 end
 

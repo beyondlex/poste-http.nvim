@@ -3,6 +3,7 @@ local util = require("poste.util")
 local request_vars = require("poste.http.request_vars")
 local context_detector = require("poste.http.context_detector")
 local data = require("poste.http.data")
+local lua_docs = require("poste.http.lua_docs")
 
 local M = {}
 
@@ -39,6 +40,13 @@ function M.show_script_api_doc()
   local identifier = start <= finish and line_text:sub(start, finish) or nil
   if not identifier then return false end
 
+  -- Lua standard library identifiers (tostring, os.time, string.match, etc.)
+  -- go directly to LSP / built-in fallback, skipping Poste custom docs.
+  if lua_docs.is_lua_identifier(identifier) then
+    lua_docs.show_doc(buf, line_num, col_1idx, identifier)
+    return true
+  end
+
   -- Determine which dotted segment the cursor is on, then walk up
   -- e.g. response.body.json: cursor on response → lookup response;
   --      cursor on body → lookup response.body;
@@ -67,7 +75,10 @@ function M.show_script_api_doc()
     local cword = vim.fn.expand("<cword>")
     if cword and cword ~= "" then entry = docs[cword] end
   end
-  if not entry then return false end
+  if not entry then
+    lua_docs.show_doc(buf, line_num, col_1idx, identifier)
+    return true
+  end
 
   -- Build floating window content
   local lines = {}

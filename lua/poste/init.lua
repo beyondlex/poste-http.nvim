@@ -36,6 +36,7 @@ function M.setup(opts)
   state.config = vim.tbl_deep_extend("force", state.config, opts)
 
   completion.register()
+  require("poste.http.lua_docs").setup()
 
   require("poste.sql.init").setup(opts)
 

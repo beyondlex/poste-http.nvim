@@ -538,10 +538,10 @@ M.script_api_docs = {
       desc = "Compute the MD5 hash of a string value.",
     },
     -- Lua standard library (injected into sandbox)
-    ["tostring"] = {
-      sig = "tostring(value)",
-      desc = "Convert a value to its string representation.",
-    },
+    -- ["tostring"] = {
+    --   sig = "tostring(value)",
+    --   desc = "Convert a value to its string representation.",
+    -- },
     ["tonumber"] = {
       sig = "tonumber(value [, base])",
       desc = "Convert a value to a number. Optional base for string-to-integer conversion.",
@@ -686,10 +686,10 @@ M.script_api_docs = {
       desc = "Compute the MD5 hash of a string value.",
     },
     -- Lua standard library (injected into sandbox)
-    ["tostring"] = {
-      sig = "tostring(value)",
-      desc = "Convert a value to its string representation.",
-    },
+    -- ["tostring"] = {
+    --   sig = "tostring(value)",
+    --   desc = "Convert a value to its string representation.",
+    -- },
     ["tonumber"] = {
       sig = "tonumber(value [, base])",
       desc = "Convert a value to a number. Optional base for string-to-integer conversion.",

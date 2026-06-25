@@ -113,8 +113,12 @@ end
 local function get_active_tabs()
   local entry = state.http_history[current_index]
   if not entry then return {} end
+  local body_label = "Body [H]"
+  if entry._jq and entry._jq.query then
+    body_label = "Body [H] | jq: " .. entry._jq.query
+  end
   local tabs = {
-    { id = "body", label = "Body [H]" },
+    { id = "body", label = body_label },
     { id = "request", label = "Rqst [R]" },
     { id = "verbose", label = "Verb [L]" },
   }
@@ -157,7 +161,10 @@ local function render_detail()
   local r = entry.response
 
   if detail_view == "body" then
-    if not r or not r.body or r.body == "" then
+    if entry._jq and entry._jq.is_filtered then
+      lines = entry._jq.lines
+      filetype = "json"
+    elseif not r or not r.body or r.body == "" then
       lines = { "(no response body)" }
       filetype = "text"
     else
@@ -232,8 +239,64 @@ local function render_detail()
       end
     end
   end
+end
 
-  detail_jq_query = nil
+local function history_jq_filter(query)
+  local entry = state.http_history[current_index]
+  if not entry or not entry.response or not entry.response.body then return end
+
+  if not entry._jq then entry._jq = {} end
+  if not entry._jq.original_lines then
+    entry._jq.original_lines = vim.api.nvim_buf_get_lines(detail_buf, 0, -1, false)
+  end
+
+  local result
+  if vim.fn.executable("jq") == 1 then
+    local ok, output = pcall(vim.fn.system, { "jq", query, "-r" }, entry.response.body)
+    if ok then
+      result = format.pretty_body(output, "application/json")
+    else
+      vim.notify("jq error: " .. (output or "unknown"), vim.log.levels.ERROR)
+      return
+    end
+  else
+    local json = require("poste.http.json")
+    result = json._jsonpath_query(entry.response.body, query)
+  end
+
+  if not result then return end
+
+  local lines = vim.split(result, "\n")
+  entry._jq.query = query
+  entry._jq.is_filtered = true
+  entry._jq.lines = lines
+
+  vim.api.nvim_buf_set_option(detail_buf, "modifiable", true)
+  vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_option(detail_buf, "modifiable", false)
+
+  local json = require("poste.http.json")
+  json.setup_buffer(detail_buf)
+
+  update_winbar()
+end
+
+local function history_jq_restore()
+  local entry = state.http_history[current_index]
+  if not entry or not entry._jq or not entry._jq.original_lines then return end
+
+  vim.api.nvim_buf_set_option(detail_buf, "modifiable", true)
+  vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, entry._jq.original_lines)
+  vim.api.nvim_buf_set_option(detail_buf, "modifiable", false)
+
+  entry._jq = nil
+
+  local ft = "text"
+  if entry.response and entry.response.content_type then
+    ft = format.detect_filetype(entry.response.content_type)
+  end
+  vim.bo[detail_buf].filetype = ft
+  update_winbar()
 end
 
 local function render_list()
@@ -266,7 +329,7 @@ local function render_list()
   for i, line in ipairs(lines) do
     local ts_start = line:match("^.*() %d%d:%d%d$")
     if ts_start then
-      vim.api.nvim_buf_set_extmark(list_buf, list_ns, i - 1, ts_start + 1, {
+      vim.api.nvim_buf_set_extmark(list_buf, list_ns, i - 1, ts_start , {
         end_col = #line,
         hl_group = "Comment",
         priority = 100,
@@ -298,7 +361,6 @@ local function hide()
   detail_win = nil
   current_index = nil
   detail_view = "body"
-  detail_jq_query = nil
   hiding = false
 end
 
@@ -397,23 +459,31 @@ local function setup_detail_keymaps()
       if vim.bo[detail_buf].filetype ~= "json" then return end
       local entry = state.http_history[current_index]
       if not entry then return end
-      local saved = state.last_response
+      local saved_response = state.last_response
       state.last_response = entry.response
-      require("poste.http.json").start_interactive_input()
-      entry.response = state.last_response
-      state.last_response = saved
-      render_detail()
+      local json = require("poste.http.json")
+      local paths = json.get_key_paths()
+      state.last_response = saved_response
+      local query
+      if #paths > 0 then
+        vim.ui.select(paths, {
+          prompt = "jq filter",
+          format_item = function(item) return item end,
+        }, function(choice)
+          if choice then history_jq_filter(choice) end
+        end)
+      else
+        vim.ui.input({ prompt = "jq> " }, function(q)
+          if q and q ~= "" then history_jq_filter(q) end
+        end)
+      end
     end, opts)
   end
 
   k = state.get_keymap("http_response", "json_restore", "<leader>jc")
   if k then
     vim.keymap.set("n", k, function()
-      local entry = state.http_history[current_index]
-      if not entry then return end
-      local json = require("poste.http.json")
-      json.restore_original()
-      render_detail()
+      history_jq_restore()
     end, opts)
   end
 end
@@ -434,7 +504,7 @@ local function setup_list_keymaps()
   vim.keymap.set("n", "k", function() navigate_list(-1) end, opts)
 
   local nopts = { buffer = list_buf, noremap = true, silent = true, nowait = true }
-  vim.keymap.set("n", "<C-W>l", wincmd_detail, nopts)
+  vim.keymap.set("n", "<C-l>", wincmd_detail, nopts)
 
   vim.api.nvim_buf_attach(list_buf, false, {
     on_detach = function()

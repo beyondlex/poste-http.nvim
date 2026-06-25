@@ -14,7 +14,13 @@ function M.setup_buffer_keymaps(buf)
   local run_request = require("poste.http.run").run_request
 
   local k = km("source_buffer", "run", "<CR>")
-  if k then vim.keymap.set("n", k, run_request, keymap_opts) end
+  if k then
+    vim.keymap.set("n", k, function()
+      local outline = package.loaded["poste.http.outline"]
+      if outline then outline.close() end
+      run_request()
+    end, keymap_opts)
+  end
   k = km("source_buffer", "jump_next", "]]")
   if k then vim.keymap.set("n", k, nav.jump_next, keymap_opts) end
   k = km("source_buffer", "jump_prev", "[[")

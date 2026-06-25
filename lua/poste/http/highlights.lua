@@ -147,7 +147,7 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteSqlBoundaryBorder", { fg = 0x665cff })
 
   -- HTTP request block boundary (same visual style)
-  vim.api.nvim_set_hl(0, "PosteHttpBoundaryBorder", { fg = 0x665cff })                    -- subtle blue-gray
+  vim.api.nvim_set_hl(0, "PosteHttpBoundaryBorder", { fg = 0x665cff, bold = true })                    -- subtle blue-gray
 
   -- Status code coloring in verbose view
   vim.api.nvim_set_hl(0, "PosteStatus2xx", { fg = 0x98c379, bold = true })          -- green

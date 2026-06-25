@@ -26,7 +26,16 @@ function M.setup_buffer_keymaps(buf)
   k = km("source_buffer", "jump_prev", "[[")
   if k then vim.keymap.set("n", k, nav.jump_prev, keymap_opts) end
   k = km("source_buffer", "goto_definition", "gd")
-  if k then vim.keymap.set("n", k, nav.goto_definition, keymap_opts) end
+  if k then
+    vim.keymap.set("n", k, function()
+      local ft = vim.bo.filetype
+      if ft == "poste_sql" or ft == "poste_sqlite" then
+        require("poste.sql.nav").goto_definition()
+      else
+        nav.goto_definition()
+      end
+    end, keymap_opts)
+  end
   k = km("source_buffer", "goto_references", "grr")
   if k then vim.keymap.set("n", k, nav.goto_references, keymap_opts) end
   k = km("source_buffer", "quickfix_next", "]q")

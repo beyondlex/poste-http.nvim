@@ -469,6 +469,21 @@ M.lua_docs = {
 --- @param cursor_col number  1-indexed column in .http buffer
 --- @param identifier string  full dotted identifier under cursor
 function M.show_doc(buf, cursor_line, cursor_col, identifier)
+  -- Bare method names (find, match, gsub, etc.) — query LSP with the
+  -- qualified name (string.find) so LSP resolves the rich docs.
+  -- Falls back to built-in if LSP unavailable.
+  if method_module[identifier] then
+    local qualified = method_module[identifier] .. "." .. identifier
+    local lsp_col = #method_module[identifier] + 2
+    M.try_lsp_hover({ qualified }, 1, lsp_col, function(result)
+      if result then
+        M.show_lsp_result(result)
+      else
+        M.show_builtin_fallback(identifier)
+      end
+    end)
+    return
+  end
   local lines, lua_line, lua_col = M.extract_script_block(buf, cursor_line, cursor_col)
   if lines then
     M.try_lsp_hover(lines, lua_line, lua_col, function(result)

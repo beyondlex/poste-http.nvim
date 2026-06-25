@@ -37,6 +37,7 @@ function M.setup(opts)
 
   completion.register()
   require("poste.http.lua_docs").setup()
+  require("poste.http.script_snippet").setup()
 
   require("poste.sql.init").setup(opts)
 

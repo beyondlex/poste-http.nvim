@@ -283,17 +283,42 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
   local ctx, extra = context_detector.detect_context(line_before_cursor, buf, cursor_line, cursor_col)
   local items = {}
 
-  if ctx == "pre_script" then
-    items = M.build_keyword_items(data.pre_script_keywords, KIND_FUNCTION)
+  if ctx == "pre_script" or ctx == "post_script" then
+    local line = extra or ""
 
-    local var_items = M.build_script_variable_items(extra or "", buf, cursor_line)
-    for _, item in ipairs(var_items) do
+    local module_name = line:match("(%w+)%.%w*$")
+    if module_name and data.lua_module_members[module_name] then
+      local members = data.lua_module_members[module_name]
+      for _, member in ipairs(members) do
+        table.insert(items, {
+          label = member.name,
+          kind = KIND_FUNCTION,
+          insertText = member.name,
+          filterText = member.name,
+          sortText = member.name,
+          detail = member.desc,
+        })
+      end
+      return items
+    end
+
+    local keywords = ctx == "pre_script" and data.pre_script_keywords or data.post_script_keywords
+    items = M.build_keyword_items(keywords, KIND_FUNCTION)
+
+    local lua_key_items = M.build_items(data.lua_keywords, KIND_KEYWORD)
+    for _, item in ipairs(lua_key_items) do
       table.insert(items, item)
     end
 
-    return items
-  elseif ctx == "post_script" then
-    items = M.build_keyword_items(data.post_script_keywords, KIND_FUNCTION)
+    local func_items = M.build_keyword_items(data.lua_sandbox_functions, KIND_FUNCTION)
+    for _, item in ipairs(func_items) do
+      table.insert(items, item)
+    end
+
+    local module_items = M.build_keyword_items(data.lua_sandbox_modules, KIND_PROPERTY)
+    for _, item in ipairs(module_items) do
+      table.insert(items, item)
+    end
 
     local var_items = M.build_script_variable_items(extra or "", buf, cursor_line)
     for _, item in ipairs(var_items) do

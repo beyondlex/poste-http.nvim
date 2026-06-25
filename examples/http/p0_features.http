@@ -112,7 +112,7 @@ client.test("0.5.1: variables.* in pre-script", function()
   client.assert(response.status == 200, "Expected 200")
   local args = response.body.args
   client.assert(args.url ~= nil, "url arg should exist")
-  client.assert(args.url:find("httpbin%.org") ~= nil, "url should contain base_url")
+  client.assert(args.url:find("postman%-echo%.com") ~= nil, "url should contain base_url")
 end)
 %}
 
@@ -173,10 +173,9 @@ Content-Type: application/json
 client.test("0.6: file include in body", function()
   client.assert(response.status == 200, "Expected 200")
   local body = response.body
-  client.log("Included file size: " .. tostring(#body.data))
-  client.assert(#body.data > 0, "Body should contain file contents")
-  client.assert(body.data:find("Alice") ~= nil, "Body should contain 'Alice' from the file")
-  client.assert(body.data:find("admin") ~= nil, "Body should contain 'admin' from the file")
+  client.assert(next(body.data) ~= nil, "Body should contain file contents")
+  client.assert(body.data.name:find("Alice") ~= nil, "Body should contain 'Alice' from the file")
+  client.assert(body.data.role:find("admin") ~= nil, "Body should contain 'admin' from the file")
 end)
 %}
 
@@ -187,6 +186,7 @@ end)
 # Uses a simple text file.
 
 ### 0.6b File upload via multipart form-data
+@base_url = https://httpbin.org
 POST {{base_url}}/post
 Content-Type: multipart/form-data; boundary=boundary-{{$timestamp}}
 

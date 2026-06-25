@@ -268,7 +268,6 @@ describe("get_items_for_context script completion", function()
       assert.truthy(item.label)
       assert.truthy(item.kind)
       assert.truthy(item.insertText)
-      assert.truthy(item.detail)
     end
   end)
 end)
@@ -316,5 +315,221 @@ describe("script keyword data", function()
       end
       assert.truthy(found, "Missing: " .. prop)
     end
+  end)
+end)
+
+describe("lua completion in script blocks", function()
+  local buf
+
+  before_each(function()
+    buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_set_current_buf(buf)
+  end)
+
+  after_each(function()
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end
+  end)
+
+  it("lua keywords are returned in pre-script context", function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "< {%",
+      "  lo",
+      "%}",
+      "GET /api/users",
+    })
+    local items = test.get_items_for_context("  lo", buf, 2, 4)
+    assert.truthy(#items > 0)
+
+    local found = false
+    for _, item in ipairs(items) do
+      if item.label == "local" then
+        found = true
+        break
+      end
+    end
+    assert.truthy(found, "Should contain 'local' Lua keyword")
+  end)
+
+  it("lua keywords are returned in post-script context", function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "GET /api/users",
+      "> {%",
+      "  fu",
+      "%}",
+    })
+    local items = test.get_items_for_context("  fu", buf, 3, 4)
+    assert.truthy(#items > 0)
+
+    local found = false
+    for _, item in ipairs(items) do
+      if item.label == "function" then
+        found = true
+        break
+      end
+    end
+    assert.truthy(found, "Should contain 'function' Lua keyword")
+  end)
+
+  it("lua sandbox functions are returned in pre-script context", function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "< {%",
+      "  tos",
+      "%}",
+      "GET /api/users",
+    })
+    local items = test.get_items_for_context("  tos", buf, 2, 5)
+    assert.truthy(#items > 0)
+
+    local found = false
+    for _, item in ipairs(items) do
+      if item.label == "tostring" then
+        found = true
+        break
+      end
+    end
+    assert.truthy(found, "Should contain 'tostring' sandbox function")
+  end)
+
+  it("lua sandbox functions are returned in post-script context", function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "GET /api/users",
+      "> {%",
+      "  pca",
+      "%}",
+    })
+    local items = test.get_items_for_context("  pca", buf, 3, 5)
+    assert.truthy(#items > 0)
+
+    local found = false
+    for _, item in ipairs(items) do
+      if item.label == "pcall" then
+        found = true
+        break
+      end
+    end
+    assert.truthy(found, "Should contain 'pcall' sandbox function")
+  end)
+
+  it("lua keyword 'if' appears in pre-script completion", function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "< {%",
+      "  ",
+      "%}",
+      "GET /api/users",
+    })
+    local items = test.get_items_for_context("  ", buf, 2, 2)
+    assert.truthy(#items > 0)
+
+    local found = false
+    for _, item in ipairs(items) do
+      if item.label == "if" then
+        found = true
+        break
+      end
+    end
+    assert.truthy(found, "Should contain 'if' Lua keyword")
+  end)
+
+  it("module names use PROPERTY kind (no auto-())", function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "< {%",
+      "  str",
+      "%}",
+      "GET /api/users",
+    })
+    local items = test.get_items_for_context("  str", buf, 2, 5)
+    local found = false
+    for _, item in ipairs(items) do
+      if item.label == "string" then
+        found = true
+        assert.equals(10, item.kind, "string should use PROPERTY kind (10), got " .. item.kind)
+        break
+      end
+    end
+    assert.truthy(found, "Should contain string module item")
+  end)
+
+  it("os. suggests os.time and os.date", function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "< {%",
+      "os.",
+      "%}",
+      "GET /api/users",
+    })
+    local items = test.get_items_for_context("os.", buf, 2, 3)
+    assert.truthy(#items > 0)
+
+    local has_time = false
+    local has_date = false
+    for _, item in ipairs(items) do
+      if item.label == "os.time" then has_time = true end
+      if item.label == "os.date" then has_date = true end
+    end
+    assert.truthy(has_time, "Should contain os.time")
+    assert.truthy(has_date, "Should contain os.date")
+  end)
+
+  it("os.ti filters to os.time", function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "< {%",
+      "os.ti",
+      "%}",
+      "GET /api/users",
+    })
+    local items = test.get_items_for_context("os.ti", buf, 2, 5)
+    assert.truthy(#items > 0)
+
+    local found = false
+    for _, item in ipairs(items) do
+      if item.label == "os.time" then
+        found = true
+        break
+      end
+    end
+    assert.truthy(found, "Should contain os.time")
+  end)
+
+  it("string. suggests string.find, string.match, etc.", function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "< {%",
+      "string.",
+      "%}",
+      "GET /api/users",
+    })
+    local items = test.get_items_for_context("string.", buf, 2, 7)
+    assert.truthy(#items > 0)
+
+    local has_find = false
+    local has_match = false
+    local has_format = false
+    for _, item in ipairs(items) do
+      if item.label == "string.find" then has_find = true end
+      if item.label == "string.match" then has_match = true end
+      if item.label == "string.format" then has_format = true end
+    end
+    assert.truthy(has_find, "Should contain string.find")
+    assert.truthy(has_match, "Should contain string.match")
+    assert.truthy(has_format, "Should contain string.format")
+  end)
+
+  it("unknown module prefix returns regular script items", function()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "< {%",
+      "foo.",
+      "%}",
+      "GET /api/users",
+    })
+    local items = test.get_items_for_context("foo.", buf, 2, 4)
+    assert.truthy(#items > 0)
+    local has_if = false
+    for _, item in ipairs(items) do
+      if item.label == "if" then
+        has_if = true
+        break
+      end
+    end
+    assert.truthy(has_if, "Should fall back to Lua keywords for unknown module")
   end)
 end)

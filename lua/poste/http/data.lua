@@ -467,6 +467,135 @@ M.post_script_keywords = {
 }
 
 ---------------------------------------------------------------------------
+-- Lua keywords (available in script blocks via sandbox)
+---------------------------------------------------------------------------
+M.lua_keywords = {
+  "and", "break", "do", "else", "elseif", "end",
+  "false", "for", "function", "goto", "if", "in",
+  "local", "nil", "not", "or", "repeat", "return",
+  "then", "true", "until", "while",
+}
+
+---------------------------------------------------------------------------
+-- Lua sandbox functions available in pre/post script blocks
+---------------------------------------------------------------------------
+M.lua_sandbox_functions = {
+  { name = "error",          desc = "Raise an error with the given message" },
+  { name = "pcall",          desc = "Protected call: call fn in protected mode" },
+  { name = "tostring",       desc = "Convert a value to its string representation" },
+  { name = "tonumber",       desc = "Convert a value to a number" },
+  { name = "next",           desc = "Return next key-value pair from a table" },
+  { name = "type",           desc = "Return the type name of a value" },
+  { name = "ipairs",         desc = "Iterator over array-like tables" },
+  { name = "pairs",          desc = "Iterator over all key-value pairs" },
+  { name = "md5",            desc = "Compute the MD5 hash of a string" },
+}
+
+---------------------------------------------------------------------------
+-- Lua sandbox modules (tables, not functions — no auto-() in completion)
+---------------------------------------------------------------------------
+M.lua_sandbox_modules = {
+  { name = "string",  desc = "String manipulation library" },
+  { name = "table",   desc = "Table manipulation library" },
+  { name = "math",    desc = "Mathematical functions library" },
+  { name = "os",      desc = "Operating system facilities" },
+  { name = "io",      desc = "Input/output facilities" },
+}
+
+---------------------------------------------------------------------------
+-- Lua module members for dot completion (os.time, string.find, etc.)
+---------------------------------------------------------------------------
+M.lua_module_members = {
+  string = {
+    { name = "string.byte",    desc = "Get internal byte codes of characters" },
+    { name = "string.char",    desc = "Convert integer codes to characters" },
+    { name = "string.dump",    desc = "Return binary representation of a function" },
+    { name = "string.find",    desc = "Find pattern in string" },
+    { name = "string.format",  desc = "Format string with printf-style placeholders" },
+    { name = "string.gmatch",  desc = "Global pattern match iterator" },
+    { name = "string.gsub",    desc = "Global substring replacement" },
+    { name = "string.len",     desc = "Get length of string" },
+    { name = "string.lower",   desc = "Convert to lowercase" },
+    { name = "string.match",   desc = "Match pattern against string" },
+    { name = "string.rep",     desc = "Repeat string n times" },
+    { name = "string.reverse", desc = "Reverse string" },
+    { name = "string.sub",     desc = "Extract substring" },
+    { name = "string.upper",   desc = "Convert to uppercase" },
+  },
+  table = {
+    { name = "table.concat", desc = "Join table elements into a string" },
+    { name = "table.insert", desc = "Insert element into table" },
+    { name = "table.maxn",   desc = "Get largest positive numeric index" },
+    { name = "table.move",   desc = "Move elements between tables" },
+    { name = "table.pack",   desc = "Pack arguments into table" },
+    { name = "table.remove", desc = "Remove element from table" },
+    { name = "table.sort",   desc = "Sort table elements" },
+    { name = "table.unpack", desc = "Unpack table into values" },
+  },
+  math = {
+    { name = "math.abs",      desc = "Absolute value" },
+    { name = "math.acos",     desc = "Arc cosine (radians)" },
+    { name = "math.asin",     desc = "Arc sine (radians)" },
+    { name = "math.atan",     desc = "Arc tangent (radians)" },
+    { name = "math.atan2",    desc = "Arc tangent of y/x" },
+    { name = "math.ceil",     desc = "Round up to nearest integer" },
+    { name = "math.cos",      desc = "Cosine (radians)" },
+    { name = "math.cosh",     desc = "Hyperbolic cosine" },
+    { name = "math.deg",      desc = "Convert radians to degrees" },
+    { name = "math.exp",      desc = "e^x" },
+    { name = "math.floor",    desc = "Round down to nearest integer" },
+    { name = "math.fmod",     desc = "Floating-point remainder of x/y" },
+    { name = "math.frexp",    desc = "Decompose number into mantissa and exponent" },
+    { name = "math.huge",     desc = "Value representing infinity" },
+    { name = "math.ldexp",    desc = "Multiply by power of two" },
+    { name = "math.log",      desc = "Natural logarithm" },
+    { name = "math.log10",    desc = "Base-10 logarithm" },
+    { name = "math.max",      desc = "Maximum value" },
+    { name = "math.min",      desc = "Minimum value" },
+    { name = "math.modf",     desc = "Split number into integer and fractional parts" },
+    { name = "math.pi",       desc = "Value of pi" },
+    { name = "math.pow",      desc = "x^y" },
+    { name = "math.rad",      desc = "Convert degrees to radians" },
+    { name = "math.random",   desc = "Generate pseudo-random number" },
+    { name = "math.randomseed", desc = "Seed pseudo-random generator" },
+    { name = "math.sin",      desc = "Sine (radians)" },
+    { name = "math.sinh",     desc = "Hyperbolic sine" },
+    { name = "math.sqrt",     desc = "Square root" },
+    { name = "math.tan",      desc = "Tangent (radians)" },
+    { name = "math.tanh",     desc = "Hyperbolic tangent" },
+  },
+  os = {
+    { name = "os.clock",       desc = "CPU time in seconds" },
+    { name = "os.date",        desc = "Format date/time" },
+    { name = "os.difftime",    desc = "Difference between two times" },
+    { name = "os.execute",     desc = "Execute system command" },
+    { name = "os.exit",        desc = "Terminate program" },
+    { name = "os.getenv",      desc = "Get environment variable" },
+    { name = "os.remove",      desc = "Delete file" },
+    { name = "os.rename",      desc = "Rename file" },
+    { name = "os.setlocale",   desc = "Set program locale" },
+    { name = "os.time",        desc = "Get time as seconds since epoch" },
+    { name = "os.tmpname",     desc = "Get temporary file name" },
+  },
+  io = {
+    { name = "io.close",       desc = "Close file" },
+    { name = "io.flush",       desc = "Flush output buffer" },
+    { name = "io.input",       desc = "Set/get default input file" },
+    { name = "io.lines",       desc = "Iterator over file lines" },
+    { name = "io.open",        desc = "Open file" },
+    { name = "io.output",      desc = "Set/get default output file" },
+    { name = "io.popen",       desc = "Open process" },
+    { name = "io.read",        desc = "Read from file" },
+    { name = "io.stderr",      desc = "Standard error file handle" },
+    { name = "io.stdin",       desc = "Standard input file handle" },
+    { name = "io.stdout",      desc = "Standard output file handle" },
+    { name = "io.tmpfile",     desc = "Return temporary file" },
+    { name = "io.type",        desc = "Check file handle type" },
+    { name = "io.write",       desc = "Write to file" },
+  },
+}
+
+---------------------------------------------------------------------------
 -- Magic variables
 ---------------------------------------------------------------------------
 M.magic_var_defs = {

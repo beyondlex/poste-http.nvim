@@ -8,6 +8,12 @@ if not package.path:find(lua_path, 1, true) then
   package.path = lua_path .. ";" .. package.path
 end
 
+-- Generate helptags so :h poste works
+local doc_dir = plugin_dir .. "/doc"
+if vim.fn.isdirectory(doc_dir) == 1 then
+  pcall(vim.cmd.helptags, doc_dir)
+end
+
 -- Ensure the Rust CLI binary is installed (downloads if missing)
 local install_ok, install = pcall(require, "poste.install")
 if install_ok then

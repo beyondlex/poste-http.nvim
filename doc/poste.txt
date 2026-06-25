@@ -1,0 +1,266 @@
+*poste.txt*   Poste - File-driven multi-protocol request executor
+
+==============================================================================
+CONTENTS                                                    *poste-contents*
+
+  1. Introduction .................... |poste-intro|
+  2. HTTP Syntax ..................... |poste-http-syntax|
+  3. Variables ....................... |poste-variables|
+  4. Pre/Post Scripts ................ |poste-scripts|
+  5. Assertions ...................... |poste-assertions|
+  6. Run Directive ................... |poste-run|
+  7. Environment ..................... |poste-env|
+  8. Keymaps ......................... |poste-keymaps|
+  9. Commands ........................ |poste-commands|
+
+==============================================================================
+1. INTRODUCTION                                          *poste-intro*
+
+Poste is a keyboard-first multi-protocol request executor for Neovim.
+Write requests in `.http`, `.sql`, or `.redis` files and execute them
+inline with `<CR>`.
+
+==============================================================================
+2. HTTP SYNTAX                                        *poste-http-syntax*
+
+A `.http` file contains one or more request blocks separated by `###`
+markers.
+
+REQUEST BLOCK ~
+                            *poste-http-block*
+Every request block starts with a `###` line:
+
+    ### My Request Name
+    GET {{base_url}}/endpoint
+    Content-Type: application/json
+
+    {"key": "value"}
+
+    ### Another Request
+    POST {{base_url}}/submit
+    Content-Type: application/json
+
+    {"data": "hello"}
+
+Request blocks are separated by `###` markers. The text after `###` is
+the request name, shown in the history list.
+
+METHOD LINE ~
+                            *poste-http-method*
+The first non-comment line after `###` is the request line:
+
+    GET /api/items
+    POST /api/items
+    PUT /api/items/1
+    PATCH /api/items/1
+    DELETE /api/items/1
+    HEAD /api/items
+
+HEADERS ~
+                            *poste-http-headers*
+Headers follow the method line, one per line:
+
+    Content-Type: application/json
+    Authorization: Bearer {{token}}
+    X-Custom-Header: value
+
+REQUEST BODY ~
+                            *poste-http-body*
+After headers, a blank line separates the body:
+
+    POST /post
+    Content-Type: application/json
+
+    {"name": "test", "value": 42}
+
+FILE BODY ~
+                            *poste-http-body-file*
+Use `< ./path` to read body from a file:
+
+    PUT /upload
+    Content-Type: image/png
+
+    < ./image.png
+
+COMMENTS ~
+                            *poste-http-comments*
+Lines starting with `#` are comments:
+
+    # This is a comment
+    GET /api
+
+VARIABLE DEFINITIONS ~
+                            *poste-http-variables*
+Lines starting with `@` define block-scoped variables:
+
+    @base_url = https://httpbin.org
+    @token = my-secret-token
+
+    GET {{base_url}}/get
+    Authorization: Bearer {{token}}
+
+==============================================================================
+3. VARIABLES                                            *poste-variables*
+
+Poste supports `{{variable}}` interpolation in request lines, headers,
+and body.
+
+VARIABLE SOURCES ~
+                            *poste-http-var-sources*
+Variables can come from:
+
+  - Block scope: `@name = value` lines
+  - Environment files: `env_name = value` in `.env.json`
+  - Inline overrides: `(#name) @var=val` in block header
+  - Pre-script output: variables returned by `> {% ... %}`
+
+ENVIRONMENT FILES ~
+                            *poste-http-env-file*
+Create `.env.json` files:
+
+    {
+      "dev": {
+        "base_url": "http://localhost:3000"
+      },
+      "prod": {
+        "base_url": "https://api.example.com"
+      }
+    }
+
+Switch environments with |PosteEnvCycle| or the `:lua` command.
+
+==============================================================================
+4. PRE/POST SCRIPTS                                      *poste-scripts*
+
+Pre-scripts run before the request is sent. Post-scripts run after
+receiving the response.
+
+PRE-SCRIPT SYNTAX ~
+                            *poste-http-prescript*
+    GET /api
+
+    > {%
+      request.variables.token = "computed-token"
+      client.log("Token set")
+    %}
+
+The `request` object exposes `request.variables` to set variables
+before execution.
+
+POST-SCRIPT SYNTAX ~
+                            *poste-http-postscript*
+    GET /api
+
+    < {%
+      client.log("Status: " .. response.status)
+    %}
+
+The `response` object contains the full response data.
+
+INLINE SCRIPTS ~
+                            *poste-http-inline-script*
+Short scripts can be written inline between `{%` and `%}`.
+
+EXTERNAL SCRIPT FILES ~
+                            *poste-http-external-script*
+    GET /api
+
+    < ./scripts/my_assertion.lua
+
+EXTERNAL SCRIPT FILES ~
+                            *poste-http-script-file*
+Scripts in separate `.lua` files are imported with `< ./path.lua`.
+
+SANDBOX ~
+                            *poste-http-sandbox*
+Scripts run in a sandboxed environment with limited globals:
+
+    assert     error      ipairs     math
+    next       pcall      pairs      string
+    table      tonumber   tostring   type
+    client     request    response   variables
+    env        os         io         md5
+
+==============================================================================
+5. ASSERTIONS                                            *poste-assertions*
+
+Assertions validate the response after execution using `client.assert`.
+
+SYNTAX ~
+                            *poste-http-assert*
+    GET /api
+
+    > {%
+      client.assert(response.status == 200, "Expected 200")
+    %}
+
+ASSERTION HELPERS ~
+                            *poste-http-assert-helpers*
+  - `client.assert(condition, message)` - fails if condition is false
+  - `client.log(message)` - adds to log output
+  - `response` - response table with status, headers, body, etc.
+  - `request` - the original request table
+
+==============================================================================
+6. RUN DIRECTIVE                                          *poste-run*
+
+The `run` directive lets one request file import and execute requests
+from another file.
+
+SYNTAX ~
+                            *poste-http-run*
+    run #RequestName
+    run #alias.RequestName
+    run ./path/to/file.http
+
+IMPORT STATEMENT ~
+                            *poste-http-import*
+To import a file with an alias:
+
+    import ./auth.http as auth
+
+Then reference it:
+
+    run #auth.Login
+
+VARIABLE OVERRIDES ~
+                            *poste-http-run-vars*
+Pass inline variables:
+
+    run #auth.Login (@token=abc123)
+
+==============================================================================
+7. ENVIRONMENT                                            *poste-env*
+
+Environments manage variable sets for different deployment targets.
+
+ENVIRONMENT FILE ~
+                            *poste-http-env*
+Place a `.env.json` file alongside your `.http` file or in a parent
+directory. See |poste-http-env-file| for format.
+
+SWITCHING ~
+                            *poste-http-env-switch*
+Use |PosteEnvCycle| to cycle through available environments.
+The current environment is shown in the winbar.
+
+==============================================================================
+8. KEYMAPS                                              *poste-keymaps*
+
+    <CR>                   Execute request at cursor
+    <leader>r              Execute request at cursor
+    <leader>h              Show request history
+    <leader>e              Cycle environment
+
+Keymaps are set in `poste_http` and `poste_sql` buffers.
+
+==============================================================================
+9. COMMANDS                                            *poste-commands*
+
+    :PosteHttpHistory      Show HTTP request history
+    :PosteEnvCycle         Cycle through environments
+    :PosteHttpBoundary     Toggle HTTP block boundary highlight
+    :PosteSQLBoundary      Toggle SQL statement boundary highlight
+
+==============================================================================
+ vim:tw=78:ts=8:ft=help:norl:

@@ -376,6 +376,9 @@ local function setup_detail_keymaps()
   k = state.get_keymap("http_response", "prev_tab", "<S-Tab>")
   if k then vim.keymap.set("n", k, function() cycle_tab(-1) end, opts) end
 
+  local nopts = { buffer = detail_buf, noremap = true, silent = true, nowait = true }
+  vim.keymap.set("n", "<C-w>h", wincmd_list, nopts)
+
   k = state.get_keymap("http_response", "json_filter", "<leader>j")
   if k then
     vim.keymap.set("n", k, function()
@@ -403,6 +406,18 @@ local function setup_detail_keymaps()
   end
 end
 
+local function wincmd_list()
+  if list_win and vim.api.nvim_win_is_valid(list_win) then
+    vim.api.nvim_set_current_win(list_win)
+  end
+end
+
+local function wincmd_detail()
+  if detail_win and vim.api.nvim_win_is_valid(detail_win) then
+    vim.api.nvim_set_current_win(detail_win)
+  end
+end
+
 local function setup_list_keymaps()
   local opts = { buffer = list_buf, noremap = true, silent = true }
 
@@ -417,6 +432,9 @@ local function setup_list_keymaps()
 
   vim.keymap.set("n", "j", function() navigate_list(1) end, opts)
   vim.keymap.set("n", "k", function() navigate_list(-1) end, opts)
+
+  local nopts = { buffer = list_buf, noremap = true, silent = true, nowait = true }
+  vim.keymap.set("n", "<C-w>l", wincmd_detail, nopts)
 
   vim.api.nvim_buf_attach(list_buf, false, {
     on_detach = function()

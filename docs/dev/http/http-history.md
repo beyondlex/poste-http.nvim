@@ -1,28 +1,16 @@
 # HTTP 请求历史（PosteHttpHistory）
 
-> 文件驱动的 HTTP 请求历史记录与管理 UI。
+> 会话级 HTTP 请求历史记录与管理 UI。
 
 ## 概述
 
-PosteHttpHistory 提供一个覆盖窗口大小的浮动弹窗，左侧展示请求列表（倒序），右侧展示选中请求的详情。历史记录持久化到磁盘，跨 Neovim 会话保留。
+PosteHttpHistory 提供一个覆盖窗口大小的浮动弹窗，左侧展示请求列表（倒序），右侧展示选中请求的详情。历史记录仅存在于当前 Neovim 会话中，关闭后清空。
 
 ## 数据模型
 
 ### 存储
 
-文件：`stdpath('data')/poste/http_history.json`
-
-```json
-{
-  "version": 1,
-  "id_counter": 42,
-  "max_entries": 100,
-  "entries": [
-    {
-      "id": 42,
-      "name": "Get Profile",
-      "time": 1748307120,
-      "source_file": "/path/to/api.http",
+history 存储在内存中（`state.http_history`），不持久化到磁盘。关闭 Neovim 后历史自动清空。
       "response": { ... },
       "assertion_results": null,
       "script_logs": null
@@ -39,7 +27,6 @@ PosteHttpHistory 提供一个覆盖窗口大小的浮动弹窗，左侧展示请
 M.http_history = {}               -- entry[] (newest first)
 M.http_history_max = 100          -- 最多保留条目数
 M.http_history_id_counter = 0     -- 自增 ID
-M.http_history_loaded = false     -- 是否已从磁盘加载
 ```
 
 ### entry 结构
@@ -73,7 +60,7 @@ M.http_history_loaded = false     -- 是否已从磁盘加载
 
 - j/k 导航，实时更新右侧详情
 - `<CR>`：光标跳到右侧详情 buffer
-- `dd`：删除当前行对应的请求记录（立即保存到磁盘）
+- `dd`：删除当前行对应的请求记录
 - `q`：关闭整个弹窗
 
 ### 右详情 buffer
@@ -94,7 +81,7 @@ M.http_history_loaded = false     -- 是否已从磁盘加载
 
 | 文件 | 行数 | 角色 |
 |------|------|------|
-| `lua/poste/http/history.lua` | ~400 | 主模块：UI、持久化、导航 |
+| `lua/poste/http/history.lua` | ~400 | 主模块：UI、内存管理、导航 |
 | `docs/dev/http/http-history.md` | — | 本文档 |
 
 ### 修改
@@ -111,9 +98,9 @@ M.http_history_loaded = false     -- 是否已从磁盘加载
 
 1. **自包含模块** — history.lua 管理自己的浮动窗口 + 两个 buffer。不修改 buffer.lua / view.lua / format.lua。
 2. **详情渲染不依赖 `state.last_response`** — 调用 `format.format_body(entry.response)` 等，传入 entry 自身的 response 数据。Tab 状态局部于 history detail buffer。
-3. **jq 支持** — 临时交换 `state.last_response` 后调用 `json.apply_filter()`，操作完恢复。
-4. **持久化** — JSON 文件，懒加载（首次打开时），每 add/delete 后异步保存。
-5. **body 截断** — 序列化时 `response.body` 超过 100KB 则截断以控制文件大小。
+3. **jq 支持** — 自包含于 entry._jq，不污染 state._json。
+4. **无持久化** — 纯内存存储，跨项目不干扰。
+5. **body 截断** — `response.body` 超过 100KB 则截断以控制内存。
 
 ## 边界情况
 

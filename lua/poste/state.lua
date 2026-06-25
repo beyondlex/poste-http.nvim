@@ -150,11 +150,10 @@ M.last_request = nil             -- { buf, line } for re-run from response buffe
 M.current_view = "body"          -- "body" | "headers" | "verbose" | "assertions" | "script_logs"
 M._lsp_doc_buf = nil             -- hidden Lua buffer for LSP doc lookup
 
--- HTTP request history (session + disk persistence)
+-- HTTP request history (session-scoped)
 M.http_history = {}              -- entry[] (newest first)
 M.http_history_max = 100         -- max entries to keep
 M.http_history_id_counter = 0    -- auto-increment ID
-M.http_history_loaded = false    -- loaded from disk or not
 
 -- Script variable stores
 M.global_vars = {}               -- client.global.set/get persistence (session-scoped)

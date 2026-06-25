@@ -18,62 +18,7 @@ local list_ns = vim.api.nvim_create_namespace("poste_history_list")
 
 local MAX_BODY_SAVE = 100 * 1024
 
-function M.get_history_path()
-  return vim.fn.stdpath("data") .. "/poste/http_history.json"
-end
-
-function M.load_from_disk()
-  if state.http_history_loaded then return end
-  state.http_history_loaded = true
-  local path = M.get_history_path()
-  local ok, f = pcall(io.open, path, "r")
-  if not ok or not f then return end
-  local content = f:read("*a")
-  f:close()
-  if not content or content == "" then return end
-  local ok, data = pcall(vim.json.decode, content)
-  if not ok or type(data) ~= "table" then return end
-  if data.version ~= 1 then return end
-  state.http_history_id_counter = data.id_counter or 0
-  state.http_history_max = data.max_entries or 100
-  state.http_history = data.entries or {}
-end
-
-function M.save_to_disk()
-  local data = {
-    version = 1,
-    id_counter = state.http_history_id_counter,
-    max_entries = state.http_history_max,
-    entries = state.http_history,
-  }
-  local path = M.get_history_path()
-  local dir = vim.fn.fnamemodify(path, ":h")
-  if vim.fn.isdirectory(dir) == 0 then
-    vim.fn.mkdir(dir, "p")
-  end
-  local ok, encoded = pcall(vim.json.encode, data)
-  if not ok then return end
-  local f, err = io.open(path, "w")
-  if not f then
-    state.log("ERROR", "Failed to write history: " .. (err or "unknown"))
-    return
-  end
-  f:write(encoded)
-  f:close()
-end
-
-local function truncate_response(response)
-  if not response or type(response) ~= "table" then return response end
-  local r = vim.deepcopy(response)
-  if r.body and type(r.body) == "string" and #r.body > MAX_BODY_SAVE then
-    r.body = r.body:sub(1, MAX_BODY_SAVE) .. "\n... [truncated " .. #r.body .. " bytes]"
-  end
-  return r
-end
-
 function M.add_entry(name, response, assertion_results, script_logs, source_file)
-  M.load_from_disk()
-
   state.http_history_id_counter = state.http_history_id_counter + 1
   local entry = {
     id = state.http_history_id_counter,
@@ -84,25 +29,19 @@ function M.add_entry(name, response, assertion_results, script_logs, source_file
     assertion_results = assertion_results and vim.deepcopy(assertion_results) or nil,
     script_logs = script_logs and vim.deepcopy(script_logs) or nil,
   }
-
   table.insert(state.http_history, 1, entry)
-
   if #state.http_history > state.http_history_max then
     table.remove(state.http_history)
   end
-
-  M.save_to_disk()
 end
 
 function M.delete_entry(id)
-  M.load_from_disk()
   for i, entry in ipairs(state.http_history) do
     if entry.id == id then
       table.remove(state.http_history, i)
-      break
+      return
     end
   end
-  M.save_to_disk()
 end
 
 local function format_timestamp(time)
@@ -520,7 +459,6 @@ local function setup_list_keymaps()
 end
 
 function M.show()
-  M.load_from_disk()
 
   if list_win and vim.api.nvim_win_is_valid(list_win) then
     pcall(vim.api.nvim_set_current_win, list_win)

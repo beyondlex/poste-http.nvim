@@ -208,7 +208,7 @@ run ./batch.http                           # 运行整个文件
 
 ### 存储
 
-历史记录自动保存至 `stdpath('data')/poste/http_history.json`（JSON 格式），最多保留 100 条，响应 body 超过 100KB 时自动截断。
+历史记录仅存于当前 Neovim 会话内存中，关闭 Neovim 后自动清空。最多保留 100 条，响应 body 超过 100KB 时自动截断。
 
 ---
 

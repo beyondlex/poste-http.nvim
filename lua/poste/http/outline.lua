@@ -113,9 +113,16 @@ local function method_hl(method)
 end
 
 local function build_label(item)
+  local win_width = active and vim.api.nvim_win_get_width(active.out_win) or 40
   local method = item.method or "--"
-  local path_display = item.url_path and ellipsis(item.url_path, 22) or ""
-  local name_display = "#" .. ellipsis(item.name, 16)
+  local method_part = #method + 2
+  local remaining = math.max(10, win_width - method_part)
+  local name_max = math.max(3, math.min(16, math.floor(remaining * 0.35)))
+  local path_max = math.max(3, remaining - name_max - 1)
+
+  local path_display = item.url_path and ellipsis(item.url_path, path_max) or ""
+  local name_display = "#" .. ellipsis(item.name, name_max)
+
   if method == "@" then
     local val = path_display ~= "" and (" " .. path_display) or ""
     return "@" .. item.name:sub(2) .. val
@@ -123,7 +130,7 @@ local function build_label(item)
   if path_display == "" then
     return method .. "  " .. name_display
   end
-  return method .. "  " .. path_display .. "  " .. name_display
+  return method .. "  " .. path_display .. " " .. name_display
 end
 
 local function render()

@@ -62,6 +62,20 @@ local function try_rust_span(lines, cursor_line, callback)
   if not binary then callback(nil); return end
 
   local block_start, block_end = find_block(lines, cursor_line)
+
+  -- If cursor is on a separator line between blocks, bail out
+  local last_content = nil
+  for i = block_end, block_start, -1 do
+    local trimmed = (lines[i] or ""):match("^%s*(.-)%s*$")
+    if trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
+      last_content = i
+      break
+    end
+  end
+  if cursor_line > (last_content or block_start) then
+    callback(nil)
+    return
+  end
   local block_lines = {}
   for i = block_start, block_end do
     block_lines[#block_lines + 1] = lines[i] or ""

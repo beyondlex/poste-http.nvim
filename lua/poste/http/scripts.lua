@@ -461,6 +461,7 @@ function M.run_pre_script(code, script_vars)
     pcall = pcall,
     tostring = tostring,
     tonumber = tonumber,
+    next = next,
     type = type,
     string = string,
     table = table,

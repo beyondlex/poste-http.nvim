@@ -77,6 +77,31 @@ function M.find_request_line(buf, start_line)
   if not header_line then return nil end
 
   local total = vim.api.nvim_buf_line_count(buf)
+
+  -- Find next ### and last content line of this block
+  local next_sep = total + 1
+  for i = header_line + 1, total do
+    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+    if text:match("^%s*###") then
+      next_sep = i
+      break
+    end
+  end
+
+  -- If cursor is on a separator line between blocks, don't attach to either
+  local last_content = nil
+  for i = next_sep - 1, header_line, -1 do
+    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+    local trimmed = vim.trim(text)
+    if trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
+      last_content = i
+      break
+    end
+  end
+  if start_line > (last_content or header_line) and start_line < next_sep then
+    return nil
+  end
+
   local in_prescript = false
 
   for i = header_line + 1, total do
@@ -140,6 +165,20 @@ function M.find_request_block_bounds(buf, cursor_line)
       end_line = i - 1
       break
     end
+  end
+
+  -- If cursor is on a separator line between blocks, return no bounds
+  local last_content = nil
+  for i = end_line, start_line, -1 do
+    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+    local trimmed = vim.trim(text)
+    if trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
+      last_content = i
+      break
+    end
+  end
+  if cursor_line > (last_content or start_line) then
+    return nil, nil
   end
 
   return start_line, end_line

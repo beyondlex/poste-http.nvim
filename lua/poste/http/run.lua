@@ -100,6 +100,10 @@ function M.run_request()
 
   request_vars.handle_prompt_variables(src_buf, line, buf_content, binary, file, state.current_env, function(modified_content)
     local req_line = indicators.find_request_line(src_buf, line)
+    if not req_line then
+      indicators.clear_all(src_buf)
+      return
+    end
     indicators.set_indicator(src_buf, req_line, "running")
 
     local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)

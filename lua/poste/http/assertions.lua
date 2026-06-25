@@ -416,6 +416,7 @@ function M.run_assertions(response_data, code, script_vars)
     pcall = pcall,
     tostring = tostring,
     tonumber = tonumber,
+    next = next,
     type = type,
     string = string,
     table = table,

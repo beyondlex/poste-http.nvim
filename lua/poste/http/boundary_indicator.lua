@@ -61,6 +61,12 @@ local function find_block(lines, cursor)
   end
   if not stop then stop = start end
 
+  -- If cursor is after the block's last content line but before the next ###,
+  -- it's on a separator line — don't attach to either block.
+  if cursor > stop and cursor < next_sep then
+    return nil, nil
+  end
+
   return start, stop
 end
 

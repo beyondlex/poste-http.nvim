@@ -8,12 +8,14 @@ local M = {}
 local float_win = nil
 local list_buf = nil
 local list_win = nil
+local list_width = 36
 local detail_buf = nil
 local detail_win = nil
 local current_index = nil
 local detail_view = "body"
 local detail_jq_query = nil
 local hiding = false
+local list_ns = vim.api.nvim_create_namespace("poste_history_list")
 
 local MAX_BODY_SAVE = 100 * 1024
 
@@ -238,18 +240,40 @@ end
 local function render_list()
   if not list_buf or not vim.api.nvim_buf_is_valid(list_buf) then return end
   local lines = {}
+  local name_width = list_width - 6
+
+  vim.api.nvim_buf_clear_namespace(list_buf, list_ns, 0, -1)
+
   if #state.http_history == 0 then
     lines = { "(no history)" }
   else
     for _, entry in ipairs(state.http_history) do
+      local name = entry.name
+      if #name > name_width then
+        name = name:sub(1, name_width - 3) .. "..."
+      end
       local ts = format_timestamp(entry.time)
-      table.insert(lines, entry.name .. "   " .. ts)
+      local line = string.format("%-" .. name_width .. "s %s", name, ts)
+      table.insert(lines, line)
     end
   end
+
   vim.api.nvim_buf_set_option(list_buf, "modifiable", true)
   vim.api.nvim_buf_set_lines(list_buf, 0, -1, false, lines)
   vim.api.nvim_buf_set_option(list_buf, "modifiable", false)
   vim.bo[list_buf].filetype = "poste_history_list"
+
+  -- Gray timestamp via extmarks
+  for i, line in ipairs(lines) do
+    local ts_start = line:match("^.*() %d%d:%d%d$")
+    if ts_start then
+      vim.api.nvim_buf_set_extmark(list_buf, list_ns, i - 1, ts_start + 1, {
+        end_col = #line,
+        hl_group = "Comment",
+        priority = 100,
+      })
+    end
+  end
 
   if current_index == nil and #state.http_history > 0 then
     current_index = 1
@@ -382,6 +406,13 @@ local function setup_detail_keymaps()
       render_detail()
     end, opts)
   end
+
+  local cw_opts = { buffer = detail_buf, noremap = true, silent = true, nowait = true }
+  vim.keymap.set("n", "<C-w>h", function()
+    if list_win and vim.api.nvim_win_is_valid(list_win) then
+      vim.api.nvim_set_current_win(list_win)
+    end
+  end, cw_opts)
 end
 
 local function setup_list_keymaps()
@@ -398,6 +429,13 @@ local function setup_list_keymaps()
 
   vim.keymap.set("n", "j", function() navigate_list(1) end, opts)
   vim.keymap.set("n", "k", function() navigate_list(-1) end, opts)
+
+  local cw_opts = { buffer = list_buf, noremap = true, silent = true, nowait = true }
+  vim.keymap.set("n", "<C-w>l", function()
+    if detail_win and vim.api.nvim_win_is_valid(detail_win) then
+      vim.api.nvim_set_current_win(detail_win)
+    end
+  end, cw_opts)
 
   vim.api.nvim_buf_attach(list_buf, false, {
     on_detach = function()
@@ -420,7 +458,7 @@ function M.show()
   local total_height = math.floor(editor_height * 0.88)
   local top = math.floor((editor_height - total_height) / 2)
   local left = math.floor((editor_width - total_width) / 2)
-  local list_width = 36
+  list_width = 36
 
   local outer_buf = vim.api.nvim_create_buf(false, true)
   vim.bo[outer_buf].modifiable = false

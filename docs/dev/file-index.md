@@ -41,8 +41,8 @@
 | `copy.lua` | curl 命令导出 |
 | `select.lua` | 通用 Picker UI |
 | `indicators.lua` | spinner/✓/✘ 指示器 |
-| `symbols.lua` | 符号导航 |
 | `state.lua` | 共享状态管理 |
+| `history.lua` | HTTP 请求历史 UI + 持久化 |
 
 ### SQL 模块 (`lua/poste/sql/`)
 
@@ -109,6 +109,7 @@
 | [文档中心](README.md) | 完整文档索引 |
 | [HTTP 用户文档](../user/http/README.md) | HTTP 用户文档组 |
 | [HTTP 开发者文档](./http/README.md) | HTTP 开发者文档组 |
+| [HTTP History 设计](./http/http-history.md) | 请求历史 UI 设计 |
 | [SQL 用户文档](../user/sql/README.md) | SQL 用户文档组 |
 | [SQL 开发者文档](./sql/README.md) | SQL 开发者文档组 |
 | [架构概览](./architecture-overview.md) | 整体架构设计 |

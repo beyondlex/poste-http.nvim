@@ -64,6 +64,7 @@ crosses protocols.
 | `highlights.lua` | Syntax highlighting for HTTP result buffers |
 | `cache.lua` | Response caching (ETag, Last-Modified) |
 | `boundary_indicator.lua` | `###` block boundary indicator line |
+| `history.lua` | Request history: floating UI, persistence, navigation |
 
 ### HTTP Rust
 
@@ -109,6 +110,7 @@ All in `state` (from `lua/poste/state.lua`):
 | `script_variables` | `run.lua` | assertion scripts |
 | `current_view` | `view.lua` | `buffer.lua` (winbar) |
 | `_json.query` | `json.lua` | `buffer.lua` (winbar label) |
+| `http_history` | `history.lua` | `history.lua` (list rendering) |
 
 ### Variable Priority
 
@@ -179,4 +181,5 @@ tests/run.sh                          # Lua tests for HTTP + SQL
 | jq filter | `json.lua` | `apply_filter()`, `restore_original()` |
 | Cross-request chaining | `request_vars.lua` | `resolve_request_variables()`, `cache_response()` |
 | Winbar / tab UI | `buffer.lua` | `update_winbar()`, `get_active_tabs()` |
+| History | `history.lua` | `show()`, `add_entry()`, `delete_entry()`, `load_from_disk()` |
 | Curl import | `curl.lua` | `paste_curl()` |

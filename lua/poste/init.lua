@@ -120,6 +120,10 @@ function M.setup(opts)
     vim.cmd(string.format("%%!%s fmt --stdin", vim.fn.shellescape(binary)))
   end, { desc = "Format .http buffer using poste fmt" })
 
+  vim.api.nvim_create_user_command("PosteHttpHistory", function()
+    require("poste.http.history").show()
+  end, { desc = "Show HTTP request history" })
+
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.http", "*.rest", "*.redis" },
     callback = function()

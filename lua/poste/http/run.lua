@@ -6,6 +6,7 @@ local scripts = require("poste.http.scripts")
 local assertions = require("poste.http.assertions")
 local view = require("poste.http.view")
 local import_mod = require("poste.http.import")
+local history = require("poste.http.history")
 
 local M = {}
 
@@ -78,6 +79,15 @@ function M.run_request()
           else
             view.show_view("body")
             indicators.set_indicator(src_buf, line - 1, "success", state.last_response.latency_ms)
+          end
+
+          if type(response) == "table" and response[1] and response[1].response then
+            for _, item in ipairs(response) do
+              local item_name = item.name or ("Request #" .. (item.line or ""))
+              history.add_entry(item_name, item.response, nil, nil, resolved.path or file)
+            end
+          else
+            history.add_entry(response.name or "Import", response, nil, nil, resolved.path or file)
           end
         else
           indicators.set_indicator(src_buf, line - 1, "error")
@@ -234,6 +244,8 @@ function M.run_request()
                   indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms)
                 end
               end
+              local hist_name = current_req_name or ("Request #" .. line)
+              history.add_entry(hist_name, state.last_response, state.last_assertion_results, state.last_script_logs, file)
             else
               state.log("WARN", "JSON parse failed, showing raw output")
               indicators.set_indicator(src_buf, req_line, "error")
@@ -256,6 +268,8 @@ function M.run_request()
                 },
               }
               view.show_view("verbose")
+              local err_name = current_req_name or ("Request #" .. line)
+              history.add_entry(err_name, state.last_response, state.last_assertion_results, state.last_script_logs, file)
             end
           end)
         end,
@@ -291,6 +305,8 @@ function M.run_request()
                 },
               }
               view.show_view("verbose")
+              local err_name = current_req_name or ("Request #" .. line)
+              history.add_entry(err_name, state.last_response, state.last_assertion_results, state.last_script_logs, file)
             end)
           end
         end,

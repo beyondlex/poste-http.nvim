@@ -124,6 +124,11 @@ M.config = {
       close = "q",
       close_alt = "<Esc>",
     },
+    http_history = {
+      close = "q",
+      delete_entry = "dd",
+      focus_detail = "<CR>",
+    },
   },
 
   -- User-overridable highlight groups. Each key is a group name; value is
@@ -143,6 +148,12 @@ M.last_script_logs = nil         -- { "log line 1", "log line 2", ... } from pre
 M.last_request = nil             -- { buf, line } for re-run from response buffer
 M.current_view = "body"          -- "body" | "headers" | "verbose" | "assertions" | "script_logs"
 M._lsp_doc_buf = nil             -- hidden Lua buffer for LSP doc lookup
+
+-- HTTP request history (session + disk persistence)
+M.http_history = {}              -- entry[] (newest first)
+M.http_history_max = 100         -- max entries to keep
+M.http_history_id_counter = 0    -- auto-increment ID
+M.http_history_loaded = false    -- loaded from disk or not
 
 -- Script variable stores
 M.global_vars = {}               -- client.global.set/get persistence (session-scoped)

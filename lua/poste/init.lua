@@ -150,6 +150,9 @@ function M.setup(opts)
     pattern = { "*.http", "*.rest" },
     callback = function()
       vim.wo.winbar = env_mod.build_http_winbar()
+      if vim.bo.filetype == "poste_http" then
+        require("poste.http.boundary_indicator").refresh(0, vim.fn.line("."))
+      end
     end,
   })
 

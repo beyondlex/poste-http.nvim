@@ -5,7 +5,6 @@ local scripts = require("poste.http.scripts")
 
 local M = {}
 
-local float_win = nil
 local list_buf = nil
 local list_win = nil
 local list_width = 36
@@ -287,16 +286,12 @@ end
 local function hide()
   if hiding then return end
   hiding = true
-  if float_win and vim.api.nvim_win_is_valid(float_win) then
-    vim.api.nvim_win_close(float_win, true)
-  end
   if list_win and vim.api.nvim_win_is_valid(list_win) then
     vim.api.nvim_win_close(list_win, true)
   end
   if detail_win and vim.api.nvim_win_is_valid(detail_win) then
-    pcall(vim.api.nvim_win_close, detail_win, true)
+    vim.api.nvim_win_close(detail_win, true)
   end
-  float_win = nil
   list_buf = nil
   list_win = nil
   detail_buf = nil
@@ -406,13 +401,6 @@ local function setup_detail_keymaps()
       render_detail()
     end, opts)
   end
-
-  local cw_opts = { buffer = detail_buf, noremap = true, silent = true, nowait = true }
-  vim.keymap.set("n", "<C-w>h", function()
-    if list_win and vim.api.nvim_win_is_valid(list_win) then
-      vim.api.nvim_set_current_win(list_win)
-    end
-  end, cw_opts)
 end
 
 local function setup_list_keymaps()
@@ -430,13 +418,6 @@ local function setup_list_keymaps()
   vim.keymap.set("n", "j", function() navigate_list(1) end, opts)
   vim.keymap.set("n", "k", function() navigate_list(-1) end, opts)
 
-  local cw_opts = { buffer = list_buf, noremap = true, silent = true, nowait = true }
-  vim.keymap.set("n", "<C-w>l", function()
-    if detail_win and vim.api.nvim_win_is_valid(detail_win) then
-      vim.api.nvim_set_current_win(detail_win)
-    end
-  end, cw_opts)
-
   vim.api.nvim_buf_attach(list_buf, false, {
     on_detach = function()
       hide()
@@ -447,8 +428,8 @@ end
 function M.show()
   M.load_from_disk()
 
-  if float_win and vim.api.nvim_win_is_valid(float_win) then
-    pcall(vim.api.nvim_set_current_win, list_win or float_win)
+  if list_win and vim.api.nvim_win_is_valid(list_win) then
+    pcall(vim.api.nvim_set_current_win, list_win)
     return
   end
 
@@ -459,12 +440,12 @@ function M.show()
   local top = math.floor((editor_height - total_height) / 2)
   local left = math.floor((editor_width - total_width) / 2)
   list_width = 36
+  local gap = 1
 
-  local outer_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[outer_buf].modifiable = false
-  float_win = vim.api.nvim_open_win(outer_buf, true, {
+  list_buf = vim.api.nvim_create_buf(false, true)
+  list_win = vim.api.nvim_open_win(list_buf, true, {
     relative = "editor",
-    width = total_width,
+    width = list_width,
     height = total_height,
     row = top,
     col = left,
@@ -473,31 +454,18 @@ function M.show()
     title = " Poste HTTP History ",
     title_pos = "center",
   })
-
-  list_buf = vim.api.nvim_create_buf(false, true)
-  list_win = vim.api.nvim_open_win(list_buf, false, {
-    relative = "win",
-    win = float_win,
-    width = list_width,
-    height = total_height - 2,
-    row = 1,
-    col = 1,
-    style = "minimal",
-    border = "none",
-  })
   vim.wo[list_win].cursorline = true
 
-  local detail_width = total_width - list_width - 3
+  local detail_width = total_width - list_width - gap - 1
   detail_buf = vim.api.nvim_create_buf(false, true)
   detail_win = vim.api.nvim_open_win(detail_buf, false, {
-    relative = "win",
-    win = float_win,
+    relative = "editor",
     width = detail_width,
-    height = total_height - 2,
-    row = 1,
-    col = list_width + 2,
+    height = total_height,
+    row = top,
+    col = left + list_width + gap,
     style = "minimal",
-    border = "none",
+    border = "single",
   })
 
   current_index = nil

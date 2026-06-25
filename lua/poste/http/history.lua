@@ -18,6 +18,15 @@ local list_ns = vim.api.nvim_create_namespace("poste_history_list")
 
 local MAX_BODY_SAVE = 100 * 1024
 
+local function truncate_response(response)
+  if not response or type(response) ~= "table" then return response end
+  local r = vim.deepcopy(response)
+  if r.body and type(r.body) == "string" and #r.body > MAX_BODY_SAVE then
+    r.body = r.body:sub(1, MAX_BODY_SAVE) .. "\n... [truncated " .. #r.body .. " bytes]"
+  end
+  return r
+end
+
 function M.add_entry(name, response, assertion_results, script_logs, source_file)
   state.http_history_id_counter = state.http_history_id_counter + 1
   local entry = {

@@ -16,7 +16,7 @@ require("poste").setup({
 })
 ```
 
-`<leader>` 会自动解析为你的 mapleader（默认 `\`），并在 UI 标签和帮助窗口中正确显示。
+`<leader>` 会被替换为你的 mapleader 实际值，特殊字符自动映射为可读名称（如空格 → `<Space>`）。例如：
 
 ---
 
@@ -181,15 +181,13 @@ require("poste").setup({
 
 UI 标签（winbar）和帮助窗口会根据以下规则显示按键：
 
-| 配置值 | 显示 |
-|--------|------|
-| `B` | `B` |
-| `<Tab>` | `Tab` |
-| `<S-Tab>` | `S-Tab` |
-| `<CR>` | `Enter` |
-| `<Esc>` | `Esc` |
-| `<leader>j` | `\j` （如果 mapleader=`\`）|
-| `<leader>j` | `,j` （如果 mapleader=`,`）|
+| 配置值 | mapleader | 显示 |
+|--------|-----------|------|
+| `B` | — | `B` |
+| `<Tab>` | — | `Tab` |
+| `<leader>j` | `\`（默认） | `\j` |
+| `<leader>j` | `,` | `,j` |
+| `<leader>j` | `<Space>` | `<Space>j` |
 
 ---
 

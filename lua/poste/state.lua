@@ -217,7 +217,7 @@ local KEY_DISPLAY_NAMES = {
   ["<S-Tab>"] = "S-Tab",
   ["<CR>"] = "Enter",
   ["<Esc>"] = "Esc",
-  ["<Space>"] = "Space",
+  ["<Space>"] = "<Space>",
   ["<Up>"] = "Up",
   ["<Down>"] = "Down",
   ["<Left>"] = "Left",
@@ -226,13 +226,18 @@ local KEY_DISPLAY_NAMES = {
   ["<BS>"] = "BS",
 }
 
---- Format a raw key string for display in UI labels.
---- Resolves <leader> and special key names like <Tab>, <CR>.
+--- Resolve a raw key string for display in UI labels.
+--- <leader> is resolved via vim.g.mapleader; special chars are mapped to readable names.
 function M.format_key_string(key)
   if not key or key == "" then return "" end
   if KEY_DISPLAY_NAMES[key] then return KEY_DISPLAY_NAMES[key] end
   if key:sub(1, 8) == "<leader>" then
     local leader = vim.g.mapleader or "\\"
+    -- normalize literal whitespace chars to <> notation for KEY_DISPLAY_NAMES lookup
+    if leader == " " then leader = "<Space>"
+    elseif leader == "\t" then leader = "<Tab>"
+    elseif leader == "\r" then leader = "<CR>"
+    end
     leader = KEY_DISPLAY_NAMES[leader] or leader
     return leader .. key:sub(9)
   end

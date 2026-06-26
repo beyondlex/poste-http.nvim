@@ -12,6 +12,12 @@ setlocal comments=:#,s:/*,mb:*,ex:*/
 " Disable auto-continuing comments on o/O
 setlocal formatoptions-=o
 
+" Indentation: use autoindent only, disable smartindent/cindent
+" so `{` Enter keeps `}` aligned (prevents unwanted indent in JSON body)
+setlocal autoindent
+setlocal nosmartindent
+setlocal nocindent
+
 " ─── Kulala.nvim compatibility ──────────────────────────
 " When a .http file is opened, Neovim's built-in detection briefly sets
 " filetype=http before Poste's after/ftdetect overrides it to poste_http.

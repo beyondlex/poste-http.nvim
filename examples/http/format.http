@@ -1,0 +1,14 @@
+
+### 0 Magic variables: all four types
+POST {{base_url}}/post
+Content-Type: application/json
+
+{"name":"doge",
+    "value":13
+
+}
+
+# ────────────────────────────────────────────────────────────────────
+# 0.1 {{$magic}} — magic variable substitution
+# ────────────────────────────────────────────────────────────────────
+# Tests that Rust parser generates $timestamp, $uuid, $date, $randomInt.

@@ -736,7 +736,46 @@ fn format_request_block(regions: &[&Region], out: &mut String) {
             return;
         }
         out.push('\n');
-        Self::compress_blank_lines(body, out);
+
+        if body.is_empty() {
+            return;
+        }
+
+        let formatted = Self::try_format_json_body(body);
+        Self::compress_blank_lines(&formatted, out);
+    }
+
+    /// Try to parse body as JSON and pretty-print it.
+    /// Strips trailing comments/blank lines (not valid JSON) before parsing.
+    /// Returns formatted lines on success with any trailing content reattached.
+    fn try_format_json_body(body: &[String]) -> Vec<String> {
+        let split = Self::find_json_body_end(body);
+        let json_part = &body[..split];
+        let trailing = &body[split..];
+        let joined = json_part.join("\n");
+        match serde_json::from_str::<serde_json::Value>(&joined) {
+            Ok(value) => {
+                let pretty = serde_json::to_string_pretty(&value).unwrap_or(joined);
+                let mut result: Vec<String> = pretty.lines().map(|l| l.to_string()).collect();
+                result.extend_from_slice(trailing);
+                result
+            }
+            Err(_) => body.to_vec(),
+        }
+    }
+
+    /// Find where the JSON body ends by skipping trailing comment/blank lines.
+    fn find_json_body_end(body: &[String]) -> usize {
+        let mut end = body.len();
+        for line in body.iter().rev() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                end -= 1;
+            } else {
+                break;
+            }
+        }
+        end
     }
 
     fn emit_post_scripts(post_scripts: &[String], out: &mut String) {

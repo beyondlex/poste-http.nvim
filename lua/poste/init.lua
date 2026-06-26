@@ -123,7 +123,14 @@ function M.setup(opts)
       vim.notify("poste binary not found. Run :PosteUpdate or set vim.g.poste_binary", vim.log.levels.ERROR)
       return
     end
-    vim.cmd(string.format("%%!%s fmt --stdin", vim.fn.shellescape(binary)))
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    local result = vim.fn.systemlist({ binary, "fmt", "--stdin" }, lines)
+    if vim.v.shell_error == 0 then
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, result)
+      vim.notify("poste fmt: formatted", vim.log.levels.INFO)
+    else
+      vim.notify("poste fmt failed: " .. table.concat(result, " "), vim.log.levels.ERROR)
+    end
   end, { desc = "Format .http buffer using poste fmt" })
 
   vim.api.nvim_create_user_command("PosteHttpHistory", function()

@@ -315,7 +315,10 @@ fn test_format_roundtrip_identity() {
     let output = Formatter::format(input);
     assert!(output.contains("GET /api/users"));
     assert!(output.contains("Accept: application/json"));
-    assert!(output.contains("{\"name\":\"test\"}"));
+    // JSON body should be pretty-printed
+    assert!(output.contains("\"name\": \"test\""));
+    assert!(output.contains('{'));
+    assert!(output.contains('}'));
 }
 
 #[test]
@@ -484,4 +487,99 @@ fn test_format_prescript_fixes_bad_indent() {
     let output = Formatter::format(input);
     let expected = "### Test\n< {%\nclient.test(\"ok\", function()\n  client.assert(true)\nend)\n%}\nGET /api\n";
     assert_eq!(output, expected);
+}
+
+// ─── JSON body formatting tests ───
+
+#[test]
+fn test_format_json_body_prettyprints() {
+    let input = "### Test\nPOST /api/data\nContent-Type: application/json\n\n{\"name\":\"test\",\"value\":123}\n";
+    let output = Formatter::format(input);
+    assert!(output.contains("\"name\": \"test\""));
+    assert!(output.contains("\"value\": 123"));
+    assert!(output.starts_with("### Test\nPOST /api/data\nContent-Type: application/json\n\n{"));
+    // Closing brace should align with opening brace
+    assert!(output.contains("\n}\n"));
+}
+
+#[test]
+fn test_format_json_body_preserves_pretty() {
+    let input = "### Test\nPOST /api/data\nContent-Type: application/json\n\n{\n  \"name\": \"test\",\n  \"value\": 123\n}\n";
+    let output = Formatter::format(input);
+    assert!(output.contains("\"name\": \"test\""));
+    assert!(output.contains("\"value\": 123"));
+}
+
+#[test]
+fn test_format_json_body_with_variables() {
+    let input = "### Test\nPOST /api/login\nContent-Type: application/json\n\n{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}\n";
+    let output = Formatter::format(input);
+    // Variables inside JSON strings should be preserved
+    assert!(output.contains("{{username}}"));
+    assert!(output.contains("{{password}}"));
+}
+
+#[test]
+fn test_format_json_body_debug_raw() {
+    // Debug: verify the raw JSON is parseable
+    let input = "### Test\nPOST /api/data\nContent-Type: application/json\n\n{\"name\":\"doge\",\n    \"value\":13\n\n}\n\n# ─────────────────────\n# 0.1 {{$magic}}\n";
+    let output = Formatter::format(input);
+    eprintln!("OUTPUT: {:?}", output);
+    assert!(output.contains("\"name\": \"doge\"") || output.contains("\"name\": \"doge\","));
+    assert!(output.contains("\"value\": 13") || output.contains("\"value\": 13,"));
+    // Trailing comments should be preserved
+    assert!(output.contains("# ─────────────────────"));
+    assert!(output.contains("# 0.1 {{$magic}}"));
+}
+
+#[test]
+fn test_format_json_body_strip_comments() {
+    // Direct test of strip_trailing_body_lines
+    let body = vec![
+        "{\"name\":\"doge\",".to_string(),
+        "    \"value\":13".to_string(),
+        "".to_string(),
+        "}".to_string(),
+        "".to_string(),
+        "# ─────────────────────".to_string(),
+        "# 0.1 {{$magic}}".to_string(),
+    ];
+    let end = Formatter::find_json_body_end(&body);
+    assert_eq!(end, 4);
+    let json_part = &body[..end];
+    let joined = json_part.join("\n");
+    let result = serde_json::from_str::<serde_json::Value>(&joined);
+    assert!(result.is_ok(), "JSON should be valid, got: {:?}", result.err());
+}
+
+#[test]
+fn test_format_json_body_with_trailing_comments() {
+    let input = "### Test\nPOST /api/data\nContent-Type: application/json\n\n{\"name\":\"doge\",\n    \"value\":13\n\n}\n\n# ─────────────────────\n# 0.1 {{$magic}}\n";
+    let output = Formatter::format(input);
+    assert!(output.contains("\"name\": \"doge\""));
+    assert!(output.contains("\"value\": 13"));
+    assert!(output.contains("# ─────────────────────"));
+    assert!(output.contains("# 0.1 {{$magic}}"));
+}
+
+#[test]
+fn test_format_non_json_body_unchanged() {
+    let input = "### Test\nPOST /api/data\nContent-Type: application/x-www-form-urlencoded\n\nkey1=value1&key2=value2\n";
+    let output = Formatter::format(input);
+    assert!(output.contains("key1=value1&key2=value2"));
+}
+
+#[test]
+fn test_format_empty_body_unchanged() {
+    let input = "### Test\nGET /api\n";
+    let output = Formatter::format(input);
+    assert_eq!(output, "### Test\nGET /api\n");
+}
+
+#[test]
+fn test_format_json_array_body() {
+    let input = "### Test\nPOST /api/items\nContent-Type: application/json\n\n[{\"id\":1},{\"id\":2}]\n";
+    let output = Formatter::format(input);
+    assert!(output.contains("\"id\": 1"));
+    assert!(output.contains("\"id\": 2"));
 }

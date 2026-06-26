@@ -152,13 +152,8 @@ end
 --- Navigate a nested table using a dot-separated path.
 --- Supports: "data.user.name" → data.user.name
 ---           "items[0].id"    → items[0].id (array indexing)
---- Automatically parses JSON strings when navigating deeper
-local function get_nested_value(obj, path)
-  if not obj or path == "" then return nil end
-  local segments = parse_path_segments(path)
-  return resolve_segments(obj, segments, 1)
-end
-
+--- Parse a dot-separated path into segments, treating brackets as grouped
+--- delimiters so that "items[].id" becomes {"items[]", "id"}.
 local function parse_path_segments(path)
   local segments = {}
   local i = 1
@@ -185,6 +180,8 @@ local function parse_path_segments(path)
   return segments
 end
 
+--- Resolve path segments recursively, supporting array wildcards.
+--- Must be defined before get_nested_value (used recursively).
 local function resolve_segments(current, segments, idx)
   if idx > #segments then return current end
   if type(current) == "string" then
@@ -221,6 +218,13 @@ local function resolve_segments(current, segments, idx)
   local value = current[part]
   if value == nil then value = current[part .. "[]"] end
   return resolve_segments(value, segments, idx + 1)
+end
+
+--- Walk a dot-separated path into a nested table/JSON structure.
+local function get_nested_value(obj, path)
+  if not obj or path == "" then return nil end
+  local segments = parse_path_segments(path)
+  return resolve_segments(obj, segments, 1)
 end
 
 ---------------------------------------------------------------------------

@@ -165,6 +165,8 @@ end
 --- Ensure the binary is available.
 --- Called at plugin startup. Returns the binary path if found, nil otherwise.
 --- Checks (in order): user config, local dev build, default data path, then attempted download.
+--- When the installed binary exists, checks asynchronously whether the plugin's
+--- git tag matches the binary version and auto-updates if needed.
 function M.ensure()
   -- 1. User-configured path (state.config.poste_binary)
   local state_ok, state = pcall(require, "poste.state")
@@ -200,6 +202,16 @@ function M.ensure()
   -- 4. Default installed path (stdpath data)
   local bp = binary_path()
   if vim.fn.filereadable(bp) == 1 then
+    -- Async version sync: if the plugin checkout is on a release tag that
+    -- differs from the installed binary, download the matching version.
+    vim.schedule(function()
+      local tag = plugin_tag()
+      if not tag then return end
+      local installed = M.installed_version()
+      if installed ~= tag then
+        M.download(tag)
+      end
+    end)
     return bp
   end
 
@@ -230,6 +242,29 @@ function M.installed_version()
   local v = f:read("*l")
   f:close()
   return v
+end
+
+--- Get the git tag of the plugin checkout, if HEAD is exactly on a release tag.
+--- Used to match binary version to plugin version. Returns nil in dev mode
+--- (where HEAD is not on a tag).
+local function plugin_tag()
+  local src = debug.getinfo(1, "S").source
+  if not src or src:sub(1, 1) ~= "@" then return nil end
+  -- src is @/path/to/plugin/lua/poste/install.lua, plugin root is ../../../
+  local root = src:sub(2):match("^(.+/)lua/poste/install%.lua$")
+  if not root then return nil end
+  local git_dir = root .. ".git"
+  if vim.fn.isdirectory(git_dir) ~= 1 and vim.fn.filereadable(git_dir) ~= 1 then
+    return nil
+  end
+  local handle = io.popen(
+    "cd " .. vim.fn.shellescape(root) .. " && git describe --tags --exact-match 2>/dev/null"
+  )
+  if not handle then return nil end
+  local tag = handle:read("*a"):gsub("%s+", "")
+  handle:close()
+  if tag == "" then return nil end
+  return tag
 end
 
 return M

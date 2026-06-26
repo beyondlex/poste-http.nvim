@@ -125,6 +125,19 @@ function M.setup(opts)
     require("poste.http.history").show()
   end, { desc = "Show HTTP request history" })
 
+  vim.api.nvim_create_user_command("PosteInfo", function()
+    local binary = state.find_poste_binary()
+    local binary_path = binary or "(not found)"
+    local version = "(unknown)"
+    if binary then
+      local ok, output = pcall(vim.fn.system, { binary, "--version" })
+      if ok then
+        version = vim.trim(output)
+      end
+    end
+    vim.notify(string.format("binary: %s\nversion: %s", binary_path, version), vim.log.levels.INFO)
+  end, { desc = "Show Poste binary path and version" })
+
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.http", "*.rest", "*.redis" },
     callback = function()

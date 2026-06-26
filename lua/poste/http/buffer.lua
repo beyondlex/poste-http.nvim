@@ -10,28 +10,44 @@ local response_window = nil
 -- Callback for tab-switching keymaps; set by init.lua after show_view is defined.
 M.on_show_view = nil
 
----------------------------------------------------------------------------
--- Winbar (tab indicators)
----------------------------------------------------------------------------
+-- Tab metadata: id → { name, section, action (for keymap lookup) }
+local TAB_META = {
+  body        = { name = "Body",     section = "http_response", action = "view_body" },
+  request     = { name = "Rqst",     section = "http_response", action = "view_request" },
+  verbose     = { name = "Verb",     section = "http_response", action = "view_verbose" },
+  assertions  = { name = "Asserts",  section = "http_response", action = "view_assertions" },
+  script_logs = { name = "Script",   section = "http_response", action = "view_script_logs" },
+}
+
+--- Build a tab label with key hint, e.g. "Body [B]" or "Verb [Tab]".
+local function tab_label(tab_id)
+  local meta = TAB_META[tab_id]
+  if not meta then return tab_id end
+  local key = state.format_keymap(meta.section, meta.action)
+  if key ~= "" then
+    return meta.name .. " [" .. key .. "]"
+  end
+  return meta.name
+end
 
 --- Get list of active tabs based on current state
 local function get_active_tabs()
-  local body_label = "Body [H]"
+  local body_label = tab_label("body")
   if state._json.is_filtered and state._json.query then
-    body_label = "Body [H] | jq: " .. state._json.query
+    body_label = tab_label("body") .. " | jq: " .. state._json.query
   end
   local tabs = {
     { id = "body",    label = body_label },
-    { id = "request", label = "Rqst [R]" },
-    { id = "verbose", label = "Verb [L]" },
+    { id = "request", label = tab_label("request") },
+    { id = "verbose", label = tab_label("verbose") },
   }
   -- Only show Asserts tab when assertions were run
   if state.last_assertion_results then
-    table.insert(tabs, { id = "assertions", label = "Asserts [A]" })
+    table.insert(tabs, { id = "assertions", label = tab_label("assertions") })
   end
   -- Show Script tab when pre/post scripts produced output
   if state.last_script_logs and #state.last_script_logs > 0 then
-    table.insert(tabs, { id = "script_logs", label = "Script [S]" })
+    table.insert(tabs, { id = "script_logs", label = tab_label("script_logs") })
   end
   return tabs
 end
@@ -139,7 +155,7 @@ local function get_response_buffer()
   if k then
     vim.keymap.set("n", k, function() if M.on_show_view then M.on_show_view("request") end end, opts)
   end
-  k = state.get_keymap("http_response", "view_verbose", "I")
+  k = state.get_keymap("http_response", "view_verbose", "E")
   if k then
     vim.keymap.set("n", k, function() if M.on_show_view then M.on_show_view("verbose") end end, opts)
   end

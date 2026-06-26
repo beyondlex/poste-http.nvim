@@ -61,20 +61,20 @@ end
 local function get_active_tabs()
   local entry = state.http_history[current_index]
   if not entry then return {} end
-  local body_label = "Body [H]"
+  local body_label = "Body [" .. state.format_keymap("http_response", "view_body") .. "]"
   if entry._jq and entry._jq.query then
-    body_label = "Body [H] | jq: " .. entry._jq.query
+    body_label = "Body [" .. state.format_keymap("http_response", "view_body") .. "] | jq: " .. entry._jq.query
   end
   local tabs = {
     { id = "body", label = body_label },
-    { id = "request", label = "Rqst [R]" },
-    { id = "verbose", label = "Verb [L]" },
+    { id = "request", label = "Rqst [" .. state.format_keymap("http_response", "view_request") .. "]" },
+    { id = "verbose", label = "Verb [" .. state.format_keymap("http_response", "view_verbose") .. "]" },
   }
   if entry.assertion_results then
-    table.insert(tabs, { id = "assertions", label = "Asserts [A]" })
+    table.insert(tabs, { id = "assertions", label = "Asserts [" .. state.format_keymap("http_response", "view_assertions") .. "]" })
   end
   if entry.script_logs and #entry.script_logs > 0 then
-    table.insert(tabs, { id = "script_logs", label = "Script [S]" })
+    table.insert(tabs, { id = "script_logs", label = "Script [" .. state.format_keymap("http_response", "view_script_logs") .. "]" })
   end
   return tabs
 end
@@ -383,13 +383,13 @@ local function setup_detail_keymaps()
   local k = state.get_keymap("http_response", "close", "q")
   if k then vim.keymap.set("n", k, hide, opts) end
 
-  k = state.get_keymap("http_response", "view_body", "H")
+  k = state.get_keymap("http_response", "view_body", "B")
   if k then vim.keymap.set("n", k, function() switch_tab("body") end, opts) end
 
   k = state.get_keymap("http_response", "view_request", "R")
   if k then vim.keymap.set("n", k, function() switch_tab("request") end, opts) end
 
-  k = state.get_keymap("http_response", "view_verbose", "I")
+  k = state.get_keymap("http_response", "view_verbose", "E")
   if k then vim.keymap.set("n", k, function() switch_tab("verbose") end, opts) end
 
   k = state.get_keymap("http_response", "view_assertions", "A")

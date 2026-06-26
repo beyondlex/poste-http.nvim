@@ -40,8 +40,8 @@ M.config = {
     },
     http_response = {
       close = "q",
-      view_body = "H",
-      view_verbose = "L",
+      view_body = "B",
+      view_verbose = "E",
       view_assertions = "A",
       view_script_logs = "S",
       next_tab = "<Tab>",
@@ -210,6 +210,41 @@ function M.get_keymap(section, action, default)
   if key == nil then return default end
   if key == false then return nil end
   return key
+end
+
+local KEY_DISPLAY_NAMES = {
+  ["<Tab>"] = "Tab",
+  ["<S-Tab>"] = "S-Tab",
+  ["<CR>"] = "Enter",
+  ["<Esc>"] = "Esc",
+  ["<Space>"] = "Space",
+  ["<Up>"] = "Up",
+  ["<Down>"] = "Down",
+  ["<Left>"] = "Left",
+  ["<Right>"] = "Right",
+  ["<C-Space>"] = "C-Space",
+  ["<BS>"] = "BS",
+}
+
+--- Format a raw key string for display in UI labels.
+--- Resolves <leader> and special key names like <Tab>, <CR>.
+function M.format_key_string(key)
+  if not key or key == "" then return "" end
+  if KEY_DISPLAY_NAMES[key] then return KEY_DISPLAY_NAMES[key] end
+  if key:sub(1, 8) == "<leader>" then
+    local leader = vim.g.mapleader or "\\"
+    leader = KEY_DISPLAY_NAMES[leader] or leader
+    return leader .. key:sub(9)
+  end
+  return key
+end
+
+--- Look up a keymap and format it for display.
+--- Returns empty string if keymap is disabled or not found.
+function M.format_keymap(section, action)
+  local key = M.get_keymap(section, action)
+  if not key then return "" end
+  return M.format_key_string(key)
 end
 
 ---------------------------------------------------------------------------

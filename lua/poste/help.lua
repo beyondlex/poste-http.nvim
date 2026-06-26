@@ -142,8 +142,7 @@ function M.open()
     for _, action in ipairs(actions) do
       local key = state.get_keymap(section, action)
       if key and key ~= false then
-        local key_display = vim.fn.strtrans(key)
-        key_display = key_display:gsub("%s", "<Space>")
+        local key_display = state.format_key_string(key)
         local description = desc[action] or ""
         local line = string.format("  %-12s  %s", key_display, description)
         table.insert(lines, line)
@@ -152,8 +151,25 @@ function M.open()
     end
   end
 
-  table.insert(lines, "")
-  table.insert(lines, "  q / <Esc>  close")
+  -- Dynamic close hint: collect all configured close keys
+  local close_keys = {}
+  local function collect_close(section, action)
+    local k = state.get_keymap(section, action)
+    if k then close_keys[state.format_key_string(k)] = true end
+  end
+  collect_close("http_response", "close")
+  collect_close("sql_dataset", "close")
+  collect_close("db_browser", "close")
+  collect_close("http_history", "close")
+  collect_close("introspect_float", "close")
+  collect_close("introspect_float", "close_alt")
+  local close_parts = {}
+  for k in pairs(close_keys) do
+    table.insert(close_parts, k)
+  end
+  table.sort(close_parts, function(a, b) return #a < #b end)
+  local close_text = #close_parts > 0 and table.concat(close_parts, " / ") or "q"
+  table.insert(lines, "  " .. close_text .. "  close")
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)

@@ -6,9 +6,15 @@ use std::io::{BufRead, BufReader, Read, Write};
 #[derive(Parser)]
 #[command(name = "poste")]
 #[command(about = "Execute requests from files")]
+#[command(disable_version_flag = true)]
+#[command(subcommand_required = false)]
+#[command(arg_required_else_help = true)]
 struct Cli {
+    #[arg(short = 'v', long = "version", help = "Print version information")]
+    version: bool,
+
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -136,17 +142,22 @@ enum ConnectionAction {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    if cli.version {
+        println!("poste {}", env!("POSTE_TAG"));
+        return Ok(());
+    }
+
     match cli.command {
-        Commands::Connection { action } => {
+        Some(Commands::Connection { action }) => {
             handle_connection_command(action).await?;
         }
-        Commands::Introspect { name, r#type, schema, table, database, path, env } => {
+        Some(Commands::Introspect { name, r#type, schema, table, database, path, env }) => {
             handle_introspect_command(name, r#type, schema, table, database, path, env).await?;
         }
-        Commands::Context { action } => {
+        Some(Commands::Context { action }) => {
             handle_context_command(action)?;
         }
-        Commands::Run { file, line, env, json, stdin, database } => {
+        Some(Commands::Run { file, line, env, json, stdin, database }) => {
             let file_path = std::path::PathBuf::from(&file);
 
             // Determine the directory to search for env.json, and the file extension.
@@ -288,9 +299,10 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Fmt { files, check, stdin, in_place } => {
+        Some(Commands::Fmt { files, check, stdin, in_place }) => {
             handle_fmt(files, check, stdin, in_place)?;
         }
+        None => {}
     }
 
     Ok(())

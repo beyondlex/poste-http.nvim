@@ -1,9 +1,12 @@
+
+@base_url = https://postman-echo.com
+
 ### Get Items
-GET https://httpbin.org/get?items[]=apple&items[]=banana&items[]=cherry&items[]=date&items[]=elderberry
+GET {{base_url}}/get?items[]=apple&items[]=banana&items[]=cherry&items[]=date&items[]=elderberry
 
 ### Select Fruit
 # @prompt fruit [{{Get Items.response.body.args.items}}]
-GET https://httpbin.org/get?fruit={{fruit}}
+GET {{base_url}}/get?fruit={{fruit}}
 
 ### Static Options
 # @prompt method [GET, POST, PUT, DELETE]

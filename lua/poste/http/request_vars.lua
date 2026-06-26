@@ -155,46 +155,72 @@ end
 --- Automatically parses JSON strings when navigating deeper
 local function get_nested_value(obj, path)
   if not obj or path == "" then return nil end
+  local segments = parse_path_segments(path)
+  return resolve_segments(obj, segments, 1)
+end
 
-  local current = obj
-  for part in path:gmatch("[^.]+") do
-    -- If current is a string, try to parse it as JSON
-    if type(current) == "string" then
-      local ok, parsed = pcall(vim.json.decode, current)
-      if ok and type(parsed) == "table" then
-        current = parsed
-      else
-        return nil  -- Can't navigate into non-JSON string
-      end
-    end
-
-    if type(current) ~= "table" then return nil end
-
-    -- Handle array indexing: items[0] or items[2]
-    local field, idx = part:match("^(.+)%[(%d+)%]$")
-    if field and idx then
-      -- Try exact field name first, then fallback to field[] suffix
-      local arr = current[field]
-      if arr == nil and type(current) == "table" then
-        arr = current[field .. "[]"]
-      end
-      if type(arr) == "table" then
-        current = arr[tonumber(idx) + 1]  -- Lua is 1-indexed
-      else
-        return nil
-      end
+local function parse_path_segments(path)
+  local segments = {}
+  local i = 1
+  while i <= #path do
+    if path:sub(i, i) == "." then
+      i = i + 1
     else
-      -- Try exact key first, then fallback to key with [] suffix
-      -- This handles cases like httpbin's "items[]" key being accessed as "items"
-      local value = current[part]
-      if value == nil and type(current) == "table" then
-        value = current[part .. "[]"]
+      local start = i
+      local depth = 0
+      while i <= #path do
+        local c = path:sub(i, i)
+        if c == "[" then
+          depth = depth + 1
+        elseif c == "]" then
+          depth = depth - 1
+        elseif c == "." and depth == 0 then
+          break
+        end
+        i = i + 1
       end
-      current = value
+      table.insert(segments, path:sub(start, i - 1))
     end
   end
+  return segments
+end
 
-  return current
+local function resolve_segments(current, segments, idx)
+  if idx > #segments then return current end
+  if type(current) == "string" then
+    local ok, parsed = pcall(vim.json.decode, current)
+    if ok and type(parsed) == "table" then
+      current = parsed
+    else
+      return nil
+    end
+  end
+  if type(current) ~= "table" then return nil end
+  local part = segments[idx]
+  local array_field = part:match("^(.+)%[%]$")
+  if array_field then
+    local arr = current[array_field]
+    if arr == nil then arr = current[array_field .. "[]"] end
+    if type(arr) ~= "table" or not vim.tbl_islist(arr) then return nil end
+    local results = {}
+    for _, elem in ipairs(arr) do
+      local r = resolve_segments(elem, segments, idx + 1)
+      if r ~= nil then
+        table.insert(results, r)
+      end
+    end
+    return results
+  end
+  local field, idx_str = part:match("^(.+)%[(%d+)%]$")
+  if field and idx_str then
+    local arr = current[field]
+    if arr == nil then arr = current[field .. "[]"] end
+    if type(arr) ~= "table" then return nil end
+    return resolve_segments(arr[tonumber(idx_str) + 1], segments, idx + 1)
+  end
+  local value = current[part]
+  if value == nil then value = current[part .. "[]"] end
+  return resolve_segments(value, segments, idx + 1)
 end
 
 ---------------------------------------------------------------------------

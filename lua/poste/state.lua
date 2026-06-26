@@ -255,6 +255,11 @@ end
 ---------------------------------------------------------------------------
 -- Binary discovery
 function M.find_poste_binary()
+  -- g:poste_binary takes highest priority (quick override without touching config)
+  local g_val = vim.g.poste_binary
+  if g_val and g_val ~= "" and vim.fn.filereadable(g_val) == 1 then
+    return vim.fn.fnamemodify(g_val, ":p")
+  end
   if M.config.poste_binary ~= "" and vim.fn.filereadable(M.config.poste_binary) == 1 then
     return vim.fn.fnamemodify(M.config.poste_binary, ":p")
   end

@@ -196,8 +196,13 @@ local function resolve_segments(current, segments, idx)
   local part = segments[idx]
   local array_field = part:match("^(.+)%[%]$")
   if array_field then
-    local arr = current[array_field]
-    if arr == nil then arr = current[array_field .. "[]"] end
+    local arr
+    if array_field == "" then
+      arr = current
+    else
+      arr = current[array_field]
+      if arr == nil then arr = current[array_field .. "[]"] end
+    end
     if type(arr) ~= "table" or not vim.tbl_islist(arr) then return nil end
     local results = {}
     for _, elem in ipairs(arr) do
@@ -210,8 +215,13 @@ local function resolve_segments(current, segments, idx)
   end
   local field, idx_str = part:match("^(.+)%[(%d+)%]$")
   if field and idx_str then
-    local arr = current[field]
-    if arr == nil then arr = current[field .. "[]"] end
+    local arr
+    if field == "" then
+      arr = current
+    else
+      arr = current[field]
+      if arr == nil then arr = current[field .. "[]"] end
+    end
     if type(arr) ~= "table" then return nil end
     return resolve_segments(arr[tonumber(idx_str) + 1], segments, idx + 1)
   end

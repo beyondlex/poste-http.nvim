@@ -596,15 +596,16 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
                   local value = resolve_request_variable(ref_match, { [req_name] = response })
                   if value and type(value) == "table" then
                     local options = {}
-                    for _, item in ipairs(value) do
-                      if type(item) == "string" then
+                    local function flatten(item)
+                      if type(item) == "table" then
+                        for _, sub in ipairs(item) do flatten(sub) end
+                      elseif type(item) == "string" then
                         table.insert(options, item)
                       elseif type(item) == "number" then
                         table.insert(options, tostring(item))
-                      elseif type(item) == "table" then
-                        table.insert(options, vim.inspect(item))
                       end
                     end
+                    for _, item in ipairs(value) do flatten(item) end
 
                     if #options > 0 then
                       local prompt = string.format("Select value for '%s'", varname_sel)

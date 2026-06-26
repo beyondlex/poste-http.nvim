@@ -427,7 +427,9 @@ local function setup_detail_keymaps()
           if choice then history_jq_filter(choice) end
         end)
       else
-        vim.ui.input({ prompt = "jq> " }, function(q)
+        local entry = state.http_history[current_index]
+        local default_q = (entry and entry._jq and entry._jq.query) or ""
+        vim.ui.input({ prompt = "jq> ", default = default_q }, function(q)
           if q and q ~= "" then history_jq_filter(q) end
         end)
       end

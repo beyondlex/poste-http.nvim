@@ -18,7 +18,7 @@ function M.start_interactive_input()
       end
     end)
   else
-    vim.ui.input({ prompt = "jq> " }, function(query)
+    vim.ui.input({ prompt = "jq> ", default = state._json.query or "" }, function(query)
       if query and query ~= "" then M.apply_filter(query) end
     end)
   end

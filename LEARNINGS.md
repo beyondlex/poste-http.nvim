@@ -11,6 +11,7 @@ pitfall, log it here. Check this file before starting any task.
 
 ## Entries
 
+- 2026-06-26: agent — `lua local function f()` defined after its first caller causes "nil value" at runtime. Lua requires local functions to be declared before use, or forward-declared via `local f`. Fix: always order helper functions top-down, or add `local f` forward decl at module top. See `lua/poste/http/request_vars.lua:155-160`.
 - 2026-06-26: keymaps — renamed `source_buffer` → `http_source`, `db_browser` → `sql_db_browser`, `introspect_float` → `sql_introspect` for consistency. Breaking change for users with custom configs using old names. See `lua/poste/state.lua:25-133`.
 - 2026-06-24: http — pre-script/global var injection adds lines to buf_content but `--line` not adjusted, causing wrong block selection in Rust parser. Fix: add `line = line + injected_count` after each injection. See `lua/poste/http/run.lua:133,154`.
 - 2026-06-24: http — jq filter state (`_json.query`, `original_lines`, `is_filtered`) persists across requests, showing stale filter in winbar. Fix: clear `state._json` before setting `state.last_response`. See `lua/poste/http/run.lua:199-201`.

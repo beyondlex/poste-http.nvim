@@ -44,6 +44,7 @@ lua require("poste").setup()
 - `:PosteRun` - Execute the request at the current cursor position
 - `:PosteEnv` - Show the current environment
 - `:PosteEnv <name>` - Switch to the specified environment
+- `:PosteUpdate` - Download the latest poste-cli binary from GitHub Releases
 
 ### Keymaps (in .http files)
 

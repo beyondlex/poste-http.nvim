@@ -120,7 +120,7 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("PosteFormatHttp", function()
     local binary = state.find_poste_binary()
     if not binary then
-      vim.notify("poste binary not found. Run :PosteInstall or set vim.g.poste_binary", vim.log.levels.ERROR)
+      vim.notify("poste binary not found. Run :PosteUpdate or set vim.g.poste_binary", vim.log.levels.ERROR)
       return
     end
     vim.cmd(string.format("%%!%s fmt --stdin", vim.fn.shellescape(binary)))
@@ -129,6 +129,15 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("PosteHttpHistory", function()
     require("poste.http.history").show()
   end, { desc = "Show HTTP request history" })
+
+  vim.api.nvim_create_user_command("PosteUpdate", function()
+    local install = require("poste.install")
+    local ok = install.update()
+    if ok then
+      local v = install.installed_version()
+      vim.notify("[Poste] Updated to " .. (v or "latest"), vim.log.levels.INFO)
+    end
+  end, { desc = "Update poste-cli binary to latest release" })
 
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.http", "*.rest", "*.redis" },

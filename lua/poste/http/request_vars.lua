@@ -194,7 +194,7 @@ local function resolve_segments(current, segments, idx)
   end
   if type(current) ~= "table" then return nil end
   local part = segments[idx]
-  local array_field = part:match("^(.+)%[%]$")
+  local array_field = part:match("^(.*)%[%]$")
   if array_field then
     local arr
     if array_field == "" then
@@ -213,7 +213,7 @@ local function resolve_segments(current, segments, idx)
     end
     return results
   end
-  local field, idx_str = part:match("^(.+)%[(%d+)%]$")
+  local field, idx_str = part:match("^(.*)%[(%d+)%]$")
   if field and idx_str then
     local arr
     if field == "" then

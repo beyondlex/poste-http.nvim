@@ -35,6 +35,11 @@ function M.setup(opts)
   opts = opts or {}
   state.config = vim.tbl_deep_extend("force", state.config, opts)
 
+  if state._setup_done then
+    return
+  end
+  state._setup_done = true
+
   completion.register()
   require("poste.http.lua_docs").setup()
   require("poste.http.script_snippet").setup()

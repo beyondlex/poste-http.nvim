@@ -35,10 +35,10 @@ function M.setup(opts)
   opts = opts or {}
   state.config = vim.tbl_deep_extend("force", state.config, opts)
 
-  if state._setup_done then
+  if vim.g.poste_setup_done then
     return
   end
-  state._setup_done = true
+  vim.g.poste_setup_done = true
 
   completion.register()
   require("poste.http.lua_docs").setup()
@@ -129,56 +129,6 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("PosteHttpHistory", function()
     require("poste.http.history").show()
   end, { desc = "Show HTTP request history" })
-
-  vim.api.nvim_create_user_command("PosteInfo", function()
-    local binary = state.find_poste_binary()
-    local binary_path = binary or "(not found)"
-    local version = "(unknown)"
-    if binary then
-      local ok, output = pcall(vim.fn.system, { binary, "--version" })
-      if ok then
-        version = vim.trim(output)
-      end
-    end
-
-    local parts = { "─" }
-
-    table.insert(parts, "binary:  " .. binary_path)
-    table.insert(parts, "version: " .. version)
-    table.insert(parts, "─")
-
-    local blink_ok, blink = pcall(require, "blink.cmp")
-    if blink_ok then
-      local providers = {}
-      if blink.config and blink.config.sources and blink.config.sources.providers then
-        for id, _ in pairs(blink.config.sources.providers) do
-          table.insert(providers, id)
-        end
-      end
-      local has_poste = vim.tbl_contains(providers, "poste") and "yes" or "no"
-      table.insert(parts, "blink.cmp: loaded")
-      table.insert(parts, "  providers:  " .. (#providers > 0 and table.concat(providers, ", ") or "(none)"))
-      table.insert(parts, "  poste src:  " .. has_poste)
-    else
-      table.insert(parts, "blink.cmp: not loaded")
-    end
-
-    local cmp_ok = pcall(require, "cmp")
-    if cmp_ok then
-      table.insert(parts, "nvim-cmp:   loaded")
-    end
-
-    local completion_ok, completion = pcall(require, "poste.http.completion")
-    if completion_ok then
-      table.insert(parts, "poste cmp:  " .. completion.status())
-    end
-
-    local ft = vim.bo.filetype or "(none)"
-    table.insert(parts, "filetype:   " .. ft)
-    table.insert(parts, "─")
-
-    vim.notify(table.concat(parts, "\n"), vim.log.levels.INFO)
-  end, { desc = "Show Poste environment info" })
 
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.http", "*.rest", "*.redis" },

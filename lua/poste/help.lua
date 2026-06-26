@@ -5,7 +5,7 @@ local M = {}
 
 -- Description map: section → action → description
 local DESCRIPTIONS = {
-  source_buffer = {
+  http_source = {
     run = "Execute request under cursor",
     jump_next = "Jump to next request block",
     jump_prev = "Jump to previous request block",
@@ -85,7 +85,7 @@ local DESCRIPTIONS = {
     describe_all = "DESCRIBE table",
     toggle_menu = "Toggle action menu",
   },
-  db_browser = {
+  sql_db_browser = {
     toggle_node = "Toggle expand/collapse node",
     move_left = "Collapse node / go to parent",
     move_right = "Expand node / go to first child",
@@ -98,7 +98,7 @@ local DESCRIPTIONS = {
     search_next = "Next search match",
     search_prev = "Previous search match",
   },
-  introspect_float = {
+  sql_introspect = {
     close = "Close introspect window",
     close_alt = "Close introspect window",
   },
@@ -110,13 +110,13 @@ local DESCRIPTIONS = {
 }
 
 local SECTION_TITLES = {
-  source_buffer = "HTTP Request Buffer",
+  http_source = "HTTP Request Buffer",
   http_response = "HTTP Response Buffer",
   sql_source = "SQL Source Buffer",
   sql_dataset = "SQL Dataset Buffer",
   sql_table_ops = "SQL Table Ops",
-  db_browser = "DB Browser",
-  introspect_float = "Introspect Float",
+  sql_db_browser = "DB Browser",
+  sql_introspect = "Introspect Float",
   http_history = "HTTP Request History",
 }
 
@@ -124,7 +124,7 @@ function M.open()
   local lines = {}
   local width = 50
 
-  for _, section in ipairs({ "source_buffer", "http_response", "sql_source", "sql_dataset", "sql_table_ops", "db_browser", "introspect_float", "http_history" }) do
+  for _, section in ipairs({ "http_source", "http_response", "sql_source", "sql_dataset", "sql_table_ops", "sql_db_browser", "sql_introspect", "http_history" }) do
     local title = SECTION_TITLES[section] or section
     local km = state.config.keymaps[section] or {}
     local desc = DESCRIPTIONS[section] or {}
@@ -159,10 +159,10 @@ function M.open()
   end
   collect_close("http_response", "close")
   collect_close("sql_dataset", "close")
-  collect_close("db_browser", "close")
+  collect_close("sql_db_browser", "close")
   collect_close("http_history", "close")
-  collect_close("introspect_float", "close")
-  collect_close("introspect_float", "close_alt")
+  collect_close("sql_introspect", "close")
+  collect_close("sql_introspect", "close_alt")
   local close_parts = {}
   for k in pairs(close_keys) do
     table.insert(close_parts, k)

@@ -22,7 +22,7 @@ M.config = {
   -- User-overridable keymaps. Set to false to disable a keymap.
   -- Each section maps action names → key strings.
   keymaps = {
-    source_buffer = {
+    http_source = {
       run = "<CR>",
       jump_next = "]]",
       jump_prev = "[[",
@@ -108,7 +108,7 @@ M.config = {
       describe_all = "md",
       toggle_menu = "mt",
     },
-    db_browser = {
+    sql_db_browser = {
       toggle_node = "<CR>",
       move_left = "h",
       move_right = "l",
@@ -121,7 +121,7 @@ M.config = {
       search_next = "n",
       search_prev = "N",
     },
-    introspect_float = {
+    sql_introspect = {
       close = "q",
       close_alt = "<Esc>",
     },
@@ -197,7 +197,7 @@ M.sql = {
 -- Keymap lookup helper
 ---------------------------------------------------------------------------
 --- Look up a user-configured keymap from state.config.keymaps.
---- @param section string  e.g. "source_buffer", "sql_dataset"
+--- @param section string  e.g. "http_source", "sql_dataset"
 --- @param action  string  e.g. "run", "close"
 --- @param default string  fallback key if not configured
 --- @return string|nil  the key to use, or nil if disabled (set to false)

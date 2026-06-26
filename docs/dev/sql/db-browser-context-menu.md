@@ -32,7 +32,7 @@ Rules:
 | `x` | Open context menu on current node |
 
 Existing `s` (SELECT), `d` (DESCRIBE) keys are superseded by the menu but retained
-for backward compatibility. Users can disable them via `keymaps.db_browser` config.
+for backward compatibility. Users can disable them via `keymaps.sql_db_browser` config.
 
 ## Context Menu UI
 
@@ -294,7 +294,7 @@ Modified files:
 ```lua
 require("poste").setup({
   keymaps = {
-    db_browser = {
+    sql_db_browser = {
       toggle_node = "<CR>",
       refresh_node = "r",          -- can set to false to use context menu only
       context_menu = "x",          -- new

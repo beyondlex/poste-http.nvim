@@ -6,7 +6,7 @@
 require("poste").setup({
   keymaps = {
     -- 只写你想改的, 其余保持默认
-    source_buffer = {
+    http_source = {
       run = "<leader>r",  -- 把 <CR> 改成 <leader>r
     },
     http_response = {
@@ -20,7 +20,26 @@ require("poste").setup({
 
 ---
 
-## 一、HTTP 源文件 (`source_buffer`)
+## 键位分组索引
+
+Poste 的键位按界面元素分组，每个分组有唯一的配置名：
+
+| 配置名 | 所属协议 | 界面 |
+|--------|----------|------|
+| `http_source` | HTTP | HTTP 请求源文件（`.http` / `.rest`）|
+| `http_response` | HTTP | HTTP 响应缓冲区 |
+| `http_history` | HTTP | HTTP 请求历史弹窗 |
+| `sql_source` | SQL | SQL 源文件（`.sql` / `.mysql` / `.sqlite`）|
+| `sql_dataset` | SQL | SQL 数据集结果缓冲区 |
+| `sql_table_ops` | SQL | SQL 表操作菜单 |
+| `sql_db_browser` | SQL | 数据库浏览器 |
+| `sql_introspect` | SQL | Introspect 结构浮窗 |
+
+在 `setup({ keymaps = { <配置名> = { ... } } })` 中覆盖即可自定义。
+
+---
+
+## 一、HTTP 源文件 (`http_source`)
 
 | 按键 | 动作 | 说明 |
 |------|------|------|
@@ -152,7 +171,7 @@ require("poste").setup({
 | `md` | `describe_all` | DESCRIBE 表 |
 | `mt` | `toggle_menu` | 切换操作菜单 |
 
-## 七、数据库浏览器 (`db_browser`)
+## 七、数据库浏览器 (`sql_db_browser`)
 
 | 按键 | 动作 | 说明 |
 |------|------|------|
@@ -168,7 +187,7 @@ require("poste").setup({
 | `n` | `search_next` | 下一个搜索匹配 |
 | `N` | `search_prev` | 上一个搜索匹配 |
 
-## 八、Introspect 浮窗 (`introspect_float`)
+## 八、Introspect 浮窗 (`sql_introspect`)
 
 | 按键 | 动作 | 说明 |
 |------|------|------|
@@ -223,7 +242,7 @@ require("poste").setup({
 ```lua
 require("poste").setup({
   keymaps = {
-    source_buffer = {
+    http_source = {
       run = "<CR>",
       jump_next = "]]",
       jump_prev = "[[",
@@ -315,7 +334,7 @@ require("poste").setup({
       describe_all = "md",
       toggle_menu = "mt",
     },
-    db_browser = {
+    sql_db_browser = {
       toggle_node = "<CR>",
       move_left = "h",
       move_right = "l",
@@ -328,7 +347,7 @@ require("poste").setup({
       search_next = "n",
       search_prev = "N",
     },
-    introspect_float = {
+    sql_introspect = {
       close = "q",
       close_alt = "<Esc>",
     },

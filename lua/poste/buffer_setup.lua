@@ -13,7 +13,7 @@ function M.setup_buffer_keymaps(buf)
 
   local run_request = require("poste.http.run").run_request
 
-  local k = km("source_buffer", "run", "<CR>")
+  local k = km("http_source", "run", "<CR>")
   if k then
     vim.keymap.set("n", k, function()
       local outline = package.loaded["poste.http.outline"]
@@ -21,11 +21,11 @@ function M.setup_buffer_keymaps(buf)
       run_request()
     end, keymap_opts)
   end
-  k = km("source_buffer", "jump_next", "]]")
+  k = km("http_source", "jump_next", "]]")
   if k then vim.keymap.set("n", k, nav.jump_next, keymap_opts) end
-  k = km("source_buffer", "jump_prev", "[[")
+  k = km("http_source", "jump_prev", "[[")
   if k then vim.keymap.set("n", k, nav.jump_prev, keymap_opts) end
-  k = km("source_buffer", "goto_definition", "gd")
+  k = km("http_source", "goto_definition", "gd")
   if k then
     vim.keymap.set("n", k, function()
       local ft = vim.bo.filetype
@@ -36,43 +36,43 @@ function M.setup_buffer_keymaps(buf)
       end
     end, keymap_opts)
   end
-  k = km("source_buffer", "goto_references", "grr")
+  k = km("http_source", "goto_references", "grr")
   if k then vim.keymap.set("n", k, nav.goto_references, keymap_opts) end
-  k = km("source_buffer", "quickfix_next", "]q")
+  k = km("http_source", "quickfix_next", "]q")
   if k then vim.keymap.set("n", k, function() vim.cmd("cnext") end, keymap_opts) end
-  k = km("source_buffer", "quickfix_prev", "[q")
+  k = km("http_source", "quickfix_prev", "[q")
   if k then vim.keymap.set("n", k, function() vim.cmd("cprev") end, keymap_opts) end
-  k = km("source_buffer", "paste_curl", "<leader>rp")
+  k = km("http_source", "paste_curl", "<leader>rp")
   if k then
     vim.keymap.set("n", k, function()
       local curl = require("poste.http.curl")
       curl.paste_curl("+")
     end, keymap_opts)
   end
-  k = km("source_buffer", "copy_as_curl", "<leader>rc")
+  k = km("http_source", "copy_as_curl", "<leader>rc")
   if k then
     vim.keymap.set("n", k, function()
       local copy = require("poste.http.copy")
       copy.copy_to_clipboard("+")
     end, keymap_opts)
   end
-  k = km("source_buffer", "toggle_outline", "gs")
+  k = km("http_source", "toggle_outline", "gs")
   if k then
     vim.keymap.set("n", k, function()
       require("poste.http.outline").toggle()
     end, keymap_opts)
   end
-  k = km("source_buffer", "pick_env", "<leader>vv")
+  k = km("http_source", "pick_env", "<leader>vv")
   if k then vim.keymap.set("n", k, require("poste.http.env").pick_env, keymap_opts) end
-  k = km("source_buffer", "show_var_value", "K")
+  k = km("http_source", "show_var_value", "K")
   if k then vim.keymap.set("n", k, nav.show_var_value, keymap_opts) end
-  k = km("source_buffer", "show_history", "<leader>l")
+  k = km("http_source", "show_history", "<leader>l")
   if k then
     vim.keymap.set("n", k, function()
       require("poste.http.history").show()
     end, keymap_opts)
   end
-  k = km("source_buffer", "help", "g?")
+  k = km("http_source", "help", "g?")
   if k then
     vim.keymap.set("n", k, function() require("poste.help").open() end, keymap_opts)
   end

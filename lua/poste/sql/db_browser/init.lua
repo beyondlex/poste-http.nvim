@@ -41,62 +41,62 @@ local function setup_browser_buffer()
   vim.api.nvim_buf_set_name(browser_buf, "poste://db_browser")
 
   local opts = { buffer = browser_buf, noremap = true, silent = true }
-  local k = state.get_keymap("db_browser", "toggle_node", "<CR>")
+  local k = state.get_keymap("sql_db_browser", "toggle_node", "<CR>")
   if k then
     vim.keymap.set("n", k, function()
       actions.toggle_node(vim.fn.line("."), make_context())
     end, opts)
   end
-  k = state.get_keymap("db_browser", "move_left", "h")
+  k = state.get_keymap("sql_db_browser", "move_left", "h")
   if k then
     vim.keymap.set("n", k, function()
       actions.collapse_or_parent(vim.fn.line("."), make_context())
     end, opts)
   end
-  k = state.get_keymap("db_browser", "move_right", "l")
+  k = state.get_keymap("sql_db_browser", "move_right", "l")
   if k then
     vim.keymap.set("n", k, function()
       actions.expand_or_child(vim.fn.line("."), make_context())
     end, opts)
   end
-  k = state.get_keymap("db_browser", "refresh_node", "r")
+  k = state.get_keymap("sql_db_browser", "refresh_node", "r")
   if k then
     vim.keymap.set("n", k, function()
       actions.refresh_node(vim.fn.line("."), make_context())
     end, opts)
   end
-  k = state.get_keymap("db_browser", "search_filter", "/")
+  k = state.get_keymap("sql_db_browser", "search_filter", "/")
   if k then
     vim.keymap.set("n", k, function()
       actions.search_filter(vim.fn.line("."), make_context())
     end, opts)
   end
-  k = state.get_keymap("db_browser", "select_query", "s")
+  k = state.get_keymap("sql_db_browser", "select_query", "s")
   if k then
     vim.keymap.set("n", k, function()
       actions.generate_select_query(vim.fn.line("."), make_context())
     end, opts)
   end
-  k = state.get_keymap("db_browser", "describe_query", "d")
+  k = state.get_keymap("sql_db_browser", "describe_query", "d")
   if k then
     vim.keymap.set("n", k, function()
       actions.generate_describe_query(vim.fn.line("."), make_context())
     end, opts)
   end
-  k = state.get_keymap("db_browser", "close", "q")
+  k = state.get_keymap("sql_db_browser", "close", "q")
   if k then
     vim.keymap.set("n", k, function() M.close() end, opts)
   end
-  k = state.get_keymap("db_browser", "search_next", "n")
+  k = state.get_keymap("sql_db_browser", "search_next", "n")
   if k then
     vim.keymap.set("n", k, function() actions.search_next() end, opts)
   end
-  k = state.get_keymap("db_browser", "search_prev", "N")
+  k = state.get_keymap("sql_db_browser", "search_prev", "N")
   if k then
     vim.keymap.set("n", k, function() actions.search_prev() end, opts)
   end
 
-  k = state.get_keymap("db_browser", "context_menu", "x")
+  k = state.get_keymap("sql_db_browser", "context_menu", "x")
   if k then
     local context_menu = require("poste.sql.db_browser.context_menu")
     vim.keymap.set("n", k, function()

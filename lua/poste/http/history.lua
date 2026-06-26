@@ -413,18 +413,9 @@ local function setup_detail_keymaps()
       if vim.bo[detail_buf].filetype ~= "json" then return end
       local entry = state.http_history[current_index]
       if not entry then return end
-      local json = require("poste.http.json")
-
-      -- Already filtered: go straight to input with current query pre-filled
-      if entry._jq and entry._jq.query then
-        vim.ui.input({ prompt = "jq> ", default = entry._jq.query }, function(q)
-          if q and q ~= "" then history_jq_filter(q) end
-        end)
-        return
-      end
-
       local saved_response = state.last_response
       state.last_response = entry.response
+      local json = require("poste.http.json")
       local paths = json.get_key_paths()
       state.last_response = saved_response
       local query

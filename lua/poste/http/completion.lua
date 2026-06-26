@@ -187,14 +187,21 @@ end
 --- Diagnostic function to check completion status.
 function M.status()
   if registered == "blink" then
-    local config = require("blink.cmp.config")
-    local ids = {}
-    for id, _ in pairs(config.sources.providers) do
-      table.insert(ids, id)
+    local providers = {}
+    local blink_ok, blink = pcall(require, "blink.cmp")
+    if blink_ok and blink.config and blink.config.sources and blink.config.sources.providers then
+      for id, _ in pairs(blink.config.sources.providers) do
+        table.insert(providers, id)
+      end
     end
-    return "completion engine: blink.cmp [" .. table.concat(ids, ", ") .. "], filetype: " .. vim.bo.filetype
+    return string.format("blink.cmp [%s], filetype=%s",
+      #providers > 0 and table.concat(providers, ", ") or "?",
+      vim.bo.filetype)
   end
-  return "no completion engine registered"
+  if registered == "cmp" then
+    return "nvim-cmp, filetype=" .. vim.bo.filetype
+  end
+  return "not registered"
 end
 
 ---------------------------------------------------------------------------

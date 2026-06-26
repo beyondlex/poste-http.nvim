@@ -135,8 +135,45 @@ function M.setup(opts)
         version = vim.trim(output)
       end
     end
-    vim.notify(string.format("binary: %s\nversion: %s", binary_path, version), vim.log.levels.INFO)
-  end, { desc = "Show Poste binary path and version" })
+
+    local parts = { "─" }
+
+    table.insert(parts, "binary:  " .. binary_path)
+    table.insert(parts, "version: " .. version)
+    table.insert(parts, "─")
+
+    local blink_ok, blink = pcall(require, "blink.cmp")
+    if blink_ok then
+      local providers = {}
+      if blink.config and blink.config.sources and blink.config.sources.providers then
+        for id, _ in pairs(blink.config.sources.providers) do
+          table.insert(providers, id)
+        end
+      end
+      local has_poste = vim.tbl_contains(providers, "poste") and "yes" or "no"
+      table.insert(parts, "blink.cmp: loaded")
+      table.insert(parts, "  providers:  " .. (#providers > 0 and table.concat(providers, ", ") or "(none)"))
+      table.insert(parts, "  poste src:  " .. has_poste)
+    else
+      table.insert(parts, "blink.cmp: not loaded")
+    end
+
+    local cmp_ok = pcall(require, "cmp")
+    if cmp_ok then
+      table.insert(parts, "nvim-cmp:   loaded")
+    end
+
+    local completion_ok, completion = pcall(require, "poste.http.completion")
+    if completion_ok then
+      table.insert(parts, "poste cmp:  " .. completion.status())
+    end
+
+    local ft = vim.bo.filetype or "(none)"
+    table.insert(parts, "filetype:   " .. ft)
+    table.insert(parts, "─")
+
+    vim.notify(table.concat(parts, "\n"), vim.log.levels.INFO)
+  end, { desc = "Show Poste environment info" })
 
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.http", "*.rest", "*.redis" },

@@ -6,6 +6,14 @@ local M = {}
 --- Select a jq query from key paths or type a custom one.
 --- Uses vim.ui.select for path picking, vim.ui.input for custom queries.
 function M.start_interactive_input()
+  -- Already filtered: go straight to input with current query pre-filled
+  if state._json.query then
+    vim.ui.input({ prompt = "jq> ", default = state._json.query }, function(query)
+      if query and query ~= "" then M.apply_filter(query) end
+    end)
+    return
+  end
+
   local paths = M.get_key_paths()
   if #paths > 0 then
     local items = vim.list_extend({}, paths)

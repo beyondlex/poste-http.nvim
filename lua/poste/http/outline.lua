@@ -329,6 +329,23 @@ function M.open()
 
   render()
   highlight_current()
+
+  -- Place outline cursor on the current request, not the first line
+  local items = active.items or {}
+  if #items > 0 then
+    local cursor_line = vim.api.nvim_win_get_cursor(active.src_win)
+    if cursor_line then
+      local current = find_current_item(items, cursor_line[1])
+      if current then
+        for i, item in ipairs(items) do
+          if item.line == current.line then
+            vim.api.nvim_win_set_cursor(active.out_win, { i, 0 })
+            break
+          end
+        end
+      end
+    end
+  end
 end
 
 function M.close()

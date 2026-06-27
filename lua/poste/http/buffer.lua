@@ -132,12 +132,9 @@ local function get_response_buffer()
   vim.api.nvim_set_option_value("swapfile", false, { buf = response_buffer })
   vim.api.nvim_set_option_value("modifiable", false, { buf = response_buffer })
   vim.api.nvim_buf_set_name(response_buffer, "poste://response")
-  -- Only disable treesitter for the response buffer if the markdown parser
-  -- isn't installed. Response views use "markdown" filetype for their
-  -- formatting (bold status codes, section headers), but the content is
-  -- curl logs/assertion output — not real markdown. If there's no parser,
-  -- treesitter will crash trying to parse it, so we disable it preemptively.
-  -- Users with a markdown parser installed get treesitter highlighting.
+  -- Disable treesitter if no markdown parser is installed.
+  -- Assertions and script_logs views still use "markdown" filetype, and
+  -- without a parser treesitter will crash on those views.
   local has_md_parser = pcall(function()
     return vim.treesitter.language.require_lang("markdown")
   end)

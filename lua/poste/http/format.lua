@@ -503,34 +503,30 @@ end
 function M.format_verbose(r)
   local lines = {}
 
-  -- Error responses get a dedicated layout
+  -- Error responses
   if r.protocol == "error" then
-    table.insert(lines, "# Error")
-    table.insert(lines, "")
-    table.insert(lines, "**Request**: " .. (r.metadata and r.metadata.request_line or r.url or ""))
-    table.insert(lines, "**Env**: " .. (r.metadata and r.metadata.env or ""))
-    table.insert(lines, "**Exit code**: " .. (r.metadata and r.metadata.exit_code or ""))
-    table.insert(lines, "**Status**: " .. (r.status_text or ""))
+    local req_line = r.metadata and r.metadata.request_line or r.url or ""
+    table.insert(lines, req_line ~= "" and req_line or "(error)")
+    table.insert(lines, string.rep("─", 60))
 
-    -- Request headers
+    table.insert(lines, "▸ Summary")
+    if req_line ~= "" then
+      table.insert(lines, "  Request: " .. req_line)
+    end
+    table.insert(lines, "  Env:      " .. (r.metadata and r.metadata.env or ""))
+    table.insert(lines, "  Exit:     " .. (r.metadata and r.metadata.exit_code or ""))
+    table.insert(lines, "  Status:   " .. (r.status_text or ""))
+
     if r.headers and #r.headers > 0 then
-      table.insert(lines, "")
-      table.insert(lines, "## Request Headers")
-      table.insert(lines, "")
+      table.insert(lines, "▸ Request Headers")
       for _, h in ipairs(r.headers) do
-        table.insert(lines, string.format("**%s**: %s", h[1], h[2]))
+        table.insert(lines, "  " .. h[1] .. ": " .. h[2])
       end
     end
 
     if r.body and r.body ~= "" then
-      table.insert(lines, "")
-      table.insert(lines, "## Details")
-      table.insert(lines, "")
-      table.insert(lines, "```")
-      for l in r.body:gmatch("[^\r\n]+") do
-        table.insert(lines, l)
-      end
-      table.insert(lines, "```")
+      table.insert(lines, "▸ Details")
+      table.insert(lines, "  " .. r.body:gsub("\n", "\n  "))
     end
 
     return lines
@@ -539,6 +535,7 @@ function M.format_verbose(r)
   -- HTTP protocol
   if r.protocol == "http" then
     local method = (r.metadata and r.metadata.method) or "GET"
+    local url = r.url or ""
     local duration = string.format("%.2f ms", r.latency_ms or 0)
     local timestamp = (r.metadata and r.metadata.timestamp) or ""
     local env_name = (r.metadata and r.metadata.env) or state.current_env
@@ -556,40 +553,34 @@ function M.format_verbose(r)
       status_text = codes[r.status] or (tostring(r.status) .. " Unknown")
     end
 
-    -- Summary header
-    table.insert(lines, string.format("# %s %s", method, r.url or ""))
-    table.insert(lines, "")
-    table.insert(lines, string.format("**%s** | %s | %s | %s",
-      status_text, duration, env_name, timestamp))
-    table.insert(lines, "")
+    -- Summary header (status first, then method+URL, for quick scanning)
+    table.insert(lines, status_text .. "    " .. duration .. "    " .. env_name .. "    " .. timestamp)
+    table.insert(lines, string.rep("─", 60))
+    table.insert(lines, method .. " " .. url)
+    table.insert(lines, string.rep("─", 60))
 
-    -- Request section
-    table.insert(lines, "## Request")
-    table.insert(lines, "")
-
-    -- Request headers
+    -- Request headers: only if present
+    local has_req_headers = false
     local req_headers = r.metadata and r.metadata.request_headers
     if req_headers and req_headers ~= "" then
-      table.insert(lines, "### Headers")
-      table.insert(lines, "")
+      has_req_headers = true
+      table.insert(lines, "▸ Request Headers")
       for l in req_headers:gmatch("[^\r\n]+") do
-        -- Parse "Key: Value" format and convert to **Key**: Value
         local key, value = l:match("^([^:]+):%s*(.+)$")
         if key and value then
-          table.insert(lines, string.format("**%s**: %s", key, value))
+          table.insert(lines, "  " .. key .. ": " .. value)
         else
-          table.insert(lines, l)
+          table.insert(lines, "  " .. l)
         end
       end
-      table.insert(lines, "")
     end
 
-    -- Request body (payload)
+    -- Request body
+    local has_req_body = false
     local req_body = r.metadata and r.metadata.request_body
     if req_body and req_body ~= "" then
-      table.insert(lines, "### Body")
-      table.insert(lines, "")
-      -- Condense multipart: show [file: name, N bytes] instead of inline content
+      has_req_body = true
+      table.insert(lines, "▸ Request Body")
       local ct_hdr = ""
       if req_headers then
         for l in req_headers:gmatch("[^\r\n]+") do
@@ -598,82 +589,53 @@ function M.format_verbose(r)
         end
       end
       local display_body = condense_multipart_body(req_body, ct_hdr)
-      -- Determine language for syntax highlighting
-      local lang = ""
-      if ct_hdr:lower():find("application/json") then
-        lang = "json"
-      elseif ct_hdr:lower():find("application/xml") then
-        lang = "xml"
-      end
-      table.insert(lines, "```" .. lang)
       for l in display_body:gmatch("[^\r\n]+") do
-        table.insert(lines, l)
+        table.insert(lines, "  " .. l)
       end
-      table.insert(lines, "```")
-      table.insert(lines, "")
     end
 
-    -- Separator between Request and Response
-    table.insert(lines, "---")
-    table.insert(lines, "")
-
-    -- Response section
-    table.insert(lines, "## Response")
-    table.insert(lines, "")
+    -- Separator between request and response (only if there was request content)
+    if has_req_headers or has_req_body then
+      table.insert(lines, "───")
+    end
 
     -- Response headers
-    if r.headers and #r.headers > 0 then
-      table.insert(lines, "### Headers")
-      table.insert(lines, "")
+    local has_res_headers = r.headers and #r.headers > 0
+    if has_res_headers then
+      table.insert(lines, "▸ Response Headers")
       for _, h in ipairs(r.headers) do
-        table.insert(lines, string.format("**%s**: %s", h[1], h[2]))
+        table.insert(lines, "  " .. h[1] .. ": " .. h[2])
       end
-      table.insert(lines, "")
     end
 
     -- Response body
-    if r.body and r.body ~= "" then
-      table.insert(lines, "### Body")
-      table.insert(lines, "")
-      -- Determine language for syntax highlighting
-      local lang = ""
-      if (r.content_type or ""):find("json") then
-        lang = "json"
-      elseif (r.content_type or ""):find("html") then
-        lang = "html"
-      elseif (r.content_type or ""):find("xml") then
-        lang = "xml"
-      end
-      -- Pretty-print JSON body
+    local has_res_body = r.body and r.body ~= ""
+    if has_res_body then
+      table.insert(lines, "▸ Response Body")
       local body = pretty_body(r.body, r.content_type)
-      table.insert(lines, "```" .. lang)
       for l in body:gmatch("[^\r\n]+") do
-        table.insert(lines, l)
+        table.insert(lines, "  " .. l)
       end
-      table.insert(lines, "```")
-      table.insert(lines, "")
     end
 
-    -- Connection info (extracted from curl trace)
+    -- Connection info
     local verbose = r.metadata and r.metadata.verbose
     if verbose and verbose ~= "" then
       local conn_info = extract_connection_info(verbose)
       if next(conn_info) then
-        table.insert(lines, "---")
-        table.insert(lines, "")
-        table.insert(lines, "## Connection")
-        table.insert(lines, "")
+        table.insert(lines, "───")
+        table.insert(lines, "▸ Connection")
         if conn_info.proxy then
-          table.insert(lines, "**Proxy**: " .. conn_info.proxy)
+          table.insert(lines, "  Proxy:     " .. conn_info.proxy)
         end
         if conn_info.tls then
-          table.insert(lines, "**TLS**: " .. conn_info.tls)
+          table.insert(lines, "  TLS:       " .. conn_info.tls)
         end
         if conn_info.http then
-          table.insert(lines, "**HTTP**: " .. conn_info.http)
+          table.insert(lines, "  HTTP:      " .. conn_info.http)
         end
         if conn_info.exit then
-          table.insert(lines, "**Exit Code**: " .. conn_info.exit)
+          table.insert(lines, "  Exit Code: " .. conn_info.exit)
         end
       end
     end
@@ -682,34 +644,27 @@ function M.format_verbose(r)
   end
 
   -- Non-HTTP protocols: generic layout
-  table.insert(lines, "# Request")
-  table.insert(lines, "")
-  table.insert(lines, "| Field | Value |")
-  table.insert(lines, "|-------|-------|")
-  table.insert(lines, "| **Protocol** | " .. (r.protocol or "unknown") .. " |")
-  table.insert(lines, "| **URL** | " .. (r.url or "") .. " |")
-  table.insert(lines, "| **Latency** | " .. (r.latency_ms or 0) .. "ms |")
+  table.insert(lines, "▸ Request")
+  table.insert(lines, "  Protocol:  " .. (r.protocol or "unknown"))
+  table.insert(lines, "  URL:       " .. (r.url or ""))
+  table.insert(lines, "  Latency:   " .. (r.latency_ms or 0) .. "ms")
 
   if r.metadata then
     if r.metadata.method then
-      table.insert(lines, "| **Method** | " .. r.metadata.method .. " |")
+      table.insert(lines, "  Method:    " .. r.metadata.method)
     end
     if r.metadata.command then
-      table.insert(lines, "| **Command** | " .. r.metadata.command .. " |")
+      table.insert(lines, "  Command:   " .. r.metadata.command)
     end
   end
 
-  table.insert(lines, "")
-  table.insert(lines, "## Response")
-  table.insert(lines, "")
-  table.insert(lines, "| Field | Value |")
-  table.insert(lines, "|-------|-------|")
-  table.insert(lines, "| **Status** | " .. (r.status_text or "") .. " |")
-  table.insert(lines, "| **Content-Type** | " .. (r.content_type or "") .. " |")
-  table.insert(lines, "| **Body size** | " .. #(r.body or "") .. " bytes |")
+  table.insert(lines, "▸ Response")
+  table.insert(lines, "  Status:        " .. (r.status_text or ""))
+  table.insert(lines, "  Content-Type:  " .. (r.content_type or ""))
+  table.insert(lines, "  Body size:     " .. #(r.body or "") .. " bytes")
 
   if r.metadata and r.metadata.type then
-    table.insert(lines, "| **Type** | " .. r.metadata.type .. " |")
+    table.insert(lines, "  Type:          " .. r.metadata.type)
   end
 
   return lines
@@ -785,6 +740,94 @@ function M.format_request_payload(r)
     end
   end
   return lines
+end
+
+local verbose_ns = vim.api.nvim_create_namespace("poste_verbose")
+
+function M.apply_verbose_highlights(buf, lines, r)
+  vim.api.nvim_buf_clear_namespace(buf, verbose_ns, 0, -1)
+
+  local first_separator_idx = nil
+  for i, line in ipairs(lines) do
+    local row = i - 1
+
+    -- Separator lines
+    if line:match("^[─—]+$") then
+      vim.api.nvim_buf_set_extmark(buf, verbose_ns, row, 0, {
+        end_row = row, end_col = #line,
+        hl_group = "PosteVerboseSeparator", priority = 100,
+      })
+      if not first_separator_idx then first_separator_idx = i end
+
+    -- Section headers: ▸ Request Headers, ▸ Response Body, etc.
+    elseif line:match("^▸ ") then
+      vim.api.nvim_buf_set_extmark(buf, verbose_ns, row, 0, {
+        end_row = row, end_col = #line,
+        hl_group = "PosteVerboseSection", priority = 100,
+      })
+
+    -- Key:value lines (2-space indent, e.g. "  Content-Type: application/json")
+    elseif line:match("^  [%w%-_ ]+:%s") then
+      local colon = line:find(":", 3)
+      if colon then
+        vim.api.nvim_buf_set_extmark(buf, verbose_ns, row, 0, {
+          end_row = row, end_col = colon,
+          hl_group = "PosteVerboseKey", priority = 100,
+        })
+      end
+    end
+  end
+
+  -- Status code highlight: first line (line 0) starts with "NNN "
+  if r and r.status then
+    local hl_group
+    local sc = r.status
+    if sc < 300 then hl_group = "PosteStatus2xx"
+    elseif sc < 400 then hl_group = "PosteStatus3xx"
+    elseif sc < 500 then hl_group = "PosteStatus4xx"
+    else hl_group = "PosteStatus5xx"
+    end
+
+    if #lines > 0 then
+      local s, e = lines[1]:find("^%d%d%d ")
+      if s then
+        local e2 = lines[1]:find(" ", e + 1) or #lines[1]
+        vim.api.nvim_buf_set_extmark(buf, verbose_ns, 0, s - 1, {
+          end_col = e2,
+          hl_group = hl_group, priority = 200,
+        })
+      end
+    end
+  end
+
+  -- Highlight latency on status line
+  if r and r.latency_ms and #lines > 0 then
+    local s, e = lines[1]:match("()[%d%.]+ ms")
+    if s then
+      vim.api.nvim_buf_set_extmark(buf, verbose_ns, 0, s - 1, {
+        end_col = e,
+        hl_group = "PosteLatency", priority = 200,
+      })
+    end
+  end
+
+  -- Highlight HTTP method: search after the first separator for "GET|POST|..." line
+  local start_search = (first_separator_idx or 0) + 1
+  for i = start_search, #lines do
+    local method = lines[i]:match("^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) ")
+    if method then
+      local hl_map = {
+        GET = "PosteMethodGET", POST = "PosteMethodPOST", PUT = "PosteMethodPUT",
+        DELETE = "PosteMethodDELETE", PATCH = "PosteMethodPATCH",
+        HEAD = "PosteMethodHEAD", OPTIONS = "PosteMethodOPTIONS",
+      }
+      vim.api.nvim_buf_set_extmark(buf, verbose_ns, i - 1, 0, {
+        end_col = #method + 1,
+        hl_group = hl_map[method] or "PosteMethodOther", priority = 200,
+      })
+      break
+    end
+  end
 end
 
 M.pretty_body = pretty_body

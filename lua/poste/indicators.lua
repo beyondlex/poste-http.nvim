@@ -1,14 +1,20 @@
---- Request line detection and virtual-text status indicators (spinner/✓/✘).
+--- Request line detection and status indicators (sign column + eol latency/assertions).
 local uv = vim.uv or vim.loop
 
 local M = {}
 
+local sign_group = "poste_sg_4a7f"
 local indicator_ns = vim.api.nvim_create_namespace("poste_indicator")
-local indicator_marks = {}  -- buf -> { line_0 -> mark_id }
+local indicator_marks = {}  -- buf -> { line_0 -> sign_id }
 local spinner_timer = nil
 local spinner_gen = 0  -- generation counter to invalidate stale spinner callbacks
 
 local spinner_frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+
+-- Define sign column symbols
+pcall(vim.fn.sign_define, "PosteSpinnerSign", { text = spinner_frames[1], texthl = "PosteSpinner" })
+pcall(vim.fn.sign_define, "PosteSuccessSign", { text = "✓", texthl = "PosteSuccess" })
+pcall(vim.fn.sign_define, "PosteErrorSign", { text = "✘", texthl = "PosteError" })
 
 ---------------------------------------------------------------------------
 -- Request block extraction
@@ -185,27 +191,68 @@ function M.find_request_block_bounds(buf, cursor_line)
 end
 
 ---------------------------------------------------------------------------
--- Status indicator (virtual text on the request line)
+-- Status indicator (sign column + eol latency/assertions)
 ---------------------------------------------------------------------------
 
---- Clear all indicators for a buffer (called before each execution).
-function M.clear_all(buf)
-  if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
-  if indicator_marks[buf] then
-    for line_0, mark_id in pairs(indicator_marks[buf]) do
-      pcall(vim.api.nvim_buf_del_extmark, buf, indicator_ns, mark_id)
-    end
-    indicator_marks[buf] = {}
-  end
-  vim.api.nvim_buf_clear_namespace(buf, indicator_ns, 0, -1)
+local function stop_timer()
+  spinner_gen = spinner_gen + 1
   if spinner_timer then
-    pcall(function() spinner_timer:stop() end)
+    spinner_timer:stop()
     spinner_timer:close()
     spinner_timer = nil
   end
 end
 
---- Place or update a virtual-text indicator on the request line.
+--- Clear all indicators for a buffer (called before each execution).
+function M.clear_all(buf)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+  if indicator_marks[buf] then
+    for line_0, sign_id in pairs(indicator_marks[buf]) do
+      pcall(vim.fn.sign_unplace, sign_group, { id = sign_id })
+    end
+    indicator_marks[buf] = {}
+  end
+  vim.api.nvim_buf_clear_namespace(buf, indicator_ns, 0, -1)
+  stop_timer()
+end
+
+--- Clear indicators for all lines except the current one.
+function M.clear_other_requests(buf, line_0)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+  if not indicator_marks[buf] then return end
+  for other_line_0, sign_id in pairs(indicator_marks[buf]) do
+    if other_line_0 ~= line_0 then
+      pcall(vim.fn.sign_unplace, sign_group, { id = sign_id })
+      indicator_marks[buf][other_line_0] = nil
+      vim.api.nvim_buf_clear_namespace(buf, indicator_ns, other_line_0, other_line_0 + 1)
+    end
+  end
+end
+
+--- Replace a sign on a line by its tracked ID, or place a new one if none.
+--- Ensures the sign is defined before placing.
+--- Returns the sign_id.
+local function place_or_replace_sign(buf, line_0, old_sign_id, sign_name)
+  local lnum = line_0 + 1
+  -- Define sign first (idempotent)
+  local sign_configs = {
+    PosteSpinnerSign = { text = spinner_frames[1], texthl = "PosteSpinner" },
+    PosteSuccessSign = { text = "✓", texthl = "PosteSuccess" },
+    PosteErrorSign   = { text = "✘", texthl = "PosteError" },
+  }
+  pcall(vim.fn.sign_define, sign_name, sign_configs[sign_name])
+
+  if old_sign_id then
+    -- Use vim.cmd with :sign place to replace in-place
+    vim.cmd(string.format("sign place %d line=%d name=%s group=%s buffer=%d",
+      old_sign_id, lnum, sign_name, sign_group, buf))
+    return old_sign_id
+  else
+    return vim.fn.sign_place(0, sign_group, sign_name, buf, { lnum = lnum })
+  end
+end
+
+--- Place or update indicator (sign column + eol latency/assertions).
 --- status: "running" | "success" | "error"
 --- latency_ms: optional, shown after ✓ on success
 function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
@@ -216,43 +263,39 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
   spinner_gen = spinner_gen + 1
   local my_gen = spinner_gen
 
-  -- Clear only the extmark for this specific line
   if not indicator_marks[buf] then indicator_marks[buf] = {} end
-  local old_mark = indicator_marks[buf][line_0]
-  if old_mark then
-    pcall(vim.api.nvim_buf_del_extmark, buf, indicator_ns, old_mark)
-    indicator_marks[buf][line_0] = nil
-  end
 
   if status == "running" then
+    stop_timer()
+
+    -- Place or replace spinner sign
+    local old_id = indicator_marks[buf][line_0]
+    local sign_id = place_or_replace_sign(buf, line_0, old_id, "PosteSpinnerSign")
+    if sign_id and sign_id > 0 then
+      indicator_marks[buf][line_0] = sign_id
+    end
+
     local frame = 1
     local function update_spinner()
-      if my_gen ~= spinner_gen then return end  -- stale callback
+      if my_gen ~= spinner_gen then return end
       if not vim.api.nvim_buf_is_valid(buf) then return end
-      -- Delete old spinner extmark before setting new one
-      local old = indicator_marks[buf] and indicator_marks[buf][line_0]
-      if old then
-        pcall(vim.api.nvim_buf_del_extmark, buf, indicator_ns, old)
-      end
-      local mark = vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
-        virt_text = { { " " .. spinner_frames[frame] .. " ", "PosteSpinner" } },
-        virt_text_pos = "eol",
-        hl_mode = "combine",
-      })
-      if not indicator_marks[buf] then indicator_marks[buf] = {} end
-      indicator_marks[buf][line_0] = mark
+      vim.fn.sign_define("PosteSpinnerSign", { text = spinner_frames[frame], texthl = "PosteSpinner" })
       frame = (frame % #spinner_frames) + 1
     end
-    update_spinner()
-    if spinner_timer then
-      pcall(function() spinner_timer:stop() end)
-      spinner_timer:close()
-    end
+
     spinner_timer = uv.new_timer()
     spinner_timer:start(100, 100, vim.schedule_wrap(update_spinner))
 
   elseif status == "success" then
-    local virt_text = { { " ✓ ", "PosteSuccess" } }
+    stop_timer()
+
+    local old_id = indicator_marks[buf][line_0]
+    local sign_id = place_or_replace_sign(buf, line_0, old_id, "PosteSuccessSign")
+
+    -- Clear stale eol virt_text, then create latency/assertion eol text
+    vim.api.nvim_buf_clear_namespace(buf, indicator_ns, line_0, line_0 + 1)
+
+    local virt_text = {}
     if latency_ms and latency_ms > 0 then
       local latency_text
       if latency_ms >= 1000 then
@@ -275,22 +318,55 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
         })
       end
     end
-    local mark = vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
-      virt_text = virt_text,
-      virt_text_pos = "eol",
-      hl_mode = "combine",
-    })
-    if not indicator_marks[buf] then indicator_marks[buf] = {} end
-    indicator_marks[buf][line_0] = mark
+    if #virt_text > 0 then
+      vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
+        virt_text = virt_text,
+        virt_text_pos = "eol",
+        hl_mode = "combine",
+      })
+    end
 
   elseif status == "error" then
-    local mark = vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
-      virt_text = { { " ✘ ", "PosteError" } },
-      virt_text_pos = "eol",
-      hl_mode = "combine",
-    })
-    if not indicator_marks[buf] then indicator_marks[buf] = {} end
-    indicator_marks[buf][line_0] = mark
+    stop_timer()
+
+    local old_id = indicator_marks[buf][line_0]
+    local sign_id = place_or_replace_sign(buf, line_0, old_id, "PosteErrorSign")
+    if sign_id and sign_id > 0 then
+      indicator_marks[buf][line_0] = sign_id
+    end
+    vim.api.nvim_buf_clear_namespace(buf, indicator_ns, line_0, line_0 + 1)
+
+    -- Create error latency/assertion eol text
+    local virt_text = {}
+    if latency_ms and latency_ms > 0 then
+      local latency_text
+      if latency_ms >= 1000 then
+        latency_text = string.format("%.2f s", latency_ms / 1000)
+      else
+        latency_text = string.format("%.2f ms", latency_ms)
+      end
+      table.insert(virt_text, { latency_text, "PosteLatency" })
+    end
+    if assertion_results and assertion_results.total > 0 then
+      if assertion_results.failed > 0 then
+        table.insert(virt_text, {
+          string.format("  ✘ %d/%d tests", assertion_results.failed, assertion_results.total),
+          "PosteError",
+        })
+      else
+        table.insert(virt_text, {
+          string.format("  ✓ %d/%d tests", assertion_results.passed, assertion_results.total),
+          "PosteSuccess",
+        })
+      end
+    end
+    if #virt_text > 0 then
+      vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
+        virt_text = virt_text,
+        virt_text_pos = "eol",
+        hl_mode = "combine",
+      })
+    end
   end
 end
 

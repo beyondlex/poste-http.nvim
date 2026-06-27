@@ -241,6 +241,12 @@ end)
 # Expected: POST to httpbin.org/post → 200 + request JSON echoed back.
 run #auth.Login
 
+> {%
+  client.test('username equals admin', function()
+    client.assert(response.body.data.username == 'admin')
+  end)
+%}
+
 ### 0.7b run #auth.Login (@token=abc123) — with variable override
 # Place cursor on `run` line below, press <leader>r.
 # `@token = abc123` auto-injected after `### Login` marker;

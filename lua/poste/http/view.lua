@@ -21,7 +21,7 @@ function M.show_view(view)
     end
   elseif view == "verbose" then
     lines = format.format_verbose(state.last_response)
-    filetype = "markdown"
+    filetype = "text"
   elseif view == "assertions" then
     lines = assertions.format_assertions(state.last_assertion_results)
     filetype = "markdown"
@@ -70,29 +70,11 @@ function M.show_view(view)
     end
   end
 
-  if view == "verbose" and state.last_response.status then
+  if view == "verbose" then
     local buf = buffer.get_buf()
     if buf then
-      local sc = state.last_response.status
-      local hl_group
-      if sc < 300 then hl_group = "PosteStatus2xx"
-      elseif sc < 400 then hl_group = "PosteStatus3xx"
-      elseif sc < 500 then hl_group = "PosteStatus4xx"
-      else hl_group = "PosteStatus5xx"
-      end
-      local ns = vim.api.nvim_create_namespace("poste_status_code")
-      vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-      for i, line in ipairs(lines) do
-        local status_start, status_end = line:find("%*%*.-%*%*")
-        if status_start then
-          vim.api.nvim_buf_set_extmark(buf, ns, i - 1, status_start - 1, {
-            end_col = status_end,
-            hl_group = hl_group,
-            priority = 200,
-          })
-          break
-        end
-      end
+      pcall(vim.treesitter.stop, buf)
+      format.apply_verbose_highlights(buf, lines, state.last_response)
     end
   end
 end

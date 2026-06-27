@@ -155,6 +155,12 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteStatus4xx", { fg = 0xe5c07b, bold = true })          -- yellow
   vim.api.nvim_set_hl(0, "PosteStatus5xx", { fg = 0xe06c75, bold = true })          -- red
 
+  -- Verbose view extmark highlights
+  vim.api.nvim_set_hl(0, "PosteVerboseSeparator", { fg = 0x3e4452 })                -- dim line
+  vim.api.nvim_set_hl(0, "PosteVerboseSection", { fg = 0x61afef, bold = true })      -- blue bold
+  vim.api.nvim_set_hl(0, "PosteVerboseSubHeader", { fg = 0xABB2BF, bold = true })    -- bright bold
+  vim.api.nvim_set_hl(0, "PosteVerboseKey", { fg = 0xC678DD })                       -- magenta
+
   state.apply_highlight_overrides({
     "PosteLatency", "PosteSpinner", "PosteSuccess", "PosteError",
     "PosteSeparator", "PosteRequestName", "PosteVarRef", "PosteMagicVar",
@@ -179,6 +185,7 @@ function M.setup()
     "PosteSqlBoundary", "PosteSqlBoundaryBorder",
     "PosteHttpBoundaryBorder",
     "PosteStatus2xx", "PosteStatus3xx", "PosteStatus4xx", "PosteStatus5xx",
+    "PosteVerboseSeparator", "PosteVerboseSection", "PosteVerboseSubHeader", "PosteVerboseKey",
   })
 end
 

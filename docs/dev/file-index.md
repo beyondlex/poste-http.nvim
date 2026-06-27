@@ -127,6 +127,7 @@
 | [数据集编辑实现](./sql/dataset-ui-edit-impl.md) | 数据编辑方案 |
 | [DB Browser 右键菜单](./sql/db-browser-context-menu.md) | 浏览器交互 |
 | [数据导入设计](./sql/data-import-design.md) | CSV/JSON 导入方案 |
+| [Sign Column Postmortem](./indicators-postmortem.md) | Sign column 迁移踩坑记录 |
 | [插件安装](../user/plugin-install.md) | Neovim 插件安装 |
 | [测试指南](./testing.md) | 测试方法 |
 | [Archived 文档](./archived/README.md) | 过时设计文档存档 |
@@ -142,4 +143,4 @@
 
 ---
 
-*文件索引 — 最后更新：2026-06-24*
+*文件索引 — 最后更新：2026-06-27*

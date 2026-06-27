@@ -121,7 +121,7 @@ local function render_detail()
     end
   elseif detail_view == "verbose" then
     lines = format.format_verbose(r)
-    filetype = "markdown"
+    filetype = "text"
   elseif detail_view == "assertions" then
     lines = assertions.format_assertions(entry.assertion_results)
     filetype = "markdown"
@@ -168,27 +168,8 @@ local function render_detail()
     })
   end
 
-  if detail_view == "verbose" and r and r.status then
-    local ns = vim.api.nvim_create_namespace("poste_history_status")
-    vim.api.nvim_buf_clear_namespace(detail_buf, ns, 0, -1)
-    local hl_group
-    local sc = r.status
-    if sc < 300 then hl_group = "PosteStatus2xx"
-    elseif sc < 400 then hl_group = "PosteStatus3xx"
-    elseif sc < 500 then hl_group = "PosteStatus4xx"
-    else hl_group = "PosteStatus5xx"
-    end
-    for i, line in ipairs(lines) do
-      local status_start, status_end = line:find("%*%*.-%*%*")
-      if status_start then
-        vim.api.nvim_buf_set_extmark(detail_buf, ns, i - 1, status_start - 1, {
-          end_col = status_end,
-          hl_group = hl_group,
-          priority = 200,
-        })
-        break
-      end
-    end
+  if detail_view == "verbose" and r then
+    format.apply_verbose_highlights(detail_buf, lines, r)
   end
 end
 

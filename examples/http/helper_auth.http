@@ -10,6 +10,10 @@ Content-Type: application/json
 
 {"username": "admin", "password": "secret123"}
 
+> {%
+  client.log('username:' .. response.body.data.username)
+%}
+
 ### LoginWithToken
 @token = request_token
 POST {{base_url}}/post

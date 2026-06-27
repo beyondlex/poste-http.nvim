@@ -56,6 +56,17 @@ function M.run_request()
     state.log("INFO", string.format("Import/run directive resolved: %s -> %s line %d",
       resolved.action, resolved.path or "", resolved.line or 0))
 
+    -- Extract assertion blocks from the run directive's block in the source buffer
+    local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
+    local local_buf_content = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
+    local_buf_content = table.concat(local_buf_content, "\n")
+    local script_vars
+    local assertion_code
+    if block_start then
+      script_vars = scripts.collect_script_variables(local_buf_content, block_start, block_end)
+      local_buf_content, assertion_code = assertions.extract_assertion_blocks(local_buf_content, block_start, block_end)
+    end
+
     -- Place indicator on the run directive line itself
     local indicator_line = (resolved.run_line or line) - 1
     indicators.set_indicator(src_buf, indicator_line, "running")
@@ -74,21 +85,46 @@ function M.run_request()
             state.last_response = response
           end
 
-          if state.last_response.status and state.last_response.status >= 400 then
-            view.show_view("verbose")
-            indicators.set_indicator(src_buf, indicator_line, "error", state.last_response.latency_ms)
+          if assertion_code then
+            state.last_assertion_results = assertions.run_assertions(state.last_response, assertion_code, script_vars)
+            state.log("INFO", string.format("Assertions: %d passed, %d failed",
+              state.last_assertion_results.passed, state.last_assertion_results.failed))
+
+            if state.last_assertion_results.logs and #state.last_assertion_results.logs > 0 then
+              state.last_script_logs = state.last_script_logs or {}
+              for _, msg in ipairs(state.last_assertion_results.logs) do
+                table.insert(state.last_script_logs, msg)
+              end
+            end
+
+            local is_error = state.last_response.status and state.last_response.status >= 400
+            if state.last_assertion_results.failed > 0 then
+              view.show_view("assertions")
+              indicators.set_indicator(src_buf, indicator_line, "success", state.last_response.latency_ms, state.last_assertion_results)
+            elseif is_error then
+              view.show_view("verbose")
+              indicators.set_indicator(src_buf, indicator_line, "error", state.last_response.latency_ms, state.last_assertion_results)
+            else
+              view.show_view("body")
+              indicators.set_indicator(src_buf, indicator_line, "success", state.last_response.latency_ms, state.last_assertion_results)
+            end
           else
-            view.show_view("body")
-            indicators.set_indicator(src_buf, indicator_line, "success", state.last_response.latency_ms)
+            if state.last_response.status and state.last_response.status >= 400 then
+              view.show_view("verbose")
+              indicators.set_indicator(src_buf, indicator_line, "error", state.last_response.latency_ms)
+            else
+              view.show_view("body")
+              indicators.set_indicator(src_buf, indicator_line, "success", state.last_response.latency_ms)
+            end
           end
 
           if type(response) == "table" and response[1] and response[1].response then
             for _, item in ipairs(response) do
               local item_name = (item.name or "") ~= "" and item.name or ("Request #" .. (item.line or ""))
-              history.add_entry(item_name, item.response, nil, nil, resolved.path or file)
+              history.add_entry(item_name, item.response, state.last_assertion_results, state.last_script_logs, resolved.path or file)
             end
           else
-            history.add_entry(resolved.request_name or "Import", response, nil, nil, resolved.path or file)
+            history.add_entry(resolved.request_name or "Import", response, state.last_assertion_results, state.last_script_logs, resolved.path or file)
           end
         else
           indicators.set_indicator(src_buf, indicator_line, "error")
@@ -104,6 +140,7 @@ function M.run_request()
       indicators.clear_all(src_buf)
       return
     end
+    indicators.clear_other_requests(src_buf, req_line)
     indicators.set_indicator(src_buf, req_line, "running")
 
     local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)

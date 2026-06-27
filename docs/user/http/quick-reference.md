@@ -121,6 +121,13 @@ run #Login                                 # 无别名：查找全局
 run #orders.ListOrders                     # 有别名：查找命名空间
 run #Login (@token=xyz)                    # 运行时变量覆盖
 run ./batch.http                           # 运行整个文件
+
+# run 也支持 post-script（> {% %}）
+run #auth.op_login
+
+> {%
+  client.global.set('token', response.body.token)
+%}
 ```
 
 ---

@@ -138,10 +138,28 @@ impl SpecImporter for OpenApiImporter {
                     content.push_str(&format!("# {}\n", op.summary));
                 }
 
-                // Request line
-                content.push_str(&format!("{} {{{{base_url}}}}{}\n", op.method, op.http_path));
+                // Collect query params for the request line
+                let mut query_parts: Vec<String> = Vec::new();
+                for param in &op.parameters {
+                    if let ReferenceOr::Item(Parameter::Query { parameter_data, .. }) = param {
+                        let var_name = sanitize_var_name(&parameter_data.name);
+                        query_parts.push(format!("{}={}", &parameter_data.name, format!("{{{{{}}}}}", var_name)));
+                        if !env_vars.contains_key(&var_name) {
+                            let default = extract_default_from_param(parameter_data);
+                            env_vars.insert(var_name, default);
+                        }
+                    }
+                }
 
-                // Parameters: header params become header lines
+                // Request line with query string
+                let request_url = if query_parts.is_empty() {
+                    format!("{{{{base_url}}}}{}", op.http_path)
+                } else {
+                    format!("{{{{base_url}}}}{}?{}", op.http_path, query_parts.join("&"))
+                };
+                content.push_str(&format!("{} {}\n", op.method, request_url));
+
+                // Parameters: header/cookie become header lines
                 for param in &op.parameters {
                     match param {
                         ReferenceOr::Item(Parameter::Header { parameter_data, .. }) => {
@@ -152,13 +170,8 @@ impl SpecImporter for OpenApiImporter {
                                 env_vars.insert(var_name, default);
                             }
                         }
-                        ReferenceOr::Item(Parameter::Query { parameter_data, .. }) => {
-                            // Will be added to URL in Step 4
-                            let var_name = sanitize_var_name(&parameter_data.name);
-                            if !env_vars.contains_key(&var_name) {
-                                let default = extract_default_from_param(parameter_data);
-                                env_vars.insert(var_name, default);
-                            }
+                        ReferenceOr::Item(Parameter::Query { .. }) => {
+                            // Already handled in request line above
                         }
                         ReferenceOr::Item(Parameter::Path { parameter_data, .. }) => {
                             let var_name = sanitize_var_name(&parameter_data.name);
@@ -167,10 +180,17 @@ impl SpecImporter for OpenApiImporter {
                                 env_vars.insert(var_name, default);
                             }
                         }
+                        ReferenceOr::Item(Parameter::Cookie { parameter_data, .. }) => {
+                            let var_name = sanitize_var_name(&parameter_data.name);
+                            content.push_str(&format!("Cookie: {}={{{}}}\n", parameter_data.name, var_name));
+                            if !env_vars.contains_key(&var_name) {
+                                let default = extract_default_from_param(parameter_data);
+                                env_vars.insert(var_name, default);
+                            }
+                        }
                         ReferenceOr::Reference { reference } => {
                             warnings.push(format!("Skipping $ref parameter: {}", reference));
                         }
-                        _ => {}
                     }
                 }
 
@@ -467,5 +487,92 @@ mod tests {
         assert_eq!(OpenApiImporter::tag_to_filename("User Management"), "user_management");
         assert_eq!(OpenApiImporter::tag_to_filename("Pets"), "pets");
         assert_eq!(OpenApiImporter::tag_to_filename(""), "default");
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 4a: Query parameters appear on request line
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_query_params_on_request_line() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "paths": {
+                "/pets": {
+                    "get": {
+                        "tags": ["pets"],
+                        "operationId": "listPets",
+                        "parameters": [
+                            { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+                            { "name": "status", "in": "query", "schema": { "type": "string" } }
+                        ],
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("?limit={{limit}}"), "query on URL: {}", c);
+        assert!(c.contains("status={{status}}"), "second query on URL: {}", c);
+        assert!(result.env_vars.contains_key("limit"), "limit in env_vars");
+        assert!(result.env_vars.contains_key("status"), "status in env_vars");
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 4b: Header parameters
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_header_params_as_headers() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "paths": {
+                "/pets": {
+                    "get": {
+                        "tags": ["pets"],
+                        "operationId": "listPets",
+                        "parameters": [
+                            { "name": "X-Request-Id", "in": "header", "schema": { "type": "string" } }
+                        ],
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("X-Request-Id"), "header name: {}", c);
+        assert!(result.env_vars.contains_key("X_Request_Id"), "header var should be X_Request_Id");
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 4c: Cookie parameters
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_cookie_params_as_cookie_header() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "paths": {
+                "/pets": {
+                    "get": {
+                        "tags": ["pets"],
+                        "operationId": "listPets",
+                        "parameters": [
+                            { "name": "session_id", "in": "cookie", "schema": { "type": "string" } }
+                        ],
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("Cookie:"), "Cookie header: {}", c);
+        assert!(result.env_vars.contains_key("session_id"), "cookie var in env");
     }
 }

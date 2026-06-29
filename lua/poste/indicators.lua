@@ -259,14 +259,15 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
   if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
   if not line_0 then return end
 
-  -- Invalidate any in-flight spinner callbacks
+  if not indicator_marks[buf] then indicator_marks[buf] = {} end
+
+  -- Stop any existing timer and invalidate its pending callbacks,
+  -- then start a new generation era so new closures can be distinguished.
+  stop_timer()
   spinner_gen = spinner_gen + 1
   local my_gen = spinner_gen
 
-  if not indicator_marks[buf] then indicator_marks[buf] = {} end
-
   if status == "running" then
-    stop_timer()
 
     -- Place or replace spinner sign
     local old_id = indicator_marks[buf][line_0]
@@ -282,11 +283,12 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
       local sign_id = indicator_marks[buf] and indicator_marks[buf][line_0]
       if not sign_id then return end
       -- sign_define only updates the definition; already-placed signs keep their
-      -- original text. Must unplace + re-place to refresh the displayed glyph.
-      pcall(vim.fn.sign_unplace, sign_group, { id = sign_id })
+      -- original text (baked in at sign_place time). Place a NEW sign (id=0 → auto-
+      -- assigned) that picks up the fresh definition text, then unplace the old one.
       vim.fn.sign_define("PosteSpinnerSign", { text = spinner_frames[frame], texthl = "PosteSpinner" })
-      local new_id = vim.fn.sign_place(sign_id, sign_group, "PosteSpinnerSign", buf, { lnum = line_0 + 1 })
+      local new_id = vim.fn.sign_place(0, sign_group, "PosteSpinnerSign", buf, { lnum = line_0 + 1 })
       if new_id and new_id > 0 then
+        pcall(vim.fn.sign_unplace, sign_group, { id = sign_id })
         indicator_marks[buf][line_0] = new_id
       end
       frame = (frame % #spinner_frames) + 1
@@ -296,8 +298,6 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
     spinner_timer:start(100, 100, vim.schedule_wrap(update_spinner))
 
   elseif status == "success" then
-    stop_timer()
-
     local old_id = indicator_marks[buf][line_0]
     local sign_id = place_or_replace_sign(buf, line_0, old_id, "PosteSuccessSign")
 
@@ -336,8 +336,6 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
     end
 
   elseif status == "error" then
-    stop_timer()
-
     local old_id = indicator_marks[buf][line_0]
     local sign_id = place_or_replace_sign(buf, line_0, old_id, "PosteErrorSign")
     if sign_id and sign_id > 0 then

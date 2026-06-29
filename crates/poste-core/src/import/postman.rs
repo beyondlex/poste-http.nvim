@@ -222,7 +222,7 @@ fn process_items(
 }
 
 /// Extract URL from a Postman request object.
-fn extract_url(request: &Value, method: &str, base_url: &str, env_vars: &mut HashMap<String, String>) -> String {
+fn extract_url(request: &Value, _method: &str, _base_url: &str, env_vars: &mut HashMap<String, String>) -> String {
     let url = match request.get("url") {
         Some(u) => u,
         None => return format!("{{{{base_url}}}}"),
@@ -318,7 +318,6 @@ fn extract_url(request: &Value, method: &str, base_url: &str, env_vars: &mut Has
 fn replace_postman_vars(s: &str, env_vars: &mut HashMap<String, String>) -> String {
     // Postman and Poste use the same {{var}} syntax, so we keep them as-is
     // But also extract any unknown vars into env_vars
-    let mut result = s.to_string();
     let re = regex::Regex::new(r"\{\{([^}]+)\}\}").unwrap();
     for cap in re.captures_iter(s) {
         let var_name = cap[1].to_string();
@@ -326,7 +325,7 @@ fn replace_postman_vars(s: &str, env_vars: &mut HashMap<String, String>) -> Stri
             env_vars.insert(var_name, String::new());
         }
     }
-    result
+    s.to_string()
 }
 
 /// Sanitize a string for use as a filename.

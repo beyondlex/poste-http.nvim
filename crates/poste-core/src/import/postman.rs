@@ -108,6 +108,36 @@ fn process_items(
         // Parse URL
         let url_str = extract_url(request, &method, base_url, env_vars);
 
+        // Pre-request / test scripts from item.event[]
+        if let Some(events) = item.get("event").and_then(|e| e.as_array()) {
+            for event in events {
+                let listen = event.get("listen").and_then(|l| l.as_str()).unwrap_or("");
+                let script_lines = event.get("script")
+                    .and_then(|s| s.get("exec"))
+                    .and_then(|e| e.as_array())
+                    .map(|arr| {
+                        arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
+                    });
+                if let Some(lines) = script_lines {
+                    if !lines.is_empty() {
+                        if listen == "prerequest" {
+                            content.push_str("< {%\n");
+                            for line in &lines {
+                                content.push_str(&format!("  {}\n", line));
+                            }
+                            content.push_str("%}\n");
+                        } else if listen == "test" {
+                            content.push_str("> {%\n");
+                            for line in &lines {
+                                content.push_str(&format!("  {}\n", line));
+                            }
+                            content.push_str("%}\n");
+                        }
+                    }
+                }
+            }
+        }
+
         // Write request block
         content.push_str(&format!("### {}\n", name));
         content.push_str(&format!("{} {}\n", method, url_str));
@@ -513,5 +543,53 @@ mod tests {
         let c = &result.files[0].content;
         assert!(c.contains("?q=hello"), "query param: {}", c);
         assert!(c.contains("page=1"), "query param: {}", c);
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 12: Pre-request and test scripts
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_prerequest_and_test_scripts() {
+        let spec = r#"{
+            "info": {
+                "name": "Scripted API",
+                "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+            },
+            "item": [{
+                "name": "Get Data",
+                "event": [
+                    {
+                        "listen": "prerequest",
+                        "script": {
+                            "exec": ["pm.variables.set(\"token\", \"abc\")"],
+                            "type": "text/javascript"
+                        }
+                    },
+                    {
+                        "listen": "test",
+                        "script": {
+                            "exec": ["pm.response.to.have.status(200)"],
+                            "type": "text/javascript"
+                        }
+                    }
+                ],
+                "request": {
+                    "method": "GET",
+                    "url": {
+                        "raw": "https://api.example.com/data",
+                        "host": ["api", "example", "com"],
+                        "path": ["data"]
+                    }
+                }
+            }]
+        }"#;
+        let importer = PostmanImporter;
+        let result = importer.import(spec).unwrap();
+        let c = &result.files[0].content;
+        assert!(c.contains("< {%"), "should have pre-script block: {}", c);
+        assert!(c.contains("pm.variables.set"), "prescript content: {}", c);
+        assert!(c.contains("> {%"), "should have post-script block: {}", c);
+        assert!(c.contains("pm.response.to.have.status"), "postscript content: {}", c);
     }
 }

@@ -113,6 +113,17 @@ impl SpecImporter for OpenApiImporter {
 
         env_vars.insert("base_url".to_string(), base_url.clone());
 
+        // Build security scheme map: scheme_name → SecurityScheme
+        let mut security_schemes: HashMap<String, &openapiv3::SecurityScheme> = HashMap::new();
+        let global_security = api.security.as_ref();
+        if let Some(ref components) = api.components {
+            for (name, scheme) in &components.security_schemes {
+                if let ReferenceOr::Item(s) = scheme {
+                    security_schemes.insert(name.clone(), s);
+                }
+            }
+        }
+
         // Process tags in sorted order for deterministic output
         let mut tag_names: Vec<&String> = by_tag.keys().collect();
         tag_names.sort();
@@ -143,7 +154,7 @@ impl SpecImporter for OpenApiImporter {
                 for param in &op.parameters {
                     if let ReferenceOr::Item(Parameter::Query { parameter_data, .. }) = param {
                         let var_name = sanitize_var_name(&parameter_data.name);
-                        query_parts.push(format!("{}={}", &parameter_data.name, format!("{{{{{}}}}}", var_name)));
+                        query_parts.push(format!("{}={}", &parameter_data.name, poste_var(&var_name)));
                         if !env_vars.contains_key(&var_name) {
                             let default = extract_default_from_param(parameter_data);
                             env_vars.insert(var_name, default);
@@ -164,7 +175,7 @@ impl SpecImporter for OpenApiImporter {
                     match param {
                         ReferenceOr::Item(Parameter::Header { parameter_data, .. }) => {
                             let var_name = sanitize_var_name(&parameter_data.name);
-                            content.push_str(&format!("{}: {{{}}}\n", parameter_data.name, var_name));
+                            content.push_str(&format!("{}: {}\n", parameter_data.name, poste_var(&var_name)));
                             if !env_vars.contains_key(&var_name) {
                                 let default = extract_default_from_param(parameter_data);
                                 env_vars.insert(var_name, default);
@@ -182,7 +193,7 @@ impl SpecImporter for OpenApiImporter {
                         }
                         ReferenceOr::Item(Parameter::Cookie { parameter_data, .. }) => {
                             let var_name = sanitize_var_name(&parameter_data.name);
-                            content.push_str(&format!("Cookie: {}={{{}}}\n", parameter_data.name, var_name));
+                            content.push_str(&format!("Cookie: {}={}\n", parameter_data.name, poste_var(&var_name)));
                             if !env_vars.contains_key(&var_name) {
                                 let default = extract_default_from_param(parameter_data);
                                 env_vars.insert(var_name, default);
@@ -190,6 +201,64 @@ impl SpecImporter for OpenApiImporter {
                         }
                         ReferenceOr::Reference { reference } => {
                             warnings.push(format!("Skipping $ref parameter: {}", reference));
+                        }
+                    }
+                }
+
+                // Security: inject auth headers based on operation or global security
+                let op_security = op.security.as_ref()
+                    .map(|s| s.as_slice())
+                    .or_else(|| global_security.map(|s| s.as_slice()));
+                if let Some(security_reqs) = op_security {
+                    for req in security_reqs {
+                        for (scheme_name, _scopes) in req {
+                            if let Some(scheme) = security_schemes.get(scheme_name) {
+                                match scheme {
+                                    openapiv3::SecurityScheme::APIKey { location, name, .. } => {
+                                        match location {
+                                            openapiv3::APIKeyLocation::Header => {
+                                                let var_name = sanitize_var_name(name);
+                                                content.push_str(&format!("{}: {}\n", name, poste_var(&var_name)));
+                                                env_vars.entry(var_name).or_default();
+                                            }
+                                            openapiv3::APIKeyLocation::Query => {
+                                                let var_name = sanitize_var_name(name);
+                                                env_vars.entry(var_name).or_default();
+                                            }
+                                            openapiv3::APIKeyLocation::Cookie => {
+                                                let var_name = sanitize_var_name(name);
+                                                content.push_str(&format!("Cookie: {}={}\n", name, poste_var(&var_name)));
+                                                env_vars.entry(var_name).or_default();
+                                            }
+                                        }
+                                    }
+                                    openapiv3::SecurityScheme::HTTP { scheme, .. } => {
+                                        match scheme.to_lowercase().as_str() {
+                                            "bearer" => {
+                                                content.push_str("Authorization: Bearer {{auth_token}}\n");
+                                                env_vars.entry("auth_token".into()).or_default();
+                                            }
+                                            "basic" => {
+                                                content.push_str("Authorization: Basic {{basic_auth}}\n");
+                                                env_vars.entry("basic_auth".into()).or_default();
+                                            }
+                                            other => {
+                                                let var_name = format!("auth_{}", other);
+                                                content.push_str(&format!("Authorization: {other} {}\n", poste_var(&var_name)));
+                                                env_vars.entry(var_name).or_default();
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        // OAuth2 / OpenIDConnect — placeholder
+                                        let var_name = format!("{}_token", sanitize_var_name(scheme_name));
+                                        content.push_str(&format!("# {} auth required\n", scheme_name));
+                                        env_vars.entry(var_name).or_default();
+                                    }
+                                }
+                            } else {
+                                warnings.push(format!("Security scheme '{}' not found in components.securitySchemes", scheme_name));
+                            }
                         }
                     }
                 }
@@ -270,6 +339,11 @@ fn collect_methods(item: &PathItem) -> Vec<(&str, &Operation)> {
     if let Some(ref op) = item.head { ops.push(("HEAD", op)); }
     if let Some(ref op) = item.trace { ops.push(("TRACE", op)); }
     ops
+}
+
+/// Wrap a variable name in Poste's {{var}} syntax.
+fn poste_var(name: &str) -> String {
+    format!("{{{{{}}}}}", name)
 }
 
 /// Create a safe variable name from a parameter name.
@@ -706,5 +780,109 @@ mod tests {
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
         assert!(c.contains("Content-Type: multipart/form-data"), "content type: {}", c);
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 6a: API Key auth → header + env var
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_api_key_auth_header() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "components": {
+                "securitySchemes": {
+                    "api_key": {
+                        "type": "apiKey",
+                        "in": "header",
+                        "name": "X-API-Key"
+                    }
+                }
+            },
+            "security": [ { "api_key": [] } ],
+            "paths": {
+                "/pets": {
+                    "get": {
+                        "tags": ["pets"],
+                        "operationId": "listPets",
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("X-API-Key: {{X_API_Key}}"), "api key header: {}", c);
+        assert!(result.env_vars.contains_key("X_API_Key"), "api key in env");
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 6b: Bearer auth → Authorization header
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_bearer_auth_header() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "components": {
+                "securitySchemes": {
+                    "bearer_auth": {
+                        "type": "http",
+                        "scheme": "bearer"
+                    }
+                }
+            },
+            "security": [ { "bearer_auth": [] } ],
+            "paths": {
+                "/pets": {
+                    "get": {
+                        "tags": ["pets"],
+                        "operationId": "listPets",
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("Authorization: Bearer {{auth_token}}"), "bearer auth: {}", c);
+        assert!(result.env_vars.contains_key("auth_token"), "auth_token in env");
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 6c: Operation-level security overrides global
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_operation_security_override() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "components": {
+                "securitySchemes": {
+                    "api_key": {
+                        "type": "apiKey",
+                        "in": "header",
+                        "name": "X-API-Key"
+                    }
+                }
+            },
+            "paths": {
+                "/public": {
+                    "get": {
+                        "tags": ["public"],
+                        "operationId": "publicEndpoint",
+                        "security": [],
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        // Empty security = no auth header
+        assert!(!c.contains("X-API-Key"), "no auth for public endpoint");
     }
 }

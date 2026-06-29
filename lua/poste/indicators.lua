@@ -279,7 +279,16 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
     local function update_spinner()
       if my_gen ~= spinner_gen then return end
       if not vim.api.nvim_buf_is_valid(buf) then return end
+      local sign_id = indicator_marks[buf] and indicator_marks[buf][line_0]
+      if not sign_id then return end
+      -- sign_define only updates the definition; already-placed signs keep their
+      -- original text. Must unplace + re-place to refresh the displayed glyph.
+      pcall(vim.fn.sign_unplace, sign_group, { id = sign_id })
       vim.fn.sign_define("PosteSpinnerSign", { text = spinner_frames[frame], texthl = "PosteSpinner" })
+      local new_id = vim.fn.sign_place(sign_id, sign_group, "PosteSpinnerSign", buf, { lnum = line_0 + 1 })
+      if new_id and new_id > 0 then
+        indicator_marks[buf][line_0] = new_id
+      end
       frame = (frame % #spinner_frames) + 1
     end
 

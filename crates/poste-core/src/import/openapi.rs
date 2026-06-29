@@ -196,35 +196,32 @@ impl SpecImporter for OpenApiImporter {
 
                 // Request body
                 if let Some(body) = &op.request_body {
-                    let body = match body {
-                        ReferenceOr::Item(item) => item,
-                        ReferenceOr::Reference { reference } => {
-                            warnings.push(format!("Skipping $ref request body: {}", reference));
-                            // Use continue but in a loop context
-                            let _ = warnings.len();
-                            continue;
-                        }
-                    };
+                    if let ReferenceOr::Item(body_item) = body {
+                        if let Some((content_type, media_type)) = body_item.content.iter().next() {
+                            content.push_str(&format!("Content-Type: {}\n", content_type));
+                            content.push('\n');
 
-                    if let Some((content_type, media_type)) = body.content.iter().next() {
-                        content.push_str(&format!("Content-Type: {}\n", content_type));
-                        content.push('\n');
-
-                        if let Some(example) = &media_type.example {
-                            if let Ok(json) = serde_json::to_string_pretty(example) {
-                                content.push_str(&json);
-                                content.push('\n');
+                            // 1. Use example if present
+                            if let Some(example) = &media_type.example {
+                                if let Ok(json) = serde_json::to_string_pretty(example) {
+                                    content.push_str(&json);
+                                    content.push('\n');
+                                }
                             }
-                        } else if let Some(schema) = &media_type.schema {
-                            if let Some(s) = schema_as_schema(schema) {
-                                if let Some(ex) = &s.schema_data.example {
-                                    if let Ok(json) = serde_json::to_string_pretty(ex) {
-                                        content.push_str(&json);
-                                        content.push('\n');
+                            // 2. Fall back to schema-level example
+                            else if let Some(schema) = &media_type.schema {
+                                if let Some(s) = schema_as_schema(schema) {
+                                    if let Some(ex) = &s.schema_data.example {
+                                        if let Ok(json) = serde_json::to_string_pretty(ex) {
+                                            content.push_str(&json);
+                                            content.push('\n');
+                                        }
                                     }
                                 }
                             }
                         }
+                    } else {
+                        warnings.push("Skipping $ref request body".to_string());
                     }
                 }
 
@@ -574,5 +571,140 @@ mod tests {
         let c = &result.files[0].content;
         assert!(c.contains("Cookie:"), "Cookie header: {}", c);
         assert!(result.env_vars.contains_key("session_id"), "cookie var in env");
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5a: Request body with example
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_request_body_with_example() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "paths": {
+                "/pets": {
+                    "post": {
+                        "tags": ["pets"],
+                        "operationId": "createPet",
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "example": { "name": "Fluffy", "type": "cat" }
+                                }
+                            }
+                        },
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("Content-Type: application/json"), "content type: {}", c);
+        assert!(c.contains("Fluffy"), "example value: {}", c);
+        assert!(c.contains("cat"), "example value: {}", c);
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5b: Request body with schema-level example (fallback)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_request_body_schema_example_fallback() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "paths": {
+                "/pets": {
+                    "post": {
+                        "tags": ["pets"],
+                        "operationId": "createPet",
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "name": { "type": "string" }
+                                        },
+                                        "example": { "name": "Doggo" }
+                                    }
+                                }
+                            }
+                        },
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("Content-Type: application/json"), "content type: {}", c);
+        assert!(c.contains("Doggo"), "schema example: {}", c);
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5c: Request body with $ref — skip gracefully
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_request_body_ref_skipped() {
+        let spec = r##"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "paths": {
+                "/pets": {
+                    "post": {
+                        "tags": ["pets"],
+                        "operationId": "createPet",
+                        "requestBody": {
+                            "$ref": "#/components/requestBodies/PetBody"
+                        },
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"##;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("### createPet"), "should have request: {}", c);
+        assert!(c.contains("POST"), "should have method: {}", c);
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5d: Multipart form-data content type
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_request_body_multipart() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "paths": {
+                "/upload": {
+                    "post": {
+                        "tags": ["upload"],
+                        "operationId": "uploadFile",
+                        "requestBody": {
+                            "content": {
+                                "multipart/form-data": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "file": { "type": "string", "format": "binary" }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("Content-Type: multipart/form-data"), "content type: {}", c);
     }
 }

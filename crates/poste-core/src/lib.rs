@@ -2,6 +2,7 @@
 
 pub mod env;
 pub mod formatter;
+pub mod import;
 pub mod importer;
 pub mod parser;
 pub mod request;

@@ -17,3 +17,5 @@ regex.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 rand.workspace = true
+openapiv3.workspace = true
+serde_yaml.workspace = true

@@ -226,6 +226,7 @@ function M.run_sql_request()
     adjusted_line = math.max(1, adjusted_line)
   else
     local line = vim.fn.line(".")
+    local stmt_start
     buf_content, adjusted_line, stmt_start = statement.extract_stmt_at_cursor(buf_lines, line)
     if not buf_content then return end
     stmt_lines = { stmt_start or 1 }

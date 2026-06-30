@@ -100,9 +100,9 @@ end
 -- Rust context detection via async vim.system
 ---------------------------------------------------------------------------
 
---- Try to detect context via async vim.system(). Calls callback(rust_ctx)
---- synchronously on cache hit, asynchronously via vim.system() otherwise.
---- Falls back to vim.fn.system() (sync) if vim.system() is unavailable (<0.10).
+--- Detect context via sync vim.fn.system(). Calls callback(rust_ctx)
+--- synchronously. Uses _ctx_cache to avoid re-running the binary on
+--- repeated calls for the same input.
 local function try_rust_context_async(bufnr, line_before, cursor_line, callback)
   local ok_ft, ft = pcall(vim.api.nvim_buf_get_option, bufnr, "filetype")
   if not ok_ft or (ft ~= "poste_sql" and ft ~= "poste_sqlite") then callback(nil); return end
@@ -120,42 +120,25 @@ local function try_rust_context_async(bufnr, line_before, cursor_line, callback)
   local binary = data.find_binary()
   if not binary then callback(nil); return end
 
-  local args = { binary, "context", "detect", tostring(offset) }
-  if dialect ~= "generic" then
-    table.insert(args, "--dialect")
-    table.insert(args, dialect)
+  local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset,
+    dialect ~= "generic" and (" --dialect " .. dialect) or "")
+  local output = vim.fn.system(cmd, sql_text)
+  if vim.v.shell_error ~= 0 then callback(nil); return end
+
+  local ok, parsed = pcall(vim.json.decode, output)
+  if not ok or not parsed or type(parsed) ~= "table" then callback(nil); return end
+
+  debug.set_rust_raw(output)
+  deep_clean(parsed)
+
+  if vim.g.poste_sql_debug then
+    state.log("INFO", string.format("Rust context: type=%s, prefix='%s', tables=%d",
+      tostring(parsed.ctx_type), tostring(parsed.prefix or ""),
+      parsed.tables and #parsed.tables or 0))
   end
 
-  local function on_output(output)
-    if vim.v.shell_error ~= 0 then callback(nil); return end
-
-    local ok, parsed = pcall(vim.json.decode, output)
-    if not ok or not parsed or type(parsed) ~= "table" then callback(nil); return end
-
-    debug.set_rust_raw(output)
-    deep_clean(parsed)
-
-    if vim.g.poste_sql_debug then
-      state.log("INFO", string.format("Rust context: type=%s, prefix='%s', tables=%d",
-        tostring(parsed.ctx_type), tostring(parsed.prefix or ""),
-        parsed.tables and #parsed.tables or 0))
-    end
-
-    _ctx_cache[ckey] = parsed
-    callback(parsed)
-  end
-
-  if vim.system then
-    vim.system(args, { stdin = sql_text, text = true }, function(obj)
-      vim.v.shell_error = obj.code
-      on_output(obj.stdout or "")
-    end)
-  else
-    local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset,
-      dialect ~= "generic" and (" --dialect " .. dialect) or "")
-    local output = vim.fn.system(cmd, sql_text)
-    on_output(output)
-  end
+  _ctx_cache[ckey] = parsed
+  callback(parsed)
 end
 
 ---------------------------------------------------------------------------
@@ -187,22 +170,6 @@ end
 --- Always returns "keyword" to match previous behavior.
 local function detect_context_for_completion(...)
   return "keyword", nil, nil
-end
-
-  if vim.g.poste_sql_legacy_completion == true then
-    callback("keyword", nil, nil)
-    return
-  end
-
-  try_rust_context_async(bufnr, line_before, cursor_line, function(rust_ctx_raw)
-    if rust_ctx_raw then
-      callback(rust_ctx_raw.ctx_type, rust_ctx_raw.ctx_data, rust_ctx_raw)
-    elseif vim.g.poste_sql_legacy_completion ~= "rust" then
-      callback("keyword", nil, nil)
-    else
-      callback(nil, nil, nil)
-    end
-  end)
 end
 
 local function get_items(bufnr, line_before, cursor_line, callback)

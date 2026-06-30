@@ -306,7 +306,7 @@ function M.apply_rendered_page(tab, lines, meta)
 
       table.remove(clean, meta.header_line + 1)
       table.remove(clean, meta.header_line)
-      table.remove(clean, meta.header_line - 1)
+      if meta.header_line > 1 then table.remove(clean, meta.header_line - 1) end
       meta.header_line = nil
       meta.data_start_line = meta.data_start_line - 3
       meta.data_end_line = meta.data_end_line - 3
@@ -524,7 +524,7 @@ function M.render_dataset(lines, meta, opts)
 
         table.remove(clean, meta.header_line + 1)
         table.remove(clean, meta.header_line)
-        table.remove(clean, meta.header_line - 1)
+        if meta.header_line > 1 then table.remove(clean, meta.header_line - 1) end
         meta.header_line = nil
         meta.data_start_line = meta.data_start_line - 3
         meta.data_end_line = meta.data_end_line - 3

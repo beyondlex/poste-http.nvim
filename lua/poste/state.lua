@@ -41,6 +41,7 @@ M.config = {
     http_response = {
       close = "q",
       view_body = "B",
+      view_request = "R",
       view_verbose = "E",
       view_assertions = "A",
       view_script_logs = "S",

@@ -143,7 +143,13 @@ local function get_response_buffer()
     pcall(vim.treesitter.stop, response_buffer)
   end
 
-  local opts = { buffer = response_buffer, noremap = true, silent = true }
+  return response_buffer
+end
+
+--- (Re-)apply response buffer keymaps.
+--- Called on every render to ensure they stay active even after buffer reuse or ftplugin reload.
+local function setup_keymaps(buf)
+  local opts = { buffer = buf, noremap = true, silent = true }
 
   -- Close window
   local k = state.get_keymap("http_response", "close", "q")
@@ -226,8 +232,8 @@ local function get_response_buffer()
   k = state.get_keymap("http_response", "json_filter", "<leader>j")
   if k then
     vim.keymap.set("n", k, function()
-      local buf = vim.api.nvim_get_current_buf()
-      if vim.bo[buf].filetype ~= "json" then return end
+      local bufnr = vim.api.nvim_get_current_buf()
+      if vim.bo[bufnr].filetype ~= "json" then return end
       require("poste.http.json").start_interactive_input()
     end, opts)
   end
@@ -236,13 +242,11 @@ local function get_response_buffer()
   k = state.get_keymap("http_response", "json_restore", "<leader>jc")
   if k then
     vim.keymap.set("n", k, function()
-      local buf = vim.api.nvim_get_current_buf()
-      if vim.bo[buf].filetype ~= "json" then return end
+      local bufnr = vim.api.nvim_get_current_buf()
+      if vim.bo[bufnr].filetype ~= "json" then return end
       require("poste.http.json").restore_original()
     end, opts)
   end
-
-  return response_buffer
 end
 
 function M.get_buf()
@@ -263,6 +267,9 @@ function M.render_buffer(lines, filetype)
 
   -- Set filetype for treesitter highlighting
   vim.bo[buf].filetype = filetype or "text"
+
+  -- Re-apply keymaps AFTER filetype change so ftplugin keymaps don't win
+  setup_keymaps(buf)
 
   -- Apply Redis-specific extmark highlights if this is a Redis response
   if state.last_response and state.last_response.protocol == "redis" and state.current_view == "body" then

@@ -10,27 +10,25 @@ use super::{StatementResult, build_response};
 
 pub(super) async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> anyhow::Result<Response> {
     use sqlx::mysql::{MySqlPoolOptions, MySqlRow};
-    use sqlx::{Column, Row, TypeInfo};
+    use sqlx::{Column, Executor, Row, TypeInfo};
 
-    let mut current_url = parsed.connection.clone();
-    let mut pool = MySqlPoolOptions::new()
+    let pool = MySqlPoolOptions::new()
         .max_connections(2)
-        .connect(&current_url)
+        .connect(&parsed.connection)
         .await?;
+    let mut conn = pool.acquire().await?;
+    let mut current_url = parsed.connection.clone();
 
     let mut results = Vec::new();
     let total_start = Instant::now();
 
     for stmt in &parsed.statements {
         if let Some(db_name) = sql_parser::detect_use_statement(stmt) {
-            let _stmt_start = Instant::now();
-            pool.close().await;
-            current_url = replace_database_in_url(&current_url, &db_name);
-            pool = MySqlPoolOptions::new()
-                .max_connections(2)
-                .connect(&current_url)
+            let safe_db = db_name.replace('`', "``");
+            conn.execute(format!("USE `{}`", safe_db).as_str())
                 .await
-                .map_err(|e| anyhow::anyhow!("Failed to connect to database '{}': {}", db_name, e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to switch to database '{}': {}", db_name, e))?;
+            current_url = replace_database_in_url(&current_url, &db_name);
             continue;
         }
 
@@ -47,7 +45,7 @@ pub(super) async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> anyhow
                 || upper.starts_with("DESC ")
                 || upper.contains("RETURNING")
             {
-                let rows: Vec<MySqlRow> = sqlx::query(stmt).fetch_all(&pool).await?;
+                let rows: Vec<MySqlRow> = sqlx::query(stmt).fetch_all(&mut *conn).await?;
                 let elapsed = stmt_start.elapsed().as_millis() as u64;
 
                 let columns: Vec<Value> = if let Some(first_row) = rows.first() {
@@ -87,7 +85,7 @@ pub(super) async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> anyhow
                     original_sql: None,
                 })
             } else {
-                let result = sqlx::query(stmt).execute(&pool).await?;
+                let result = sqlx::query(stmt).execute(&mut *conn).await?;
                 let elapsed = stmt_start.elapsed().as_millis() as u64;
 
                 Ok(StatementResult {
@@ -119,7 +117,6 @@ pub(super) async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> anyhow
         }
     }
 
-    pool.close().await;
     let total_ms = total_start.elapsed().as_millis() as u64;
     build_response(&Protocol::Mysql, &parsed.connection, &parsed.database, results, total_ms)
 }

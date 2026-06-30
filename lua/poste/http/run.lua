@@ -58,8 +58,7 @@ function M.run_request()
 
     -- Extract assertion blocks from the run directive's block in the source buffer
     local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
-    local local_buf_content = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
-    local_buf_content = table.concat(local_buf_content, "\n")
+    local local_buf_content = buf_content
     local script_vars
     local assertion_code
     if block_start then

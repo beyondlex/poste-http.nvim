@@ -3,171 +3,9 @@
 
 local M = {}
 
+local cache = require("poste.http.cache")
 local data = require("poste.http.data")
 local context_detector = require("poste.http.context_detector")
-
-local buffer_caches = {}
-local env_cache = {}
-local cache_autocmds = {}
-
-local function ensure_cache_autocmd(buf)
-  if cache_autocmds[buf] then return end
-  cache_autocmds[buf] = true
-  local group = vim.api.nvim_create_augroup("PosteCompletionCache_" .. buf, { clear = true })
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
-    group = group,
-    buffer = buf,
-    callback = function()
-      buffer_caches[buf] = nil
-    end,
-  })
-  vim.api.nvim_create_autocmd("BufDelete", {
-    group = group,
-    buffer = buf,
-    callback = function()
-      buffer_caches[buf] = nil
-      cache_autocmds[buf] = nil
-    end,
-  })
-end
-
-local function get_buffer_cache(buf)
-  local ct = vim.api.nvim_buf_get_changedtick(buf)
-  local cached = buffer_caches[buf]
-  if cached and cached.changedtick == ct then
-    return cached
-  end
-
-  local file_vars = {}
-  local req_names = {}
-  local seen_names = {}
-  local past_file_vars = false
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-
-  for _, line in ipairs(lines) do
-    if line:match("^%s*###") then
-      past_file_vars = true
-      local name = line:match("^%s*###%s+(.+)")
-      if name then
-        name = vim.trim(name)
-        if name ~= "" and not seen_names[name] then
-          seen_names[name] = true
-          table.insert(req_names, name)
-        end
-      end
-    elseif not past_file_vars then
-      local var_name = line:match("^%s*@(%w[%w_]*)%s*=")
-      if var_name then file_vars[var_name] = true end
-    end
-  end
-
-  local entry = {
-    changedtick = ct,
-    file_vars = file_vars,
-    req_names = req_names,
-  }
-  buffer_caches[buf] = entry
-  ensure_cache_autocmd(buf)
-  return entry
-end
-
-local function collect_file_vars(buf)
-  return get_buffer_cache(buf).file_vars
-end
-
-local function collect_request_vars(buf, cursor_line)
-  local vars = {}
-  local ok, indicators = pcall(require, "poste.indicators")
-  if not ok then return vars end
-  local start_line, end_line = indicators.find_request_block_bounds(buf, cursor_line)
-  if not start_line then return vars end
-
-  local lines = vim.api.nvim_buf_get_lines(buf, start_line - 1, end_line, false)
-  for _, line in ipairs(lines) do
-    if not line:match("^%s*###") then
-      local name = line:match("^%s*@(%w[%w_]*)%s*=")
-      if name then vars[name] = true end
-    end
-  end
-  return vars
-end
-
-local function collect_env_vars()
-  local bufname = vim.api.nvim_buf_get_name(0)
-  if bufname == "" then return {} end
-
-  local dir = vim.fn.fnamemodify(bufname, ":h")
-  local env_file
-
-  while dir and dir ~= "" and dir ~= "/" do
-    local candidate = dir .. "/env.json"
-    if vim.fn.filereadable(candidate) == 1 then
-      env_file = candidate
-      break
-    end
-    dir = vim.fn.fnamemodify(dir, ":h")
-  end
-
-  if not env_file then return {} end
-
-  local info = vim.uv.fs_stat(env_file)
-  local mtime = info and info.mtime and info.mtime.sec or 0
-
-  local state = require("poste.state")
-  local env_name = state.current_env or state.config.default_env
-
-  local cached = env_cache[env_file]
-  if cached and cached.mtime == mtime and cached.env_name == env_name then
-    return cached.vars
-  end
-
-  local ok, content = pcall(vim.fn.readfile, env_file)
-  if not ok or not content then return {} end
-
-  local json_ok, json_data = pcall(vim.fn.json_decode, table.concat(content, "\n"))
-  if not json_ok or type(json_data) ~= "table" then
-    env_cache[env_file] = nil
-    return {}
-  end
-
-  local env_data = json_data[env_name]
-  if type(env_data) ~= "table" then
-    env_cache[env_file] = nil
-    return {}
-  end
-
-  local vars = {}
-  for k, _ in pairs(env_data) do
-    vars[k] = true
-  end
-
-  env_cache[env_file] = { mtime = mtime, env_name = env_name, vars = vars }
-  return vars
-end
-
-local function collect_request_names(buf)
-  return get_buffer_cache(buf).req_names
-end
-
-local function collect_import_index(buf)
-  buf = buf or vim.api.nvim_get_current_buf()
-  local cache = get_buffer_cache(buf)
-  if cache.import_index then
-    return cache.import_index
-  end
-
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local full_content = table.concat(lines, "\n")
-  local import_mod = require("poste.http.import")
-  local directives = import_mod.collect_directives(full_content)
-
-  local buf_name = vim.api.nvim_buf_get_name(buf)
-  local buf_dir = buf_name ~= "" and vim.fn.fnamemodify(buf_name, ":h") or vim.fn.getcwd()
-  local index = import_mod.build_import_index(directives.imports, buf_dir)
-
-  cache.import_index = index
-  return index
-end
 
 --- Build completion items from a list of strings.
 --- @param words table List of word strings
@@ -231,11 +69,11 @@ function M.build_script_variable_items(line_text, buf, cursor_line)
 
   if prefix_match == "variables" then
     local all_vars = {}
-    local cache = get_buffer_cache(buf)
-    for name in pairs(cache.file_vars) do
+    local buf_cache = cache.get_buffer_cache(buf)
+    for name in pairs(buf_cache.file_vars) do
       all_vars[name] = true
     end
-    local req_vars = collect_request_vars(buf, cursor_line or vim.api.nvim_win_get_cursor(0)[1])
+    local req_vars = cache.collect_request_vars(buf, cursor_line or vim.api.nvim_win_get_cursor(0)[1])
     for name in pairs(req_vars) do
       all_vars[name] = true
     end
@@ -250,7 +88,7 @@ function M.build_script_variable_items(line_text, buf, cursor_line)
       })
     end
   elseif prefix_match == "env" then
-    local env_vars = collect_env_vars()
+    local env_vars = cache.collect_env_vars()
     for name in pairs(env_vars) do
       table.insert(items, {
         label = "env." .. name,
@@ -360,7 +198,7 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
     return items
   elseif ctx == "run_target_hash" then
     local partial = extra or ""
-    local import_index = collect_import_index(buf)
+    local import_index = cache.collect_import_index(buf)
 
     for _, entry in ipairs(import_index.bare or {}) do
       for _, req in ipairs(entry.requests or {}) do
@@ -396,7 +234,7 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
     local data_extra = extra or {}
     local alias = data_extra.alias or ""
     local partial = data_extra.partial or ""
-    local import_index = collect_import_index(buf)
+    local import_index = cache.collect_import_index(buf)
 
     local entry = (import_index.aliased or {})[alias]
     if entry then
@@ -437,18 +275,18 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
     end
 
     local all_vars = {}
-    local cache = get_buffer_cache(buf)
+    local buf_cache = cache.get_buffer_cache(buf)
 
-    for name in pairs(cache.file_vars) do
+    for name in pairs(buf_cache.file_vars) do
       all_vars[name] = "file"
     end
 
-    local req_vars = collect_request_vars(buf, cursor_line)
+    local req_vars = cache.collect_request_vars(buf, cursor_line)
     for name in pairs(req_vars) do
       all_vars[name] = "request"
     end
 
-    local env_vars = collect_env_vars()
+    local env_vars = cache.collect_env_vars()
     for name in pairs(env_vars) do
       if not all_vars[name] then
         all_vars[name] = "env"
@@ -471,7 +309,7 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
       })
     end
 
-    for _, name in ipairs(cache.req_names) do
+    for _, name in ipairs(buf_cache.req_names) do
       table.insert(items, {
         label = name .. ".response.body",
         kind = KIND_REFERENCE,

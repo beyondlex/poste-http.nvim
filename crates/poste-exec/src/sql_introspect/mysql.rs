@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde_json::{json, Value};
-use sqlx::mysql::{MySqlPoolOptions, MySqlRow};
+use sqlx::mysql::{MySqlPool, MySqlPoolOptions, MySqlRow};
 use sqlx::Row;
 
 use super::{IntrospectParams, IntrospectType};
@@ -124,7 +124,7 @@ pub(super) async fn introspect_mysql(params: &IntrospectParams) -> Result<Value>
         }
         IntrospectType::Ddl => {
             build_create_table_from_introspect_mysql(
-                &params.connection_url,
+                &pool,
                 params.table.as_deref(),
             )
             .await?
@@ -144,18 +144,12 @@ pub(super) async fn introspect_mysql(params: &IntrospectParams) -> Result<Value>
 }
 
 async fn build_create_table_from_introspect_mysql(
-    connection_url: &str,
+    pool: &MySqlPool,
     table: Option<&str>,
 ) -> Result<Vec<serde_json::Value>> {
-    use sqlx::mysql::MySqlPoolOptions;
     use sqlx::Row;
 
     let table = table.ok_or_else(|| anyhow::anyhow!("table parameter required for ddl introspection"))?;
-
-    let pool = MySqlPoolOptions::new()
-        .max_connections(2)
-        .connect(connection_url)
-        .await?;
 
     fn col(row: &MySqlRow, name: &str) -> String {
         let bytes: Vec<u8> = row.get(name);
@@ -167,7 +161,7 @@ async fn build_create_table_from_introspect_mysql(
     }
 
     let col_sql = format!("SHOW FULL COLUMNS FROM `{}`", table);
-    let col_rows = sqlx::query(&col_sql).fetch_all(&pool).await?;
+    let col_rows = sqlx::query(&col_sql).fetch_all(pool).await?;
 
     let mut pk_cols: Vec<String> = Vec::new();
     let mut columns: Vec<sql_ddl::ColumnDef> = Vec::new();
@@ -219,7 +213,7 @@ async fn build_create_table_from_introspect_mysql(
         table.replace('\'', "''")
     );
     let table_comment: Option<String> = sqlx::query_scalar(&table_comment_sql)
-        .fetch_optional(&pool)
+        .fetch_optional(pool)
         .await?
         .filter(|s: &String| !s.is_empty());
 
@@ -229,8 +223,6 @@ async fn build_create_table_from_introspect_mysql(
         primary_key: if pk_cols.is_empty() { None } else { Some(pk_cols) },
         comment: table_comment,
     };
-
-    pool.close().await;
 
     if let Some(ddl_generator) = sql_ddl::ddl_for("mysql") {
         let ddl = ddl_generator.create_table(&schema_def);

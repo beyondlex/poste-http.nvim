@@ -3,6 +3,7 @@ local M = {}
 local ns = vim.api.nvim_create_namespace("poste_http_boundary")
 local _prev_buf = nil
 local _disabled = false
+local _buf_cache = {}
 
 local function clear_all(buf)
   if buf and vim.api.nvim_buf_is_valid(buf) then
@@ -73,9 +74,14 @@ end
 local function update(buf, cursor)
   if _disabled then return end
   if not vim.api.nvim_buf_is_valid(buf) then return end
-  local total = vim.api.nvim_buf_line_count(buf)
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, total, false)
-  local start, stop = find_block(lines, cursor)
+  local ct = vim.api.nvim_buf_get_changedtick(buf)
+  local cached = _buf_cache[buf]
+  if not cached or cached.ct ~= ct then
+    local total = vim.api.nvim_buf_line_count(buf)
+    cached = { ct = ct, lines = vim.api.nvim_buf_get_lines(buf, 0, total, false) }
+    _buf_cache[buf] = cached
+  end
+  local start, stop = find_block(cached.lines, cursor)
   if not start then clear_all(_prev_buf); _prev_buf = nil; return end
   apply_range(buf, start - 1, stop - 1)
 end

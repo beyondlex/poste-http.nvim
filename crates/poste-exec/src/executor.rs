@@ -28,15 +28,11 @@ impl Executor {
     /// Using curl gives us verbose trace output (TLS, DNS, proxy, HTTP/2) for free,
     /// identical to what kulala.nvim shows in its Verbose tab.
     async fn execute_http(request: &Request, cookie_jar: Option<&CookieJar>) -> Result<Response> {
-        // Parse the HTTP request from the body
         let lines: Vec<&str> = request.body.lines().collect();
         if lines.is_empty() {
             anyhow::bail!("Empty HTTP request");
         }
 
-        // First line: METHOD URL
-        // Handle unresolved {{variable references}} that may contain spaces
-        // (e.g. {{Request Name.response.body.field}} with spaces in the request name).
         let request_line = lines[0].trim();
         let space_pos = request_line.find(char::is_whitespace)
             .ok_or_else(|| anyhow::anyhow!("Invalid HTTP request line: {}", request_line))?;
@@ -44,10 +40,8 @@ impl Executor {
         let method = request_line[..space_pos].to_uppercase();
         let url = request_line[space_pos..].trim_start().to_string();
 
-        // Parse request headers and find body separator
         let mut req_headers = Vec::new();
         let mut body_start = None;
-
         for (i, line) in lines.iter().enumerate().skip(1) {
             if line.trim().is_empty() {
                 body_start = Some(i + 1);
@@ -58,94 +52,39 @@ impl Executor {
             }
         }
 
-        // Extract request body
         let req_body = body_start
             .map(|s| lines[s..].join("\n"))
             .unwrap_or_default();
 
-        // Create temp file for response headers (curl -D)
         let headers_file = tempfile::NamedTempFile::new()?;
         let headers_path = headers_file.path().to_path_buf();
 
-        // Build curl command
-        let mut args = vec![
-            "-s".to_string(),   // silent (no progress bar)
-            "-S".to_string(),   // show errors even when silent
-            "-v".to_string(),   // verbose trace to stderr
-            "-L".to_string(),   // follow redirects
-            "-X".to_string(), method.clone(),
-            "-D".to_string(), headers_path.to_string_lossy().to_string(),
-            "-A".to_string(), "poste/0.1.0".to_string(),
-        ];
-
-        // Request headers
-        for (key, value) in &req_headers {
-            args.push("-H".to_string());
-            args.push(format!("{}: {}", key, value));
-        }
-
-        // Request body
-        // Use --data-binary to preserve binary data and newlines (important for multipart/form-data)
-        if !req_body.trim().is_empty() {
-            args.push("--data-binary".to_string());
-            args.push(req_body.clone());
-        }
-
-        // Cookie jar: curl manages cookies natively
-        if let Some(jar) = &cookie_jar {
-            let path = jar.path().to_string_lossy().to_string();
-            args.push("-b".to_string());  // read cookies
-            args.push(path.clone());
-            args.push("-c".to_string());  // write cookies
-            args.push(path);
-        }
-
-        args.push(url.clone());
-
-        // Execute curl
-        let output = tokio::process::Command::new("curl")
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to execute curl: {}. Is curl installed?", e))?;
-
-        // Read response headers from temp file
+        let args = Self::build_curl_args(&method, &url, &req_headers, &req_body, cookie_jar, &headers_path);
+        let (stdout, stderr, status) = Self::execute_curl(&args).await?;
         let headers_content = std::fs::read_to_string(&headers_path).unwrap_or_default();
 
-        // Parse response
-        let response = parse_curl_response(&headers_content, &output.stdout, &url)?;
+        let response = parse_curl_response(&headers_content, &stdout, &url)?;
 
-        // Read cookies from jar after curl has written them
         let cookies = cookie_jar.as_ref()
             .map(|j| j.read_all())
             .unwrap_or_default();
 
-        // Build metadata
         let mut metadata = HashMap::new();
-        metadata.insert("method".to_string(), method);
-        metadata.insert(
-            "request_headers".to_string(),
-            req_headers
-                .iter()
+        metadata.insert("method".to_string(), method.clone());
+        metadata.insert("request_headers".to_string(),
+            req_headers.iter()
                 .map(|(k, v)| format!("{}: {}", k, v))
                 .collect::<Vec<_>>()
-                .join("\n"),
-        );
+                .join("\n"));
         if !req_body.trim().is_empty() {
             metadata.insert("request_body".to_string(), req_body);
         }
-        metadata.insert(
-            "timestamp".to_string(),
-            chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-        );
-        metadata.insert(
-            "verbose".to_string(),
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        );
-        metadata.insert(
-            "exit_code".to_string(),
-            output.status.code().unwrap_or(-1).to_string(),
-        );
+        metadata.insert("timestamp".to_string(),
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        metadata.insert("verbose".to_string(),
+            String::from_utf8_lossy(&stderr).to_string());
+        metadata.insert("exit_code".to_string(),
+            status.code().unwrap_or(-1).to_string());
 
         Ok(Response {
             protocol: "http".to_string(),
@@ -159,6 +98,57 @@ impl Executor {
             cookies,
             metadata,
         })
+    }
+
+    /// Build curl argument list from parsed request components.
+    fn build_curl_args(
+        method: &str,
+        url: &str,
+        req_headers: &[(String, String)],
+        req_body: &str,
+        cookie_jar: Option<&CookieJar>,
+        headers_path: &std::path::Path,
+    ) -> Vec<String> {
+        let mut args = vec![
+            "-s".to_string(),
+            "-S".to_string(),
+            "-v".to_string(),
+            "-L".to_string(),
+            "-X".to_string(), method.to_string(),
+            "-D".to_string(), headers_path.to_string_lossy().to_string(),
+            "-A".to_string(), "poste/0.1.0".to_string(),
+        ];
+
+        for (key, value) in req_headers {
+            args.push("-H".to_string());
+            args.push(format!("{}: {}", key, value));
+        }
+
+        if !req_body.trim().is_empty() {
+            args.push("--data-binary".to_string());
+            args.push(req_body.to_string());
+        }
+
+        if let Some(jar) = &cookie_jar {
+            let path = jar.path().to_string_lossy().to_string();
+            args.push("-b".to_string());
+            args.push(path.clone());
+            args.push("-c".to_string());
+            args.push(path);
+        }
+
+        args.push(url.to_string());
+        args
+    }
+
+    /// Execute curl subprocess and return (stdout, stderr, exit_status).
+    async fn execute_curl(args: &[String]) -> Result<(Vec<u8>, Vec<u8>, std::process::ExitStatus)> {
+        let output = tokio::process::Command::new("curl")
+            .args(args)
+            .output()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to execute curl: {}. Is curl installed?", e))?;
+        Ok((output.stdout, output.stderr, output.status))
     }
 
     async fn execute_redis(request: &Request) -> Result<Response> {

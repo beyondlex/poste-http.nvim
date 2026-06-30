@@ -1,0 +1,89 @@
+@base_url = {{base_url}}
+
+### addPet
+# Add a new pet to the store
+POST {{base_url}}/pet
+# petstore_auth auth required
+Content-Type: application/json
+
+{
+  "id": 25,
+  "category": {
+    "id": 0,
+    "name": ""
+  },
+  "name": "doggie",
+  "photoUrls": [
+    "https://example.com/photo.png"
+  ],
+  "tags": [
+    {
+      "id": 0,
+      "name": ""
+    }
+  ],
+  "status": "available"
+}
+
+### updatePet
+# Update an existing pet
+PUT {{base_url}}/pet
+# petstore_auth auth required
+Content-Type: application/json
+
+{
+  "id": 25,
+  "category": {
+    "id": 0,
+    "name": ""
+  },
+  "name": "doggie",
+  "photoUrls": [
+    "https://example.com/photo.png"
+  ],
+  "tags": [
+    {
+      "id": 0,
+      "name": ""
+    }
+  ],
+  "status": "available"
+}
+
+### findPetsByStatus
+# Finds Pets by status
+# @prompt status [available, pending, sold]
+GET {{base_url}}/pet/findByStatus?status={{status}}
+# petstore_auth auth required
+
+### findPetsByTags
+# Finds Pets by tags
+GET {{base_url}}/pet/findByTags?tags={{tags}}
+# petstore_auth auth required
+
+### getPetById
+# Find pet by ID
+GET {{base_url}}/pet/{{petId}}
+api_key: {{api_key}}
+
+### updatePetWithForm
+# Updates a pet in the store with form data
+POST {{base_url}}/pet/{{petId}}
+# petstore_auth auth required
+Content-Type: application/x-www-form-urlencoded
+
+name={{name}}&status={{status}}
+
+### deletePet
+# Deletes a pet
+DELETE {{base_url}}/pet/{{petId}}
+api_key: {{api_key}}
+# petstore_auth auth required
+
+### uploadFile
+# Uploads an image
+POST {{base_url}}/pet/{{petId}}/uploadImage
+# petstore_auth auth required
+Content-Type: multipart/form-data
+
+

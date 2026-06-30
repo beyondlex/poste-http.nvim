@@ -1,5 +1,7 @@
 -- @connection my-blog
--- @database blog
+-- @database inventory
+
+SELECT * FROM items;
 
 SELECT * FROM posts WHERE  ;
 

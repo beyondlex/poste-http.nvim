@@ -11,7 +11,7 @@ local function pick_spec_file(callback)
     return
   end
   finder.open({
-    mode = "file",
+    mode = "both",
     initial_path = vim.fn.getcwd(),
     extensions = { "json", "yaml", "yml" },
     on_confirm = function(path)

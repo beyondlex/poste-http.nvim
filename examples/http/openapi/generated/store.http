@@ -1,0 +1,29 @@
+@base_url = {{base_url}}
+
+### getInventory
+# Returns pet inventories by status
+GET {{base_url}}/store/inventory
+api_key: {{api_key}}
+
+### placeOrder
+# Place an order for a pet
+POST {{base_url}}/store/order
+Content-Type: application/json
+
+{
+  "id": 0,
+  "petId": 0,
+  "quantity": 0,
+  "shipDate": "",
+  "status": "placed",
+  "complete": false
+}
+
+### getOrderById
+# Find purchase order by ID
+GET {{base_url}}/store/order/{{orderId}}
+
+### deleteOrder
+# Delete purchase order by ID
+DELETE {{base_url}}/store/order/{{orderId}}
+

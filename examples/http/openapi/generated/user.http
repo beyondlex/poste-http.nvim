@@ -1,0 +1,64 @@
+@base_url = {{base_url}}
+
+### createUser
+# Create user
+POST {{base_url}}/user
+Content-Type: application/json
+
+{
+  "id": 0,
+  "username": "",
+  "firstName": "",
+  "lastName": "",
+  "email": "",
+  "password": "",
+  "phone": "",
+  "userStatus": 0
+}
+
+### createUsersWithArrayInput
+# Creates list of users with given input array
+POST {{base_url}}/user/createWithArray
+Content-Type: application/json
+
+{}
+
+### createUsersWithListInput
+# Creates list of users with given input array
+POST {{base_url}}/user/createWithList
+Content-Type: application/json
+
+{}
+
+### loginUser
+# Logs user into the system
+GET {{base_url}}/user/login?username={{username}}&password={{password}}
+
+### logoutUser
+# Logs out current logged in user session
+GET {{base_url}}/user/logout
+
+### getUserByName
+# Get user by user name
+GET {{base_url}}/user/{{username}}
+
+### updateUser
+# Updated user
+PUT {{base_url}}/user/{{username}}
+Content-Type: application/json
+
+{
+  "id": 0,
+  "username": "",
+  "firstName": "",
+  "lastName": "",
+  "email": "",
+  "password": "",
+  "phone": "",
+  "userStatus": 0
+}
+
+### deleteUser
+# Delete user
+DELETE {{base_url}}/user/{{username}}
+

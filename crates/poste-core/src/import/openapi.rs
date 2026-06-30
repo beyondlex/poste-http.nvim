@@ -1,6 +1,9 @@
 use crate::import::{HttpFile, ImportResult, SpecImporter};
 use anyhow::{Context, Result};
-use openapiv3::{OpenAPI, PathItem, Operation, ReferenceOr, Parameter, ParameterSchemaOrContent, Schema};
+use openapiv3::{
+    OpenAPI, PathItem, Operation, ReferenceOr, Parameter, ParameterSchemaOrContent, Schema,
+    RequestBody, SchemaKind, Type, ObjectType,
+};
 use std::collections::HashMap;
 
 /// Import from OpenAPI 3.x spec.
@@ -67,7 +70,6 @@ impl OpenApiImporter {
                                 format!("{}{}", method.to_lowercase(), sanitize_path_segment(path_str))
                             }),
                             summary: op.summary.clone().unwrap_or_default(),
-                            description: op.description.clone().unwrap_or_default(),
                             parameters: op.parameters.clone(),
                             request_body: op.request_body.clone(),
                             security: op.security.clone(),
@@ -147,6 +149,11 @@ impl SpecImporter for OpenApiImporter {
                 content.push_str(&format!("### {}\n", display_name));
                 if !op.summary.is_empty() {
                     content.push_str(&format!("# {}\n", op.summary));
+                }
+
+                // Add @prompt lines for parameters with enum constraints
+                for param in &op.parameters {
+                    write_prompt_for_param(&mut content, &api, param);
                 }
 
                 // Collect query params for the request line
@@ -265,32 +272,72 @@ impl SpecImporter for OpenApiImporter {
 
                 // Request body
                 if let Some(body) = &op.request_body {
-                    if let ReferenceOr::Item(body_item) = body {
+                    let body_item = match body {
+                        ReferenceOr::Item(item) => Some(item),
+                        ReferenceOr::Reference { reference } => {
+                            match resolve_ref_request_body(&api, reference) {
+                                Some(resolved) => {
+                                    Some(resolved)
+                                }
+                                None => {
+                                    warnings.push(format!("Could not resolve request body $ref: {}", reference));
+                                    None
+                                }
+                            }
+                        }
+                    };
+
+                    if let Some(body_item) = body_item {
                         if let Some((content_type, media_type)) = body_item.content.iter().next() {
                             content.push_str(&format!("Content-Type: {}\n", content_type));
                             content.push('\n');
 
-                            // 1. Use example if present
+                            let mut wrote_body = false;
+
+                            // 1. Try media type example
                             if let Some(example) = &media_type.example {
                                 if let Ok(json) = serde_json::to_string_pretty(example) {
                                     content.push_str(&json);
                                     content.push('\n');
+                                    wrote_body = true;
                                 }
                             }
-                            // 2. Fall back to schema-level example
-                            else if let Some(schema) = &media_type.schema {
-                                if let Some(s) = schema_as_schema(schema) {
-                                    if let Some(ex) = &s.schema_data.example {
-                                        if let Ok(json) = serde_json::to_string_pretty(ex) {
-                                            content.push_str(&json);
-                                            content.push('\n');
+
+                            // 2. Try schema-level example (resolving $ref if needed)
+                            if !wrote_body {
+                                if let Some(schema) = &media_type.schema {
+                                    if let Some(s) = get_schema(&api, schema) {
+                                        if let Some(ex) = &s.schema_data.example {
+                                            if let Ok(json) = serde_json::to_string_pretty(ex) {
+                                                content.push_str(&json);
+                                                content.push('\n');
+                                                wrote_body = true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 3. Generate body from schema when no example
+                            if !wrote_body {
+                                if let Some(schema) = &media_type.schema {
+                                    if let Some(s) = get_schema(&api, schema) {
+                                        match content_type.as_str() {
+                                            "application/x-www-form-urlencoded" => {
+                                                write_form_body(&mut content, s, &api, &mut env_vars);
+                                            }
+                                            "application/json" | "application/xml" => {
+                                                if let Some(json) = generate_json_skeleton(s, &api, 0) {
+                                                    content.push_str(&json);
+                                                    content.push('\n');
+                                                }
+                                            }
+                                            _ => {}
                                         }
                                     }
                                 }
                             }
                         }
-                    } else {
-                        warnings.push("Skipping $ref request body".to_string());
                     }
                 }
 
@@ -321,7 +368,6 @@ struct OperationInfo {
     http_path: String,
     operation_id: String,
     summary: String,
-    description: String,
     parameters: Vec<openapiv3::ReferenceOr<openapiv3::Parameter>>,
     request_body: Option<openapiv3::ReferenceOr<openapiv3::RequestBody>>,
     security: Option<Vec<openapiv3::SecurityRequirement>>,
@@ -364,14 +410,28 @@ fn sanitize_path_segment(path: &str) -> String {
 }
 
 /// Extract a default value string from a parameter's schema.
+/// Also handles array schemas with items that have defaults.
 fn extract_default_from_param(data: &openapiv3::ParameterData) -> String {
     match &data.format {
         ParameterSchemaOrContent::Schema(schema_ref) => {
             match schema_ref {
                 ReferenceOr::Item(schema) => {
+                    // Try direct default
                     if let Some(default) = &schema.schema_data.default {
                         if let Ok(s) = serde_json::to_string(default) {
                             return s.trim_matches('"').to_string();
+                        }
+                    }
+                    // Try items default for array schemas
+                    if let SchemaKind::Type(Type::Array(arr)) = &schema.schema_kind {
+                        if let Some(items) = &arr.items {
+                            if let Some(item_schema) = items.as_item() {
+                                if let Some(default) = &item_schema.schema_data.default {
+                                    if let Ok(s) = serde_json::to_string(default) {
+                                        return s.trim_matches('"').to_string();
+                                    }
+                                }
+                            }
                         }
                     }
                     String::new()
@@ -383,12 +443,225 @@ fn extract_default_from_param(data: &openapiv3::ParameterData) -> String {
     }
 }
 
-/// Resolve a ReferenceOr<Schema> to a Schema if possible.
-fn schema_as_schema<'a>(s: &'a ReferenceOr<Schema>) -> Option<&'a Schema> {
+/// Resolve a `$ref` string to a request body from the spec's components.
+fn resolve_ref_request_body<'a>(api: &'a OpenAPI, reference: &str) -> Option<&'a RequestBody> {
+    let path = reference.strip_prefix("#/components/")?;
+    let (component_type, name) = path.split_once('/')?;
+    match component_type {
+        "requestBodies" => api.components.as_ref()?.request_bodies.get(name)?.as_item(),
+        _ => None,
+    }
+}
+
+/// Resolve a `$ref` string to a schema from the spec's components.
+fn resolve_ref_schema<'a>(api: &'a OpenAPI, reference: &str) -> Option<&'a Schema> {
+    let path = reference.strip_prefix("#/components/")?;
+    let (component_type, name) = path.split_once('/')?;
+    match component_type {
+        "schemas" => api.components.as_ref()?.schemas.get(name)?.as_item(),
+        _ => None,
+    }
+}
+
+/// Get a concrete Schema from a ReferenceOr, following $ref if needed.
+fn get_schema<'a>(api: &'a OpenAPI, s: &'a ReferenceOr<Schema>) -> Option<&'a Schema> {
     match s {
         ReferenceOr::Item(schema) => Some(schema),
-        ReferenceOr::Reference { .. } => None,
+        ReferenceOr::Reference { reference } => resolve_ref_schema(api, reference),
     }
+}
+
+/// Extract string enum values from a schema, if present.
+/// Handles typed schemas (String, Array→items) and AnySchema with enumeration.
+fn extract_enum_values(schema: &Schema) -> Option<Vec<String>> {
+    match &schema.schema_kind {
+        SchemaKind::Type(Type::String(s)) => {
+            let vals: Vec<String> = s.enumeration.iter().filter_map(|e| e.clone()).collect();
+            if !vals.is_empty() { Some(vals) } else { None }
+        }
+        SchemaKind::Type(Type::Array(arr)) => {
+            arr.items.as_ref().and_then(|items| match items.as_item() {
+                Some(item) => extract_enum_values(item),
+                None => None,
+            })
+        }
+        SchemaKind::Any(any) => {
+            let vals: Vec<String> = any.enumeration.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            if !vals.is_empty() { Some(vals) } else { None }
+        }
+        _ => None,
+    }
+}
+
+/// Write a `# @prompt` directive line for a parameter with enum constraints.
+fn write_prompt_for_param(content: &mut String, api: &OpenAPI, param: &ReferenceOr<Parameter>) {
+    if let ReferenceOr::Item(param) = param {
+        let (var_name, schema_ref) = match param {
+            Parameter::Query { parameter_data, .. } => {
+                (parameter_data.name.clone(), match &parameter_data.format {
+                    ParameterSchemaOrContent::Schema(s) => Some(s),
+                    ParameterSchemaOrContent::Content(_) => None,
+                })
+            }
+            Parameter::Path { parameter_data, .. } => {
+                (parameter_data.name.clone(), match &parameter_data.format {
+                    ParameterSchemaOrContent::Schema(s) => Some(s),
+                    ParameterSchemaOrContent::Content(_) => None,
+                })
+            }
+            _ => return,
+        };
+
+        if let Some(schema_ref) = schema_ref {
+            if let Some(schema) = get_schema(api, schema_ref) {
+                if let Some(values) = extract_enum_values(schema) {
+                    let sanitized = sanitize_var_name(&var_name);
+                    content.push_str(&format!("# @prompt {} [{}]\n", sanitized, values.join(", ")));
+                }
+            }
+        }
+    }
+}
+
+/// Generate a JSON value for a schema property, using example/default/enum when available.
+fn skeleton_value_for_schema(schema: &Schema, api: &OpenAPI, depth: usize) -> serde_json::Value {
+    // Priority 1: schema-level example
+    if let Some(example) = &schema.schema_data.example {
+        return example.clone();
+    }
+    // Priority 2: schema-level default
+    if let Some(default) = &schema.schema_data.default {
+        return default.clone();
+    }
+
+    // Priority 3: enum-based or type-based default
+    match &schema.schema_kind {
+        SchemaKind::Type(Type::String(s)) => {
+            if let Some(first) = s.enumeration.iter().find_map(|e| e.clone()) {
+                serde_json::Value::String(first)
+            } else {
+                serde_json::Value::String(String::new())
+            }
+        }
+        SchemaKind::Type(Type::Integer(i)) => {
+            if let Some(first) = i.enumeration.first().and_then(|e| *e) {
+                serde_json::Value::Number(serde_json::Number::from(first))
+            } else {
+                serde_json::Value::Number(serde_json::Number::from(0))
+            }
+        }
+        SchemaKind::Type(Type::Number(n)) => {
+            if let Some(first) = n.enumeration.first().and_then(|e| *e) {
+                serde_json::Value::Number(serde_json::Number::from_f64(first).unwrap_or_else(|| serde_json::Number::from_f64(0.0).unwrap()))
+            } else {
+                serde_json::Value::Number(serde_json::Number::from_f64(0.0).unwrap())
+            }
+        }
+        SchemaKind::Type(Type::Boolean(b)) => {
+            if let Some(first) = b.enumeration.first().and_then(|e| *e) {
+                serde_json::Value::Bool(first)
+            } else {
+                serde_json::Value::Bool(false)
+            }
+        }
+        SchemaKind::Type(Type::Array(arr)) => {
+            let mut items = Vec::new();
+            if let Some(item_ref) = &arr.items {
+                match item_ref {
+                    ReferenceOr::Item(item_schema) => {
+                        items.push(skeleton_value_for_schema(item_schema, api, depth + 1));
+                    }
+                    ReferenceOr::Reference { reference } => {
+                        if let Some(resolved) = resolve_ref_schema(api, reference) {
+                            items.push(skeleton_value_for_schema(resolved, api, depth + 1));
+                        }
+                    }
+                }
+            }
+            serde_json::Value::Array(items)
+        }
+        SchemaKind::Type(Type::Object(_)) => {
+            if depth <= 2 {
+                let json = generate_json_skeleton(schema, api, depth).unwrap_or_else(|| "{}".to_string());
+                serde_json::from_str(&json).unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
+            } else {
+                serde_json::Value::Object(serde_json::Map::new())
+            }
+        }
+        SchemaKind::Any(any) => {
+            // Check enum values first
+            if let Some(first) = any.enumeration.first() {
+                return first.clone();
+            }
+            // Check if it has object properties
+            if !any.properties.is_empty() && depth <= 2 {
+                let json = generate_json_skeleton(schema, api, depth).unwrap_or_else(|| "{}".to_string());
+                serde_json::from_str(&json).unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
+            } else {
+                serde_json::Value::Null
+            }
+        }
+        _ => serde_json::Value::Null,
+    }
+}
+
+/// Generate a JSON body skeleton from an object schema.
+fn generate_json_skeleton(schema: &Schema, api: &OpenAPI, depth: usize) -> Option<String> {
+    if depth > 2 {
+        return Some("{}".to_string());
+    }
+
+    let properties = match &schema.schema_kind {
+        SchemaKind::Type(Type::Object(ObjectType { properties, .. })) => properties,
+        SchemaKind::Any(any) => &any.properties,
+        _ => return Some("{}".to_string()),
+    };
+
+    if properties.is_empty() {
+        return Some("{}".to_string());
+    }
+
+    let mut map = serde_json::Map::new();
+    for (name, prop) in properties.iter().take(8) {
+        let val = match prop {
+            ReferenceOr::Item(prop_schema) => {
+                skeleton_value_for_schema(prop_schema, api, depth)
+            }
+            ReferenceOr::Reference { reference } => {
+                if let Some(resolved) = resolve_ref_schema(api, reference) {
+                    skeleton_value_for_schema(resolved, api, depth)
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+        };
+        map.insert(name.clone(), val);
+    }
+    serde_json::to_string_pretty(&serde_json::Value::Object(map)).ok()
+}
+
+/// Write form-urlencoded body from schema properties.
+fn write_form_body(content: &mut String, schema: &Schema, _api: &OpenAPI, env_vars: &mut HashMap<String, String>) {
+    let properties = match &schema.schema_kind {
+        SchemaKind::Type(Type::Object(ObjectType { properties, .. })) => properties,
+        SchemaKind::Any(any) => &any.properties,
+        _ => return,
+    };
+
+    if properties.is_empty() {
+        return;
+    }
+
+    let mut parts = Vec::new();
+    for (name, _prop) in properties.iter() {
+        let var_name = sanitize_var_name(name);
+        parts.push(format!("{}={}", name, poste_var(&var_name)));
+        env_vars.entry(var_name).or_default();
+    }
+    content.push_str(&parts.join("&"));
+    content.push('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -719,14 +992,37 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Step 5c: Request body with $ref — skip gracefully
+    // Step 5c: Request body with $ref — now resolved correctly
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_request_body_ref_skipped() {
+    fn test_request_body_ref_resolved() {
         let spec = r##"{
             "openapi": "3.0.0",
             "info": { "title": "Test", "version": "1.0" },
+            "components": {
+                "requestBodies": {
+                    "PetBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Pet"
+                                }
+                            }
+                        },
+                        "required": true
+                    }
+                },
+                "schemas": {
+                    "Pet": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string" },
+                            "age": { "type": "integer" }
+                        }
+                    }
+                }
+            },
             "paths": {
                 "/pets": {
                     "post": {
@@ -744,6 +1040,9 @@ mod tests {
         let c = &result.files[0].content;
         assert!(c.contains("### createPet"), "should have request: {}", c);
         assert!(c.contains("POST"), "should have method: {}", c);
+        assert!(c.contains("Content-Type: application/json"), "resolved content type: {}", c);
+        assert!(c.contains("\"name\""), "schema properties: {}", c);
+        assert!(c.contains("\"age\""), "schema properties: {}", c);
     }
 
     // -----------------------------------------------------------------------
@@ -780,6 +1079,163 @@ mod tests {
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
         assert!(c.contains("Content-Type: multipart/form-data"), "content type: {}", c);
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5e: @prompt for query parameter with enum values
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_enum_param_prompt_directive() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "paths": {
+                "/pets": {
+                    "get": {
+                        "tags": ["pets"],
+                        "operationId": "listPets",
+                        "parameters": [
+                            {
+                                "name": "status",
+                                "in": "query",
+                                "schema": {
+                                    "type": "string",
+                                    "enum": ["available", "pending", "sold"]
+                                }
+                            }
+                        ],
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("# @prompt status [available, pending, sold]"), "prompt directive: {}", c);
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5f: Form-urlencoded body from schema properties
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_form_urlencoded_body() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "paths": {
+                "/pets/{petId}": {
+                    "post": {
+                        "tags": ["pets"],
+                        "operationId": "updatePet",
+                        "parameters": [
+                            { "name": "petId", "in": "path", "required": true, "schema": { "type": "integer" } }
+                        ],
+                        "requestBody": {
+                            "content": {
+                                "application/x-www-form-urlencoded": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "name": { "type": "string" },
+                                            "status": { "type": "string" }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("Content-Type: application/x-www-form-urlencoded"), "content type: {}", c);
+        assert!(c.contains("name={{name}}"), "form field: {}", c);
+        assert!(c.contains("status={{status}}"), "form field: {}", c);
+        assert!(result.env_vars.contains_key("name"), "name in env_vars");
+        assert!(result.env_vars.contains_key("status"), "status in env_vars");
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5g: JSON skeleton from schema with no example
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_json_skeleton_generated() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "paths": {
+                "/orders": {
+                    "post": {
+                        "tags": ["orders"],
+                        "operationId": "placeOrder",
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "quantity": { "type": "integer" },
+                                            "status": { "type": "string" },
+                                            "complete": { "type": "boolean" }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        let c = &result.files[0].content;
+        assert!(c.contains("Content-Type: application/json"), "content type: {}", c);
+        assert!(c.contains("\"quantity\": 0"), "default integer: {}", c);
+        assert!(c.contains("\"status\": \"\""), "default string: {}", c);
+        assert!(c.contains("\"complete\": false"), "default bool: {}", c);
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5h: Array items default extracted for parameter
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_array_items_default_extracted() {
+        let spec = r#"{
+            "openapi": "3.0.0",
+            "info": { "title": "Test", "version": "1.0" },
+            "paths": {
+                "/pets": {
+                    "get": {
+                        "tags": ["pets"],
+                        "operationId": "listPets",
+                        "parameters": [
+                            {
+                                "name": "status",
+                                "in": "query",
+                                "required": true,
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": ["available", "pending", "sold"],
+                                        "default": "available"
+                                    }
+                                }
+                            }
+                        ],
+                        "responses": { "200": { "description": "OK" } }
+                    }
+                }
+            }
+        }"#;
+        let result = import_one(spec, "https://api.example.com");
+        assert_eq!(result.env_vars.get("status").unwrap(), "available");
     }
 
     // -----------------------------------------------------------------------

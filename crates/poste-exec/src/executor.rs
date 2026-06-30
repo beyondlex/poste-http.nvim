@@ -39,6 +39,8 @@ impl Executor {
 
         let method = request_line[..space_pos].to_uppercase();
         let url = request_line[space_pos..].trim_start().to_string();
+        // Strip HTTP version suffix (e.g. " HTTP/1.1") from the URL
+        let url = url.split_whitespace().next().unwrap_or(&url).to_string();
 
         let mut req_headers = Vec::new();
         let mut body_start = None;

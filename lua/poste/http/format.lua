@@ -410,6 +410,9 @@ end
 ---   { headers = {"Key: Value", ...}, body = "raw content" }
 local function parse_multipart_parts(body, boundary)
   if not body or not boundary then return nil end
+  -- Normalize line endings so boundary searches are reliable even when
+  -- file inclusion content brings in \r\n or mixed line endings.
+  body = body:gsub("\r\n", "\n")
   local parts = {}
   local delim = "--" .. boundary
   local start = body:find(delim, 1, true)
@@ -417,16 +420,15 @@ local function parse_multipart_parts(body, boundary)
     local part_end = body:find("\n" .. delim, start + #delim, true)
     if not part_end then break end
     local raw = body:sub(start + #delim + 1, part_end - 1)
-    raw = raw:gsub("^\r?\n", "")
+    raw = raw:gsub("^\n+", "")
     if raw == "--" then break end
 
-    local header_end = raw:find("\r?\n\r?\n")
-    if not header_end then header_end = raw:find("\n\n") end
+    local header_end = raw:find("\n\n")
     if header_end then
       local hdr_str = raw:sub(1, header_end - 1)
-      local body_str = raw:sub(header_end + 1):gsub("^\r?\n", "")
+      local body_str = raw:sub(header_end + 2)
       local hdrs = {}
-      for h in hdr_str:gmatch("[^\r\n]+") do
+      for h in hdr_str:gmatch("[^\n]+") do
         table.insert(hdrs, h)
       end
       table.insert(parts, { headers = hdrs, body = body_str })
@@ -466,7 +468,7 @@ local function condense_multipart_body(body, content_type)
 
     local next_boundary = body:find(delim, dend)
     if not next_boundary then
-      table.insert(result, body:sub(dend + 1):gsub("^\r?\n", ""))
+      table.insert(result, (body:sub(dend + 1):gsub("^\r?\n", "")))
       break
     end
     local raw = body:sub(dend + 1, next_boundary - 1):gsub("^\r?\n", "")

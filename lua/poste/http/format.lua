@@ -272,7 +272,7 @@ function M.format_body(r)
     table.insert(lines, string.format("  Size:         %s  (%s bytes)", human_size(r.metadata.file_size), r.metadata.file_size or "?"))
     table.insert(lines, string.format("  Content-Type: %s", r.metadata.file_content_type or r.content_type or "?"))
     table.insert(lines, "")
-    table.insert(lines, string.format("  Open file:    :!%s %s", opener, r.metadata.file_path))
+    table.insert(lines, string.format("  Open file:    %s", r.metadata.file_path))
     return lines
   end
 
@@ -280,19 +280,24 @@ function M.format_body(r)
   return split_lines(body)
 end
 
---- Apply an extmark highlight on the "Open file:" line, rendering it as a
---- clickable link (blue, underlined).  Scans all lines for a match.
+--- Apply an extmark highlight on the file path portion of the "Open file:"
+--- line.  Only the path itself is rendered as a blue, underlined link.
 function M.apply_file_link_highlight(buf, lines)
   vim.api.nvim_buf_clear_namespace(buf, file_link_ns, 0, -1)
   for i, line in ipairs(lines) do
-    if line:match("^  Open") then
-      local row = i - 1
-      vim.api.nvim_buf_set_extmark(buf, file_link_ns, row, 0, {
-        end_row = row, end_col = #line,
-        hl_group = "PosteFileLink",
-        priority = 150,
-      })
-      return
+    local path_start = line:match("^  Open file:%s+")
+    if path_start then
+      local col = #path_start
+      if col < #line then
+        local row = i - 1
+        -- Highlight only the path part
+        vim.api.nvim_buf_set_extmark(buf, file_link_ns, row, col, {
+          end_row = row, end_col = #line,
+          hl_group = "PosteFileLink",
+          priority = 150,
+        })
+        return
+      end
     end
   end
 end

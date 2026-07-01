@@ -56,7 +56,23 @@ impl Executor {
 
         let req_body = body_start
             .map(|s| lines[s..].join("\n"))
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .trim_end()
+            .to_string();
+
+        // For application/x-www-form-urlencoded, strip newlines entirely.
+        // Newlines are not valid in this format and often appear due to
+        // multi-line formatting in the .http file (e.g. each key-value pair
+        // on its own line).  Raw newlines would be appended to the preceding
+        // value, which is almost certainly unintended.
+        let is_form_urlencoded = req_headers.iter().any(|(k, v)|
+            k.to_lowercase() == "content-type" && v.contains("x-www-form-urlencoded")
+        );
+        let req_body = if is_form_urlencoded {
+            req_body.replace('\n', "")
+        } else {
+            req_body
+        };
 
         let headers_file = tempfile::NamedTempFile::new()?;
         let headers_path = headers_file.path().to_path_buf();

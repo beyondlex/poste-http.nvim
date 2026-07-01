@@ -183,9 +183,10 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd("BufEnter", {
     pattern = { "*.http", "*.rest" },
     callback = function()
+      local buf = vim.api.nvim_get_current_buf()
       vim.wo.winbar = env_mod.build_http_winbar()
       if vim.bo.filetype == "poste_http" then
-        require("poste.http.boundary_indicator").refresh(0, vim.fn.line("."))
+        require("poste.http.boundary_indicator").refresh(buf, vim.fn.line("."))
       end
     end,
   })

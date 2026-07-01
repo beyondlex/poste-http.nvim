@@ -18,6 +18,14 @@ local function apply_range(buf, start, stop)
     return
   end
   clear_all(buf)
+  local line_count = vim.api.nvim_buf_line_count(buf)
+  if line_count == 0 then
+    _prev_buf = nil
+    return
+  end
+  -- Clamp to valid 0-based range
+  start = math.max(0, math.min(start, line_count - 1))
+  stop  = math.max(0, math.min(stop,  line_count - 1))
   for line = start, stop do
     local text
     if start == stop then text = "──"
@@ -74,10 +82,11 @@ end
 local function update(buf, cursor)
   if _disabled then return end
   if not vim.api.nvim_buf_is_valid(buf) then return end
+  local total = vim.api.nvim_buf_line_count(buf)
+  if total == 0 then return end
   local ct = vim.api.nvim_buf_get_changedtick(buf)
   local cached = _buf_cache[buf]
-  if not cached or cached.ct ~= ct then
-    local total = vim.api.nvim_buf_line_count(buf)
+  if not cached or cached.ct ~= ct or #cached.lines ~= total then
     cached = { ct = ct, lines = vim.api.nvim_buf_get_lines(buf, 0, total, false) }
     _buf_cache[buf] = cached
   end

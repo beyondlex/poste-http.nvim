@@ -104,7 +104,7 @@ impl Executor {
                 .unwrap_or_else(|| {
                     format!("poste_{}_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"), response.status)
                 });
-            let tmp_path = std::path::Path::new("/tmp").join(&file_name);
+            let tmp_path = resolve_path_with_conflict("/tmp", &file_name);
             match std::fs::write(&tmp_path, &stdout) {
                 Err(e) => {
                     metadata.insert("file_save_error".to_string(), format!("failed to write to {}: {}", tmp_path.display(), e));
@@ -514,6 +514,44 @@ fn sanitize_filename(name: &str) -> String {
     } else {
         trimmed
     }
+}
+
+/// Given a directory and filename, return a path that does not conflict with
+/// any existing file.  If the base path already exists, append `(1)`, `(2)`,
+/// etc. before the extension (e.g. `report(1).xls`, `report(2).xls`).
+///
+/// Falls back to the base path if it does not exist, or if we exhaust the
+/// range 1..1000 (unlikely, but safe).
+fn resolve_path_with_conflict(dir: &str, filename: &str) -> std::path::PathBuf {
+    let base = std::path::Path::new(dir).join(filename);
+    if !base.exists() {
+        return base;
+    }
+
+    let stem = std::path::Path::new(filename)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(filename);
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| format!(".{}", s))
+        .unwrap_or_default();
+
+    for i in 1..1000 {
+        let candidate = if ext.is_empty() {
+            format!("{}({})", stem, i)
+        } else {
+            format!("{}({}).{}", stem, i, ext.trim_start_matches('.'))
+        };
+        let path = std::path::Path::new(dir).join(&candidate);
+        if !path.exists() {
+            return path;
+        }
+    }
+
+    // Give up and return the original path (will overwrite)
+    base
 }
 
 /// Convert Redis Value to structured JSON for Lua-side rendering.

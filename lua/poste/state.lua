@@ -148,6 +148,7 @@ M.last_response = nil            -- parsed JSON table from --json output
 M.last_assertion_results = nil   -- { tests, logs, total, passed, failed }
 M.last_script_logs = nil         -- { "log line 1", "log line 2", ... } from pre/post scripts
 M.last_request = nil             -- { buf, line } for re-run from response buffer
+M.pending_request = nil          -- { method, url, headers_str, body, env, timestamp, start_hires } — set while request is in flight
 M.current_view = "body"          -- "body" | "headers" | "verbose" | "assertions" | "script_logs"
 M._lsp_doc_buf = nil             -- hidden Lua buffer for LSP doc lookup
 

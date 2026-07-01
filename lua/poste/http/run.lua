@@ -8,6 +8,8 @@ local view = require("poste.http.view")
 local import_mod = require("poste.http.import")
 local history = require("poste.http.history")
 
+local uv = vim.uv or vim.loop
+
 local M = {}
 
 function M.run_request()
@@ -23,8 +25,10 @@ function M.run_request()
     return
   end
 
+  state.last_response = nil
   state.last_assertion_results = nil
   state.last_script_logs = nil
+  state.pending_request = nil
 
   local src_buf = vim.api.nvim_get_current_buf()
   local line = vim.fn.line(".")
@@ -245,6 +249,7 @@ function M.run_request()
           state.log("INFO", "stdout: " .. output:sub(1, 200))
 
           vim.schedule(function()
+            state.pending_request = nil
             local ok, parsed = pcall(vim.json.decode, output)
             if ok and parsed and type(parsed) == "table" then
               state._json.query = nil
@@ -325,6 +330,7 @@ function M.run_request()
           if code ~= 0 then
             state.log("ERROR", string.format("exit code %d (line %d, env %s)", code, line, state.current_env))
             vim.schedule(function()
+              state.pending_request = nil
               indicators.set_indicator(src_buf, req_line, "error")
               local stderr_text = table.concat(stderr_buf, "\n")
               state.last_response = {
@@ -356,6 +362,87 @@ function M.run_request()
       if job_id > 0 then
         vim.fn.chansend(job_id, buf_content)
         vim.fn.chanclose(job_id, "stdin")
+
+        -- --- Show pending request info immediately ---
+        local header_parts = {}
+        if req_block.headers then
+          for _, h in ipairs(req_block.headers) do
+            table.insert(header_parts, h[1] .. ": " .. h[2])
+          end
+        end
+        local headers_str = table.concat(header_parts, "\n")
+
+        -- Resolve @var definitions from the source buffer so the pending
+        -- request display shows actual values instead of {{template}} refs.
+        local var_map = {}
+        local src_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
+        for _, sl in ipairs(src_lines) do
+          local vname, vvalue = sl:match("^@([%w_]+)%s*[:=]%s*(.+)$")
+          if vname then
+            var_map[vname] = vim.trim(vvalue)
+          end
+        end
+        local function resolve_vars(text)
+          if not text or text == "" then return text end
+          for name, value in pairs(var_map) do
+            local safe_value = value:gsub("%%", "%%%%")
+            text = text:gsub(vim.pesc("{{" .. name .. "}}"), safe_value)
+          end
+          return text
+        end
+
+        -- Extract the resolved URL and body from buf_content: find the
+        -- current request block's ### separator, then read the request line
+        -- (which may still have templates until resolved) and the body.
+        local req_method = ""
+        local req_url = ""
+        local body = ""
+        if block_start then
+          -- Get the ### line text from the source buffer
+          local header_text = vim.trim(vim.api.nvim_buf_get_lines(src_buf, block_start - 1, block_start, false)[1] or "")
+          local sep_pos = header_text ~= "" and buf_content:find(vim.pesc(header_text), 1, true)
+          if sep_pos then
+            -- The request line is right after the ### line
+            local after_sep = buf_content:find("\n", sep_pos)
+            if after_sep then
+              local req_line_end = buf_content:find("\n", after_sep + 1)
+              if req_line_end then
+                local resolved_req = buf_content:sub(after_sep + 1, req_line_end - 1)
+                req_method, req_url = resolved_req:match("^(%S+)%s+(.+)$")
+              end
+            end
+            -- Body: find the blank line after headers within this block
+            local next_sep = buf_content:find("\n###", sep_pos + 1)
+            local block_end_pos = next_sep or #buf_content + 1
+            -- Look for the first \n\n after the request line position
+            local after_req = (buf_content:find("\n", sep_pos) or sep_pos) + 1
+            local header_end = buf_content:find("\n\n", after_req)
+            if header_end and header_end < block_end_pos then
+              body = buf_content:sub(header_end + 2, block_end_pos - 1)
+              -- Trim trailing whitespace
+              body = body:gsub("\n+$", "")
+            end
+          end
+        end
+
+        -- Resolve @var templates in the pending display values
+        req_url = resolve_vars(req_url)
+        body = resolve_vars(body)
+        headers_str = resolve_vars(headers_str)
+
+        state.pending_request = {
+          method = req_method,
+          url = req_url,
+          headers_str = headers_str,
+          body = body,
+          env = state.current_env,
+          timestamp = os.date("%Y-%m-%d %H:%M:%S"),
+          start_hires = uv.hrtime(),
+        }
+
+        -- Open response window with Verb tab; on_stdout will update it
+        -- with the full response data once the response arrives.
+        view.show_view("verbose")
       else
         indicators.set_indicator(src_buf, req_line, "error")
         vim.notify("Failed to start poste job", vim.log.levels.ERROR, { title = "Poste" })

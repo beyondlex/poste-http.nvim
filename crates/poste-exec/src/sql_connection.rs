@@ -9,6 +9,30 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Normalize a SQLite connection string to `sqlite:<path>` format.
+/// Handles `sqlite:///`, `sqlite://`, `sqlite:`, plain paths, and `:memory:`.
+pub fn normalize_sqlite_connection(conn: &str) -> anyhow::Result<String> {
+    let conn = conn.trim();
+
+    if conn.starts_with("sqlite:") && !conn.starts_with("sqlite://") {
+        return Ok(conn.to_string());
+    }
+
+    if let Some(rest) = conn.strip_prefix("sqlite:///") {
+        return Ok(format!("sqlite:/{}", rest));
+    }
+
+    if let Some(rest) = conn.strip_prefix("sqlite://") {
+        return Ok(format!("sqlite:{}", rest));
+    }
+
+    if conn.starts_with('/') || conn.starts_with("./") || conn.starts_with(":memory:") {
+        return Ok(format!("sqlite:{}", conn));
+    }
+
+    anyhow::bail!("Invalid SQLite connection string: {}", conn)
+}
+
 /// A single connection configuration entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionConfig {
@@ -465,5 +489,57 @@ mod tests {
         // Should be sorted by name
         assert_eq!(list[0]["name"], "dev-pg");
         assert_eq!(list[1]["name"], "local-sqlite");
+    }
+
+    #[test]
+    fn test_normalize_sqlite_absolute_path() {
+        assert_eq!(
+            super::normalize_sqlite_connection("sqlite:///home/user/db.sqlite").unwrap(),
+            "sqlite:/home/user/db.sqlite"
+        );
+    }
+
+    #[test]
+    fn test_normalize_sqlite_relative_path() {
+        assert_eq!(
+            super::normalize_sqlite_connection("sqlite://./data.db").unwrap(),
+            "sqlite:./data.db"
+        );
+        assert_eq!(
+            super::normalize_sqlite_connection("sqlite://data.db").unwrap(),
+            "sqlite:data.db"
+        );
+    }
+
+    #[test]
+    fn test_normalize_sqlite_memory() {
+        assert_eq!(
+            super::normalize_sqlite_connection("sqlite::memory:").unwrap(),
+            "sqlite::memory:"
+        );
+        assert_eq!(
+            super::normalize_sqlite_connection(":memory:").unwrap(),
+            "sqlite::memory:"
+        );
+    }
+
+    #[test]
+    fn test_normalize_sqlite_plain_path() {
+        assert_eq!(
+            super::normalize_sqlite_connection("/absolute/path.db").unwrap(),
+            "sqlite:/absolute/path.db"
+        );
+        assert_eq!(
+            super::normalize_sqlite_connection("./relative.db").unwrap(),
+            "sqlite:./relative.db"
+        );
+    }
+
+    #[test]
+    fn test_normalize_sqlite_already_correct() {
+        assert_eq!(
+            super::normalize_sqlite_connection("sqlite:/path.db").unwrap(),
+            "sqlite:/path.db"
+        );
     }
 }

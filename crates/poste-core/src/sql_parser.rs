@@ -4,6 +4,7 @@
 use crate::Request;
 use anyhow::Result;
 use regex::Regex;
+use std::sync::OnceLock;
 
 /// Result of parsing a SQL request body.
 #[derive(Debug, Clone)]
@@ -33,7 +34,10 @@ pub fn parse_sql_request(request: &Request) -> Result<SqlParseResult> {
 
 /// Extract `-- @database <name>` directive from the body.
 fn extract_database(body: &str) -> Option<String> {
-    let re = Regex::new(r"--\s*@database\s+(\S+)").unwrap();
+    static DB_RE: OnceLock<Regex> = OnceLock::new();
+    let re = DB_RE.get_or_init(|| {
+        Regex::new(r"--\s*@database\s+(\S+)").expect("valid literal regex: @database")
+    });
     for line in body.lines() {
         if let Some(caps) = re.captures(line) {
             return Some(caps[1].trim().to_string());
@@ -45,7 +49,10 @@ fn extract_database(body: &str) -> Option<String> {
 /// Strip directive comment lines (`-- @connection`, `-- @database`, `-- @var = val`)
 /// from the body, returning only the SQL content.
 fn strip_directives(body: &str) -> String {
-    let directive_re = Regex::new(r"^\s*--\s*@\w+").unwrap();
+    static DIRECTIVE_RE: OnceLock<Regex> = OnceLock::new();
+    let directive_re = DIRECTIVE_RE.get_or_init(|| {
+        Regex::new(r"^\s*--\s*@\w+").expect("valid literal regex: directive comment")
+    });
     body.lines()
         .filter(|line| !directive_re.is_match(line))
         .collect::<Vec<_>>()

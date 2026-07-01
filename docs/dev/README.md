@@ -21,6 +21,7 @@
 | [TDD 指南](./http/tdd-guide.md) | HTTP TDD 工作流和测试模式 |
 | [Formatter 设计](./http/format-design.md) | `poste fmt` 架构 |
 | [JSON 响应 UX](./http/json-response-ux.md) | JSON 折叠与 jq 探索 |
+| [OpenAPI/Swagger/Postman 导入计划](./http/openapi-import-plan.md) | TDD 导入功能开发计划 (18 Steps) |
 
 ## SQL 开发者
 

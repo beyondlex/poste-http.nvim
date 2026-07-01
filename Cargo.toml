@@ -24,5 +24,7 @@ regex = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 rand = "0.8"
+openapiv3 = "2.0"
+serde_yaml = "0.9"
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "mysql", "sqlite", "json", "chrono", "uuid", "ipnetwork", "rust_decimal"] }
 rust_decimal = "1"

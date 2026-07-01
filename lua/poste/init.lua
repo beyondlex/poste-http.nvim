@@ -66,6 +66,18 @@ function M.setup(opts)
     curl.paste_curl("+")
   end, { desc = "Paste curl command from clipboard as HTTP request" })
 
+  vim.api.nvim_create_user_command("PosteImportOpenAPI", function()
+    require("poste.http.import_openapi").run()
+  end, { desc = "Import OpenAPI 3.x spec as .http files" })
+
+  vim.api.nvim_create_user_command("PosteImportSwagger", function()
+    require("poste.http.import_swagger").run()
+  end, { desc = "Import Swagger 2.0 spec as .http files" })
+
+  vim.api.nvim_create_user_command("PosteImportPostman", function()
+    require("poste.http.import_postman").run()
+  end, { desc = "Import Postman collection as .http files" })
+
   vim.api.nvim_create_user_command("PosteCopyAsCurl", function()
     local copy = require("poste.http.copy")
     copy.copy_to_clipboard("+")
@@ -171,9 +183,10 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd("BufEnter", {
     pattern = { "*.http", "*.rest" },
     callback = function()
+      local buf = vim.api.nvim_get_current_buf()
       vim.wo.winbar = env_mod.build_http_winbar()
       if vim.bo.filetype == "poste_http" then
-        require("poste.http.boundary_indicator").refresh(0, vim.fn.line("."))
+        require("poste.http.boundary_indicator").refresh(buf, vim.fn.line("."))
       end
     end,
   })

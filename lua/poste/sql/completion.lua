@@ -97,35 +97,36 @@ local function cache_key(bufnr, cursor_line, line_before)
 end
 
 ---------------------------------------------------------------------------
--- Rust context detection via persistent client (preferred)
+-- Rust context detection via async vim.system
 ---------------------------------------------------------------------------
 
---- Try to detect context via the persistent context_client (poste context serve).
---- Falls back to vim.fn.system() if persistent client is unavailable or times out.
-local function try_rust_context(bufnr, line_before, cursor_line)
+--- Detect context via sync vim.fn.system(). Calls callback(rust_ctx)
+--- synchronously. Uses _ctx_cache to avoid re-running the binary on
+--- repeated calls for the same input.
+local function try_rust_context_async(bufnr, line_before, cursor_line, callback)
   local ok_ft, ft = pcall(vim.api.nvim_buf_get_option, bufnr, "filetype")
-  if not ok_ft or (ft ~= "poste_sql" and ft ~= "poste_sqlite") then return nil end
+  if not ok_ft or (ft ~= "poste_sql" and ft ~= "poste_sqlite") then callback(nil); return end
 
   local sql_text, offset = extract_sql_block(bufnr, line_before, cursor_line)
-  if not sql_text then return nil end
+  if not sql_text then callback(nil); return end
 
   local ckey = cache_key(bufnr, cursor_line, line_before)
   if _ctx_cache[ckey] then
-    return _ctx_cache[ckey]
+    callback(_ctx_cache[ckey])
+    return
   end
 
   local dialect = get_dialect_flag()
-
   local binary = data.find_binary()
-  if not binary then return nil end
+  if not binary then callback(nil); return end
 
-  local dialect_flag = dialect ~= "generic" and (" --dialect " .. dialect) or ""
-  local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset, dialect_flag)
+  local cmd = string.format("%s context detect %d%s", vim.fn.shellescape(binary), offset,
+    dialect ~= "generic" and (" --dialect " .. dialect) or "")
   local output = vim.fn.system(cmd, sql_text)
-  if vim.v.shell_error ~= 0 then return nil end
+  if vim.v.shell_error ~= 0 then callback(nil); return end
 
   local ok, parsed = pcall(vim.json.decode, output)
-  if not ok or not parsed or type(parsed) ~= "table" then return nil end
+  if not ok or not parsed or type(parsed) ~= "table" then callback(nil); return end
 
   debug.set_rust_raw(output)
   deep_clean(parsed)
@@ -137,32 +138,38 @@ local function try_rust_context(bufnr, line_before, cursor_line)
   end
 
   _ctx_cache[ckey] = parsed
-  return parsed
+  callback(parsed)
 end
 
 ---------------------------------------------------------------------------
--- Main entry
+-- Main entry (async)
 ---------------------------------------------------------------------------
 
 --- Detect completion context for the SQL at cursor.
---- Returns (ctx_type, ctx_data, rust_ctx) where:
+--- Calls callback(ctx_type, ctx_data, rust_ctx) where:
 ---   - ctx_type/ctx_data come from Rust (preferred) or Lua fallback
 ---   - rust_ctx is the raw Rust response (nil if Rust was not used/failed)
-local function detect_context_for_completion(bufnr, line_before, cursor_line)
+local function detect_context_async(bufnr, line_before, cursor_line, callback)
   if vim.g.poste_sql_legacy_completion == true then
-    return "keyword", nil, nil
+    callback("keyword", nil, nil)
+    return
   end
 
-  local rust_ok, rust_ctx_raw = pcall(try_rust_context, bufnr, line_before, cursor_line)
-  if rust_ok and rust_ctx_raw then
-    return rust_ctx_raw.ctx_type, rust_ctx_raw.ctx_data, rust_ctx_raw
-  end
+  try_rust_context_async(bufnr, line_before, cursor_line, function(rust_ctx_raw)
+    if rust_ctx_raw then
+      callback(rust_ctx_raw.ctx_type, rust_ctx_raw.ctx_data, rust_ctx_raw)
+    elseif vim.g.poste_sql_legacy_completion ~= "rust" then
+      callback("keyword", nil, nil)
+    else
+      callback(nil, nil, nil)
+    end
+  end)
+end
 
-  if vim.g.poste_sql_legacy_completion ~= "rust" then
-    return "keyword", nil, nil
-  end
-
-  return nil, nil, nil
+--- Sync fallback for debug/status commands that call without bufnr/cursor_line.
+--- Always returns "keyword" to match previous behavior.
+local function detect_context_for_completion(...)
+  return "keyword", nil, nil
 end
 
 local function get_items(bufnr, line_before, cursor_line, callback)
@@ -232,288 +239,282 @@ local function get_items(bufnr, line_before, cursor_line, callback)
     return
   end
 
-  local ctx_type, ctx_data, rust_ctx = detect_context_for_completion(bufnr, line_before, cursor_line)
-
-  local rust_functions = (rust_ctx and rust_ctx.functions) or nil
-
-  if vim.g.poste_sql_debug then
-    state.log("INFO", string.format("DEBUG get_items: ctx=%s, prefix='%s', line='%s'",
-      ctx_type, prefix, line_before))
-  end
-
-  debug.set("ctx_type", ctx_type)
-  debug.set("ctx_data", ctx_data)
-  if rust_ctx and rust_ctx.tables then
-    debug.set("tables", rust_ctx.tables)
-  end
-
-  if ctx_type == "connection" then
-    local cp = line_before:match("@connection$")
-      or line_before:match("@connection%s+(%S*)$")
-      or ""
-    data.ensure_conn_names(function(names)
-      callback(ctx.filter(ctx.make_items(names, 6, "connection: "), cp))
-    end)
-    return
-  end
-
-  if ctx_type == "database" then
-    local db_prefix
-    if ctx_data == "directive" then
-      db_prefix = line_before:match("@database$")
-        or line_before:match("@database%s+(%S*)$")
-        or ""
-    else
-      db_prefix = line_before:match("[Uu][Ss][Ee]%s+(%S*)$") or ""
-    end
-    data.ensure_databases(function(names)
-      if ctx_data == "directive" and #names == 0 then
-        data.ensure_conn_names(function(conn_names)
-          local items = {}
-          for _, name in ipairs(conn_names) do
-            table.insert(items, {
-              label = name,
-              kind = 6,
-              insertText = "",
-              data = { directive_fallback = true, conn_name = name },
-              documentation = "connection: " .. name,
-            })
-          end
-          callback(ctx.filter(items, db_prefix))
-        end)
-      else
-        callback(ctx.filter(ctx.make_items(names, 1, "database: "), db_prefix))
-      end
-    end)
-    return
-  end
-
-  if ctx_type == "dot_column" then
-    local col_prefix = line_before:match("[%w_]+%.([%w_]*)$") or ""
-    local _, alias_map, schema_map = ctx.get_tables_and_alias(bufnr, cursor_line or vim.fn.line("."), rust_ctx)
-    local real_tbl = alias_map[ctx_data] or ctx_data
-    local schema = rust_ctx and rust_ctx.ctx_schema or schema_map[real_tbl]
-    data.ensure_columns(real_tbl, schema, function()
-      local key = data.conn_key()
-      local cache = data.get_cache()
-      local cache_tbl_key = schema and (schema .. "." .. real_tbl) or real_tbl
-      local cols = cache[key] and cache[key].columns[cache_tbl_key] or {}
-      callback(ctx.filter(ctx.make_items(cols, 5, "col: "), col_prefix))
-    end)
-    return
-  end
-
-  if ctx_type == "schema_table" then
-    local schema_name = ctx_data
-    local tbl_prefix = line_before:match("[%w_]+%.([%w_]*)$") or ""
-    data.ensure_tables_for_db(schema_name, function()
-      local key = data.conn_key()
-      local db_cache_key = key .. "/db:" .. schema_name
-      local cache = data.get_cache()
-      local tbls = cache[db_cache_key] and cache[db_cache_key].tables or {}
-      local items = {}
-      for _, t in ipairs(tbls) do
-        table.insert(items, {
-          label = schema_name .. "." .. t,
-          kind = 7,
-          insertText = t,
-          documentation = "table: " .. schema_name .. "." .. t,
-        })
-      end
-      if #items == 0 then
-        items = ctx.kw_items(tbl_prefix, dialect)
-      end
-      callback(ctx.filter(items, tbl_prefix))
-    end)
-    return
-  end
-
-  if ctx_type == "table" then
-    local pending = 2
-    local all_items = {}
-    local done = false
-    local function flush()
-      if done then return end
-      done = true
-      if #all_items == 0 then
-        callback(ctx.kw_items(prefix, dialect))
-        return
-      end
-      callback(ctx.filter(all_items, prefix))
-    end
-    data.ensure_tables(function()
-      local key = data.conn_key()
-      local cache = data.get_cache()
-      for _, t in ipairs(cache[key] and cache[key].tables or {}) do
-        table.insert(all_items, { label = t, kind = 7, insertText = t, documentation = "table: " .. t })
-      end
-      pending = pending - 1
-      if pending <= 0 then flush() end
-    end)
-    data.ensure_databases(function(names)
-      for _, db in ipairs(names or {}) do
-        table.insert(all_items, { label = db, kind = 1, insertText = db, documentation = "database: " .. db })
-      end
-      pending = pending - 1
-      if pending <= 0 then flush() end
-    end)
-    if pending > 0 then
-      callback(ctx.kw_items(prefix, dialect))
-    end
-    return
-  end
-
-  if ctx_type == "column" then
-    local from_tbls, alias_map, schema_map = ctx.get_tables_and_alias(bufnr, cursor_line or vim.fn.line("."), rust_ctx)
-    local real_tbls, seen_real = {}, {}
-    for _, t in ipairs(from_tbls) do
-      local real = alias_map[t] or t
-      local schema = schema_map[real]
-      local uniq_key = schema and (schema .. "." .. real) or real
-      if not seen_real[uniq_key] then
-        seen_real[uniq_key] = true
-        table.insert(real_tbls, { name = real, schema = schema })
-      end
-    end
+  detect_context_async(bufnr, line_before, cursor_line, function(ctx_type, ctx_data, rust_ctx)
+    local rust_functions = (rust_ctx and rust_ctx.functions) or nil
 
     if vim.g.poste_sql_debug then
-      state.log("INFO", string.format("DEBUG: column context, %d tables: %s",
-        #real_tbls, vim.inspect(real_tbls)))
+      state.log("INFO", string.format("DEBUG get_items: ctx=%s, prefix='%s', line='%s'",
+        ctx_type, prefix, line_before))
     end
 
-    if #real_tbls == 0 then
-      local items = ctx.kw_items(prefix, dialect)
-      vim.list_extend(items, ctx.func_items(prefix, rust_functions))
-      callback(items)
+    debug.set("ctx_type", ctx_type)
+    debug.set("ctx_data", ctx_data)
+    if rust_ctx and rust_ctx.tables then
+      debug.set("tables", rust_ctx.tables)
+    end
+
+    if ctx_type == "connection" then
+      local cp = line_before:match("@connection$")
+        or line_before:match("@connection%s+(%S*)$")
+        or ""
+      data.ensure_conn_names(function(names)
+        callback(ctx.filter(ctx.make_items(names, 6, "connection: "), cp))
+      end)
       return
     end
-    local pending = #real_tbls
-    local all = {}
-    local seen_keys = {}
-    local done = false
-    local function flush()
-      if done then return end
-      done = true
-      local items = ctx.filter(all, prefix)
-      local funcs = ctx.func_items(prefix, rust_functions)
-      if vim.g.poste_sql_debug then
-        state.log("INFO", string.format("DEBUG flush: prefix='%s', %d cols, %d funcs (rust_functions=%s)",
-          prefix, #items, #funcs, tostring(rust_functions ~= nil)))
+
+    if ctx_type == "database" then
+      local db_prefix
+      if ctx_data == "directive" then
+        db_prefix = line_before:match("@database$")
+          or line_before:match("@database%s+(%S*)$")
+          or ""
+      else
+        db_prefix = line_before:match("[Uu][Ss][Ee]%s+(%S*)$") or ""
       end
-      vim.list_extend(items, funcs)
-      -- When user has typed a prefix, also suggest matching keywords
-      -- (e.g. WHERE after SET col = val w).  Empty prefix means the
-      -- user just triggered completion — default context suffices.
-      if #prefix > 0 then
-        vim.list_extend(items, ctx.kw_items(prefix, dialect))
-      end
-      callback(items)
+      data.ensure_databases(function(names)
+        if ctx_data == "directive" and #names == 0 then
+          data.ensure_conn_names(function(conn_names)
+            local items = {}
+            for _, name in ipairs(conn_names) do
+              table.insert(items, {
+                label = name,
+                kind = 6,
+                insertText = "",
+                data = { directive_fallback = true, conn_name = name },
+                documentation = "connection: " .. name,
+              })
+            end
+            callback(ctx.filter(items, db_prefix))
+          end)
+        else
+          callback(ctx.filter(ctx.make_items(names, 1, "database: "), db_prefix))
+        end
+      end)
+      return
     end
-    for _, tbl_info in ipairs(real_tbls) do
-      data.ensure_columns(tbl_info.name, tbl_info.schema, function()
+
+    if ctx_type == "dot_column" then
+      local col_prefix = line_before:match("[%w_]+%.([%w_]*)$") or ""
+      local _, alias_map, schema_map = ctx.get_tables_and_alias(bufnr, cursor_line or vim.fn.line("."), rust_ctx)
+      local real_tbl = alias_map[ctx_data] or ctx_data
+      local schema = rust_ctx and rust_ctx.ctx_schema or schema_map[real_tbl]
+      data.ensure_columns(real_tbl, schema, function()
         local key = data.conn_key()
         local cache = data.get_cache()
-        local cache_tbl_key = tbl_info.schema and (tbl_info.schema .. "." .. tbl_info.name) or tbl_info.name
+        local cache_tbl_key = schema and (schema .. "." .. real_tbl) or real_tbl
         local cols = cache[key] and cache[key].columns[cache_tbl_key] or {}
+        callback(ctx.filter(ctx.make_items(cols, 5, "col: "), col_prefix))
+      end)
+      return
+    end
 
-        for _, col in ipairs(cols) do
-          local uniq = cache_tbl_key .. "." .. col
-          if not seen_keys[uniq] then
-            seen_keys[uniq] = true
-            table.insert(all, {
-              label = col,
-              kind = 5,
-              insertText = col,
-              filterText = col,
-              sortText = "1" .. col,
-              documentation = "col: " .. uniq
-            })
-          end
+    if ctx_type == "schema_table" then
+      local schema_name = ctx_data
+      local tbl_prefix = line_before:match("[%w_]+%.([%w_]*)$") or ""
+      data.ensure_tables_for_db(schema_name, function()
+        local key = data.conn_key()
+        local db_cache_key = key .. "/db:" .. schema_name
+        local cache = data.get_cache()
+        local tbls = cache[db_cache_key] and cache[db_cache_key].tables or {}
+        local items = {}
+        for _, t in ipairs(tbls) do
+          table.insert(items, {
+            label = schema_name .. "." .. t,
+            kind = 7,
+            insertText = t,
+            documentation = "table: " .. schema_name .. "." .. t,
+          })
+        end
+        if #items == 0 then
+          items = ctx.kw_items(tbl_prefix, dialect)
+        end
+        callback(ctx.filter(items, tbl_prefix))
+      end)
+      return
+    end
+
+    if ctx_type == "table" then
+      local pending = 2
+      local all_items = {}
+      local done = false
+      local function flush()
+        if done then return end
+        done = true
+        if #all_items == 0 then
+          callback(ctx.kw_items(prefix, dialect))
+          return
+        end
+        callback(ctx.filter(all_items, prefix))
+      end
+      data.ensure_tables(function()
+        local key = data.conn_key()
+        local cache = data.get_cache()
+        for _, t in ipairs(cache[key] and cache[key].tables or {}) do
+          table.insert(all_items, { label = t, kind = 7, insertText = t, documentation = "table: " .. t })
         end
         pending = pending - 1
         if pending <= 0 then flush() end
       end)
-    end
-    return
-  end
-
-  if ctx_type == "insert_column" then
-    local tbl = ctx_data
-    local prefix = line_before:match("([%w_]*)$") or ""
-    local inside = line_before:match("%(([%w_,%s]*)$") or ""
-    local seen = {}
-    for col in inside:gmatch("([%w_]+)") do
-      seen[col:lower()] = true
-    end
-    data.ensure_columns(tbl, function()
-      local key = data.conn_key()
-      local cache = data.get_cache()
-      local all = cache[key] and cache[key].columns[tbl] or {}
-      local result = {}
-      if #all > 0 then
-        local all_csv = table.concat(all, ", ")
-        result[#result + 1] = {
-          label = all_csv, kind = 8,
-          insertText = all_csv,
-          documentation = "Insert all columns",
-        }
-        local no_id = {}
-        for _, c in ipairs(all) do
-          if c:lower() ~= "id" then no_id[#no_id + 1] = c end
+      data.ensure_databases(function(names)
+        for _, db in ipairs(names or {}) do
+          table.insert(all_items, { label = db, kind = 1, insertText = db, documentation = "database: " .. db })
         end
-        if #no_id > 0 and #no_id < #all then
-          local no_id_csv = table.concat(no_id, ", ")
+        pending = pending - 1
+        if pending <= 0 then flush() end
+      end)
+      return
+    end
+
+    if ctx_type == "column" then
+      local from_tbls, alias_map, schema_map = ctx.get_tables_and_alias(bufnr, cursor_line or vim.fn.line("."), rust_ctx)
+      local real_tbls, seen_real = {}, {}
+      for _, t in ipairs(from_tbls) do
+        local real = alias_map[t] or t
+        local schema = schema_map[real]
+        local uniq_key = schema and (schema .. "." .. real) or real
+        if not seen_real[uniq_key] then
+          seen_real[uniq_key] = true
+          table.insert(real_tbls, { name = real, schema = schema })
+        end
+      end
+
+      if vim.g.poste_sql_debug then
+        state.log("INFO", string.format("DEBUG: column context, %d tables: %s",
+          #real_tbls, vim.inspect(real_tbls)))
+      end
+
+      if #real_tbls == 0 then
+        local items = ctx.kw_items(prefix, dialect)
+        vim.list_extend(items, ctx.func_items(prefix, rust_functions))
+        callback(items)
+        return
+      end
+      local pending = #real_tbls
+      local all = {}
+      local seen_keys = {}
+      local done = false
+      local function flush()
+        if done then return end
+        done = true
+        local items = ctx.filter(all, prefix)
+        local funcs = ctx.func_items(prefix, rust_functions)
+        if vim.g.poste_sql_debug then
+          state.log("INFO", string.format("DEBUG flush: prefix='%s', %d cols, %d funcs (rust_functions=%s)",
+            prefix, #items, #funcs, tostring(rust_functions ~= nil)))
+        end
+        vim.list_extend(items, funcs)
+        if #prefix > 0 then
+          vim.list_extend(items, ctx.kw_items(prefix, dialect))
+        end
+        callback(items)
+      end
+      for _, tbl_info in ipairs(real_tbls) do
+        data.ensure_columns(tbl_info.name, tbl_info.schema, function()
+          local key = data.conn_key()
+          local cache = data.get_cache()
+          local cache_tbl_key = tbl_info.schema and (tbl_info.schema .. "." .. tbl_info.name) or tbl_info.name
+          local cols = cache[key] and cache[key].columns[cache_tbl_key] or {}
+
+          for _, col in ipairs(cols) do
+            local uniq = cache_tbl_key .. "." .. col
+            if not seen_keys[uniq] then
+              seen_keys[uniq] = true
+              table.insert(all, {
+                label = col,
+                kind = 5,
+                insertText = col,
+                filterText = col,
+                sortText = "1" .. col,
+                documentation = "col: " .. uniq
+              })
+            end
+          end
+          pending = pending - 1
+          if pending <= 0 then flush() end
+        end)
+      end
+      return
+    end
+
+    if ctx_type == "insert_column" then
+      local tbl = ctx_data
+      local prefix = line_before:match("([%w_]*)$") or ""
+      local inside = line_before:match("%(([%w_,%s]*)$") or ""
+      local seen = {}
+      for col in inside:gmatch("([%w_]+)") do
+        seen[col:lower()] = true
+      end
+      data.ensure_columns(tbl, function()
+        local key = data.conn_key()
+        local cache = data.get_cache()
+        local all = cache[key] and cache[key].columns[tbl] or {}
+        local result = {}
+        if #all > 0 then
+          local all_csv = table.concat(all, ", ")
           result[#result + 1] = {
-            label = no_id_csv, kind = 8,
-            insertText = no_id_csv,
-            documentation = "All columns except id",
+            label = all_csv, kind = 8,
+            insertText = all_csv,
+            documentation = "Insert all columns",
           }
+          local no_id = {}
+          for _, c in ipairs(all) do
+            if c:lower() ~= "id" then no_id[#no_id + 1] = c end
+          end
+          if #no_id > 0 and #no_id < #all then
+            local no_id_csv = table.concat(no_id, ", ")
+            result[#result + 1] = {
+              label = no_id_csv, kind = 8,
+              insertText = no_id_csv,
+              documentation = "All columns except id",
+            }
+          end
         end
-      end
-      for _, c in ipairs(all) do
-        if not seen[c:lower()] and (prefix == "" or c:lower():sub(1, #prefix) == prefix) then
-          result[#result + 1] = { label = c, kind = 5, insertText = c, documentation = "col: " .. tbl .. "." .. c }
+        for _, c in ipairs(all) do
+          if not seen[c:lower()] and (prefix == "" or c:lower():sub(1, #prefix) == prefix) then
+            result[#result + 1] = { label = c, kind = 5, insertText = c, documentation = "col: " .. tbl .. "." .. c }
+          end
         end
-      end
-      callback(result)
-    end)
-    return
-  end
+        callback(result)
+      end)
+      return
+    end
 
-  if ctx_type == "datatype" then
-    callback(ctx.filter(ctx.make_items(data.DATA_TYPES, 25, "type: "), prefix))
-    return
-  end
+    if ctx_type == "datatype" then
+      callback(ctx.filter(ctx.make_items(data.DATA_TYPES, 25, "type: "), prefix))
+      return
+    end
 
-  -- Cursor inside string literal or comment — no completions
-  if ctx_type == "string" or ctx_type == "comment" then
-    callback({})
-    return
-  end
+    -- Cursor inside string literal or comment — no completions
+    if ctx_type == "string" or ctx_type == "comment" then
+      callback({})
+      return
+    end
 
-  -- Don't show keywords on directive lines (prevents @ trigger pollution)
-  if line_before:match("^%s*%-%-%s*@") then
-    callback({})
-    return
-  end
+    -- Don't show keywords on directive lines (prevents @ trigger pollution)
+    if line_before:match("^%s*%-%-%s*@") then
+      callback({})
+      return
+    end
 
-  if vim.g.poste_sql_legacy_completion == true then
-    data.ensure_tables(function()
-      local key = data.conn_key()
-      local cache = data.get_cache()
-      local tbls = cache[key] and cache[key].tables or {}
+    if vim.g.poste_sql_legacy_completion == true then
+      data.ensure_tables(function()
+        local key = data.conn_key()
+        local cache = data.get_cache()
+        local tbls = cache[key] and cache[key].tables or {}
+        local items = ctx.kw_items(prefix, dialect)
+        vim.list_extend(items, ctx.func_items(prefix))
+        for _, item in ipairs(ctx.filter(ctx.make_items(tbls, 7, "table: "), prefix)) do
+          table.insert(items, item)
+        end
+        callback(items)
+      end)
+    else
       local items = ctx.kw_items(prefix, dialect)
-      vim.list_extend(items, ctx.func_items(prefix))
-      for _, item in ipairs(ctx.filter(ctx.make_items(tbls, 7, "table: "), prefix)) do
-        table.insert(items, item)
-      end
+      vim.list_extend(items, ctx.func_items(prefix, rust_functions))
       callback(items)
-    end)
-  else
-    local items = ctx.kw_items(prefix, dialect)
-    vim.list_extend(items, ctx.func_items(prefix, rust_functions))
-    callback(items)
-  end
+    end
+  end)
 end
 
 ---------------------------------------------------------------------------
@@ -693,11 +694,12 @@ end
 ---------------------------------------------------------------------------
 
 M._test = {
+  detect_context_async = detect_context_async,
   detect_context_for_completion = detect_context_for_completion,
   resolve_current_context = data.resolve_current_context,
   conn_key = data.conn_key,
   get_items = get_items,
-  try_rust_context = try_rust_context,
+  try_rust_context_async = try_rust_context_async,
   get_tables_and_alias = ctx.get_tables_and_alias,
 }
 

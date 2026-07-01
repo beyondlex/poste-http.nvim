@@ -2,6 +2,7 @@ use crate::request::{Request, Protocol};
 use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 pub struct Parser {
     env: HashMap<String, String>,
@@ -295,7 +296,10 @@ impl Parser {
         let lines: Vec<&str> = content.lines().collect();
         let mut i = 0;
 
-        let connection_re = Regex::new(r"(?:--|#)\s*@connection\s+(.+)").unwrap();
+        static CONNECTION_RE: OnceLock<Regex> = OnceLock::new();
+        let connection_re = CONNECTION_RE.get_or_init(|| {
+            Regex::new(r"(?:--|#)\s*@connection\s+(.+)").expect("valid literal regex: @connection")
+        });
 
         while i < lines.len() {
             let line = lines[i];
@@ -345,7 +349,10 @@ impl Parser {
     }
 
     fn substitute_vars(&self, input: &str, file_vars: &HashMap<String, String>, request_vars: &HashMap<String, String>) -> String {
-        let re = Regex::new(r"\{\{([^}]+)\}\}").unwrap();
+        static VAR_RE: OnceLock<Regex> = OnceLock::new();
+        let re = VAR_RE.get_or_init(|| {
+            Regex::new(r"\{\{([^}]+)\}\}").expect("valid literal regex: {{var}}")
+        });
         let mut result = input.to_string();
         // Iteratively resolve: if {{token}} → {{admin_token}}, do another pass
         // so {{admin_token}} also gets resolved.  Cap at 20 to prevent infinite loops

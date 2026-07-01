@@ -658,7 +658,8 @@ function M.ensure_primary_key(tab)
   if not table_name or table_name == "" then return end
 
   local connection = layout._conn_name or get_state().sql.context.connection or ""
-  local database = layout.database or get_state().sql.context.database or ""
+  local database = layout._database or layout.database or ""
+  if database == "" then database = get_state().sql.context.database or "" end
   local cache_key = connection .. ":" .. database .. ":" .. table_name
   if pk_cache[cache_key] then return end
 

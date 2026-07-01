@@ -245,6 +245,7 @@ run #auth.Login
   client.test('username equals admin', function()
     client.assert(response.body.data.username == 'admin')
   end)
+  client.log('username:' .. response.body.data.username)
 %}
 
 ### 0.7b run #auth.Login (@token=abc123) — with variable override

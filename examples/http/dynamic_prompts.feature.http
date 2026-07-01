@@ -5,8 +5,9 @@
 GET https://api.github.com/repos/jqlang/jq/commits?per_page=5
 
 ### Select items
+@key = fruit
 # @prompt item [{{jq.response.body.[].parents[].sha}}]
-GET {{base_url}}/get?fruit={{item}}
+GET {{base_url}}/get?{{key}}={{item}}
 
 ### Get Items
 GET {{base_url}}/get?items[]=apple&items[]=banana&items[]=cherry&items[]=date&items[]=elderberry

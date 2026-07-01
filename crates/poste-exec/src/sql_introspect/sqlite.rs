@@ -1,11 +1,11 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 use sqlx::Row;
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 use super::{IntrospectParams, IntrospectType};
 use crate::sql_dialect::{Dialect, SqliteDialect};
-use crate::sql_executor::normalize_sqlite_connection;
+use crate::sql_connection::normalize_sqlite_connection;
 
 pub(super) async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value> {
     let conn_str = normalize_sqlite_connection(&params.connection_url)?;
@@ -114,7 +114,7 @@ pub(super) async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value
                 .table
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("table parameter required for ddl introspection"))?;
-            build_create_table_from_introspect_sqlite(&conn_str, table).await?
+            build_create_table_from_introspect_sqlite(&pool, table).await?
         }
     };
 
@@ -130,21 +130,13 @@ pub(super) async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value
 }
 
 async fn build_create_table_from_introspect_sqlite(
-    conn_str: &str,
+    pool: &SqlitePool,
     table: &str,
 ) -> Result<Vec<serde_json::Value>> {
     use sqlx::Row;
 
-    let pool = SqlitePoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(std::time::Duration::from_secs(5))
-        .connect(conn_str)
-        .await?;
-
     let sql = "SELECT sql FROM sqlite_master WHERE type='table' AND name=?1";
-    let rows = sqlx::query(sql).bind(table).fetch_all(&pool).await?;
-
-    pool.close().await;
+    let rows = sqlx::query(sql).bind(table).fetch_all(pool).await?;
 
     if let Some(row) = rows.first() {
         let create_sql: Option<String> = row.get("sql");

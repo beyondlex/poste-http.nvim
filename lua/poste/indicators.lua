@@ -11,10 +11,15 @@ local spinner_gen = 0  -- generation counter to invalidate stale spinner callbac
 
 local spinner_frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
 
--- Define sign column symbols
-pcall(vim.fn.sign_define, "PosteSpinnerSign", { text = spinner_frames[1], texthl = "PosteSpinner" })
-pcall(vim.fn.sign_define, "PosteSuccessSign", { text = "✓", texthl = "PosteSuccess" })
-pcall(vim.fn.sign_define, "PosteErrorSign", { text = "✘", texthl = "PosteError" })
+local sign_configs = {
+  PosteSpinnerSign = { text = spinner_frames[1], texthl = "PosteSpinner" },
+  PosteSuccessSign = { text = "✓", texthl = "PosteSuccess" },
+  PosteErrorSign   = { text = "✘", texthl = "PosteError" },
+}
+
+for name, config in pairs(sign_configs) do
+  pcall(vim.fn.sign_define, name, config)
+end
 
 ---------------------------------------------------------------------------
 -- Request block extraction
@@ -234,13 +239,6 @@ end
 --- Returns the sign_id.
 local function place_or_replace_sign(buf, line_0, old_sign_id, sign_name)
   local lnum = line_0 + 1
-  -- Define sign first (idempotent)
-  local sign_configs = {
-    PosteSpinnerSign = { text = spinner_frames[1], texthl = "PosteSpinner" },
-    PosteSuccessSign = { text = "✓", texthl = "PosteSuccess" },
-    PosteErrorSign   = { text = "✘", texthl = "PosteError" },
-  }
-  pcall(vim.fn.sign_define, sign_name, sign_configs[sign_name])
 
   if old_sign_id then
     -- Use vim.cmd with :sign place to replace in-place

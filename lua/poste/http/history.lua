@@ -97,9 +97,9 @@ local function render_detail()
   if not detail_buf or not vim.api.nvim_buf_is_valid(detail_buf) then return end
   local entry = state.http_history[current_index]
   if not entry then
-    vim.api.nvim_buf_set_option(detail_buf, "modifiable", true)
+    vim.api.nvim_set_option_value("modifiable", true, { buf = detail_buf })
     vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, { "(no history)" })
-    vim.api.nvim_buf_set_option(detail_buf, "modifiable", false)
+    vim.api.nvim_set_option_value("modifiable", false, { buf = detail_buf })
     vim.bo[detail_buf].filetype = "text"
     update_winbar()
     return
@@ -144,9 +144,9 @@ local function render_detail()
     filetype = "text"
   end
 
-  vim.api.nvim_buf_set_option(detail_buf, "modifiable", true)
+  vim.api.nvim_set_option_value("modifiable", true, { buf = detail_buf })
   vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, lines)
-  vim.api.nvim_buf_set_option(detail_buf, "modifiable", false)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = detail_buf })
   vim.bo[detail_buf].filetype = filetype or "text"
   pcall(vim.api.nvim_win_set_cursor, detail_win, { 1, 0 })
   update_winbar()
@@ -203,9 +203,9 @@ local function history_jq_filter(query)
   entry._jq.is_filtered = true
   entry._jq.lines = lines
 
-  vim.api.nvim_buf_set_option(detail_buf, "modifiable", true)
+  vim.api.nvim_set_option_value("modifiable", true, { buf = detail_buf })
   vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, lines)
-  vim.api.nvim_buf_set_option(detail_buf, "modifiable", false)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = detail_buf })
 
   if detail_win and vim.api.nvim_win_is_valid(detail_win) then
     vim.wo[detail_win].foldmethod = "indent"
@@ -220,9 +220,9 @@ local function history_jq_restore()
   local entry = state.http_history[current_index]
   if not entry or not entry._jq or not entry._jq.original_lines then return end
 
-  vim.api.nvim_buf_set_option(detail_buf, "modifiable", true)
+  vim.api.nvim_set_option_value("modifiable", true, { buf = detail_buf })
   vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, entry._jq.original_lines)
-  vim.api.nvim_buf_set_option(detail_buf, "modifiable", false)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = detail_buf })
 
   entry._jq = nil
 
@@ -255,9 +255,9 @@ local function render_list()
     end
   end
 
-  vim.api.nvim_buf_set_option(list_buf, "modifiable", true)
+  vim.api.nvim_set_option_value("modifiable", true, { buf = list_buf })
   vim.api.nvim_buf_set_lines(list_buf, 0, -1, false, lines)
-  vim.api.nvim_buf_set_option(list_buf, "modifiable", false)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = list_buf })
   vim.bo[list_buf].filetype = "poste_history_list"
 
   -- Gray timestamp via extmarks

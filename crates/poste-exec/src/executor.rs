@@ -28,26 +28,22 @@ impl Executor {
     /// Using curl gives us verbose trace output (TLS, DNS, proxy, HTTP/2) for free,
     /// identical to what kulala.nvim shows in its Verbose tab.
     async fn execute_http(request: &Request, cookie_jar: Option<&CookieJar>) -> Result<Response> {
-        // Parse the HTTP request from the body
         let lines: Vec<&str> = request.body.lines().collect();
         if lines.is_empty() {
             anyhow::bail!("Empty HTTP request");
         }
 
-        // First line: METHOD URL
-        // Handle unresolved {{variable references}} that may contain spaces
-        // (e.g. {{Request Name.response.body.field}} with spaces in the request name).
         let request_line = lines[0].trim();
         let space_pos = request_line.find(char::is_whitespace)
             .ok_or_else(|| anyhow::anyhow!("Invalid HTTP request line: {}", request_line))?;
 
         let method = request_line[..space_pos].to_uppercase();
         let url = request_line[space_pos..].trim_start().to_string();
+        // Strip HTTP version suffix (e.g. " HTTP/1.1") from the URL
+        let url = url.split_whitespace().next().unwrap_or(&url).to_string();
 
-        // Parse request headers and find body separator
         let mut req_headers = Vec::new();
         let mut body_start = None;
-
         for (i, line) in lines.iter().enumerate().skip(1) {
             if line.trim().is_empty() {
                 body_start = Some(i + 1);
@@ -58,94 +54,88 @@ impl Executor {
             }
         }
 
-        // Extract request body
         let req_body = body_start
             .map(|s| lines[s..].join("\n"))
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .trim_end()
+            .to_string();
 
-        // Create temp file for response headers (curl -D)
+        // For application/x-www-form-urlencoded, strip newlines entirely.
+        // Newlines are not valid in this format and often appear due to
+        // multi-line formatting in the .http file (e.g. each key-value pair
+        // on its own line).  Raw newlines would be appended to the preceding
+        // value, which is almost certainly unintended.
+        let is_form_urlencoded = req_headers.iter().any(|(k, v)|
+            k.to_lowercase() == "content-type" && v.contains("x-www-form-urlencoded")
+        );
+        let req_body = if is_form_urlencoded {
+            req_body.replace('\n', "")
+        } else {
+            req_body
+        };
+
         let headers_file = tempfile::NamedTempFile::new()?;
         let headers_path = headers_file.path().to_path_buf();
 
-        // Build curl command
-        let mut args = vec![
-            "-s".to_string(),   // silent (no progress bar)
-            "-S".to_string(),   // show errors even when silent
-            "-v".to_string(),   // verbose trace to stderr
-            "-L".to_string(),   // follow redirects
-            "-X".to_string(), method.clone(),
-            "-D".to_string(), headers_path.to_string_lossy().to_string(),
-            "-A".to_string(), "poste/0.1.0".to_string(),
-        ];
-
-        // Request headers
-        for (key, value) in &req_headers {
-            args.push("-H".to_string());
-            args.push(format!("{}: {}", key, value));
-        }
-
-        // Request body
-        // Use --data-binary to preserve binary data and newlines (important for multipart/form-data)
-        if !req_body.trim().is_empty() {
-            args.push("--data-binary".to_string());
-            args.push(req_body.clone());
-        }
-
-        // Cookie jar: curl manages cookies natively
-        if let Some(jar) = &cookie_jar {
-            let path = jar.path().to_string_lossy().to_string();
-            args.push("-b".to_string());  // read cookies
-            args.push(path.clone());
-            args.push("-c".to_string());  // write cookies
-            args.push(path);
-        }
-
-        args.push(url.clone());
-
-        // Execute curl
-        let output = tokio::process::Command::new("curl")
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to execute curl: {}. Is curl installed?", e))?;
-
-        // Read response headers from temp file
+        let args = Self::build_curl_args(&method, &url, &req_headers, &req_body, cookie_jar, &headers_path);
+        let (stdout, stderr, status) = Self::execute_curl(&args).await?;
         let headers_content = std::fs::read_to_string(&headers_path).unwrap_or_default();
 
-        // Parse response
-        let response = parse_curl_response(&headers_content, &output.stdout, &url)?;
+        let mut response = parse_curl_response(&headers_content, &stdout, &url)?;
 
-        // Read cookies from jar after curl has written them
         let cookies = cookie_jar.as_ref()
             .map(|j| j.read_all())
             .unwrap_or_default();
 
-        // Build metadata
         let mut metadata = HashMap::new();
-        metadata.insert("method".to_string(), method);
-        metadata.insert(
-            "request_headers".to_string(),
-            req_headers
-                .iter()
+
+        // If the response is binary content (image, PDF, zip, etc.), save it to
+        // /tmp/ and store the file path in metadata instead of mangled UTF-8 text.
+        if is_binary_content_type(&response.content_type) && !stdout.is_empty() {
+            // Try to extract filename from Content-Disposition header (e.g.,
+            // `attachment; filename="考勤统计.xls"`), falling back to a
+            // timestamp-based name.
+            let disp_header = response.headers.iter()
+                .find(|(k, _)| k.to_lowercase() == "content-disposition")
+                .map(|(_, v)| v.as_str());
+            let file_name = disp_header
+                .and_then(parse_filename_from_disposition)
+                .filter(|n: &String| !n.is_empty())
+                .unwrap_or_else(|| {
+                    format!("poste_{}_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"), response.status)
+                });
+            let tmp_path = resolve_path_with_conflict("/tmp", &file_name);
+            match std::fs::write(&tmp_path, &stdout) {
+                Err(e) => {
+                    metadata.insert("file_save_error".to_string(), format!("failed to write to {}: {}", tmp_path.display(), e));
+                }
+                Ok(()) => {
+                    let file_size = stdout.len();
+                    metadata.insert("file_path".to_string(), tmp_path.to_string_lossy().to_string());
+                    metadata.insert("file_size".to_string(), file_size.to_string());
+                    metadata.insert("file_content_type".to_string(), response.content_type.clone());
+                    // Replace mangled body with a summary
+                    response.body = format!("[Binary file saved to: {}]\n[Size: {} bytes]\n[Content-Type: {}]",
+                        tmp_path.display(), file_size, response.content_type);
+                }
+            }
+        }
+
+        metadata.insert("method".to_string(), method.clone());
+        metadata.insert("request_headers".to_string(),
+            req_headers.iter()
                 .map(|(k, v)| format!("{}: {}", k, v))
                 .collect::<Vec<_>>()
-                .join("\n"),
-        );
+                .join("\n"));
         if !req_body.trim().is_empty() {
             metadata.insert("request_body".to_string(), req_body);
         }
-        metadata.insert(
-            "timestamp".to_string(),
-            chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-        );
-        metadata.insert(
-            "verbose".to_string(),
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        );
-        metadata.insert(
-            "exit_code".to_string(),
-            output.status.code().unwrap_or(-1).to_string(),
-        );
+        metadata.insert("timestamp".to_string(),
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        metadata.insert("verbose".to_string(),
+            String::from_utf8_lossy(&stderr).to_string());
+        metadata.insert("exit_code".to_string(),
+            status.code().unwrap_or(-1).to_string());
 
         Ok(Response {
             protocol: "http".to_string(),
@@ -159,6 +149,57 @@ impl Executor {
             cookies,
             metadata,
         })
+    }
+
+    /// Build curl argument list from parsed request components.
+    fn build_curl_args(
+        method: &str,
+        url: &str,
+        req_headers: &[(String, String)],
+        req_body: &str,
+        cookie_jar: Option<&CookieJar>,
+        headers_path: &std::path::Path,
+    ) -> Vec<String> {
+        let mut args = vec![
+            "-s".to_string(),
+            "-S".to_string(),
+            "-v".to_string(),
+            "-L".to_string(),
+            "-X".to_string(), method.to_string(),
+            "-D".to_string(), headers_path.to_string_lossy().to_string(),
+            "-A".to_string(), "poste/0.1.0".to_string(),
+        ];
+
+        for (key, value) in req_headers {
+            args.push("-H".to_string());
+            args.push(format!("{}: {}", key, value));
+        }
+
+        if !req_body.trim().is_empty() {
+            args.push("--data-binary".to_string());
+            args.push(req_body.to_string());
+        }
+
+        if let Some(jar) = &cookie_jar {
+            let path = jar.path().to_string_lossy().to_string();
+            args.push("-b".to_string());
+            args.push(path.clone());
+            args.push("-c".to_string());
+            args.push(path);
+        }
+
+        args.push(url.to_string());
+        args
+    }
+
+    /// Execute curl subprocess and return (stdout, stderr, exit_status).
+    async fn execute_curl(args: &[String]) -> Result<(Vec<u8>, Vec<u8>, std::process::ExitStatus)> {
+        let output = tokio::process::Command::new("curl")
+            .args(args)
+            .output()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to execute curl: {}. Is curl installed?", e))?;
+        Ok((output.stdout, output.stderr, output.status))
     }
 
     async fn execute_redis(request: &Request) -> Result<Response> {
@@ -341,6 +382,176 @@ fn http_reason(code: u16) -> &'static str {
         504 => "Gateway Timeout",
         _ => "",
     }
+}
+
+/// Detect whether a Content-Type indicates binary data that should not be
+/// rendered as text in the response body/verbose tabs.
+///
+/// Matches common binary MIME types: images, audio, video, archives,
+/// office documents, protobuf, etc.
+fn is_binary_content_type(content_type: &str) -> bool {
+    let ct = content_type.to_lowercase();
+    // Strip parameters (charset, boundary, etc.)
+    let mime = ct.split(';').next().unwrap_or(&ct).trim().to_string();
+
+    // Image, audio, video
+    if mime.starts_with("image/")
+        || mime.starts_with("audio/")
+        || mime.starts_with("video/")
+    {
+        return true;
+    }
+
+    // Known binary application types
+    matches!(
+        mime.as_str(),
+        "application/octet-stream"
+            | "application/pdf"
+            | "application/zip"
+            | "application/gzip"
+            | "application/x-tar"
+            | "application/x-bzip2"
+            | "application/x-7z-compressed"
+            | "application/x-rar-compressed"
+            | "application/java-archive"
+            | "application/vnd.ms-excel"
+            | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            | "application/vnd.ms-powerpoint"
+            | "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            | "application/msword"
+            | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            | "application/x-protobuf"
+            | "application/msgpack"
+            | "application/cbor"
+            | "application/wasm"
+    )
+}
+
+/// Extract the filename from a Content-Disposition header value.
+///
+/// Supports formats:
+///   `attachment; filename="考勤统计.xls"`
+///   `attachment; filename=report.pdf`
+///   `inline; filename*=UTF-8''encoded%20name.pdf` (RFC 5987 — returns the
+///     percent-encoded string as-is; callers may want to decode it further)
+///
+/// Returns `None` if no filename parameter is present.
+fn parse_filename_from_disposition(header_value: &str) -> Option<String> {
+    // Look for `filename*=charset'lang'value` (RFC 5987) first — it takes
+    // precedence.  We return the raw percent-encoded value so that callers
+    // get a valid filename (percent-encoded bytes are safe on disk).
+    if let Some(start) = header_value.find("filename*=") {
+        let rest = &header_value[start + 10..];
+        // After `filename*=`, skip charset'lang' → find the third '.
+        let mut quote_count = 0;
+        let mut value_start = 0;
+        for (i, ch) in rest.char_indices() {
+            if ch == '\'' {
+                quote_count += 1;
+                if quote_count == 3 {
+                    value_start = i + 1;
+                    break;
+                }
+            }
+        }
+        if quote_count == 3 {
+            let raw: String = rest[value_start..]
+                .trim()
+                .trim_matches('"')
+                .chars()
+                .take_while(|&c| c != ';' && c != ' ')
+                .collect();
+            if !raw.is_empty() {
+                return Some(sanitize_filename(&raw));
+            }
+        }
+    }
+
+    // Look for `filename="value"` or `filename=value`
+    if let Some(start) = header_value.find("filename=") {
+        let rest = &header_value[start + 9..];
+        if rest.starts_with('"') {
+            // Quoted: filename="value"
+            let end = rest[1..].find('"').map(|i| i + 1).unwrap_or(rest.len());
+            let name = &rest[1..end];
+            if !name.is_empty() {
+                return Some(sanitize_filename(name));
+            }
+        } else if rest.starts_with('\'') {
+            // Single-quoted: filename='value'
+            let end = rest[1..].find('\'').map(|i| i + 1).unwrap_or(rest.len());
+            let name = &rest[1..end];
+            if !name.is_empty() {
+                return Some(sanitize_filename(name));
+            }
+        } else {
+            // Unquoted: filename=value  (value ends at ; or whitespace or end)
+            let name: String = rest
+                .trim()
+                .chars()
+                .take_while(|&c| c != ';' && c != ' ')
+                .collect();
+            if !name.is_empty() {
+                return Some(sanitize_filename(&name));
+            }
+        }
+    }
+
+    None
+}
+
+/// Sanitize a filename for safe use on disk: strip directory separators,
+/// null bytes, and trim whitespace.
+fn sanitize_filename(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .filter(|&c| c != '/' && c != '\\' && c != '\0')
+        .collect();
+    let trimmed = sanitized.trim().to_string();
+    // Avoid empty or dot-only names after sanitization
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        "downloaded_file".to_string()
+    } else {
+        trimmed
+    }
+}
+
+/// Given a directory and filename, return a path that does not conflict with
+/// any existing file.  If the base path already exists, append `(1)`, `(2)`,
+/// etc. before the extension (e.g. `report(1).xls`, `report(2).xls`).
+///
+/// Falls back to the base path if it does not exist, or if we exhaust the
+/// range 1..1000 (unlikely, but safe).
+fn resolve_path_with_conflict(dir: &str, filename: &str) -> std::path::PathBuf {
+    let base = std::path::Path::new(dir).join(filename);
+    if !base.exists() {
+        return base;
+    }
+
+    let stem = std::path::Path::new(filename)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(filename);
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| format!(".{}", s))
+        .unwrap_or_default();
+
+    for i in 1..1000 {
+        let candidate = if ext.is_empty() {
+            format!("{}({})", stem, i)
+        } else {
+            format!("{}({}).{}", stem, i, ext.trim_start_matches('.'))
+        };
+        let path = std::path::Path::new(dir).join(&candidate);
+        if !path.exists() {
+            return path;
+        }
+    }
+
+    // Give up and return the original path (will overwrite)
+    base
 }
 
 /// Convert Redis Value to structured JSON for Lua-side rendering.

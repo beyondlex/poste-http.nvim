@@ -17,8 +17,6 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-pub(crate) use sqlite::normalize_sqlite_connection;
-
 /// Execute a SQL request. Dispatches to the appropriate database driver
 /// based on `request.protocol`.
 pub async fn execute_sql(request: &Request) -> Result<Response> {
@@ -168,58 +166,6 @@ fn build_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_normalize_sqlite_absolute_path() {
-        assert_eq!(
-            normalize_sqlite_connection("sqlite:///home/user/db.sqlite").unwrap(),
-            "sqlite:/home/user/db.sqlite"
-        );
-    }
-
-    #[test]
-    fn test_normalize_sqlite_relative_path() {
-        assert_eq!(
-            normalize_sqlite_connection("sqlite://./data.db").unwrap(),
-            "sqlite:./data.db"
-        );
-        assert_eq!(
-            normalize_sqlite_connection("sqlite://data.db").unwrap(),
-            "sqlite:data.db"
-        );
-    }
-
-    #[test]
-    fn test_normalize_sqlite_memory() {
-        assert_eq!(
-            normalize_sqlite_connection("sqlite::memory:").unwrap(),
-            "sqlite::memory:"
-        );
-        assert_eq!(
-            normalize_sqlite_connection(":memory:").unwrap(),
-            "sqlite::memory:"
-        );
-    }
-
-    #[test]
-    fn test_normalize_sqlite_plain_path() {
-        assert_eq!(
-            normalize_sqlite_connection("/absolute/path.db").unwrap(),
-            "sqlite:/absolute/path.db"
-        );
-        assert_eq!(
-            normalize_sqlite_connection("./relative.db").unwrap(),
-            "sqlite:./relative.db"
-        );
-    }
-
-    #[test]
-    fn test_normalize_sqlite_already_correct() {
-        assert_eq!(
-            normalize_sqlite_connection("sqlite:/path.db").unwrap(),
-            "sqlite:/path.db"
-        );
-    }
 
     #[tokio::test]
     async fn test_sqlite_in_memory() {

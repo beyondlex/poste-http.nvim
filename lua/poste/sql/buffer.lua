@@ -306,7 +306,7 @@ function M.apply_rendered_page(tab, lines, meta)
 
       table.remove(clean, meta.header_line + 1)
       table.remove(clean, meta.header_line)
-      table.remove(clean, meta.header_line - 1)
+      if meta.header_line > 1 then table.remove(clean, meta.header_line - 1) end
       meta.header_line = nil
       meta.data_start_line = meta.data_start_line - 3
       meta.data_end_line = meta.data_end_line - 3
@@ -461,11 +461,15 @@ function M.render_dataset(lines, meta, opts)
       tab.src_buf = opts.src_buf
     end
 
-    -- Store connection name for PK introspection (from resolved context)
-    -- This persists even if state.sql.context is cleared later
+    -- Store connection name & database for dataset operations (commit, refresh, PK introspection)
+    -- These persist even if state.sql.context is cleared later
     local conn_name = state.sql.context.connection
     if conn_name and conn_name ~= "" then
       tab.layout._conn_name = conn_name
+    end
+    local db_name = state.sql.context.database
+    if db_name and db_name ~= "" then
+      tab.layout._database = db_name
     end
     -- Also try to get from data response (full connection string → extract name later)
     if not tab.layout._conn_name and tab.data and tab.data.connection then
@@ -524,7 +528,7 @@ function M.render_dataset(lines, meta, opts)
 
         table.remove(clean, meta.header_line + 1)
         table.remove(clean, meta.header_line)
-        table.remove(clean, meta.header_line - 1)
+        if meta.header_line > 1 then table.remove(clean, meta.header_line - 1) end
         meta.header_line = nil
         meta.data_start_line = meta.data_start_line - 3
         meta.data_end_line = meta.data_end_line - 3

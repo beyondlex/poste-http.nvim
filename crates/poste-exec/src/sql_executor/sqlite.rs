@@ -5,13 +5,14 @@ use poste_core::sql_parser;
 use serde_json::{json, Value};
 
 use crate::response::Response;
+use crate::sql_connection;
 use super::{StatementResult, build_response};
 
 pub(super) async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> anyhow::Result<Response> {
     use sqlx::sqlite::{SqlitePoolOptions, SqliteRow};
     use sqlx::{Column, Row, TypeInfo};
 
-    let conn_str = normalize_sqlite_connection(&parsed.connection)?;
+    let conn_str = sql_connection::normalize_sqlite_connection(&parsed.connection)?;
 
     let pool = SqlitePoolOptions::new()
         .max_connections(2)
@@ -110,28 +111,6 @@ pub(super) async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> anyho
     pool.close().await;
     let total_ms = total_start.elapsed().as_millis() as u64;
     build_response(&Protocol::Sqlite, &parsed.connection, &parsed.database, results, total_ms)
-}
-
-pub(crate) fn normalize_sqlite_connection(conn: &str) -> anyhow::Result<String> {
-    let conn = conn.trim();
-
-    if conn.starts_with("sqlite:") && !conn.starts_with("sqlite://") {
-        return Ok(conn.to_string());
-    }
-
-    if let Some(rest) = conn.strip_prefix("sqlite:///") {
-        return Ok(format!("sqlite:/{}", rest));
-    }
-
-    if let Some(rest) = conn.strip_prefix("sqlite://") {
-        return Ok(format!("sqlite:{}", rest));
-    }
-
-    if conn.starts_with('/') || conn.starts_with("./") || conn.starts_with(":memory:") {
-        return Ok(format!("sqlite:{}", conn));
-    }
-
-    anyhow::bail!("Invalid SQLite connection string: {}", conn)
 }
 
 fn sqlite_value_to_json(row: &sqlx::sqlite::SqliteRow, idx: usize) -> Value {

@@ -387,7 +387,12 @@ function M.refresh_dataset(tab)
   end
 
   local conn = (tab.layout and tab.layout._conn_name) or state.sql.context.connection or ""
-  local db = (tab.layout and tab.layout.database) or state.sql.context.database or ""
+  local db = ""
+  if tab.layout then
+    local layout_db = tab.layout._database or tab.layout.database
+    if layout_db and layout_db ~= "" then db = layout_db end
+  end
+  if db == "" then db = state.sql.context.database or "" end
 
   -- Strip directives and ### markers from SQL, since original_sql
   -- may contain the full buffer content (-- @connection, ###, etc.)
@@ -533,8 +538,15 @@ function M.commit_edits()
   local connection = tab.layout and tab.layout._conn_name or state.sql.context.connection or ""
   local table_name = tab.layout and tab.layout.table_name or ""
 
-  -- Resolve database: layout → context → connections.json default
-  local database = tab.layout and tab.layout.database or state.sql.context.database or ""
+  -- Resolve database: layout._database → layout.database → context → connections.json default
+  local database = ""
+  if tab.layout then
+    local layout_db = tab.layout._database or tab.layout.database
+    if layout_db and layout_db ~= "" then database = layout_db end
+  end
+  if database == "" then
+    database = state.sql.context.database or ""
+  end
   if database == "" and connection ~= "" then
     local config = require("poste.sql.connections").get_connection_config(connection)
     if config and config.database and config.database ~= "" then

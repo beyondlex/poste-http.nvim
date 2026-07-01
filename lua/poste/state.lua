@@ -1,5 +1,6 @@
 --- Shared mutable state for the Poste plugin.
 --- All modules require this to read/write cross-cutting state.
+local C = require("poste.constants")
 local M = {}
 
 ---------------------------------------------------------------------------
@@ -154,7 +155,7 @@ M._lsp_doc_buf = nil             -- hidden Lua buffer for LSP doc lookup
 
 -- HTTP request history (session-scoped)
 M.http_history = {}              -- entry[] (newest first)
-M.http_history_max = 100         -- max entries to keep
+M.http_history_max = C.HTTP_HISTORY_MAX         -- max entries to keep
 M.http_history_id_counter = 0    -- auto-increment ID
 
 -- Script variable stores
@@ -266,7 +267,7 @@ function M.find_poste_binary()
     return vim.fn.fnamemodify(M.config.poste_binary, ":p")
   end
   -- CWD-relative (works when nvim is launched from poste repo root)
-  for _, path in ipairs({ "./target/debug/poste", "./target/release/poste" }) do
+  for _, path in ipairs(C.BINARY_CWD_PATHS) do
     if vim.fn.filereadable(path) == 1 then
       return vim.fn.fnamemodify(path, ":p")
     end

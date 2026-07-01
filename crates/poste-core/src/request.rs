@@ -7,8 +7,6 @@ pub enum Protocol {
     Mysql,
     Postgres,
     Sqlite,
-    Mongodb,
-    Amqp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

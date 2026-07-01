@@ -693,7 +693,7 @@ end
 - [x] 0.1 state 合约测试 — `tests/state_contract_spec.lua`
 - [x] 0.2 nvim mock 测试夹具 — `tests/helpers/mock_nvim.lua`
 - [x] 0.3 executor.rs 单元测试覆盖 ≥80% — 18 个新测试
-- [ ] 0.4 CI 回归基线 — TBD (需 GitHub Actions 配置)
+- [x] 0.4 CI 回归基线 — `.github/workflows/ci.yml` (cargo test/lint, luacheck, TODO check)
 
 ### Phase 1: Low Risk [✓] 预计 3 天
 - [x] 1.1 set_indicator 去重 — `build_virt_text()`, `format_latency()`, `build_assertion_text()` 提取
@@ -704,15 +704,15 @@ end
 - [x] 2.2 run_request 函数拆分 — 16 个局部函数, 管线模式 (prepare→execute→handle)
 - [x] 2.3 main.rs 模块拆分 — 871→84 行, 7 个模块 (run/context/connection/fmt/import/introspect/serve)
 
-### Phase 3: High Impact [—] 预计 10 天
-- [ ] 3.1 blink.cmp 解耦 — 需要适配器模式
-- [ ] 3.2 回调 → 协程/Promise — 需要 Promise 实现
+### Phase 3: High Impact [✓] 预计 10 天
+- [x] 3.1 blink.cmp 解耦 — `sql/completion_adapter.lua` 适配器模式, 所有 SQL 模块移除直接 `require("blink.cmp.*")`
+- [x] 3.2 回调 → Promise — `async/promise.lua` (then_/catch_/finally_/all), `tests/promise_spec.lua`
 - [x] 3.3 移除未实现协议存根 — `Protocol::Mongodb`, `Protocol::Amqp` 删除
 
-### Phase 4: Continuous [—] 长期
+### Phase 4: Continuous [✓] 长期
 - [x] 4.1 硬编码配置化 — `lua/poste/constants.lua`
-- [ ] 4.2 统一错误处理 — 需要确定策略
-- [ ] 4.3 CI 代码规范检查 — TBD (需 GitHub Actions 配置)
+- [x] 4.2 统一错误处理 — `lua/poste/error.lua` (M.notify/Debug/Info/Warn/Error)
+- [x] 4.3 CI 代码规范检查 — `.github/workflows/ci.yml`, `.luacheckrc`
 ```
 
 ---

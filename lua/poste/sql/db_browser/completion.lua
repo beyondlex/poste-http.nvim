@@ -3,8 +3,8 @@
 
 local M = {}
 
-local blink_config = require("blink.cmp.config")
-local blink_sources = require("blink.cmp.sources.lib")
+local adapter = require("poste.sql.completion_adapter")
+
 
 -- Dialect-specific type lists
 local types = {
@@ -44,7 +44,7 @@ local types = {
 local function filter_types(keyword, dialect)
   local list = types[dialect] or types.postgres
   local lowered = keyword:lower()
-  local Kind = require("blink.cmp.types").CompletionItemKind
+  local Kind = adapter.completion_item_kind
   local kind = Kind.TypeParameter
 
   local items = {}
@@ -75,8 +75,10 @@ end
 
 --- Register the poste-sql-types provider into blink.cmp (idempotent).
 function M.ensure_registered()
-  if blink_config.sources.providers["poste-sql-types"] then return end
-  blink_config.sources.providers["poste-sql-types"] = {
+  if adapter.has_provider("poste-sql-types") then return end
+  local cfg = adapter.get_config()
+  if not cfg then return end
+  cfg.sources.providers["poste-sql-types"] = {
     name = "SQL Types",
     module = "poste.sql.db_browser.completion",
   }
@@ -110,14 +112,14 @@ function M.enable_for_next_input()
   if _enabled then return end
   _enabled = true
   M.ensure_registered()
-  _orig_providers = blink_sources.per_filetype_provider_ids["DressingInput"]
-  blink_sources.per_filetype_provider_ids["DressingInput"] = { "poste-sql-types" }
+  _orig_providers = adapter.get_source_lib().per_filetype_provider_ids["DressingInput"]
+  adapter.get_source_lib().per_filetype_provider_ids["DressingInput"] = { "poste-sql-types" }
 end
 
 --- Clean up after input is done.
 function M.cleanup()
   _enabled = false
-  blink_sources.per_filetype_provider_ids["DressingInput"] = _orig_providers
+  adapter.get_source_lib().per_filetype_provider_ids["DressingInput"] = _orig_providers
   _orig_providers = nil
 end
 

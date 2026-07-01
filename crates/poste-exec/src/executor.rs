@@ -92,7 +92,18 @@ impl Executor {
         // If the response is binary content (image, PDF, zip, etc.), save it to
         // /tmp/ and store the file path in metadata instead of mangled UTF-8 text.
         if is_binary_content_type(&response.content_type) && !stdout.is_empty() {
-            let file_name = format!("poste_{}_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"), response.status);
+            // Try to extract filename from Content-Disposition header (e.g.,
+            // `attachment; filename="考勤统计.xls"`), falling back to a
+            // timestamp-based name.
+            let disp_header = response.headers.iter()
+                .find(|(k, _)| k.to_lowercase() == "content-disposition")
+                .map(|(_, v)| v.as_str());
+            let file_name = disp_header
+                .and_then(parse_filename_from_disposition)
+                .filter(|n: &String| !n.is_empty())
+                .unwrap_or_else(|| {
+                    format!("poste_{}_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"), response.status)
+                });
             let tmp_path = std::path::Path::new("/tmp").join(&file_name);
             match std::fs::write(&tmp_path, &stdout) {
                 Err(e) => {
@@ -414,6 +425,95 @@ fn is_binary_content_type(content_type: &str) -> bool {
             | "application/cbor"
             | "application/wasm"
     )
+}
+
+/// Extract the filename from a Content-Disposition header value.
+///
+/// Supports formats:
+///   `attachment; filename="考勤统计.xls"`
+///   `attachment; filename=report.pdf`
+///   `inline; filename*=UTF-8''encoded%20name.pdf` (RFC 5987 — returns the
+///     percent-encoded string as-is; callers may want to decode it further)
+///
+/// Returns `None` if no filename parameter is present.
+fn parse_filename_from_disposition(header_value: &str) -> Option<String> {
+    // Look for `filename*=charset'lang'value` (RFC 5987) first — it takes
+    // precedence.  We return the raw percent-encoded value so that callers
+    // get a valid filename (percent-encoded bytes are safe on disk).
+    if let Some(start) = header_value.find("filename*=") {
+        let rest = &header_value[start + 10..];
+        // After `filename*=`, skip charset'lang' → find the third '.
+        let mut quote_count = 0;
+        let mut value_start = 0;
+        for (i, ch) in rest.char_indices() {
+            if ch == '\'' {
+                quote_count += 1;
+                if quote_count == 3 {
+                    value_start = i + 1;
+                    break;
+                }
+            }
+        }
+        if quote_count == 3 {
+            let raw: String = rest[value_start..]
+                .trim()
+                .trim_matches('"')
+                .chars()
+                .take_while(|&c| c != ';' && c != ' ')
+                .collect();
+            if !raw.is_empty() {
+                return Some(sanitize_filename(&raw));
+            }
+        }
+    }
+
+    // Look for `filename="value"` or `filename=value`
+    if let Some(start) = header_value.find("filename=") {
+        let rest = &header_value[start + 9..];
+        if rest.starts_with('"') {
+            // Quoted: filename="value"
+            let end = rest[1..].find('"').map(|i| i + 1).unwrap_or(rest.len());
+            let name = &rest[1..end];
+            if !name.is_empty() {
+                return Some(sanitize_filename(name));
+            }
+        } else if rest.starts_with('\'') {
+            // Single-quoted: filename='value'
+            let end = rest[1..].find('\'').map(|i| i + 1).unwrap_or(rest.len());
+            let name = &rest[1..end];
+            if !name.is_empty() {
+                return Some(sanitize_filename(name));
+            }
+        } else {
+            // Unquoted: filename=value  (value ends at ; or whitespace or end)
+            let name: String = rest
+                .trim()
+                .chars()
+                .take_while(|&c| c != ';' && c != ' ')
+                .collect();
+            if !name.is_empty() {
+                return Some(sanitize_filename(&name));
+            }
+        }
+    }
+
+    None
+}
+
+/// Sanitize a filename for safe use on disk: strip directory separators,
+/// null bytes, and trim whitespace.
+fn sanitize_filename(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .filter(|&c| c != '/' && c != '\\' && c != '\0')
+        .collect();
+    let trimmed = sanitized.trim().to_string();
+    // Avoid empty or dot-only names after sanitization
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        "downloaded_file".to_string()
+    } else {
+        trimmed
+    }
 }
 
 /// Convert Redis Value to structured JSON for Lua-side rendering.

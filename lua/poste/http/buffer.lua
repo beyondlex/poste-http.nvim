@@ -247,6 +247,19 @@ local function setup_keymaps(buf)
       require("poste.http.json").restore_original()
     end, opts)
   end
+
+  -- gd on a binary file "Open" line: open the file with the system handler
+  vim.keymap.set("n", "gd", function()
+    local bufnr = vim.api.nvim_get_current_buf()
+    if bufnr ~= buf then return end
+    local cur_line = vim.api.nvim_get_current_line()
+    if not cur_line:match("^  Open") then return end
+    local file_path = state.last_response and state.last_response.metadata and state.last_response.metadata.file_path
+    if not file_path then return end
+    local opener = vim.fn.has("mac") == 1 and "open" or "xdg-open"
+    vim.fn.jobstart({ opener, file_path }, { detach = true })
+    vim.notify(string.format("Opening: %s", file_path), vim.log.levels.INFO, { title = "Poste" })
+  end, { buffer = buf, noremap = true, silent = true })
 end
 
 function M.get_buf()

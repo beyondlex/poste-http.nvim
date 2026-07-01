@@ -24,7 +24,7 @@ function M.show_view(view)
     filetype = "text"
   elseif view == "assertions" then
     lines = assertions.format_assertions(state.last_assertion_results)
-    filetype = "markdown"
+    filetype = "poste_assertions"
   elseif view == "script_logs" then
     lines = scripts.format_script_logs(state.last_script_logs)
     filetype = "markdown"
@@ -70,11 +70,27 @@ function M.show_view(view)
     end
   end
 
+  -- Binary file link highlight (blue, underlined) on "Open file:" / "Open:" lines
+  if (view == "body" or view == "verbose") and state.last_response.metadata and state.last_response.metadata.file_path then
+    local buf = buffer.get_buf()
+    if buf then
+      format.apply_file_link_highlight(buf, lines)
+    end
+  end
+
   if view == "verbose" then
     local buf = buffer.get_buf()
     if buf then
       pcall(vim.treesitter.stop, buf)
       format.apply_verbose_highlights(buf, lines, state.last_response)
+    end
+  end
+
+  if view == "assertions" then
+    local buf = buffer.get_buf()
+    if buf then
+      pcall(vim.treesitter.stop, buf)
+      assertions.apply_highlights(buf, lines)
     end
   end
 end

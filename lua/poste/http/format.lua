@@ -3,6 +3,7 @@
 local state = require("poste.state")
 
 local redis_ns = vim.api.nvim_create_namespace("poste_redis")
+local file_link_ns = vim.api.nvim_create_namespace("poste_file_link")
 
 local M = {}
 
@@ -60,6 +61,24 @@ local function split_lines(str)
     table.remove(lines)
   end
   return #lines > 0 and lines or { "" }
+end
+
+--- Format a byte count as a human-readable string (e.g., "12.0 KB", "1.5 MB").
+local function human_size(bytes)
+  if not bytes then return "?" end
+  local n = tonumber(bytes)
+  if not n then return bytes end
+  local units = { "B", "KB", "MB", "GB", "TB" }
+  local idx = 1
+  while n >= 1024 and idx < #units do
+    n = n / 1024
+    idx = idx + 1
+  end
+  if idx == 1 then
+    return string.format("%d %s", n, units[idx])
+  else
+    return string.format("%.1f %s", n, units[idx])
+  end
 end
 
 --- Simple JSON pretty-printer
@@ -247,19 +266,36 @@ function M.format_body(r)
   -- Binary file response: show file info instead of mangled raw content
   if r.metadata and r.metadata.file_path then
     local lines = {}
+    local opener = vim.fn.has("mac") == 1 and "open" or "xdg-open"
     table.insert(lines, "▸ Binary File Response")
     table.insert(lines, "")
     table.insert(lines, string.format("  Path:         %s", r.metadata.file_path))
-    table.insert(lines, string.format("  Size:         %s bytes", r.metadata.file_size or "?"))
+    table.insert(lines, string.format("  Size:         %s  (%s bytes)", human_size(r.metadata.file_size), r.metadata.file_size or "?"))
     table.insert(lines, string.format("  Content-Type: %s", r.metadata.file_content_type or r.content_type or "?"))
     table.insert(lines, "")
-    local opener = vim.fn.has("mac") == 1 and "open" or "xdg-open"
     table.insert(lines, string.format("  Open file:    :!%s %s", opener, r.metadata.file_path))
     return lines
   end
 
   local body = pretty_body(r.body, r.content_type)
   return split_lines(body)
+end
+
+--- Apply an extmark highlight on the "Open file:" line, rendering it as a
+--- clickable link (blue, underlined).  Scans all lines for a match.
+function M.apply_file_link_highlight(buf, lines)
+  vim.api.nvim_buf_clear_namespace(buf, file_link_ns, 0, -1)
+  for i, line in ipairs(lines) do
+    if line:match("^  Open") then
+      local row = i - 1
+      vim.api.nvim_buf_set_extmark(buf, file_link_ns, row, 0, {
+        end_row = row, end_col = #line,
+        hl_group = "PosteFileLink",
+        priority = 150,
+      })
+      return
+    end
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -631,7 +667,7 @@ function M.format_verbose(r)
       -- File saved by Rust executor: show file info
       if r.metadata and r.metadata.file_path then
         table.insert(lines, string.format("  Path:         %s", r.metadata.file_path))
-        table.insert(lines, string.format("  Size:         %s bytes", r.metadata.file_size or "?"))
+        table.insert(lines, string.format("  Size:         %s  (%s bytes)", human_size(r.metadata.file_size), r.metadata.file_size or "?"))
         table.insert(lines, string.format("  Content-Type: %s", r.metadata.file_content_type or r.content_type or "?"))
         local opener = vim.fn.has("mac") == 1 and "open" or "xdg-open"
         table.insert(lines, string.format("  Open:         :!%s %s", opener, r.metadata.file_path))

@@ -161,6 +161,22 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteVerboseSubHeader", { fg = 0xABB2BF, bold = true })    -- bright bold
   vim.api.nvim_set_hl(0, "PosteVerboseKey", { fg = 0xC678DD })                       -- magenta
 
+  -- Assertions view extmark highlights
+  vim.api.nvim_set_hl(0, "PosteAssertSummary", { fg = 0x98c379, bold = true })       -- green bold
+  vim.api.nvim_set_hl(0, "PosteAssertSummaryFail", { fg = 0xe06c75, bold = true })   -- red bold
+  vim.api.nvim_set_hl(0, "PosteAssertPass", { fg = 0x98c379 })                       -- green
+  vim.api.nvim_set_hl(0, "PosteAssertFail", { fg = 0xe06c75, bold = true })          -- red bold
+  vim.api.nvim_set_hl(0, "PosteAssertIconPass", { fg = 0x98c379, bold = true })      -- green bold ✓
+  vim.api.nvim_set_hl(0, "PosteAssertIconFail", { fg = 0xe06c75, bold = true })      -- red bold ✘
+  vim.api.nvim_set_hl(0, "PosteAssertError", { fg = 0xe06c75, italic = true })       -- red italic
+  vim.api.nvim_set_hl(0, "PosteAssertLogHeader", { fg = 0x61afef, bold = true })     -- blue bold
+  vim.api.nvim_set_hl(0, "PosteAssertLog", { fg = 0xABB2BF })                        -- bright
+  vim.api.nvim_set_hl(0, "PosteAssertSep", { fg = 0x3e4452 })                        -- dim line
+  vim.api.nvim_set_hl(0, "PosteAssertHint", { fg = 0x5c6370, italic = true })        -- gray italic for hints
+
+  -- File link for binary response Open file: line — blue, underlined, clickable feel
+  vim.api.nvim_set_hl(0, "PosteFileLink", { fg = 0x61afef, underline = true, sp = 0x61afef })
+
   state.apply_highlight_overrides({
     "PosteLatency", "PosteSpinner", "PosteSuccess", "PosteError",
     "PosteSeparator", "PosteRequestName", "PosteVarRef", "PosteMagicVar",
@@ -186,6 +202,12 @@ function M.setup()
     "PosteHttpBoundaryBorder",
     "PosteStatus2xx", "PosteStatus3xx", "PosteStatus4xx", "PosteStatus5xx",
     "PosteVerboseSeparator", "PosteVerboseSection", "PosteVerboseSubHeader", "PosteVerboseKey",
+    "PosteAssertSummary", "PosteAssertSummaryFail",
+    "PosteAssertPass", "PosteAssertFail",
+    "PosteAssertIconPass", "PosteAssertIconFail",
+    "PosteAssertError", "PosteAssertLogHeader", "PosteAssertLog",
+    "PosteAssertSep", "PosteAssertHint",
+    "PosteFileLink",
   })
 end
 

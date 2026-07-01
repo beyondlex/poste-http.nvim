@@ -16,8 +16,6 @@ impl Executor {
             Protocol::Mysql | Protocol::Postgres | Protocol::Sqlite => {
                 crate::sql_executor::execute_sql(request).await
             }
-            Protocol::Mongodb => Self::execute_mongodb(request).await,
-            Protocol::Amqp => Self::execute_amqp(request).await,
         }?;
         response.latency_ms = start.elapsed().as_millis() as u64;
         Ok(response)
@@ -203,6 +201,7 @@ impl Executor {
     }
 
     async fn execute_redis(request: &Request) -> Result<Response> {
+
         let connection = if request.connection.is_empty() {
             anyhow::bail!("Redis request missing @connection directive");
         } else {
@@ -272,14 +271,7 @@ impl Executor {
         })
     }
 
-    async fn execute_mongodb(_request: &Request) -> Result<Response> {
-        anyhow::bail!("MongoDB not implemented yet")
     }
-
-    async fn execute_amqp(_request: &Request) -> Result<Response> {
-        anyhow::bail!("AMQP not implemented yet")
-    }
-}
 
 /// Parsed response from curl output.
 struct CurlResponse {
@@ -501,13 +493,19 @@ fn parse_filename_from_disposition(header_value: &str) -> Option<String> {
 }
 
 /// Sanitize a filename for safe use on disk: strip directory separators,
-/// null bytes, and trim whitespace.
+/// null bytes, colons (Windows), and ".." path traversal sequences.
+///
+/// After sanitization the result is a flat filename with no path components,
+/// safe to join with any directory.
 fn sanitize_filename(name: &str) -> String {
+    // First pass: strip dangerous characters
     let sanitized: String = name
         .chars()
-        .filter(|&c| c != '/' && c != '\\' && c != '\0')
+        .filter(|&c| c != '/' && c != '\\' && c != '\0' && c != ':')
         .collect();
-    let trimmed = sanitized.trim().to_string();
+    // Second pass: remove ".." sequences to prevent path traversal
+    let without_dots = sanitized.replace("..", "");
+    let trimmed = without_dots.trim().to_string();
     // Avoid empty or dot-only names after sanitization
     if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
         "downloaded_file".to_string()
@@ -538,7 +536,7 @@ fn resolve_path_with_conflict(dir: &str, filename: &str) -> std::path::PathBuf {
         .map(|s| format!(".{}", s))
         .unwrap_or_default();
 
-    for i in 1..1000 {
+    for i in 1..1000 { // see constants.lua MAX_CONFLICT_SUFFIX
         let candidate = if ext.is_empty() {
             format!("{}({})", stem, i)
         } else {
@@ -755,4 +753,228 @@ fn parse_shell_args(input: &str) -> Result<Vec<String>> {
     }
 
     Ok(args)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---------------------------------------------------------------------------
+    // sanitize_filename
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_sanitize_filename_normal() {
+        assert_eq!(sanitize_filename("report.pdf"), "report.pdf");
+    }
+
+    #[test]
+    fn test_sanitize_filename_strips_slashes() {
+        assert_eq!(sanitize_filename("foo/bar.txt"), "foobar.txt");
+    }
+
+    #[test]
+    fn test_sanitize_filename_strips_backslashes() {
+        assert_eq!(sanitize_filename("foo\\bar.txt"), "foobar.txt");
+    }
+
+    #[test]
+    fn test_sanitize_filename_prevents_path_traversal() {
+        // `..` is removed after `/` and `\` are stripped, so `../../etc/passwd`
+        // becomes `etcpasswd` (no more path separators)
+        let result = sanitize_filename("../../etc/passwd");
+        assert!(!result.contains(".."));
+        assert!(!result.contains('/'));
+
+        let result = sanitize_filename("..\\..\\windows\\system32");
+        assert!(!result.contains(".."));
+        assert!(!result.contains('\\'));
+    }
+
+    #[test]
+    fn test_sanitize_filename_strips_null_bytes() {
+        assert_eq!(sanitize_filename("test\0.txt"), "test.txt");
+    }
+
+    #[test]
+    fn test_sanitize_filename_strips_colons() {
+        assert_eq!(sanitize_filename("file:name.txt"), "filename.txt");
+    }
+
+    #[test]
+    fn test_sanitize_filename_empty_after_sanitization() {
+        assert_eq!(sanitize_filename(".."), "downloaded_file");
+        assert_eq!(sanitize_filename("."), "downloaded_file");
+        assert_eq!(sanitize_filename(""), "downloaded_file");
+    }
+
+    #[test]
+    fn test_sanitize_filename_trims_whitespace() {
+        assert_eq!(sanitize_filename("  test.txt  "), "test.txt");
+    }
+
+    // ---------------------------------------------------------------------------
+    // resolve_path_with_conflict
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_resolve_path_stays_in_target_dir() {
+        let tmp = std::env::temp_dir();
+        let path = resolve_path_with_conflict(tmp.to_str().unwrap(), "/etc/passwd");
+        assert!(
+            path.starts_with(&tmp),
+            "path {:?} should start with {:?}",
+            path,
+            tmp
+        );
+    }
+
+    #[test]
+    fn test_resolve_path_no_conflict() {
+        let tmp = std::env::temp_dir();
+        let name = format!("poste_test_unique_{}", std::process::id());
+        let path = resolve_path_with_conflict(tmp.to_str().unwrap(), &name);
+        assert_eq!(path, tmp.join(&name));
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_resolve_path_with_conflict_appends_suffix() {
+        let tmp = std::env::temp_dir();
+        let name = format!("poste_test_conflict_{}", std::process::id());
+        let path = tmp.join(&name);
+        // Create the file so there's a conflict
+        let _ = std::fs::write(&path, "existing");
+        let resolved = resolve_path_with_conflict(tmp.to_str().unwrap(), &name);
+        assert_ne!(resolved, path);
+        assert!(resolved.starts_with(&tmp));
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&resolved);
+    }
+
+    // ---------------------------------------------------------------------------
+    // is_binary_content_type
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_is_binary_content_type_images() {
+        assert!(is_binary_content_type("image/png"));
+        assert!(is_binary_content_type("image/jpeg"));
+        assert!(is_binary_content_type("image/gif"));
+    }
+
+    #[test]
+    fn test_is_binary_content_type_audio_video() {
+        assert!(is_binary_content_type("audio/mpeg"));
+        assert!(is_binary_content_type("video/mp4"));
+    }
+
+    #[test]
+    fn test_is_binary_content_type_application_types() {
+        assert!(is_binary_content_type("application/pdf"));
+        assert!(is_binary_content_type("application/zip"));
+        assert!(is_binary_content_type("application/octet-stream"));
+    }
+
+    #[test]
+    fn test_is_binary_content_type_text() {
+        assert!(!is_binary_content_type("text/plain"));
+        assert!(!is_binary_content_type("text/html"));
+        assert!(!is_binary_content_type("application/json"));
+    }
+
+    #[test]
+    fn test_is_binary_content_type_strips_parameters() {
+        assert!(is_binary_content_type("image/png; charset=utf-8"));
+    }
+
+    // ---------------------------------------------------------------------------
+    // parse_curl_response
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_curl_response_simple() {
+        let headers = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n";
+        let body = b"{\"key\": \"value\"}";
+        let response = parse_curl_response(headers, body, "http://example.com").unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(response.status_text, "200 OK");
+        assert_eq!(response.content_type, "application/json");
+        assert_eq!(response.body, "{\"key\": \"value\"}");
+    }
+
+    #[test]
+    fn test_parse_curl_response_redirect() {
+        let headers = "HTTP/1.1 301 Moved Permanently\r\nLocation: /new\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n";
+        let body = b"final response";
+        let response = parse_curl_response(headers, body, "http://example.com").unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(response.status_text, "200 OK");
+    }
+
+    #[test]
+    fn test_parse_curl_response_http2() {
+        let headers = "HTTP/2 200\r\ncontent-type: application/json\r\n\r\n";
+        let body = b"{}";
+        let response = parse_curl_response(headers, body, "http://example.com").unwrap();
+        assert_eq!(response.status, 200);
+        assert!(response.status_text.contains("OK"));
+    }
+
+    #[test]
+    fn test_parse_curl_response_empty_headers() {
+        let body = b"some content";
+        let response = parse_curl_response("", body, "http://example.com").unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(response.status_text, "200 OK");
+        assert_eq!(response.body, "some content");
+    }
+
+    // ---------------------------------------------------------------------------
+    // parse_filename_from_disposition
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_filename_from_disposition_quoted() {
+        let result = parse_filename_from_disposition(r#"attachment; filename="report.pdf""#);
+        assert_eq!(result, Some("report.pdf".to_string()));
+    }
+
+    #[test]
+    fn test_parse_filename_from_disposition_unquoted() {
+        let result = parse_filename_from_disposition("attachment; filename=report.pdf");
+        assert_eq!(result, Some("report.pdf".to_string()));
+    }
+
+    #[test]
+    fn test_parse_filename_from_disposition_no_filename() {
+        let result = parse_filename_from_disposition("attachment");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_parse_filename_from_disposition_sanitizes() {
+        let result = parse_filename_from_disposition(r#"attachment; filename="../../etc/passwd""#);
+        let result = result.unwrap();
+        assert!(!result.contains(".."));
+        assert!(!result.contains('/'));
+    }
+
+    // ---------------------------------------------------------------------------
+    // http_reason
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_http_reason_common_codes() {
+        assert_eq!(http_reason(200), "OK");
+        assert_eq!(http_reason(404), "Not Found");
+        assert_eq!(http_reason(500), "Internal Server Error");
+    }
+
+    #[test]
+    fn test_http_reason_unknown_code() {
+        assert_eq!(http_reason(999), "");
+    }
 }

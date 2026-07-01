@@ -7,11 +7,422 @@ local assertions = require("poste.http.assertions")
 local view = require("poste.http.view")
 local import_mod = require("poste.http.import")
 local history = require("poste.http.history")
+local event = require("poste.state.event")
 
 local uv = vim.uv or vim.loop
 
 local M = {}
 
+---------------------------------------------------------------------------
+-- Pipeline helpers
+---------------------------------------------------------------------------
+
+--- Clear global mutable state before starting a request.
+local function clear_state()
+  state.last_response = nil
+  state.last_assertion_results = nil
+  state.last_script_logs = nil
+  state.pending_request = nil
+end
+
+--- Build an error response table for a failed request.
+local function make_error_response(req_text, req_block, body_text, err_msg, exit_code)
+  return {
+    protocol = "error",
+    status = 0,
+    status_text = err_msg,
+    latency_ms = 0,
+    url = vim.trim(req_text),
+    content_type = "text/plain",
+    headers = req_block and req_block.headers or {},
+    body = body_text,
+    cookies = {},
+    metadata = {
+      method = "",
+      error = body_text,
+      exit_code = tostring(exit_code or "?"),
+      request_line = vim.trim(req_text),
+      env = state.current_env,
+    },
+  }
+end
+
+--- Emit response:ready event with the given data.
+local function emit_response(response_data, request_name, file_path, assertion_results, script_logs)
+  event.emit("response:ready", {
+    response = response_data,
+    request_name = request_name,
+    file = file_path,
+    assertion_results = assertion_results or nil,
+    script_logs = script_logs or nil,
+  })
+end
+
+--- Run assertions and update state.
+local function run_and_store_assertions(parsed, assertion_code, script_vars)
+  if not assertion_code then return nil end
+  local results = assertions.run_assertions(parsed, assertion_code, script_vars)
+  state.last_assertion_results = results
+  state.log("INFO", string.format("Assertions: %d passed, %d failed", results.passed, results.failed))
+  if results.logs and #results.logs > 0 then
+    state.last_script_logs = state.last_script_logs or {}
+    for _, msg in ipairs(results.logs) do
+      table.insert(state.last_script_logs, msg)
+    end
+  end
+  return results
+end
+
+--- Choose the appropriate view tab based on status and assertion results.
+local function choose_view_tab(parsed, assertion_results)
+  if assertion_results and assertion_results.failed > 0 then
+    return "assertions"
+  end
+  if parsed.status and parsed.status >= 400 then
+    return "verbose"
+  end
+  return "body"
+end
+
+--- Set indicator based on status and assertions.
+local function set_result_indicator(src_buf, line_0, parsed, assertion_results)
+  local is_error = parsed.status and parsed.status >= 400
+  local has_failures = assertion_results and assertion_results.failed > 0
+
+  if has_failures then
+    indicators.set_indicator(src_buf, line_0, "success", parsed.latency_ms, assertion_results)
+  elseif is_error then
+    indicators.set_indicator(src_buf, line_0, "error", parsed.latency_ms, assertion_results)
+  else
+    indicators.set_indicator(src_buf, line_0, "success", parsed.latency_ms, assertion_results)
+  end
+end
+
+--- Add entry to history.
+local function add_to_history(name, response_data, file_path)
+  history.add_entry(name, response_data, state.last_assertion_results, state.last_script_logs, file_path)
+end
+
+--- Parse JSON response from stdout and dispatch to appropriate handler.
+local function handle_job_stdout(data, src_buf, req_line, req_block, req_text, assertion_code, script_vars, current_req_name, file)
+  data = util.ensure_job_data(data)
+  if #data == 0 then return end
+
+  local output = table.concat(data, "\n")
+  state.log("INFO", "stdout: " .. output:sub(1, 200))
+
+  vim.schedule(function()
+    state.pending_request = nil
+    local ok, parsed = pcall(vim.json.decode, output)
+    if ok and parsed and type(parsed) == "table" then
+      -- Successful parse
+      state._json.query = nil
+      state._json.original_lines = nil
+      state._json.is_filtered = false
+      state.last_response = parsed
+      request_vars.cache_response(current_req_name, parsed)
+      emit_response(parsed, current_req_name, file, nil, nil)
+
+      local assertion_results = run_and_store_assertions(parsed, assertion_code, script_vars)
+      local view_name = choose_view_tab(parsed, assertion_results)
+      view.show_view(view_name)
+      set_result_indicator(src_buf, req_line, parsed, assertion_results)
+      local hist_name = (current_req_name or "") ~= "" and current_req_name or ("Request #" .. req_line + 1)
+      add_to_history(hist_name, state.last_response, file)
+    else
+      -- JSON parse failed
+      state.log("WARN", "JSON parse failed, showing raw output")
+      indicators.set_indicator(src_buf, req_line, "error")
+      local error_response = make_error_response(req_text, req_block, output, "JSON parse failed", "?")
+      state.last_response = error_response
+      emit_response(error_response, current_req_name, file, nil, nil)
+      view.show_view("verbose")
+      local err_name = (current_req_name or "") ~= "" and current_req_name or ("Request #" .. req_line + 1)
+      add_to_history(err_name, state.last_response, file)
+    end
+  end)
+end
+
+--- Handle job exit with non-zero code.
+local function handle_job_exit(code, stderr_buf, src_buf, req_line, req_block, req_text, current_req_name, file)
+  if code == 0 then return end
+
+  state.log("ERROR", string.format("exit code %d", code))
+  vim.schedule(function()
+    state.pending_request = nil
+    indicators.set_indicator(src_buf, req_line, "error")
+    local stderr_text = table.concat(stderr_buf, "\n")
+    local body = stderr_text ~= "" and stderr_text or "Request failed with exit code " .. code
+    local error_response = make_error_response(req_text, req_block, body, "Failed (exit " .. code .. ")", code)
+    state.last_response = error_response
+    emit_response(error_response, current_req_name, file, nil, nil)
+    view.show_view("verbose")
+    local err_name = (current_req_name or "") ~= "" and current_req_name or ("Request #" .. req_line + 1)
+    add_to_history(err_name, state.last_response, file)
+  end)
+end
+
+--- Build pending request info from buf_content for the Verb tab.
+local function build_pending_request(src_buf, buf_content, req_block, block_start, file)
+  local header_parts = {}
+  if req_block.headers then
+    for _, h in ipairs(req_block.headers) do
+      table.insert(header_parts, h[1] .. ": " .. h[2])
+    end
+  end
+  local headers_str = table.concat(header_parts, "\n")
+
+  -- Resolve @var definitions from the source buffer
+  local var_map = {}
+  local src_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
+  for _, sl in ipairs(src_lines) do
+    local vname, vvalue = sl:match("^@([%w_]+)%s*[:=]%s*(.+)$")
+    if vname then
+      var_map[vname] = vim.trim(vvalue)
+    end
+  end
+  local function resolve_vars(text)
+    if not text or text == "" then return text end
+    for name, value in pairs(var_map) do
+      local safe_value = value:gsub("%%", "%%%%")
+      text = text:gsub(vim.pesc("{{" .. name .. "}}"), safe_value)
+    end
+    return text
+  end
+
+  -- Extract the resolved URL and body from buf_content
+  local req_method = ""
+  local req_url = ""
+  local body = ""
+  if block_start then
+    local header_text = vim.trim(vim.api.nvim_buf_get_lines(src_buf, block_start - 1, block_start, false)[1] or "")
+    local sep_pos = header_text ~= "" and buf_content:find(vim.pesc(header_text), 1, true)
+    if sep_pos then
+      local after_sep = buf_content:find("\n", sep_pos)
+      if after_sep then
+        local req_line_end = buf_content:find("\n", after_sep + 1)
+        if req_line_end then
+          local resolved_req = buf_content:sub(after_sep + 1, req_line_end - 1)
+          req_method, req_url = resolved_req:match("^(%S+)%s+(.+)$")
+        end
+      end
+      local next_sep = buf_content:find("\n###", sep_pos + 1)
+      local block_end_pos = next_sep or #buf_content + 1
+      local after_req = (buf_content:find("\n", sep_pos) or sep_pos) + 1
+      local header_end = buf_content:find("\n\n", after_req)
+      if header_end and header_end < block_end_pos then
+        body = buf_content:sub(header_end + 2, block_end_pos - 1)
+        body = body:gsub("\n+$", "")
+      end
+    end
+  end
+
+  req_url = resolve_vars(req_url)
+  body = resolve_vars(body)
+  headers_str = resolve_vars(headers_str)
+
+  state.pending_request = {
+    method = req_method,
+    url = req_url,
+    headers_str = headers_str,
+    body = body,
+    env = state.current_env,
+    timestamp = os.date("%Y-%m-%d %H:%M:%S"),
+    start_hires = uv.hrtime(),
+  }
+end
+
+--- Handle the import/run directive response callback.
+local function handle_directive_response(success, response, src_buf, indicator_line, assertion_code, script_vars, resolved, file)
+  vim.schedule(function()
+    if not (success and response) then
+      indicators.set_indicator(src_buf, indicator_line, "error")
+      return
+    end
+
+    -- Batch execution: response is an array of {name, response}
+    if type(response) == "table" and response[1] and response[1].response then
+      state.last_responses = response
+      state.response_index = 1
+      state.last_response = response[1].response
+    else
+      state.last_responses = nil
+      state.response_index = 1
+      state.last_response = response
+    end
+
+    emit_response(state.last_response, resolved.request_name, resolved.path or file, nil, nil)
+
+    if assertion_code then
+      run_and_store_assertions(state.last_response, assertion_code, script_vars)
+      local view_name = choose_view_tab(state.last_response, state.last_assertion_results)
+      view.show_view(view_name)
+      set_result_indicator(src_buf, indicator_line, state.last_response, state.last_assertion_results)
+    else
+      local view_name = choose_view_tab(state.last_response, nil)
+      view.show_view(view_name)
+      set_result_indicator(src_buf, indicator_line, state.last_response, nil)
+    end
+
+    if type(response) == "table" and response[1] and response[1].response then
+      for _, item in ipairs(response) do
+        local item_name = (item.name or "") ~= "" and item.name or ("Request #" .. (item.line or ""))
+        add_to_history(item_name, item.response, resolved.path or file)
+      end
+    else
+      add_to_history(resolved.request_name or "Import", response, resolved.path or file)
+    end
+  end)
+end
+
+--- Inject global variables into buf_content after the block start line.
+local function inject_global_vars(buf_content, block_start, global_vars)
+  if not block_start or not global_vars or not next(global_vars) then
+    return buf_content, 0
+  end
+  local glines = vim.split(buf_content, "\n", { plain = true })
+  local result = {}
+  local gcount = 0
+  for _ in pairs(global_vars) do gcount = gcount + 1 end
+  for i, line_text in ipairs(glines) do
+    table.insert(result, line_text)
+    if i == block_start then
+      for name, value in pairs(global_vars) do
+        table.insert(result, string.format("@%s = %s", name, value))
+      end
+    end
+  end
+  return table.concat(result, "\n"), gcount
+end
+
+--- Resolve the current request name from collected requests.
+local function resolve_current_req_name(src_buf, line)
+  local requests = request_vars.collect_requests(src_buf)
+  for _, req in ipairs(requests) do
+    if line >= req.start_line and line <= req.end_line then
+      return req.name
+    end
+  end
+  return nil
+end
+
+--- Prepare request: resolve prompt variables → modified content.
+--- Returns (modified_content, req_line, block_start, block_end) via callback.
+local function prepare_request(src_buf, line, buf_content, binary, file, callback)
+  request_vars.handle_prompt_variables(src_buf, line, buf_content, binary, file, state.current_env, function(modified_content)
+    local req_line = indicators.find_request_line(src_buf, line)
+    if not req_line then
+      indicators.clear_all(src_buf)
+      return
+    end
+    indicators.clear_other_requests(src_buf, req_line)
+    indicators.set_indicator(src_buf, req_line, "running")
+
+    local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
+    callback(modified_content, req_line, block_start, block_end)
+  end)
+end
+
+--- Execute request: resolve vars, extract/run scripts, build curl cmd, start job.
+local function execute_request(src_buf, line, binary, file, modified_content, req_line, block_start, block_end, callback)
+  request_vars.resolve_request_variables(binary, file, state.current_env, src_buf, line, modified_content, function(buf_content)
+    local pre_script_code
+    local script_vars = nil
+    if block_start then
+      buf_content, pre_script_code = scripts.extract_pre_script_blocks(buf_content, block_start, block_end)
+      script_vars = scripts.collect_script_variables(buf_content, block_start, block_end)
+    end
+
+    -- Run pre-request script if present
+    if pre_script_code then
+      local pre_result = scripts.run_pre_script(pre_script_code, script_vars)
+      if pre_result.error then
+        state.log("ERROR", pre_result.error)
+        indicators.set_indicator(src_buf, req_line, "error")
+        local err_resp = make_error_response("", nil, pre_result.error, "Pre-script error", 1)
+        state.last_response = err_resp
+        emit_response(err_resp, nil, file, nil, nil)
+        view.show_view("verbose")
+        return
+      end
+      if #pre_result.logs > 0 then
+        state.last_script_logs = pre_result.logs
+      end
+      if next(pre_result.variables) then
+        local injected_count = 0
+        for _ in pairs(pre_result.variables) do injected_count = injected_count + 1 end
+        buf_content = scripts.inject_pre_script_vars(buf_content, block_start, pre_result.variables)
+        block_end = block_end + injected_count
+        line = line + injected_count
+        for name, value in pairs(pre_result.variables) do
+          state.script_variables[name] = value
+        end
+      end
+    end
+
+    -- Inject global vars
+    buf_content, _ = inject_global_vars(buf_content, block_start, state.global_vars)
+
+    -- Process form data and extract assertion blocks
+    buf_content = request_vars.process_form_data(src_buf, line, buf_content)
+    local assertion_code
+    buf_content, assertion_code = assertions.extract_assertion_blocks(buf_content, block_start, block_end)
+
+    local current_req_name = resolve_current_req_name(src_buf, line)
+    local req_block = indicators.extract_request_block(src_buf, line)
+    local req_text = req_block.request_line
+
+    callback(buf_content, req_block, req_text, assertion_code, script_vars, current_req_name, block_start)
+  end)
+end
+
+--- Start curl job via vim.fn.jobstart with stdin piped.
+local function start_curl_job(binary, file, line, buf_content, req_line, src_buf, req_block, req_text, assertion_code, script_vars, current_req_name, block_start)
+  local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
+    vim.fn.shellescape(binary),
+    vim.fn.shellescape(file),
+    line,
+    vim.fn.shellescape(state.current_env)
+  )
+  state.log("INFO", string.format("cmd: %s", cmd))
+
+  local stderr_buf = {}
+
+  local job_id = vim.fn.jobstart(cmd, {
+    stdin = "pipe",
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      handle_job_stdout(data, src_buf, req_line, req_block, req_text, assertion_code, script_vars, current_req_name, file)
+    end,
+    on_stderr = function(_, data)
+      data = util.ensure_job_data(data)
+      if #data == 0 then return end
+      for _, l in ipairs(data) do
+        table.insert(stderr_buf, l)
+      end
+    end,
+    on_exit = function(_, code)
+      handle_job_exit(code, stderr_buf, src_buf, req_line, req_block, req_text, current_req_name, file)
+    end,
+  })
+
+  if job_id > 0 then
+    vim.fn.chansend(job_id, buf_content)
+    vim.fn.chanclose(job_id, "stdin")
+    build_pending_request(src_buf, buf_content, req_block, block_start, file)
+    view.show_view("verbose")
+  else
+    indicators.set_indicator(src_buf, req_line, "error")
+    vim.notify("Failed to start poste job", vim.log.levels.ERROR, { title = "Poste" })
+  end
+end
+
+---------------------------------------------------------------------------
+-- Main entry point
+---------------------------------------------------------------------------
+
+--- Run the HTTP request at the current cursor position.
 function M.run_request()
   local ft = vim.bo.filetype
   if ft == "poste_sql" or ft == "poste_sqlite" then
@@ -25,10 +436,7 @@ function M.run_request()
     return
   end
 
-  state.last_response = nil
-  state.last_assertion_results = nil
-  state.last_script_logs = nil
-  state.pending_request = nil
+  clear_state()
 
   local src_buf = vim.api.nvim_get_current_buf()
   local line = vim.fn.line(".")
@@ -75,379 +483,18 @@ function M.run_request()
     indicators.set_indicator(src_buf, indicator_line, "running")
 
     import_mod.execute_run_directive(resolved, function(success, response)
-      vim.schedule(function()
-        if success and response then
-          -- Batch execution: response is an array of {name, response}
-          if type(response) == "table" and response[1] and response[1].response then
-            state.last_responses = response
-            state.response_index = 1
-            state.last_response = response[1].response
-          else
-            state.last_responses = nil
-            state.response_index = 1
-            state.last_response = response
-          end
-
-          if assertion_code then
-            state.last_assertion_results = assertions.run_assertions(state.last_response, assertion_code, script_vars)
-            state.log("INFO", string.format("Assertions: %d passed, %d failed",
-              state.last_assertion_results.passed, state.last_assertion_results.failed))
-
-            if state.last_assertion_results.logs and #state.last_assertion_results.logs > 0 then
-              state.last_script_logs = state.last_script_logs or {}
-              for _, msg in ipairs(state.last_assertion_results.logs) do
-                table.insert(state.last_script_logs, msg)
-              end
-            end
-
-            local is_error = state.last_response.status and state.last_response.status >= 400
-            if state.last_assertion_results.failed > 0 then
-              view.show_view("assertions")
-              indicators.set_indicator(src_buf, indicator_line, "success", state.last_response.latency_ms, state.last_assertion_results)
-            elseif is_error then
-              view.show_view("verbose")
-              indicators.set_indicator(src_buf, indicator_line, "error", state.last_response.latency_ms, state.last_assertion_results)
-            else
-              view.show_view("body")
-              indicators.set_indicator(src_buf, indicator_line, "success", state.last_response.latency_ms, state.last_assertion_results)
-            end
-          else
-            if state.last_response.status and state.last_response.status >= 400 then
-              view.show_view("verbose")
-              indicators.set_indicator(src_buf, indicator_line, "error", state.last_response.latency_ms)
-            else
-              view.show_view("body")
-              indicators.set_indicator(src_buf, indicator_line, "success", state.last_response.latency_ms)
-            end
-          end
-
-          if type(response) == "table" and response[1] and response[1].response then
-            for _, item in ipairs(response) do
-              local item_name = (item.name or "") ~= "" and item.name or ("Request #" .. (item.line or ""))
-              history.add_entry(item_name, item.response, state.last_assertion_results, state.last_script_logs, resolved.path or file)
-            end
-          else
-            history.add_entry(resolved.request_name or "Import", response, state.last_assertion_results, state.last_script_logs, resolved.path or file)
-          end
-        else
-          indicators.set_indicator(src_buf, indicator_line, "error")
-        end
-      end)
+      handle_directive_response(success, response, src_buf, indicator_line, assertion_code, script_vars, resolved, file)
     end)
     return
   end
 
-  request_vars.handle_prompt_variables(src_buf, line, buf_content, binary, file, state.current_env, function(modified_content)
-    local req_line = indicators.find_request_line(src_buf, line)
-    if not req_line then
-      indicators.clear_all(src_buf)
-      return
-    end
-    indicators.clear_other_requests(src_buf, req_line)
-    indicators.set_indicator(src_buf, req_line, "running")
-
-    local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
-
-    request_vars.resolve_request_variables(binary, file, state.current_env, src_buf, line, modified_content, function(buf_content)
-
-      local pre_script_code
-      local script_vars = nil
-      if block_start then
-        buf_content, pre_script_code = scripts.extract_pre_script_blocks(buf_content, block_start, block_end)
-        script_vars = scripts.collect_script_variables(buf_content, block_start, block_end)
-      end
-
-      if pre_script_code then
-        local pre_result = scripts.run_pre_script(pre_script_code, script_vars)
-        if pre_result.error then
-          state.log("ERROR", pre_result.error)
-          indicators.set_indicator(src_buf, req_line, "error")
-          state.last_response = {
-            protocol = "error",
-            status = 0,
-            status_text = "Pre-script error",
-            latency_ms = 0,
-            url = "Pre-request script failed",
-            content_type = "text/plain",
-            headers = {},
-            body = pre_result.error,
-            cookies = {},
-            metadata = { method = "", error = pre_result.error },
-          }
-          view.show_view("verbose")
-          return
-        end
-        if #pre_result.logs > 0 then
-          state.last_script_logs = pre_result.logs
-        end
-        if next(pre_result.variables) then
-          local injected_count = 0
-          for _ in pairs(pre_result.variables) do injected_count = injected_count + 1 end
-          buf_content = scripts.inject_pre_script_vars(buf_content, block_start, pre_result.variables)
-          block_end = block_end + injected_count
-          line = line + injected_count
-          for name, value in pairs(pre_result.variables) do
-            state.script_variables[name] = value
-          end
-        end
-      end
-
-      if block_start and state.global_vars and next(state.global_vars) then
-        local glines = vim.split(buf_content, "\n", { plain = true })
-        local result = {}
-        local gcount = 0
-        for name, _ in pairs(state.global_vars) do gcount = gcount + 1 end
-        for i, line in ipairs(glines) do
-          table.insert(result, line)
-          if i == block_start then
-            for name, value in pairs(state.global_vars) do
-              table.insert(result, string.format("@%s = %s", name, value))
-            end
-          end
-        end
-        buf_content = table.concat(result, "\n")
-        line = line + gcount
-      end
-
-      buf_content = request_vars.process_form_data(src_buf, line, buf_content)
-
-      local assertion_code
-      buf_content, assertion_code = assertions.extract_assertion_blocks(buf_content, block_start, block_end)
-
-      local requests = request_vars.collect_requests(src_buf)
-      local current_req_name = nil
-      for _, req in ipairs(requests) do
-        if line >= req.start_line and line <= req.end_line then
-          current_req_name = req.name
-          break
-        end
-      end
-
-      local req_block = indicators.extract_request_block(src_buf, line)
-      local req_text = req_block.request_line
-
-      local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
-        vim.fn.shellescape(binary),
-        vim.fn.shellescape(file),
-        line,
-        vim.fn.shellescape(state.current_env)
-      )
-
-      state.log("INFO", string.format("cmd: %s", cmd))
-
-      local stderr_buf = {}
-
-      local job_id = vim.fn.jobstart(cmd, {
-        stdin = "pipe",
-        stdout_buffered = true,
-        stderr_buffered = true,
-        on_stdout = function(_, data)
-          data = util.ensure_job_data(data)
-          if #data == 0 then return end
-
-          local output = table.concat(data, "\n")
-          state.log("INFO", "stdout: " .. output:sub(1, 200))
-
-          vim.schedule(function()
-            state.pending_request = nil
-            local ok, parsed = pcall(vim.json.decode, output)
-            if ok and parsed and type(parsed) == "table" then
-              state._json.query = nil
-              state._json.original_lines = nil
-              state._json.is_filtered = false
-              state.last_response = parsed
-              request_vars.cache_response(current_req_name, parsed)
-
-              if assertion_code then
-                state.last_assertion_results = assertions.run_assertions(parsed, assertion_code, script_vars)
-                state.log("INFO", string.format("Assertions: %d passed, %d failed",
-                  state.last_assertion_results.passed, state.last_assertion_results.failed))
-
-                if state.last_assertion_results.logs and #state.last_assertion_results.logs > 0 then
-                  state.last_script_logs = state.last_script_logs or {}
-                  for _, msg in ipairs(state.last_assertion_results.logs) do
-                    table.insert(state.last_script_logs, msg)
-                  end
-                end
-
-                local is_error = parsed.status and parsed.status >= 400
-                if state.last_assertion_results.failed > 0 then
-                  view.show_view("assertions")
-                  indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms, state.last_assertion_results)
-                elseif is_error then
-                  view.show_view("verbose")
-                  indicators.set_indicator(src_buf, req_line, "error", parsed.latency_ms, state.last_assertion_results)
-                else
-                  view.show_view("body")
-                  indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms, state.last_assertion_results)
-                end
-              else
-                if parsed.status and parsed.status >= 400 then
-                  view.show_view("verbose")
-                  indicators.set_indicator(src_buf, req_line, "error", parsed.latency_ms)
-                else
-                  view.show_view("body")
-                  indicators.set_indicator(src_buf, req_line, "success", parsed.latency_ms)
-                end
-              end
-              local hist_name = (current_req_name or "") ~= "" and current_req_name or ("Request #" .. line)
-              history.add_entry(hist_name, state.last_response, state.last_assertion_results, state.last_script_logs, file)
-            else
-              state.log("WARN", "JSON parse failed, showing raw output")
-              indicators.set_indicator(src_buf, req_line, "error")
-              state.last_response = {
-                protocol = "error",
-                status = 0,
-                status_text = "JSON parse failed",
-                latency_ms = 0,
-                url = vim.trim(req_text),
-                content_type = "text/plain",
-                headers = req_block.headers,
-                body = output,
-                cookies = {},
-                metadata = {
-                  method = "",
-                  error = "JSON parse failed",
-                  exit_code = "?",
-                  request_line = vim.trim(req_text),
-                  env = state.current_env,
-                },
-              }
-              view.show_view("verbose")
-              local err_name = (current_req_name or "") ~= "" and current_req_name or ("Request #" .. line)
-              history.add_entry(err_name, state.last_response, state.last_assertion_results, state.last_script_logs, file)
-            end
-          end)
-        end,
-        on_stderr = function(_, data)
-          data = util.ensure_job_data(data)
-          if #data == 0 then return end
-          for _, l in ipairs(data) do
-            table.insert(stderr_buf, l)
-          end
-        end,
-        on_exit = function(_, code)
-          if code ~= 0 then
-            state.log("ERROR", string.format("exit code %d (line %d, env %s)", code, line, state.current_env))
-            vim.schedule(function()
-              state.pending_request = nil
-              indicators.set_indicator(src_buf, req_line, "error")
-              local stderr_text = table.concat(stderr_buf, "\n")
-              state.last_response = {
-                protocol = "error",
-                status = 0,
-                status_text = "Failed (exit " .. code .. ")",
-                latency_ms = 0,
-                url = vim.trim(req_text),
-                content_type = "text/plain",
-                headers = req_block.headers,
-                body = stderr_text ~= "" and stderr_text or "Request failed with exit code " .. code,
-                cookies = {},
-                metadata = {
-                  method = "",
-                  error = stderr_text,
-                  exit_code = tostring(code),
-                  request_line = vim.trim(req_text),
-                  env = state.current_env,
-                },
-              }
-              view.show_view("verbose")
-              local err_name = (current_req_name or "") ~= "" and current_req_name or ("Request #" .. line)
-              history.add_entry(err_name, state.last_response, state.last_assertion_results, state.last_script_logs, file)
-            end)
-          end
-        end,
-      })
-
-      if job_id > 0 then
-        vim.fn.chansend(job_id, buf_content)
-        vim.fn.chanclose(job_id, "stdin")
-
-        -- --- Show pending request info immediately ---
-        local header_parts = {}
-        if req_block.headers then
-          for _, h in ipairs(req_block.headers) do
-            table.insert(header_parts, h[1] .. ": " .. h[2])
-          end
-        end
-        local headers_str = table.concat(header_parts, "\n")
-
-        -- Resolve @var definitions from the source buffer so the pending
-        -- request display shows actual values instead of {{template}} refs.
-        local var_map = {}
-        local src_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
-        for _, sl in ipairs(src_lines) do
-          local vname, vvalue = sl:match("^@([%w_]+)%s*[:=]%s*(.+)$")
-          if vname then
-            var_map[vname] = vim.trim(vvalue)
-          end
-        end
-        local function resolve_vars(text)
-          if not text or text == "" then return text end
-          for name, value in pairs(var_map) do
-            local safe_value = value:gsub("%%", "%%%%")
-            text = text:gsub(vim.pesc("{{" .. name .. "}}"), safe_value)
-          end
-          return text
-        end
-
-        -- Extract the resolved URL and body from buf_content: find the
-        -- current request block's ### separator, then read the request line
-        -- (which may still have templates until resolved) and the body.
-        local req_method = ""
-        local req_url = ""
-        local body = ""
-        if block_start then
-          -- Get the ### line text from the source buffer
-          local header_text = vim.trim(vim.api.nvim_buf_get_lines(src_buf, block_start - 1, block_start, false)[1] or "")
-          local sep_pos = header_text ~= "" and buf_content:find(vim.pesc(header_text), 1, true)
-          if sep_pos then
-            -- The request line is right after the ### line
-            local after_sep = buf_content:find("\n", sep_pos)
-            if after_sep then
-              local req_line_end = buf_content:find("\n", after_sep + 1)
-              if req_line_end then
-                local resolved_req = buf_content:sub(after_sep + 1, req_line_end - 1)
-                req_method, req_url = resolved_req:match("^(%S+)%s+(.+)$")
-              end
-            end
-            -- Body: find the blank line after headers within this block
-            local next_sep = buf_content:find("\n###", sep_pos + 1)
-            local block_end_pos = next_sep or #buf_content + 1
-            -- Look for the first \n\n after the request line position
-            local after_req = (buf_content:find("\n", sep_pos) or sep_pos) + 1
-            local header_end = buf_content:find("\n\n", after_req)
-            if header_end and header_end < block_end_pos then
-              body = buf_content:sub(header_end + 2, block_end_pos - 1)
-              -- Trim trailing whitespace
-              body = body:gsub("\n+$", "")
-            end
-          end
-        end
-
-        -- Resolve @var templates in the pending display values
-        req_url = resolve_vars(req_url)
-        body = resolve_vars(body)
-        headers_str = resolve_vars(headers_str)
-
-        state.pending_request = {
-          method = req_method,
-          url = req_url,
-          headers_str = headers_str,
-          body = body,
-          env = state.current_env,
-          timestamp = os.date("%Y-%m-%d %H:%M:%S"),
-          start_hires = uv.hrtime(),
-        }
-
-        -- Open response window with Verb tab; on_stdout will update it
-        -- with the full response data once the response arrives.
-        view.show_view("verbose")
-      else
-        indicators.set_indicator(src_buf, req_line, "error")
-        vim.notify("Failed to start poste job", vim.log.levels.ERROR, { title = "Poste" })
-      end
-    end)
+  -- Standard request pipeline
+  prepare_request(src_buf, line, buf_content, binary, file, function(modified_content, req_line, block_start, block_end)
+    execute_request(src_buf, line, binary, file, modified_content, req_line, block_start, block_end,
+      function(buf_content, req_block, req_text, assertion_code, script_vars, current_req_name, block_start)
+        start_curl_job(binary, file, line, buf_content, req_line, src_buf, req_block, req_text,
+          assertion_code, script_vars, current_req_name, block_start)
+      end)
   end)
 end
 

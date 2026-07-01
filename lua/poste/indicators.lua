@@ -1,15 +1,17 @@
 --- Request line detection and status indicators (sign column + eol latency/assertions).
 local uv = vim.uv or vim.loop
 
+local C = require("poste.constants")
+
 local M = {}
 
-local sign_group = "poste_sg_4a7f"
-local indicator_ns = vim.api.nvim_create_namespace("poste_indicator")
+local sign_group = C.SIGN_GROUP_NAME
+local indicator_ns = vim.api.nvim_create_namespace(C.INDICATOR_NS_NAME)
 local indicator_marks = {}  -- buf -> { line_0 -> sign_id }
 local spinner_timer = nil
 local spinner_gen = 0  -- generation counter to invalidate stale spinner callbacks
 
-local spinner_frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+local spinner_frames = C.SPINNER_FRAMES
 
 local sign_configs = {
   PosteSpinnerSign = { text = spinner_frames[1], texthl = "PosteSpinner" },
@@ -250,6 +252,58 @@ local function place_or_replace_sign(buf, line_0, old_sign_id, sign_name)
   end
 end
 
+---------------------------------------------------------------------------
+-- Virt-text building helpers (extracted to eliminate duplication)
+---------------------------------------------------------------------------
+
+--- Format latency for display.
+--- Returns "X.XX ms" for < 1000ms, "X.XX s" for >= 1000ms.
+---@param latency_ms number
+---@return string
+local function format_latency(latency_ms)
+  if latency_ms >= 1000 then
+    return string.format("%.2f s", latency_ms / 1000)
+  end
+  return string.format("%.2f ms", latency_ms)
+end
+
+--- Build assertion summary text and highlight group.
+--- Returns nil if no assertions were run.
+---@param assertion_results { total: number, passed: number, failed: number }
+---@return { text: string, hl: string }|nil
+local function build_assertion_text(assertion_results)
+  if not assertion_results or not assertion_results.total or assertion_results.total == 0 then
+    return nil
+  end
+  if assertion_results.failed and assertion_results.failed > 0 then
+    return {
+      text = string.format("  ✘ %d/%d tests", assertion_results.failed, assertion_results.total),
+      hl = "PosteError",
+    }
+  end
+  return {
+    text = string.format("  ✓ %d/%d tests", assertion_results.passed, assertion_results.total),
+    hl = "PosteSuccess",
+  }
+end
+
+--- Build virt_text table from latency and assertion results.
+--- Returns empty table if nothing to show.
+---@param latency_ms number|nil
+---@param assertion_results table|nil
+---@return table<{string, string}>
+local function build_virt_text(latency_ms, assertion_results)
+  local virt_text = {}
+  if latency_ms and latency_ms > 0 then
+    table.insert(virt_text, { format_latency(latency_ms), "PosteLatency" })
+  end
+  local assert_item = build_assertion_text(assertion_results)
+  if assert_item then
+    table.insert(virt_text, { assert_item.text, assert_item.hl })
+  end
+  return virt_text
+end
+
 --- Place or update indicator (sign column + eol latency/assertions).
 --- status: "running" | "success" | "error"
 --- latency_ms: optional, shown after ✓ on success
@@ -293,7 +347,7 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
     end
 
     spinner_timer = uv.new_timer()
-    spinner_timer:start(100, 100, vim.schedule_wrap(update_spinner))
+    spinner_timer:start(C.SPINNER_INTERVAL_MS, C.SPINNER_INTERVAL_MS, vim.schedule_wrap(update_spinner))
 
   elseif status == "success" then
     local old_id = indicator_marks[buf][line_0]
@@ -302,29 +356,7 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
     -- Clear stale eol virt_text, then create latency/assertion eol text
     vim.api.nvim_buf_clear_namespace(buf, indicator_ns, line_0, line_0 + 1)
 
-    local virt_text = {}
-    if latency_ms and latency_ms > 0 then
-      local latency_text
-      if latency_ms >= 1000 then
-        latency_text = string.format("%.2f s", latency_ms / 1000)
-      else
-        latency_text = string.format("%.2f ms", latency_ms)
-      end
-      table.insert(virt_text, { latency_text, "PosteLatency" })
-    end
-    if assertion_results and assertion_results.total > 0 then
-      if assertion_results.failed > 0 then
-        table.insert(virt_text, {
-          string.format("  ✘ %d/%d tests", assertion_results.failed, assertion_results.total),
-          "PosteError",
-        })
-      else
-        table.insert(virt_text, {
-          string.format("  ✓ %d/%d tests", assertion_results.passed, assertion_results.total),
-          "PosteSuccess",
-        })
-      end
-    end
+    local virt_text = build_virt_text(latency_ms, assertion_results)
     if #virt_text > 0 then
       vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
         virt_text = virt_text,
@@ -341,30 +373,7 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
     end
     vim.api.nvim_buf_clear_namespace(buf, indicator_ns, line_0, line_0 + 1)
 
-    -- Create error latency/assertion eol text
-    local virt_text = {}
-    if latency_ms and latency_ms > 0 then
-      local latency_text
-      if latency_ms >= 1000 then
-        latency_text = string.format("%.2f s", latency_ms / 1000)
-      else
-        latency_text = string.format("%.2f ms", latency_ms)
-      end
-      table.insert(virt_text, { latency_text, "PosteLatency" })
-    end
-    if assertion_results and assertion_results.total > 0 then
-      if assertion_results.failed > 0 then
-        table.insert(virt_text, {
-          string.format("  ✘ %d/%d tests", assertion_results.failed, assertion_results.total),
-          "PosteError",
-        })
-      else
-        table.insert(virt_text, {
-          string.format("  ✓ %d/%d tests", assertion_results.passed, assertion_results.total),
-          "PosteSuccess",
-        })
-      end
-    end
+    local virt_text = build_virt_text(latency_ms, assertion_results)
     if #virt_text > 0 then
       vim.api.nvim_buf_set_extmark(buf, indicator_ns, line_0, 0, {
         virt_text = virt_text,

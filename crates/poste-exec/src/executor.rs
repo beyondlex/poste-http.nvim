@@ -502,16 +502,16 @@ fn parse_filename_from_disposition(header_value: &str) -> Option<String> {
     // Look for `filename="value"` or `filename=value`
     if let Some(start) = header_value.find("filename=") {
         let rest = &header_value[start + 9..];
-        if rest.starts_with('"') {
+        if let Some(stripped) = rest.strip_prefix('"') {
             // Quoted: filename="value"
-            let end = rest[1..].find('"').map(|i| i + 1).unwrap_or(rest.len());
+            let end = stripped.find('"').map(|i| i + 1).unwrap_or(rest.len());
             let name = &rest[1..end];
             if !name.is_empty() {
                 return Some(sanitize_filename(name));
             }
-        } else if rest.starts_with('\'') {
+        } else if let Some(stripped) = rest.strip_prefix('\'') {
             // Single-quoted: filename='value'
-            let end = rest[1..].find('\'').map(|i| i + 1).unwrap_or(rest.len());
+            let end = stripped.find('\'').map(|i| i + 1).unwrap_or(rest.len());
             let name = &rest[1..end];
             if !name.is_empty() {
                 return Some(sanitize_filename(name));

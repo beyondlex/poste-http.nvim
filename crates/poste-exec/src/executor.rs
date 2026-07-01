@@ -1,7 +1,7 @@
-use poste_core::{Protocol, Request};
-use crate::response::Response;
 use crate::cookie_jar::CookieJar;
+use crate::response::Response;
 use anyhow::Result;
+use poste_core::{Protocol, Request};
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -32,7 +32,8 @@ impl Executor {
         }
 
         let request_line = lines[0].trim();
-        let space_pos = request_line.find(char::is_whitespace)
+        let space_pos = request_line
+            .find(char::is_whitespace)
             .ok_or_else(|| anyhow::anyhow!("Invalid HTTP request line: {}", request_line))?;
 
         let method = request_line[..space_pos].to_uppercase();
@@ -63,9 +64,9 @@ impl Executor {
         // multi-line formatting in the .http file (e.g. each key-value pair
         // on its own line).  Raw newlines would be appended to the preceding
         // value, which is almost certainly unintended.
-        let is_form_urlencoded = req_headers.iter().any(|(k, v)|
+        let is_form_urlencoded = req_headers.iter().any(|(k, v)| {
             k.to_lowercase() == "content-type" && v.contains("x-www-form-urlencoded")
-        );
+        });
         let req_body = if is_form_urlencoded {
             req_body.replace('\n', "")
         } else {
@@ -75,13 +76,21 @@ impl Executor {
         let headers_file = tempfile::NamedTempFile::new()?;
         let headers_path = headers_file.path().to_path_buf();
 
-        let args = Self::build_curl_args(&method, &url, &req_headers, &req_body, cookie_jar, &headers_path);
+        let args = Self::build_curl_args(
+            &method,
+            &url,
+            &req_headers,
+            &req_body,
+            cookie_jar,
+            &headers_path,
+        );
         let (stdout, stderr, status) = Self::execute_curl(&args).await?;
         let headers_content = std::fs::read_to_string(&headers_path).unwrap_or_default();
 
         let mut response = parse_curl_response(&headers_content, &stdout, &url)?;
 
-        let cookies = cookie_jar.as_ref()
+        let cookies = cookie_jar
+            .as_ref()
             .map(|j| j.read_all())
             .unwrap_or_default();
 
@@ -93,47 +102,75 @@ impl Executor {
             // Try to extract filename from Content-Disposition header (e.g.,
             // `attachment; filename="考勤统计.xls"`), falling back to a
             // timestamp-based name.
-            let disp_header = response.headers.iter()
+            let disp_header = response
+                .headers
+                .iter()
                 .find(|(k, _)| k.to_lowercase() == "content-disposition")
                 .map(|(_, v)| v.as_str());
             let file_name = disp_header
                 .and_then(parse_filename_from_disposition)
                 .filter(|n: &String| !n.is_empty())
                 .unwrap_or_else(|| {
-                    format!("poste_{}_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"), response.status)
+                    format!(
+                        "poste_{}_{}",
+                        chrono::Local::now().format("%Y%m%d_%H%M%S"),
+                        response.status
+                    )
                 });
             let tmp_path = resolve_path_with_conflict("/tmp", &file_name);
             match std::fs::write(&tmp_path, &stdout) {
                 Err(e) => {
-                    metadata.insert("file_save_error".to_string(), format!("failed to write to {}: {}", tmp_path.display(), e));
+                    metadata.insert(
+                        "file_save_error".to_string(),
+                        format!("failed to write to {}: {}", tmp_path.display(), e),
+                    );
                 }
                 Ok(()) => {
                     let file_size = stdout.len();
-                    metadata.insert("file_path".to_string(), tmp_path.to_string_lossy().to_string());
+                    metadata.insert(
+                        "file_path".to_string(),
+                        tmp_path.to_string_lossy().to_string(),
+                    );
                     metadata.insert("file_size".to_string(), file_size.to_string());
-                    metadata.insert("file_content_type".to_string(), response.content_type.clone());
+                    metadata.insert(
+                        "file_content_type".to_string(),
+                        response.content_type.clone(),
+                    );
                     // Replace mangled body with a summary
-                    response.body = format!("[Binary file saved to: {}]\n[Size: {} bytes]\n[Content-Type: {}]",
-                        tmp_path.display(), file_size, response.content_type);
+                    response.body = format!(
+                        "[Binary file saved to: {}]\n[Size: {} bytes]\n[Content-Type: {}]",
+                        tmp_path.display(),
+                        file_size,
+                        response.content_type
+                    );
                 }
             }
         }
 
         metadata.insert("method".to_string(), method.clone());
-        metadata.insert("request_headers".to_string(),
-            req_headers.iter()
+        metadata.insert(
+            "request_headers".to_string(),
+            req_headers
+                .iter()
                 .map(|(k, v)| format!("{}: {}", k, v))
                 .collect::<Vec<_>>()
-                .join("\n"));
+                .join("\n"),
+        );
         if !req_body.trim().is_empty() {
             metadata.insert("request_body".to_string(), req_body);
         }
-        metadata.insert("timestamp".to_string(),
-            chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
-        metadata.insert("verbose".to_string(),
-            String::from_utf8_lossy(&stderr).to_string());
-        metadata.insert("exit_code".to_string(),
-            status.code().unwrap_or(-1).to_string());
+        metadata.insert(
+            "timestamp".to_string(),
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        );
+        metadata.insert(
+            "verbose".to_string(),
+            String::from_utf8_lossy(&stderr).to_string(),
+        );
+        metadata.insert(
+            "exit_code".to_string(),
+            status.code().unwrap_or(-1).to_string(),
+        );
 
         Ok(Response {
             protocol: "http".to_string(),
@@ -163,9 +200,12 @@ impl Executor {
             "-S".to_string(),
             "-v".to_string(),
             "-L".to_string(),
-            "-X".to_string(), method.to_string(),
-            "-D".to_string(), headers_path.to_string_lossy().to_string(),
-            "-A".to_string(), "poste/0.1.0".to_string(),
+            "-X".to_string(),
+            method.to_string(),
+            "-D".to_string(),
+            headers_path.to_string_lossy().to_string(),
+            "-A".to_string(),
+            "poste/0.1.0".to_string(),
         ];
 
         for (key, value) in req_headers {
@@ -201,7 +241,6 @@ impl Executor {
     }
 
     async fn execute_redis(request: &Request) -> Result<Response> {
-
         let connection = if request.connection.is_empty() {
             anyhow::bail!("Redis request missing @connection directive");
         } else {
@@ -216,7 +255,9 @@ impl Executor {
             .body
             .lines()
             .map(|l| l.trim())
-            .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("--") && !l.starts_with('>'))
+            .filter(|l| {
+                !l.is_empty() && !l.starts_with('#') && !l.starts_with("--") && !l.starts_with('>')
+            })
             .collect();
 
         if cmd_lines.is_empty() {
@@ -238,13 +279,16 @@ impl Executor {
         }
 
         let result: redis::Value = cmd.query_async(&mut con).await?;
-        
+
         // Convert to structured JSON for Lua-side rendering
         let structured = redis_value_to_json(&result, &cmd_name);
         let body = serde_json::to_string(&structured)?;
 
-        let type_name = structured.get("type").and_then(|v| v.as_str()).unwrap_or("unknown");
-        
+        let type_name = structured
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+
         let status_text = match &result {
             redis::Value::Okay => "OK".to_string(),
             redis::Value::Nil => "(nil)".to_string(),
@@ -270,8 +314,7 @@ impl Executor {
             metadata,
         })
     }
-
-    }
+}
 
 /// Parsed response from curl output.
 struct CurlResponse {
@@ -387,10 +430,7 @@ fn is_binary_content_type(content_type: &str) -> bool {
     let mime = ct.split(';').next().unwrap_or(&ct).trim().to_string();
 
     // Image, audio, video
-    if mime.starts_with("image/")
-        || mime.starts_with("audio/")
-        || mime.starts_with("video/")
-    {
+    if mime.starts_with("image/") || mime.starts_with("audio/") || mime.starts_with("video/") {
         return true;
     }
 
@@ -536,7 +576,8 @@ fn resolve_path_with_conflict(dir: &str, filename: &str) -> std::path::PathBuf {
         .map(|s| format!(".{}", s))
         .unwrap_or_default();
 
-    for i in 1..1000 { // see constants.lua MAX_CONFLICT_SUFFIX
+    for i in 1..1000 {
+        // see constants.lua MAX_CONFLICT_SUFFIX
         let candidate = if ext.is_empty() {
             format!("{}({})", stem, i)
         } else {
@@ -615,7 +656,12 @@ fn redis_value_to_json(val: &redis::Value, cmd_name: &str) -> serde_json::Value 
                 _ => {
                     // Heuristic: check if array looks like key-value pairs (even length, alternating types)
                     if arr.len() % 2 == 0 && !arr.is_empty() {
-                        let all_strings = arr.iter().all(|v| matches!(v, redis::Value::BulkString(_) | redis::Value::SimpleString(_)));
+                        let all_strings = arr.iter().all(|v| {
+                            matches!(
+                                v,
+                                redis::Value::BulkString(_) | redis::Value::SimpleString(_)
+                            )
+                        });
                         if all_strings {
                             "hash"
                         } else {
@@ -634,7 +680,9 @@ fn redis_value_to_json(val: &redis::Value, cmd_name: &str) -> serde_json::Value 
                     for chunk in arr.chunks(2) {
                         if chunk.len() == 2 {
                             let key = match &chunk[0] {
-                                redis::Value::BulkString(b) => String::from_utf8_lossy(b).to_string(),
+                                redis::Value::BulkString(b) => {
+                                    String::from_utf8_lossy(b).to_string()
+                                }
                                 redis::Value::SimpleString(s) => s.clone(),
                                 _ => continue,
                             };
@@ -653,7 +701,9 @@ fn redis_value_to_json(val: &redis::Value, cmd_name: &str) -> serde_json::Value 
                     for chunk in arr.chunks(2) {
                         if chunk.len() == 2 {
                             let member = match &chunk[0] {
-                                redis::Value::BulkString(b) => String::from_utf8_lossy(b).to_string(),
+                                redis::Value::BulkString(b) => {
+                                    String::from_utf8_lossy(b).to_string()
+                                }
                                 redis::Value::SimpleString(s) => s.clone(),
                                 _ => continue,
                             };
@@ -677,7 +727,8 @@ fn redis_value_to_json(val: &redis::Value, cmd_name: &str) -> serde_json::Value 
                 }
                 _ => {
                     // list or set
-                    let items: Vec<Value> = arr.iter()
+                    let items: Vec<Value> = arr
+                        .iter()
                         .map(|v| redis_value_to_json(v, "")["value"].clone())
                         .collect();
                     json!({

@@ -686,7 +686,7 @@ function M.format_verbose(r)
     if verbose and verbose ~= "" then
       local conn_info = extract_connection_info(verbose)
       if next(conn_info) then
-        table.insert(lines, "───")
+        table.insert(lines, string.rep("─", 60))
         table.insert(lines, "▸ Connection")
         if conn_info.proxy then
           table.insert(lines, "  Proxy:     " .. conn_info.proxy)

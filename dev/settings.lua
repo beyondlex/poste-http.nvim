@@ -10,6 +10,8 @@
 --   vim.opt.mouse = "a"
 vim.g.mapleader = " "
 vim.opt.laststatus = 3
+vim.opt.clipboard = "unnamedplus"
+vim.opt.splitright = true
 
 -- vim.keymap.set("n", "<leader>e", function() Snacks.explorer() end)
 vim.keymap.set("n", "<C-l>", "<C-W>l")

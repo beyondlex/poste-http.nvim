@@ -244,6 +244,20 @@ function M.format_body(r)
     return format_redis_body(r)
   end
 
+  -- Binary file response: show file info instead of mangled raw content
+  if r.metadata and r.metadata.file_path then
+    local lines = {}
+    table.insert(lines, "▸ Binary File Response")
+    table.insert(lines, "")
+    table.insert(lines, string.format("  Path:         %s", r.metadata.file_path))
+    table.insert(lines, string.format("  Size:         %s bytes", r.metadata.file_size or "?"))
+    table.insert(lines, string.format("  Content-Type: %s", r.metadata.file_content_type or r.content_type or "?"))
+    table.insert(lines, "")
+    local opener = vim.fn.has("mac") == 1 and "open" or "xdg-open"
+    table.insert(lines, string.format("  Open file:    :!%s %s", opener, r.metadata.file_path))
+    return lines
+  end
+
   local body = pretty_body(r.body, r.content_type)
   return split_lines(body)
 end
@@ -614,9 +628,18 @@ function M.format_verbose(r)
     local has_res_body = r.body and r.body ~= ""
     if has_res_body then
       table.insert(lines, "▸ Response Body")
-      local body = pretty_body(r.body, r.content_type)
-      for l in body:gmatch("[^\r\n]+") do
-        table.insert(lines, "  " .. l)
+      -- File saved by Rust executor: show file info
+      if r.metadata and r.metadata.file_path then
+        table.insert(lines, string.format("  Path:         %s", r.metadata.file_path))
+        table.insert(lines, string.format("  Size:         %s bytes", r.metadata.file_size or "?"))
+        table.insert(lines, string.format("  Content-Type: %s", r.metadata.file_content_type or r.content_type or "?"))
+        local opener = vim.fn.has("mac") == 1 and "open" or "xdg-open"
+        table.insert(lines, string.format("  Open:         :!%s %s", opener, r.metadata.file_path))
+      else
+        local body = pretty_body(r.body, r.content_type)
+        for l in body:gmatch("[^\r\n]+") do
+          table.insert(lines, "  " .. l)
+        end
       end
     end
 

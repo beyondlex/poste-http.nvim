@@ -81,13 +81,35 @@ impl Executor {
         let (stdout, stderr, status) = Self::execute_curl(&args).await?;
         let headers_content = std::fs::read_to_string(&headers_path).unwrap_or_default();
 
-        let response = parse_curl_response(&headers_content, &stdout, &url)?;
+        let mut response = parse_curl_response(&headers_content, &stdout, &url)?;
 
         let cookies = cookie_jar.as_ref()
             .map(|j| j.read_all())
             .unwrap_or_default();
 
         let mut metadata = HashMap::new();
+
+        // If the response is binary content (image, PDF, zip, etc.), save it to
+        // /tmp/ and store the file path in metadata instead of mangled UTF-8 text.
+        if is_binary_content_type(&response.content_type) && !stdout.is_empty() {
+            let file_name = format!("poste_{}_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"), response.status);
+            let tmp_path = std::path::Path::new("/tmp").join(&file_name);
+            match std::fs::write(&tmp_path, &stdout) {
+                Err(e) => {
+                    metadata.insert("file_save_error".to_string(), format!("failed to write to {}: {}", tmp_path.display(), e));
+                }
+                Ok(()) => {
+                    let file_size = stdout.len();
+                    metadata.insert("file_path".to_string(), tmp_path.to_string_lossy().to_string());
+                    metadata.insert("file_size".to_string(), file_size.to_string());
+                    metadata.insert("file_content_type".to_string(), response.content_type.clone());
+                    // Replace mangled body with a summary
+                    response.body = format!("[Binary file saved to: {}]\n[Size: {} bytes]\n[Content-Type: {}]",
+                        tmp_path.display(), file_size, response.content_type);
+                }
+            }
+        }
+
         metadata.insert("method".to_string(), method.clone());
         metadata.insert("request_headers".to_string(),
             req_headers.iter()
@@ -349,6 +371,49 @@ fn http_reason(code: u16) -> &'static str {
         504 => "Gateway Timeout",
         _ => "",
     }
+}
+
+/// Detect whether a Content-Type indicates binary data that should not be
+/// rendered as text in the response body/verbose tabs.
+///
+/// Matches common binary MIME types: images, audio, video, archives,
+/// office documents, protobuf, etc.
+fn is_binary_content_type(content_type: &str) -> bool {
+    let ct = content_type.to_lowercase();
+    // Strip parameters (charset, boundary, etc.)
+    let mime = ct.split(';').next().unwrap_or(&ct).trim().to_string();
+
+    // Image, audio, video
+    if mime.starts_with("image/")
+        || mime.starts_with("audio/")
+        || mime.starts_with("video/")
+    {
+        return true;
+    }
+
+    // Known binary application types
+    matches!(
+        mime.as_str(),
+        "application/octet-stream"
+            | "application/pdf"
+            | "application/zip"
+            | "application/gzip"
+            | "application/x-tar"
+            | "application/x-bzip2"
+            | "application/x-7z-compressed"
+            | "application/x-rar-compressed"
+            | "application/java-archive"
+            | "application/vnd.ms-excel"
+            | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            | "application/vnd.ms-powerpoint"
+            | "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            | "application/msword"
+            | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            | "application/x-protobuf"
+            | "application/msgpack"
+            | "application/cbor"
+            | "application/wasm"
+    )
 }
 
 /// Convert Redis Value to structured JSON for Lua-side rendering.

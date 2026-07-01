@@ -56,6 +56,12 @@ sql/design.md (入口)
     └── 引用 → sql/data-import-design.md (数据导入)
 ```
 
+## 重构计划
+
+| 文档 | 说明 |
+|------|------|
+| [重构实施计划](./refactoring-plan.md) | 代码味道识别、方案、TDD 实施步骤 |
+
 ## 构建
 
 ```bash

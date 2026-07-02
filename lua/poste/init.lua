@@ -39,6 +39,15 @@ function M.setup(opts)
   end
   vim.g.poste_setup_done = true
 
+  -- Auto-clean old response cache on startup (deferred)
+  vim.defer_fn(function()
+    local format = require("poste.http.format")
+    local cleaned = format.clean_response_cache(120)  -- 2 hour default
+    if cleaned > 0 then
+      vim.notify(string.format("[Poste] Cleaned %d stale response file(s)", cleaned), vim.log.levels.DEBUG)
+    end
+  end, 2000)
+
   completion.register()
   require("poste.http.lua_docs").setup()
   require("poste.http.script_snippet").setup()
@@ -155,7 +164,13 @@ function M.setup(opts)
       local v = install.installed_version()
       vim.notify("[Poste] Updated to " .. (v or "latest"), vim.log.levels.INFO)
     end
-  end, { desc = "Update poste-cli binary to latest release" })
+   end, { desc = "Update poste-cli binary to latest release" })
+
+  vim.api.nvim_create_user_command("PosteClearCache", function()
+    local format = require("poste.http.format")
+    local cleaned = format.clean_response_cache()
+    vim.notify(string.format("[Poste] Cleared %d old response file(s)", cleaned), vim.log.levels.INFO)
+  end, { desc = "Remove old cached response files from stdpath(cache)/poste_res/" })
 
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
     pattern = { "*.http", "*.rest", "*.redis" },

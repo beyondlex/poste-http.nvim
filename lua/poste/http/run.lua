@@ -387,8 +387,10 @@ local function start_curl_job(binary, file, line, buf_content, req_line, src_buf
   state.log("INFO", string.format("cmd: %s", cmd))
 
   local stderr_buf = {}
+  local env = { POSTE_CACHE_DIR = state.config.response_cache_dir }
 
   local job_id = vim.fn.jobstart(cmd, {
+    env = env,
     stdin = "pipe",
     stdout_buffered = true,
     stderr_buffered = true,

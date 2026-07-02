@@ -13,7 +13,9 @@ M.config = {
   split_size = 80,
   log_file = vim.fn.stdpath("cache") .. "/poste.log",
   import_chunk_size = 100,
-  -- Truncate large text responses: save to temp file, show preview + file link
+  -- Response cache: large body files & binary response files saved here
+  response_cache_dir = vim.fn.stdpath("cache") .. "/poste_res",
+  -- Truncate large text responses: save to file, show preview + file link
   max_body_bytes = 100 * 1024,    -- 100 KB
   max_body_lines = 500,
   body_preview_lines = 20,

@@ -352,8 +352,10 @@ local function execute_dependent_request_async(binary, file, env_name, dep_req, 
   local stdout_buf = {}
   local stderr_buf = {}
   local completed = false
+  local env = { POSTE_CACHE_DIR = state.config.response_cache_dir }
 
   local job_id = vim.fn.jobstart(cmd, {
+    env = env,
     stdin = "pipe",
     stdout_buffered = true,
     stderr_buffered = true,

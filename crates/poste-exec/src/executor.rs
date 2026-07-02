@@ -117,7 +117,10 @@ impl Executor {
                         response.status
                     )
                 });
-            let tmp_path = resolve_path_with_conflict("/tmp", &file_name);
+            let cache_dir = std::env::var("POSTE_CACHE_DIR")
+                .unwrap_or_else(|_| "/tmp".to_string());
+            std::fs::create_dir_all(&cache_dir).ok();
+            let tmp_path = resolve_path_with_conflict(&cache_dir, &file_name);
             match std::fs::write(&tmp_path, &stdout) {
                 Err(e) => {
                     metadata.insert(

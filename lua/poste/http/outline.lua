@@ -1,4 +1,4 @@
-local state = require("poste.state")
+local _ = require("poste.state")
 local request_vars = require("poste.http.request_vars")
 
 local M = {}
@@ -21,13 +21,11 @@ local function extract_method_url(buf, start_line, total_lines)
   local in_pre = false
   for _, line in ipairs(lines) do
     local trimmed = line:match("^%s*(.-)%s*$") or line
-    if trimmed == "" then
-    elseif trimmed:match("^<%s*{%%") then
+    if trimmed:match("^<%s*{%%") then
       in_pre = true
     elseif in_pre then
       if trimmed:match("%%}") then in_pre = false end
-    elseif trimmed:match("^@%w") then
-    elseif trimmed:match("^#") then
+    elseif trimmed == "" or trimmed:match("^@%w") or trimmed:match("^#") then  -- luacheck: ignore 542
     else
       local method = trimmed:match("^(%u+)%s")
       if method then

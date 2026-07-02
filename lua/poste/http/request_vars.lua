@@ -375,7 +375,7 @@ local function execute_dependent_request_async(binary, file, env_name, dep_req, 
       if completed then return end
       completed = true
       -- Cancel the timeout timer
-      if timeout_timer then timeout_timer:stop() timeout_timer:close() end
+      if timeout_timer then timeout_timer:stop() timeout_timer:close() end  -- luacheck: ignore 113
 
       if code ~= 0 then
         state.log("WARN", string.format("Dependent request '%s' failed with exit code %d", dep_req.name, code))

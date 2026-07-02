@@ -127,8 +127,8 @@ function M.show_search()
     end
     local total_count = 0
     for view_pos, src_idx in ipairs(all_indices) do
-      local row = tab.rows_source[src_idx]
-      for ci, val in ipairs(row) do
+      local row_data = tab.rows_source[src_idx]
+      for ci, val in ipairs(row_data) do
         local s = (val == nil or val == vim.NIL) and "" or tostring(val)
         if s:lower():find(q, 1, true) then
           total_count = total_count + 1

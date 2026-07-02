@@ -2,7 +2,6 @@
 --- Single trigger (x) → floating menu with letter-shortcut actions.
 --- Dispatches to operations module.
 local state = require("poste.state")
-local tree = require("poste.sql.db_browser.tree")
 local operations = require("poste.sql.db_browser.operations")
 
 local M = {}

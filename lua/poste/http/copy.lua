@@ -156,7 +156,7 @@ end
 --- Returns curl command string or nil, error_msg.
 function M.copy_as_curl()
   local indicators = require("poste.indicators")
-  local state = require("poste.state")
+  local _ = require("poste.state")
 
   local buf = vim.api.nvim_get_current_buf()
   local cursor_line = vim.fn.line(".")

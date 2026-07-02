@@ -197,7 +197,7 @@ function M.show_var_value()
     local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     for _, l in ipairs(all_lines) do
       if l:match("^###") then break end
-      local def_name, def_op, def_val = l:match("^%s*@(%w+)%s*(=?)(.*)")
+      local def_name, _, def_val = l:match("^%s*@(%w+)%s*(=?)(.*)")
       if def_name and def_name == var_name then
         resolved = vim.trim(def_val)
         source = "file variable"
@@ -836,21 +836,21 @@ function M.goto_references()
       if not target_line then return end
 
       local line = tonumber(target_line)
-      local col = tonumber(target_col)
-      if not line or not col then return end
+      local target_col_num = tonumber(target_col)
+      if not line or not target_col_num then return end
 
       line = math.floor(line)
-      col = math.floor(col)
+      target_col_num = math.floor(target_col_num)
 
       local line_count = vim.fn.line("$")
       if line < 1 or line > line_count then return end
 
-      local lines = vim.api.nvim_buf_get_lines(buf, line - 1, line, false)
-      local line_text = (lines and lines[1]) or ""
-      if col < 0 or col > #line_text then col = 0 end
+      local lines2 = vim.api.nvim_buf_get_lines(buf, line - 1, line, false)
+      local goto_line_text = (lines2 and lines2[1]) or ""
+      if target_col_num < 0 or target_col_num > #goto_line_text then target_col_num = 0 end
 
       vim.cmd("normal! m'")
-      vim.api.nvim_win_set_cursor(0, { line, col })
+      vim.api.nvim_win_set_cursor(0, { line, target_col_num })
     end, function(err)
     end)
   end

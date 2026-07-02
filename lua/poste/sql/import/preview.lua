@@ -81,7 +81,6 @@ local function build_preview_lines(table_info, total_rows, valid_count, bad_rows
 
   add("")
   add("Column mapping:")
-  local col_lines = {}
   local max_import_w = math.max(4, 0)
   local max_table_w = math.max(5, 0)
   for _, mc in ipairs(col_map) do
@@ -149,7 +148,6 @@ function M.show_preview(table_info, total_rows, valid_count, bad_rows,
   local min_width = 60
   local text_area = math.max(content_width, min_width)
   width = math.min(text_area + 4, math.floor(vim.o.columns * 0.8))
-  text_area = width - 4
 
   local lines = content
   local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.6))

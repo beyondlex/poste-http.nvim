@@ -24,7 +24,7 @@ function M.coerce_value(str, col_type)
 
   local num = tonumber(s)
   if num and s:match("^%-?%d+%.?%d*$") then
-    if INTEGER_TYPES[ctype] and num ~= math.floor(num) then
+    if INTEGER_TYPES[ctype] and num ~= math.floor(num) then  -- luacheck: ignore 542
     else
       return num
     end
@@ -92,7 +92,6 @@ function M.normalize_columns(table_cols)
 end
 
 function M.validate_and_type(import_rows, col_map, table_cols, unmatched_table)
-  local norm_cols = M.normalize_columns(table_cols)
   local valid = {}
   local bad = {}
 

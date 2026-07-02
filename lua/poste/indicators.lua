@@ -50,8 +50,7 @@ function M.extract_request_block(buf, start_line)
     if text:match("^%s*###") then break end  -- next block
 
     -- Skip comments (lines starting with # or --)
-    if text:match("^%s*#") or text:match("^%s*%-%-") then
-      -- skip
+    if text:match("^%s*#") or text:match("^%s*%-%-") then  -- luacheck: ignore 542
     elseif not request_line and text:match("%S") then
       -- First non-empty non-comment line is the request line
       request_line = text
@@ -131,18 +130,10 @@ function M.find_request_line(buf, start_line)
     elseif trimmed:match("^<%s*{%%") and not trimmed:match("%%}$") then
       -- Multi-line pre-script start: < {% (no closing %})
       in_prescript = true
-    elseif trimmed:match("^<%s*{%%.*%%}$") then
-      -- Single-line pre-script: < {% code %}
-      -- skip
-    elseif trimmed:match("^<%s*%.?%.") and trimmed:match("%.lua%s*$") then
-      -- External script: < ./path.lua
-      -- skip
-    elseif trimmed:match("^@%S+%s*[= ]") then
-      -- Variable definition: @var = value
-      -- skip
-    elseif trimmed == "" or trimmed:match("^#") or trimmed:match("^%-%-") then
-      -- Empty line, comment
-      -- skip
+    elseif trimmed:match("^<%s*{%%.*%%}$") then  -- luacheck: ignore 542
+    elseif trimmed:match("^<%s*%.?%.") and trimmed:match("%.lua%s*$") then  -- luacheck: ignore 542
+    elseif trimmed:match("^@%S+%s*[= ]") then  -- luacheck: ignore 542
+    elseif trimmed == "" or trimmed:match("^#") or trimmed:match("^%-%-") then  -- luacheck: ignore 542
     else
       -- This is the actual request line
       return i - 1  -- 0-indexed for extmark
@@ -323,9 +314,9 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
 
     -- Place or replace spinner sign
     local old_id = indicator_marks[buf][line_0]
-    local sign_id = place_or_replace_sign(buf, line_0, old_id, "PosteSpinnerSign")
-    if sign_id and sign_id > 0 then
-      indicator_marks[buf][line_0] = sign_id
+    local new_sign_id = place_or_replace_sign(buf, line_0, old_id, "PosteSpinnerSign")
+    if new_sign_id and new_sign_id > 0 then
+      indicator_marks[buf][line_0] = new_sign_id
     end
 
     local frame = 1
@@ -351,7 +342,7 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
 
   elseif status == "success" then
     local old_id = indicator_marks[buf][line_0]
-    local sign_id = place_or_replace_sign(buf, line_0, old_id, "PosteSuccessSign")
+    local _ = place_or_replace_sign(buf, line_0, old_id, "PosteSuccessSign")
 
     -- Clear stale eol virt_text, then create latency/assertion eol text
     vim.api.nvim_buf_clear_namespace(buf, indicator_ns, line_0, line_0 + 1)

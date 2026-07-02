@@ -165,8 +165,8 @@ require("poste.sql.insert_hint").setup()
 local ck = state.get_keymap("sql_source", "clear_filter", "<leader>cr")
 if ck then
   vim.keymap.set("n", ck, function()
-    local sql_buffer = require("poste.sql.buffer")
-    if sql_buffer.is_open() then
+    local sql_buf = require("poste.sql.buffer")
+    if sql_buf.is_open() then
       sql_buffer.clear_filter_search()
     end
   end, { noremap = true, silent = true, desc = "Poste: clear filter/search" })
@@ -198,7 +198,6 @@ function M.run_sql_request()
 
   local buf_content
   local adjusted_line
-  local stmt_lines = {}  -- buffer line numbers for indicators
   local visual_sel_end
 
   if is_visual then
@@ -311,12 +310,12 @@ local seq = current_seq
           sql_context.handle_use_statement(parsed)
 
           -- Decode body to get actual SQL results
-          local ok_body, data = pcall(vim.json.decode, parsed.body)
-          if not ok_body or type(data) ~= "table" then
-            data = nil
+          local ok_body, decoded = pcall(vim.json.decode, parsed.body)
+          if not ok_body or type(decoded) ~= "table" then
+            decoded = nil
           end
 
-            local results = data and data.results or {}
+            local results = decoded and decoded.results or {}
             local is_multi = #results > 1
 
           if is_multi then
@@ -502,10 +501,8 @@ local function setup_db_browser_keymap(buf)
   end
 end
 
-function M.setup(opts)
-  opts = opts or {}
-
-  local ok, err = pcall(register_sql_completion)
+function M.setup(_)
+  local ok = pcall(register_sql_completion)
   if not ok then
     local group = vim.api.nvim_create_augroup("PosteSQLCmpRegister", { clear = true })
     vim.api.nvim_create_autocmd("InsertEnter", {
@@ -596,7 +593,7 @@ function M.setup(opts)
 
   vim.api.nvim_create_user_command("PosteSQLCmpReload", function()
     package.loaded["poste.sql.completion"] = nil
-    local sql_comp = require("poste.sql.completion")
+    require("poste.sql.completion")
     local adapter = require("poste.sql.completion_adapter")
 
     if not adapter.is_available() then
@@ -625,7 +622,7 @@ function M.setup(opts)
     local line_before = line:sub(1, col)
     local cursor_lnum = cursor[1]
 
-    local ctx_type, ctx_data = sql_comp._test.detect_context_for_completion(line_before)
+    local ctx_type, _ = sql_comp._test.detect_context_for_completion(line_before)
     local tbls, alias_map = sql_comp._test.extract_from_tables(buf, cursor_lnum)
     local conn = sql_comp._test.conn_key()
 
@@ -662,16 +659,12 @@ function M.setup(opts)
   end, { desc = "Diagnose SQL completion at cursor" })
 
   vim.api.nvim_create_user_command("PosteSQLDebugSpace", function()
-    local buf = vim.api.nvim_get_current_buf()
     local line = vim.api.nvim_get_current_line()
     local col = vim.api.nvim_win_get_cursor(0)[2]
     local before = line:sub(1, col)
     local last_word = before:match("(%w+)%s*$")
 
     local adapter = require("poste.sql.completion_adapter")
-    local menu_open = false
-    local ok_m = adapter.is_menu_open()
-    menu_open = ok_m and menu_mod.win:is_open()
 
     local msg = {
       "PosteSQLDebugSpace:",
@@ -706,7 +699,7 @@ function M.setup(opts)
     }
 
     if sql_comp._test then
-      local ctx_type, ctx_data = sql_comp._test.detect_context_for_completion(line_before)
+      local ctx_type = sql_comp._test.detect_context_for_completion(line_before)
       table.insert(status, "  Context: " .. tostring(ctx_type))
 
       if ctx_type == "column" and sql_comp._test.extract_from_tables then
@@ -745,8 +738,8 @@ function M.setup(opts)
   end, { desc = "Manage SQL connections" })
 
   vim.api.nvim_create_user_command("PosteFormat", function()
-    local ok, source_format = pcall(require, "poste.sql.source_format")
-    if ok then
+    local _, source_format = pcall(require, "poste.sql.source_format")
+    if source_format then
       source_format.format_buffer()
     else
       vim.notify("Poste source_format module not available", vim.log.levels.ERROR)
@@ -754,8 +747,8 @@ function M.setup(opts)
   end, { desc = "Format SQL buffer/selection using detected formatter (sqlfluff/sqlfmt/...)" })
 
   vim.api.nvim_create_user_command("PosteFormatStatus", function()
-    local ok, source_format = pcall(require, "poste.sql.source_format")
-    if ok then
+    local _, source_format = pcall(require, "poste.sql.source_format")
+    if source_format then
       source_format.status()
     else
       vim.notify("Poste source_format module not available", vim.log.levels.ERROR)

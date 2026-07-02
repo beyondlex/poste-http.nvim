@@ -35,8 +35,8 @@ end
 ---------------------------------------------------------------------------
 
 local function get_dialect_flag()
-  local ok_ctx, ctx = pcall(data.resolve_current_context)
-  if ok_ctx and ctx and ctx.connection then
+  local ok_ctx, resolved_ctx = pcall(data.resolve_current_context)
+  if ok_ctx and resolved_ctx and resolved_ctx.connection then
     local ok_conn, conn_mod = pcall(require, "poste.sql.connections")
     if ok_conn then
       local conn = conn_mod.get_connection_config(ctx.connection)
@@ -439,7 +439,6 @@ local function get_items(bufnr, line_before, cursor_line, callback)
 
     if ctx_type == "insert_column" then
       local tbl = ctx_data
-      local prefix = line_before:match("([%w_]*)$") or ""
       local inside = line_before:match("%(([%w_,%s]*)$") or ""
       local seen = {}
       for col in inside:gmatch("([%w_]+)") do
@@ -534,10 +533,10 @@ function M:get_trigger_characters()
     return { ".", " ", "@", "(", "," }
 end
 
-function M:get_keyword_length(ctx)
-  if not ctx or not ctx.cursor then return 0 end
-  local col = ctx.cursor[2]
-  local line = ctx.line or ""
+function M:get_keyword_length(blink_ctx)
+  if not blink_ctx or not blink_ctx.cursor then return 0 end
+  local col = blink_ctx.cursor[2]
+  local line = blink_ctx.line or ""
   local before = line:sub(1, col)
   local prefix = before:match("[%w_]*$") or ""
   return #prefix
@@ -545,16 +544,16 @@ end
 
 local completion_gen = 0
 
-function M:get_completions(ctx, callback)
+function M:get_completions(blink_ctx, callback)
   completion_gen = completion_gen + 1
   local my_gen = completion_gen
 
   local bufnr = vim.api.nvim_get_current_buf()
   local cursor_line, cursor_col, line
-  if ctx and ctx.cursor then
-    cursor_line = ctx.cursor[1]
-    cursor_col = ctx.cursor[2]
-    line = ctx.line or ""
+  if blink_ctx and blink_ctx.cursor then
+    cursor_line = blink_ctx.cursor[1]
+    cursor_col = blink_ctx.cursor[2]
+    line = blink_ctx.line or ""
   else
     cursor_line = vim.fn.line(".")
     cursor_col = vim.fn.col(".")
@@ -589,7 +588,7 @@ function M:get_completions(ctx, callback)
 end
 
 function M:resolve(item, callback) callback(item) end
-function M:execute(ctx, item, callback, default_impl)
+function M:execute(exec_ctx, item, callback, default_impl)
   if item.data and item.data.directive_fallback then
     vim.schedule(function()
       local buf = vim.api.nvim_get_current_buf()

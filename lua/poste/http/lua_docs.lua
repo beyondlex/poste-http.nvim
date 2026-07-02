@@ -99,14 +99,11 @@ function M.extract_script_block(buf, cursor_line, cursor_col)
   local lua_lines = {}
   local cursor_lua_line = nil
   local cursor_lua_col = nil
-  local first_lua_start_col = nil
-
   for i = block_start, block_end do
     local raw = all_lines[i] or ""
     local col = 1
     if i == block_start then
       col = lua_start_col
-      first_lua_start_col = col
     end
     if i == block_end then
       local close_pos = raw:find("%%}")

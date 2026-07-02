@@ -2,6 +2,7 @@
 ---
 --- Extracted from sql/init.lua to reduce module size.
 --- Provides show_table_ddl() and supporting functions.
+-- luacheck: ignore 411
 
 local state = require("poste.state")
 local util = require("poste.util")
@@ -429,8 +430,6 @@ function M.show_table_ddl()
         -- Resolve column: check if cword is a known column (not table name)
         local is_column = false
         local parent_table = nil
-        local col_name = cword
-
         if ct == "dot_column" and parsed.ctx_data then
           -- alias.column: resolve alias
           local prefix = parsed.ctx_data

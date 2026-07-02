@@ -242,8 +242,8 @@ function M.open(title, fields, on_submit)
       close()
       vim.schedule(function() on_submit(fields) end)
     else
-      for i, row in ipairs(field_rows) do
-        if row == cursor[1] then
+      for i, field_row in ipairs(field_rows) do
+        if field_row == cursor[1] then
           current_idx = i
           break
         end

@@ -16,7 +16,7 @@ local function pick_telescope(items, prompt, on_select, preview_data)
   local state = require("telescope.actions.state")
   local previewers = require("telescope.previewers")
 
-  local resolved = false
+  local resolved = false  -- luacheck: ignore 231
 
   -- When preview_data is available, use a custom previewer
   local previewer

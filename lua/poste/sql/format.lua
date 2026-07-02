@@ -69,7 +69,7 @@ end
 ---   sqlite:/path/to/db.sqlite → db.sqlite
 --- @param conn string Connection URL
 --- @return string Short display format
-local function parse_connection_short(conn)
+local function parse_connection_short(conn)  -- luacheck: ignore 211
   if not conn or conn == "" then return "unknown" end
 
   -- Handle SQLite: extract filename from path

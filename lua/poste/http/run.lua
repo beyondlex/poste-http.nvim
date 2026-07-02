@@ -470,12 +470,11 @@ function M.run_request()
 
     -- Extract assertion blocks from the run directive's block in the source buffer
     local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
-    local local_buf_content = buf_content
     local script_vars
     local assertion_code
     if block_start then
-      script_vars = scripts.collect_script_variables(local_buf_content, block_start, block_end)
-      local_buf_content, assertion_code = assertions.extract_assertion_blocks(local_buf_content, block_start, block_end)
+      script_vars = scripts.collect_script_variables(buf_content, block_start, block_end)
+      _, assertion_code = assertions.extract_assertion_blocks(buf_content, block_start, block_end)
     end
 
     -- Place indicator on the run directive line itself
@@ -491,9 +490,9 @@ function M.run_request()
   -- Standard request pipeline
   prepare_request(src_buf, line, buf_content, binary, file, function(modified_content, req_line, block_start, block_end)
     execute_request(src_buf, line, binary, file, modified_content, req_line, block_start, block_end,
-      function(buf_content, req_block, req_text, assertion_code, script_vars, current_req_name, block_start)
-        start_curl_job(binary, file, line, buf_content, req_line, src_buf, req_block, req_text,
-          assertion_code, script_vars, current_req_name, block_start)
+      function(inner_content, req_block, req_text, assertion_code, script_vars, current_req_name, blk_start)
+        start_curl_job(binary, file, line, inner_content, req_line, src_buf, req_block, req_text,
+          assertion_code, script_vars, current_req_name, blk_start)
       end)
   end)
 end

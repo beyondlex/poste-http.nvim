@@ -33,6 +33,7 @@ local function md5_init()
   return { 0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476 }
 end
 
+-- luacheck: ignore 431
 local function md5_transform(state, block)
   local a, b, c, d = state[1], state[2], state[3], state[4]
   local x = {}

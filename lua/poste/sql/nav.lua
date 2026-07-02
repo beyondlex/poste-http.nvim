@@ -69,9 +69,9 @@ function M.goto_definition()
 
       if bin then
         local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-        local line_text = all_lines[line_num] or ""
+        local nav_line_text = all_lines[line_num] or ""
         local col = cursor[2]
-        local line_len = #line_text
+        local line_len = #nav_line_text
 
         local end_col = col
         while end_col < line_len do

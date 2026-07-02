@@ -31,9 +31,9 @@ local function parse_import_line(line)
   end
 
   -- import ./path
-  local path = trimmed:match("^import%s+(%S+)")
-  if path then
-    return { type = "bare", path = vim.trim(path) }
+  local bare_path = trimmed:match("^import%s+(%S+)")
+  if bare_path then
+    return { type = "bare", path = vim.trim(bare_path) }
   end
 
   return nil
@@ -577,7 +577,7 @@ function M.apply_variable_overrides(content, block_line, vars)
   end
 
   local result = {}
-  for i, line in ipairs(lines) do
+  for _, line in ipairs(lines) do
     table.insert(result, line)
     if i == inject_at then
       for name, value in pairs(vars) do

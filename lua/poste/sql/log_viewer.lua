@@ -52,7 +52,7 @@ M._filter_matches = filter_matches
 
 local function format_time(ts)
   if not ts then return "??-?? ??:??:??" end
-  local year, month, day, hms = ts:match("(%d+)-(%d+)-(%d+)T(%d+:%d+:%d+)")
+  local _, month, day, hms = ts:match("(%d+)-(%d+)-(%d+)T(%d+:%d+:%d+)")
   if month and day and hms then
     return string.format("%s-%s %s", month, day, hms)
   end
@@ -222,14 +222,12 @@ end
 --- @param line_idx number  Buffer line (1-indexed)
 --- @param text string SQL text for this line (without buffer prefix)
 --- @param offset number  Column offset in buffer
-local function highlight_sql_line(buf, ns, line_idx, text, offset)
-  syntax.highlight_line(buf, ns, line_idx, text, offset)
+local function highlight_sql_line(buf2, ns2, line_idx, text, offset)  -- luacheck: ignore 431
+  syntax.highlight_line(buf2, ns2, line_idx, text, offset)
 end
 
 local function apply_detail_highlights(line_idx, entry, detail_idx)
   -- Precompute line counts for this entry
-  local n_meta = (entry.connection or entry.database or entry.source) and 1 or 0
-  local n_edit = entry.edit_summary and 1 or 0
   local n_sql = 0
   local display_sql = clean_sql(entry.sql)
   if display_sql and display_sql ~= "" then
@@ -339,9 +337,9 @@ local function build_lines()
     line_idx = line_idx + 1
     if expanded[idx] then
       -- SQL lines first
-      local display_sql = clean_sql(entry.sql)
-      if display_sql and display_sql ~= "" then
-        for sql_line in (display_sql .. "\n"):gmatch("(.-)\n") do
+      local display_sql2 = clean_sql(entry.sql)
+      if display_sql2 and display_sql2 ~= "" then
+        for sql_line in (display_sql2 .. "\n"):gmatch("(.-)\n") do
           table.insert(lines, "     " .. sql_line)
           line_idx = line_idx + 1
         end
@@ -354,11 +352,11 @@ local function build_lines()
         end
       end
       -- Connection info (gray)
-      local db = entry_database(entry) or ""
+      local entry_db = entry_database(entry) or ""
       if entry.connection or entry.database or entry.source then
         table.insert(lines, "     " .. table.concat({
           "Connection: " .. (entry.connection or "?"),
-          "Database: " .. (db ~= "" and db or "?"),
+          "Database: " .. (entry_db ~= "" and entry_db or "?"),
           "Source: " .. (entry.source or "?"),
         }, " · "))
         line_idx = line_idx + 1

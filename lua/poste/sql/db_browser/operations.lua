@@ -429,7 +429,7 @@ function M.modify_col(node, context)
     local default_val = updated[3].value
     local comment_val = updated[4].value
 
-    local sql_parts = {}
+    local sql_parts
     if dialect == "mysql" then
       sql_parts = { "ALTER TABLE `" .. table_node.name .. "` MODIFY COLUMN `" .. node.name .. "` " .. col_type }
     elseif dialect == "postgres" then

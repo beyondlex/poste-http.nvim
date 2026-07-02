@@ -370,7 +370,6 @@ end
 --- Bypasses run_sql_request() to avoid cursor-position-dependent buffer parsing.
 --- @param tab table Tab state with original_sql, src_file, src_buf
 function M.refresh_dataset(tab)
-  local D = require("poste.sql.dataset")
   local state = require("poste.state")
   local statement = require("poste.sql.statement")
 

@@ -1,7 +1,6 @@
 local D = require("poste.sql.dataset")
 local state = require("poste.state")
 local sql_highlights = require("poste.sql.highlights")
-local sql_format = require("poste.sql.format")
 local M = {}
 
 function M.goto_header()

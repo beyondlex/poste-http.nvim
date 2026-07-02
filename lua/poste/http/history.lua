@@ -12,7 +12,7 @@ local detail_buf = nil
 local detail_win = nil
 local current_index = nil
 local detail_view = "body"
-local detail_jq_query = nil
+local _ = nil  -- detail_jq_query placeholder
 local hiding = false
 local list_ns = vim.api.nvim_create_namespace("poste_history_list")
 
@@ -399,7 +399,6 @@ local function setup_detail_keymaps()
       local json = require("poste.http.json")
       local paths = json.get_key_paths()
       state.last_response = saved_response
-      local query
       if #paths > 0 then
         vim.ui.select(paths, {
           prompt = "jq filter",
@@ -408,8 +407,8 @@ local function setup_detail_keymaps()
           if choice then history_jq_filter(choice) end
         end)
       else
-        local entry = state.http_history[current_index]
-        local default_q = (entry and entry._jq and entry._jq.query) or ""
+        local hist_entry = state.http_history[current_index]
+        local default_q = (hist_entry and hist_entry._jq and hist_entry._jq.query) or ""
         vim.ui.input({ prompt = "jq> ", default = default_q }, function(q)
           if q and q ~= "" then history_jq_filter(q) end
         end)

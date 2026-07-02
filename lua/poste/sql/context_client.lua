@@ -53,7 +53,7 @@ local function schedule_restart()
   )
   _restart_timer = vim.defer_fn(function()
     _restart_timer = nil
-    start()
+    start()  -- luacheck: ignore 113
   end, delay)
 end
 

@@ -10,7 +10,7 @@ local function detect_script_context(buf, cursor_line, cursor_col)
 
   -- Track whether we're inside a script block and what type
   local in_script = nil  -- "pre" or "post"
-  local script_start = nil
+  local _script_start  -- luacheck: ignore 231
 
   for i, line in ipairs(lines) do
     if in_script then
@@ -24,7 +24,7 @@ local function detect_script_context(buf, cursor_line, cursor_col)
           end
         end
         in_script = nil
-        script_start = nil
+        _script_start = nil
       elseif i == cursor_line then
         -- We're inside the script block on this line
         return in_script == "pre" and "pre_script" or "post_script"
@@ -37,7 +37,7 @@ local function detect_script_context(buf, cursor_line, cursor_col)
       if pre_start or post_start then
         local start_pos = pre_start or post_start
         in_script = pre_start and "pre" or "post"
-        script_start = i
+        _script_start = i
 
         -- Check if script closes on same line
         local close_pos = line:find("%%}")
@@ -47,14 +47,14 @@ local function detect_script_context(buf, cursor_line, cursor_col)
             return in_script == "pre" and "pre_script" or "post_script"
           end
           in_script = nil
-          script_start = nil
+          _script_start = nil
         elseif i == cursor_line then
           -- Cursor is on the opening line, after the marker
           if cursor_col > start_pos then
             return in_script == "pre" and "pre_script" or "post_script"
           end
           in_script = nil
-          script_start = nil
+          _script_start = nil
         end
       end
     end

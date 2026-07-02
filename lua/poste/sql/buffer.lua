@@ -1,7 +1,6 @@
 --- SQL Dataset buffer — core: state, keymaps, tab switching, render, close.
 local D = require("poste.sql.dataset")
 local state = require("poste.state")
-local sql_format = require("poste.sql.format")
 local sql_highlights = require("poste.sql.highlights")
 
 local M = {}
@@ -414,7 +413,7 @@ function M.render_dataset(lines, meta, opts)
 
   sql_highlights.invalidate_sep_cache()
 
-  if tab.is_sorting then
+  if tab.is_sorting then  -- luacheck: ignore 542
   else
     tab.sort = nil
     tab.original_rows = nil

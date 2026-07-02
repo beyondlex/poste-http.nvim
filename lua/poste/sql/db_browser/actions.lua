@@ -3,7 +3,6 @@ local tree = require("poste.sql.db_browser.tree")
 local async = require("poste.sql.db_browser.async")
 local state = require("poste.state")
 
-local ICONS = icons.ICONS
 local HEADER_LINES = icons.HEADER_LINES
 
 local M = {}
@@ -265,13 +264,13 @@ local function highlight_match_chars(buf, line_to_node, matches)
 end
 
 local function do_jump(index)
-  local state = search_state
-  if #state.matches == 0 then return end
+  local s = search_state
+    if #s.matches == 0 then return end
 
-  index = ((index - 1) % #state.matches) + 1
-  state.current = index
+  index = ((index - 1) % #s.matches) + 1
+  s.current = index
 
-  local match = state.matches[index]
+  local match = s.matches[index]
   local ctx = state.context
   local search_dir = get_search_dir(ctx.source_buf)
 
@@ -334,7 +333,6 @@ function M.search_filter(buf_line, context)
 
     local lower = input:lower()
     local matches = {}
-    local search_dir = get_search_dir(context.source_buf)
 
     walk_tree(context.root_nodes, lower, {}, matches)
 

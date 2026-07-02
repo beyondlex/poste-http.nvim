@@ -64,7 +64,7 @@ local function verify_checksum(archive_path, platform, version)
   local url = M.checksum_url(platform, version)
   local tmp = BIN_DIR .. "/checksum.tmp"
 
-  local ok = vim.fn.system({ "curl", "-sfL", url, "-o", tmp })
+  vim.fn.system({ "curl", "-sfL", url, "-o", tmp })
   if vim.v.shell_error ~= 0 then
     -- checksum file unavailable — skip verification
     pcall(os.remove, tmp)
@@ -110,7 +110,7 @@ function M.download(version)
 
   vim.notify("[Poste] Downloading " .. url, vim.log.levels.INFO)
 
-  local ok = vim.fn.system({ "curl", "-fL", url, "-o", tmp_archive })
+  vim.fn.system({ "curl", "-fL", url, "-o", tmp_archive })
   if vim.v.shell_error ~= 0 then
     vim.notify("[Poste] Download failed (exit " .. vim.v.shell_error .. ")", vim.log.levels.ERROR)
     pcall(os.remove, tmp_archive)
@@ -205,7 +205,7 @@ function M.ensure()
     -- Async version sync: if the plugin checkout is on a release tag that
     -- differs from the installed binary, download the matching version.
     vim.schedule(function()
-      local tag = plugin_tag()
+      local tag = plugin_tag()  -- luacheck: ignore 113
       if not tag then return end
       local installed = M.installed_version()
       if installed ~= tag then
@@ -247,7 +247,7 @@ end
 --- Get the git tag of the plugin checkout, if HEAD is exactly on a release tag.
 --- Used to match binary version to plugin version. Returns nil in dev mode
 --- (where HEAD is not on a tag).
-local function plugin_tag()
+local function plugin_tag()  -- luacheck: ignore 211
   local src = debug.getinfo(1, "S").source
   if not src or src:sub(1, 1) ~= "@" then return nil end
   -- src is @/path/to/plugin/lua/poste/install.lua, plugin root is ../../../

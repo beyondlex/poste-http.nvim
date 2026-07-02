@@ -23,3 +23,6 @@ read_globals = {
 
 -- Ignore line length
 max_line_length = false
+
+-- Ignore "setting read-only field" (Neovim bo/wo/g metatable patterns)
+ignore = { "122" }

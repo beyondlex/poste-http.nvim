@@ -342,7 +342,7 @@ function M.position_cursor(row, col)
 
   -- Use pre-computed column byte/display offsets when available (O(1), no │ scan)
   local col_starts = tab.buffer_col_starts and tab.buffer_col_starts[line_idx]
-  local target_col, target_disp, line
+  local target_col, target_disp, line, ranges
   if col_starts then
     local tc = col_starts[col + 1]
     if tc then
@@ -354,7 +354,7 @@ function M.position_cursor(row, col)
     T_mark("  pos:get_line_fallback")
     line = vim.api.nvim_buf_get_lines(buf, line_idx - 1, line_idx, false)[1] or ""
     T_mark("  pos:find_cell_ranges")
-    local ranges = sql_highlights.find_cell_ranges(line, col + 1, last_col + 1)
+    ranges = sql_highlights.find_cell_ranges(line, col + 1, last_col + 1)
     target_col = ranges and ranges.target.cursor_col or 0
     target_disp = vim.fn.strdisplaywidth(line:sub(1, target_col))
     T_mark("  pos:strdisp_fallback")
@@ -813,9 +813,9 @@ local function build_status_winbar(meta)
   end
 
   local right = ""
-  local tab = D.T()
-  local pending = tab and tab.edit_state and tab.edit_state.dirty
-    and require("poste.sql.editor").pending_changes_text(tab.edit_state)
+  local current_tab = D.T()
+  local pending = current_tab and current_tab.edit_state and current_tab.edit_state.dirty
+    and require("poste.sql.editor").pending_changes_text(current_tab.edit_state)
   if pending then
     right = right .. pending .. "  "
   end

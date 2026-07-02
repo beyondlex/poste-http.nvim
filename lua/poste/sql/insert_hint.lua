@@ -54,9 +54,9 @@ function M.update()
   local s, e = nil, nil
   local search_pos = 1
   while true do
-    local ns, ne = full_text:find("[Ii][Nn][Ss][Ee][Rr][Tt]%s+[Ii][Nn][Tt][Oo]%s+[%w_]+%s*%(", search_pos)
-    if not ns or ns > text_offset then break end
-    s, e = ns, ne
+    local ns2, ne = full_text:find("[Ii][Nn][Ss][Ee][Rr][Tt]%s+[Ii][Nn][Tt][Oo]%s+[%w_]+%s*%(", search_pos)
+    if not ns2 or ns2 > text_offset then break end
+    s, e = ns2, ne
     search_pos = ne + 1
   end
   if not s then dbg("no INSERT INTO before cursor"); return end

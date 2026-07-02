@@ -206,7 +206,7 @@ local function process_import(content, filepath, table_info, table_cols)
     end
 
     execute.execute_import(table_info, rows_to_import, col_map, table_cols, function(result)
-      if result and result.imported > 0 then
+      if result and result.imported > 0 then  -- luacheck: ignore 542
       end
     end)
   end)

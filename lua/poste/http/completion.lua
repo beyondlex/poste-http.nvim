@@ -109,7 +109,6 @@ function source:complete(request, callback)
   local cursor = vim.api.nvim_win_get_cursor(0)
   local cursor_line = cursor[1]
 
-  local ctx = context_detector.detect_context(line_before_cursor, buf, cursor_line, col - 1)
   local items = item_builder.get_items_for_context(line_before_cursor, buf, cursor_line, col - 1)
 
   callback({ items = items, isIncomplete = true })

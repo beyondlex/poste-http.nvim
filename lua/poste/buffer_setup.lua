@@ -1,7 +1,7 @@
 --- Shared buffer keymap setup (HTTP + SQL).
 --- Extracted from init.lua to avoid circular deps.
 local state = require("poste.state")
-local indicators = require("poste.indicators")
+local _ = require("poste.indicators")
 
 local M = {}
 

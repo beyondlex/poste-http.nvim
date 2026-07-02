@@ -3,7 +3,7 @@
 local state = require("poste.state")
 
 local redis_ns = vim.api.nvim_create_namespace("poste_redis")
-local file_link_ns = vim.api.nvim.nvim_create_namespace("poste_file_link")
+local file_link_ns = vim.api.nvim_create_namespace("poste_file_link")
 
 local M = {}
 

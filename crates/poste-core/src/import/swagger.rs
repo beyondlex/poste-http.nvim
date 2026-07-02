@@ -145,7 +145,8 @@ pub fn swagger_to_openapi3(spec: &str) -> Result<String> {
                                 let loc = p.get("in").and_then(|v| v.as_str()).unwrap_or("");
                                 loc != "body" && loc != "formData"
                             })
-                            .map(|p| convert_swagger_param_to_oas3(p))
+                            .copied()
+                            .map(convert_swagger_param_to_oas3)
                             .collect();
 
                         if !remaining_params.is_empty() {
@@ -194,7 +195,7 @@ fn convert_parameters(params: &[Value]) -> Vec<Value> {
             let loc = p.get("in").and_then(|v| v.as_str()).unwrap_or("");
             loc != "body" && loc != "formData"
         })
-        .map(|p| convert_swagger_param_to_oas3(p))
+        .map(convert_swagger_param_to_oas3)
         .collect()
 }
 

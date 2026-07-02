@@ -303,6 +303,55 @@ local function format_redis_body(r)
 end
 
 ---------------------------------------------------------------------------
+-- URL-encoded form body helper
+---------------------------------------------------------------------------
+
+--- Format urlencoded form data (application/x-www-form-urlencoded) as key-value lines.
+--- Returns a list of lines like "  key: value".
+local function format_urlencoded_body(body)
+  if not body or body == "" then return nil end
+  local lines = {}
+  -- Parse key=value pairs separated by &
+  for pair in body:gmatch("[^&]+") do
+    local key, val = pair:match("^([^=]+)=(.*)$")
+    if key and val ~= nil then
+      -- Decode URL-encoded values
+      val = val:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
+      val = val:gsub("+", " ")
+      table.insert(lines, string.format("  %s: %s", key, val))
+    end
+  end
+  if #lines == 0 then return nil end
+  return lines
+end
+
+local request_ns = vim.api.nvim_create_namespace("poste_request")
+
+--- Apply highlights to the Request tab: key:value lines get key in magenta, value in gray.
+function M.apply_request_highlights(buf, lines)
+  vim.api.nvim_buf_clear_namespace(buf, request_ns, 0, -1)
+  for i, line in ipairs(lines) do
+    local row = i - 1
+    if line:match("^  [^:]+:%s") then
+      local colon = line:find(":", 3)
+      if colon then
+        vim.api.nvim_buf_set_extmark(buf, request_ns, row, 0, {
+          end_row = row, end_col = colon + 1,
+          hl_group = "PosteVerboseKey", priority = 100,
+        })
+        local val_start = colon + 2
+        if val_start <= #line then
+          vim.api.nvim_buf_set_extmark(buf, request_ns, row, val_start - 1, {
+            end_row = row, end_col = #line,
+            hl_group = "PosteVerboseValue", priority = 100,
+          })
+        end
+      end
+    end
+  end
+end
+
+---------------------------------------------------------------------------
 -- Body view: the main response content
 ---------------------------------------------------------------------------
 
@@ -619,9 +668,25 @@ function M.format_verbose(r, pending)
       local k, v = l:match("^([^:]+):%s*(.+)$")
       if k and k:lower() == "content-type" then ct = v end
     end
-    local display_body = M.condense_multipart_body(request_body, ct)
-    for l in display_body:gmatch("[^\r\n]+") do
-      table.insert(lines, "  " .. l)
+    local ct_lower = ct:lower()
+    if ct_lower:find("multipart/form%-data") then
+      local display_body = M.condense_multipart_body(request_body, ct)
+      for l in display_body:gmatch("[^\r\n]+") do
+        table.insert(lines, "  " .. l)
+      end
+    elseif ct_lower:find("application/x-www-form-urlencoded") then
+      local form_lines = format_urlencoded_body(request_body)
+      if form_lines then
+        for _, fl in ipairs(form_lines) do
+          table.insert(lines, fl)
+        end
+      else
+        table.insert(lines, "  " .. request_body)
+      end
+    else
+      for l in request_body:gmatch("[^\r\n]+") do
+        table.insert(lines, "  " .. l)
+      end
     end
   end
 
@@ -843,14 +908,27 @@ function M.format_request_payload(r)
         table.insert(lines, "")
       end
       return lines
-    end
-    -- parsed nil → show summary line instead of raw body
-    table.insert(lines, "(multipart form data, " .. #req_body .. " bytes)")
-    return lines
-  end
+   end
+   -- parsed nil → show summary line instead of raw body
+   table.insert(lines, "(multipart form data, " .. #req_body .. " bytes)")
+   return lines
+ end
 
-  -- JSON: pretty-print
-  if ct:find("json") or req_body:sub(1, 1) == "{" or req_body:sub(1, 1) == "[" then
+ -- URL-encoded form data: key-value pairs
+ if ct:lower():find("application/x-www-form-urlencoded") then
+   local form_lines = format_urlencoded_body(req_body)
+   if form_lines then
+     table.insert(lines, "## Form Data")
+     table.insert(lines, "")
+     for _, fl in ipairs(form_lines) do
+       table.insert(lines, fl)
+     end
+     return lines
+   end
+ end
+
+ -- JSON: pretty-print
+ if ct:find("json") or req_body:sub(1, 1) == "{" or req_body:sub(1, 1) == "[" then
     local ok, decoded = pcall(vim.json.decode, req_body)
     if ok and decoded then
       for l in pretty_body(req_body, "application/json"):gmatch("[^\r\n]+") do

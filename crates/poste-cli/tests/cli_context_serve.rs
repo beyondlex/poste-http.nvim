@@ -1,6 +1,6 @@
+use serde_json::json;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
-use serde_json::json;
 
 #[test]
 fn test_serve_detect() {
@@ -148,7 +148,10 @@ fn test_serve_invalid_params() {
 
     assert_eq!(resp["id"], 4);
     assert_eq!(resp["ok"], false);
-    assert!(resp["error"].as_str().unwrap().contains("invalid detect params"));
+    assert!(resp["error"]
+        .as_str()
+        .unwrap()
+        .contains("invalid detect params"));
 
     drop(stdin);
     child.wait().unwrap();

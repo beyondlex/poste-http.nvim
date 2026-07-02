@@ -27,8 +27,8 @@ pub trait SpecImporter {
 
 // Re-export sub-modules
 pub mod openapi;
-pub mod swagger;
 pub mod postman;
+pub mod swagger;
 
 #[cfg(test)]
 mod tests;

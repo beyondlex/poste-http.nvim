@@ -504,7 +504,10 @@ mod tests {
     #[test]
     fn test_pg_drop_table_cascade() {
         let ddl = PostgresDdl;
-        assert_eq!(ddl.drop_table("users", true), "DROP TABLE \"users\" CASCADE;");
+        assert_eq!(
+            ddl.drop_table("users", true),
+            "DROP TABLE \"users\" CASCADE;"
+        );
         assert_eq!(ddl.drop_table("users", false), "DROP TABLE \"users\";");
     }
 

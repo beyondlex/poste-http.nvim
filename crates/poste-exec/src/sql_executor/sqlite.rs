@@ -1,14 +1,16 @@
 use std::time::Instant;
 
-use poste_core::Protocol;
 use poste_core::sql_parser;
+use poste_core::Protocol;
 use serde_json::{json, Value};
 
+use super::{build_response, StatementResult};
 use crate::response::Response;
 use crate::sql_connection;
-use super::{StatementResult, build_response};
 
-pub(super) async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> anyhow::Result<Response> {
+pub(super) async fn execute_sqlite(
+    parsed: &sql_parser::SqlParseResult,
+) -> anyhow::Result<Response> {
     use sqlx::sqlite::{SqlitePoolOptions, SqliteRow};
     use sqlx::{Column, Row, TypeInfo};
 
@@ -95,7 +97,8 @@ pub(super) async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> anyho
                     original_sql: None,
                 })
             }
-        }.await;
+        }
+        .await;
 
         match stmt_result {
             Ok(sr) => results.push(sr),
@@ -110,7 +113,13 @@ pub(super) async fn execute_sqlite(parsed: &sql_parser::SqlParseResult) -> anyho
 
     pool.close().await;
     let total_ms = total_start.elapsed().as_millis() as u64;
-    build_response(&Protocol::Sqlite, &parsed.connection, &parsed.database, results, total_ms)
+    build_response(
+        &Protocol::Sqlite,
+        &parsed.connection,
+        &parsed.database,
+        results,
+        total_ms,
+    )
 }
 
 fn sqlite_value_to_json(row: &sqlx::sqlite::SqliteRow, idx: usize) -> Value {

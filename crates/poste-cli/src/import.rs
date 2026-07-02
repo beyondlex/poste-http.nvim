@@ -30,17 +30,24 @@ pub enum ImportSource {
 }
 
 pub fn execute(source: ImportSource) -> Result<()> {
-    let (file, out_dir, importer): (String, String, Box<dyn poste_core::import::SpecImporter>) = match source {
-        ImportSource::Openapi { file, out } => {
-            (file, out, Box::new(poste_core::import::openapi::OpenApiImporter::new()))
-        }
-        ImportSource::Swagger { file, out } => {
-            (file, out, Box::new(poste_core::import::swagger::SwaggerImporter))
-        }
-        ImportSource::Postman { file, out } => {
-            (file, out, Box::new(poste_core::import::postman::PostmanImporter))
-        }
-    };
+    let (file, out_dir, importer): (String, String, Box<dyn poste_core::import::SpecImporter>) =
+        match source {
+            ImportSource::Openapi { file, out } => (
+                file,
+                out,
+                Box::new(poste_core::import::openapi::OpenApiImporter::new()),
+            ),
+            ImportSource::Swagger { file, out } => (
+                file,
+                out,
+                Box::new(poste_core::import::swagger::SwaggerImporter),
+            ),
+            ImportSource::Postman { file, out } => (
+                file,
+                out,
+                Box::new(poste_core::import::postman::PostmanImporter),
+            ),
+        };
 
     let spec_content = std::fs::read_to_string(&file)
         .map_err(|e| anyhow::anyhow!("Cannot read spec file '{}': {}", file, e))?;
@@ -53,11 +60,15 @@ pub fn execute(source: ImportSource) -> Result<()> {
     for http_file in &result.files {
         let full_path = out_path.join(&http_file.path);
         if let Some(parent) = full_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| anyhow::anyhow!("Cannot create subdirectory '{}': {}", parent.display(), e))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                anyhow::anyhow!("Cannot create subdirectory '{}': {}", parent.display(), e)
+            })?;
         }
         if full_path.exists() {
-            eprintln!("[poste import] warning: overwriting {}", full_path.display());
+            eprintln!(
+                "[poste import] warning: overwriting {}",
+                full_path.display()
+            );
         }
         std::fs::write(&full_path, &http_file.content)
             .map_err(|e| anyhow::anyhow!("Cannot write '{}': {}", full_path.display(), e))?;
@@ -72,7 +83,11 @@ pub fn execute(source: ImportSource) -> Result<()> {
         std::fs::write(&env_path, &env_content)?;
     }
 
-    println!("OK — imported {} file(s) to {}", result.files.len(), out_dir);
+    println!(
+        "OK — imported {} file(s) to {}",
+        result.files.len(),
+        out_dir
+    );
     if !result.env_vars.is_empty() {
         println!("  env.json: {} variable(s)", result.env_vars.len());
     }

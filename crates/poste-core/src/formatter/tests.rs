@@ -6,26 +6,35 @@ use super::*;
 fn test_tokenize_import() {
     let regions = Tokenizer::tokenize("import ./auth.http\nimport ./orders.http as orders\n");
     assert_eq!(regions.len(), 2);
-    assert_eq!(regions[0], Region::Import {
-        path: "./auth.http".to_string(),
-        alias: None,
-        raw: "import ./auth.http".to_string(),
-    });
-    assert_eq!(regions[1], Region::Import {
-        path: "./orders.http".to_string(),
-        alias: Some("orders".to_string()),
-        raw: "import ./orders.http as orders".to_string(),
-    });
+    assert_eq!(
+        regions[0],
+        Region::Import {
+            path: "./auth.http".to_string(),
+            alias: None,
+            raw: "import ./auth.http".to_string(),
+        }
+    );
+    assert_eq!(
+        regions[1],
+        Region::Import {
+            path: "./orders.http".to_string(),
+            alias: Some("orders".to_string()),
+            raw: "import ./orders.http as orders".to_string(),
+        }
+    );
 }
 
 #[test]
 fn test_tokenize_run() {
     let regions = Tokenizer::tokenize("run #Login\nrun #orders.ListOrders (@token=xyz)\n");
     assert_eq!(regions.len(), 2);
-    assert_eq!(regions[0], Region::Run {
-        target: "#Login".to_string(),
-        raw: "run #Login".to_string(),
-    });
+    assert_eq!(
+        regions[0],
+        Region::Run {
+            target: "#Login".to_string(),
+            raw: "run #Login".to_string(),
+        }
+    );
 }
 
 #[test]
@@ -40,7 +49,9 @@ fn test_tokenize_vardef_simple() {
     let regions = Tokenizer::tokenize("@base_url = https://api.example.com\n");
     assert_eq!(regions.len(), 1);
     match &regions[0] {
-        Region::VarDef { name, value, style, .. } => {
+        Region::VarDef {
+            name, value, style, ..
+        } => {
             assert_eq!(name, "base_url");
             assert_eq!(value, "https://api.example.com");
             assert_eq!(*style, VarStyle::Simple);
@@ -55,10 +66,17 @@ fn test_tokenize_vardef_multiline() {
     let regions = Tokenizer::tokenize(content);
     assert_eq!(regions.len(), 1);
     match &regions[0] {
-        Region::VarDef { name, value, style, .. } => {
+        Region::VarDef {
+            name, value, style, ..
+        } => {
             assert_eq!(name, "payload");
             assert_eq!(value, "{\n  \"name\": \"test\"\n}");
-            assert_eq!(*style, VarStyle::Multiline { terminator: "<<<".to_string() });
+            assert_eq!(
+                *style,
+                VarStyle::Multiline {
+                    terminator: "<<<".to_string()
+                }
+            );
         }
         _ => panic!("Expected VarDef"),
     }
@@ -69,7 +87,12 @@ fn test_tokenize_request_line() {
     let regions = Tokenizer::tokenize("GET https://api.example.com/users\n");
     assert_eq!(regions.len(), 1);
     match &regions[0] {
-        Region::RequestLine { method, url, version, .. } => {
+        Region::RequestLine {
+            method,
+            url,
+            version,
+            ..
+        } => {
             assert_eq!(method, "GET");
             assert_eq!(url, "https://api.example.com/users");
             assert_eq!(*version, None);
@@ -83,7 +106,12 @@ fn test_tokenize_request_line_with_version() {
     let regions = Tokenizer::tokenize("POST https://api.example.com/data HTTP/1.1\n");
     assert_eq!(regions.len(), 1);
     match &regions[0] {
-        Region::RequestLine { method, url, version, .. } => {
+        Region::RequestLine {
+            method,
+            url,
+            version,
+            ..
+        } => {
             assert_eq!(method, "POST");
             assert_eq!(url, "https://api.example.com/data");
             assert_eq!(*version, Some("HTTP/1.1".to_string()));
@@ -94,7 +122,8 @@ fn test_tokenize_request_line_with_version() {
 
 #[test]
 fn test_tokenize_header() {
-    let regions = Tokenizer::tokenize("Content-Type: application/json\nAuthorization: Bearer token\n");
+    let regions =
+        Tokenizer::tokenize("Content-Type: application/json\nAuthorization: Bearer token\n");
     assert_eq!(regions.len(), 2);
     match &regions[0] {
         Region::Header { key, value, .. } => {
@@ -353,11 +382,15 @@ fn test_reindent_empty() {
 
 #[test]
 fn test_reindent_no_nesting() {
-    let lines = vec!["    client.log(1)".to_string(), "  client.log(2)".to_string()];
+    let lines = vec![
+        "    client.log(1)".to_string(),
+        "  client.log(2)".to_string(),
+    ];
     let result = Formatter::reindent_code(&lines);
     assert_eq!(result, vec!["client.log(1)", "client.log(2)"]);
 
-    let output = Formatter::format("### Test\n< {%\n    client.log(1)\n  client.log(2)\n%}\nGET /api\n");
+    let output =
+        Formatter::format("### Test\n< {%\n    client.log(1)\n  client.log(2)\n%}\nGET /api\n");
     assert!(output.contains("client.log(1)\nclient.log(2)"));
 }
 
@@ -464,10 +497,7 @@ fn test_reindent_blank_lines_preserved() {
 
 #[test]
 fn test_reindent_multiline_comment_no_false_positive() {
-    let lines = vec![
-        "do_it()".to_string(),
-        "-- this is not an end".to_string(),
-    ];
+    let lines = vec!["do_it()".to_string(), "-- this is not an end".to_string()];
     let result = Formatter::reindent_code(&lines);
     assert_eq!(result[0], "do_it()");
     assert_eq!(result[1], "-- this is not an end");
@@ -549,7 +579,11 @@ fn test_format_json_body_strip_comments() {
     let json_part = &body[..end];
     let joined = json_part.join("\n");
     let result = serde_json::from_str::<serde_json::Value>(&joined);
-    assert!(result.is_ok(), "JSON should be valid, got: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "JSON should be valid, got: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -578,7 +612,8 @@ fn test_format_empty_body_unchanged() {
 
 #[test]
 fn test_format_json_array_body() {
-    let input = "### Test\nPOST /api/items\nContent-Type: application/json\n\n[{\"id\":1},{\"id\":2}]\n";
+    let input =
+        "### Test\nPOST /api/items\nContent-Type: application/json\n\n[{\"id\":1},{\"id\":2}]\n";
     let output = Formatter::format(input);
     assert!(output.contains("\"id\": 1"));
     assert!(output.contains("\"id\": 2"));

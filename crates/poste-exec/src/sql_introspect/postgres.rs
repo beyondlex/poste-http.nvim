@@ -4,8 +4,8 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
 
 use super::{IntrospectParams, IntrospectType};
-use crate::sql_dialect::{Dialect, PostgresDialect};
 use crate::sql_ddl;
+use crate::sql_dialect::{Dialect, PostgresDialect};
 
 pub(super) async fn introspect_postgres(params: &IntrospectParams) -> Result<Value> {
     let pool = PgPoolOptions::new()
@@ -20,18 +20,14 @@ pub(super) async fn introspect_postgres(params: &IntrospectParams) -> Result<Val
             let sql = dialect.list_databases();
             let rows = sqlx::query(sql).fetch_all(&pool).await?;
             rows.iter()
-                .map(|row| {
-                    json!({ "name": row.get::<String, _>("datname") })
-                })
+                .map(|row| json!({ "name": row.get::<String, _>("datname") }))
                 .collect()
         }
         IntrospectType::Schemas => {
             let sql = dialect.list_schemas().unwrap();
             let rows = sqlx::query(sql).fetch_all(&pool).await?;
             rows.iter()
-                .map(|row| {
-                    json!({ "name": row.get::<String, _>("schema_name") })
-                })
+                .map(|row| json!({ "name": row.get::<String, _>("schema_name") }))
                 .collect()
         }
         IntrospectType::Tables => {
@@ -49,10 +45,9 @@ pub(super) async fn introspect_postgres(params: &IntrospectParams) -> Result<Val
         }
         IntrospectType::Columns => {
             let schema = params.schema.as_deref().unwrap_or("public");
-            let table = params
-                .table
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("table parameter required for columns introspection"))?;
+            let table = params.table.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("table parameter required for columns introspection")
+            })?;
             let sql = dialect.list_columns();
             let rows = sqlx::query(sql)
                 .bind(schema)
@@ -69,21 +64,30 @@ pub(super) async fn introspect_postgres(params: &IntrospectParams) -> Result<Val
                    ON ccu.constraint_name = tc.constraint_name \
                    AND ccu.table_schema = tc.table_schema \
                  WHERE tc.constraint_type = 'FOREIGN KEY' \
-                   AND tc.table_schema = $1 AND tc.table_name = $2"
+                   AND tc.table_schema = $1 AND tc.table_name = $2",
             )
-                .bind(schema)
-                .bind(table)
-                .fetch_all(&pool)
-                .await
-                .unwrap_or_default();
+            .bind(schema)
+            .bind(table)
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default();
             #[derive(Default)]
-            struct FkInfo { table: String, column: String }
-            let fk_map: std::collections::HashMap<String, FkInfo> = fk_rows.iter().map(|r| {
-                (r.get::<String, _>("column_name"), FkInfo {
-                    table: r.get::<String, _>("fk_table"),
-                    column: r.get::<String, _>("fk_column"),
+            struct FkInfo {
+                table: String,
+                column: String,
+            }
+            let fk_map: std::collections::HashMap<String, FkInfo> = fk_rows
+                .iter()
+                .map(|r| {
+                    (
+                        r.get::<String, _>("column_name"),
+                        FkInfo {
+                            table: r.get::<String, _>("fk_table"),
+                            column: r.get::<String, _>("fk_column"),
+                        },
+                    )
                 })
-            }).collect();
+                .collect();
             rows.iter()
                 .map(|row| {
                     let col_name: String = row.get("column_name");
@@ -104,10 +108,9 @@ pub(super) async fn introspect_postgres(params: &IntrospectParams) -> Result<Val
         }
         IntrospectType::Indexes => {
             let schema = params.schema.as_deref().unwrap_or("public");
-            let table = params
-                .table
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("table parameter required for indexes introspection"))?;
+            let table = params.table.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("table parameter required for indexes introspection")
+            })?;
             let sql = dialect.list_indexes();
             let rows = sqlx::query(sql)
                 .bind(schema)
@@ -192,7 +195,8 @@ async fn build_create_table_from_introspect_postgres(
        WHERE tc.constraint_type = 'PRIMARY KEY'
          AND tc.table_schema = $1
          AND tc.table_name = $2
-       ORDER BY kc.ordinal_position"#.to_string();
+       ORDER BY kc.ordinal_position"#
+        .to_string();
     let pk_rows = sqlx::query(&pk_sql)
         .bind(schema)
         .bind(table)
@@ -246,14 +250,22 @@ WHERE pc.relname = $1
     let schema_def = sql_ddl::TableSchema {
         name: table.to_string(),
         columns,
-        primary_key: if pk_cols.is_empty() { None } else { Some(pk_cols) },
+        primary_key: if pk_cols.is_empty() {
+            None
+        } else {
+            Some(pk_cols)
+        },
         comment: table_comment,
     };
 
     if let Some(ddl_generator) = sql_ddl::ddl_for("postgres") {
         let ddl = ddl_generator.create_table(&schema_def);
-        return Ok(vec![json!({"ddl": ddl, "type": "ddl", "table": table, "dialect": "postgres"})]);
+        return Ok(vec![
+            json!({"ddl": ddl, "type": "ddl", "table": table, "dialect": "postgres"}),
+        ]);
     }
 
-    Ok(vec![json!({"ddl": format!("-- Could not create DDL for table '{}'", table)})])
+    Ok(vec![
+        json!({"ddl": format!("-- Could not create DDL for table '{}'", table)}),
+    ])
 }

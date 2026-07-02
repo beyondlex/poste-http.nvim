@@ -4,9 +4,9 @@ use poste_core::sql_parser;
 use poste_core::Protocol;
 use serde_json::{json, Value};
 
-use crate::response::Response;
 use super::value;
-use super::{StatementResult, build_response};
+use super::{build_response, StatementResult};
+use crate::response::Response;
 
 pub(super) fn translate_pg_mysql_compat(stmt: &str) -> Option<(String, String)> {
     let upper = stmt.trim().to_uppercase();
@@ -24,7 +24,11 @@ pub(super) fn translate_pg_mysql_compat(stmt: &str) -> Option<(String, String)> 
 
     if upper.starts_with("DESC ") || upper.starts_with("DESCRIBE ") {
         let (_, rest) = trimmed.split_once(char::is_whitespace)?;
-        let table_name = rest.trim_end_matches(';').trim_end().trim_start_matches('"').trim_end_matches('"');
+        let table_name = rest
+            .trim_end_matches(';')
+            .trim_end()
+            .trim_start_matches('"')
+            .trim_end_matches('"');
         if table_name.is_empty() {
             return None;
         }
@@ -59,7 +63,9 @@ pub(super) fn translate_pg_mysql_compat(stmt: &str) -> Option<(String, String)> 
     None
 }
 
-pub(super) async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> anyhow::Result<Response> {
+pub(super) async fn execute_postgres(
+    parsed: &sql_parser::SqlParseResult,
+) -> anyhow::Result<Response> {
     use sqlx::postgres::{PgPoolOptions, PgRow};
     use sqlx::{Column, Row, TypeInfo};
 
@@ -114,11 +120,7 @@ pub(super) async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> any
 
                 let json_rows: Vec<Vec<Value>> = rows
                     .iter()
-                    .map(|row| {
-                        (0..row.len())
-                            .map(|i| pg_value_to_json(row, i))
-                            .collect()
-                    })
+                    .map(|row| (0..row.len()).map(|i| pg_value_to_json(row, i)).collect())
                     .collect();
                 let row_count = json_rows.len();
 
@@ -149,7 +151,8 @@ pub(super) async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> any
                     original_sql,
                 })
             }
-        }.await;
+        }
+        .await;
 
         match stmt_result {
             Ok(sr) => results.push(sr),
@@ -164,7 +167,13 @@ pub(super) async fn execute_postgres(parsed: &sql_parser::SqlParseResult) -> any
 
     pool.close().await;
     let total_ms = total_start.elapsed().as_millis() as u64;
-    build_response(&Protocol::Postgres, &parsed.connection, &parsed.database, results, total_ms)
+    build_response(
+        &Protocol::Postgres,
+        &parsed.connection,
+        &parsed.database,
+        results,
+        total_ms,
+    )
 }
 
 fn pg_value_to_json(row: &sqlx::postgres::PgRow, idx: usize) -> Value {
@@ -180,34 +189,56 @@ fn pg_value_to_json(row: &sqlx::postgres::PgRow, idx: usize) -> Value {
 
     match type_name {
         "BOOL" => value::opt_json(row.try_get::<Option<bool>, _>(idx).ok().flatten()),
-        "INT2" => value::opt_json(row.try_get::<Option<i16>, _>(idx).ok().flatten().map(|v| v as i64)),
-        "INT4" => value::opt_json(row.try_get::<Option<i32>, _>(idx).ok().flatten().map(|v| v as i64)),
+        "INT2" => value::opt_json(
+            row.try_get::<Option<i16>, _>(idx)
+                .ok()
+                .flatten()
+                .map(|v| v as i64),
+        ),
+        "INT4" => value::opt_json(
+            row.try_get::<Option<i32>, _>(idx)
+                .ok()
+                .flatten()
+                .map(|v| v as i64),
+        ),
         "INT8" => value::opt_json(row.try_get::<Option<i64>, _>(idx).ok().flatten()),
         "FLOAT4" => value::opt_json(row.try_get::<Option<f32>, _>(idx).ok().flatten()),
         "FLOAT8" => value::opt_json(row.try_get::<Option<f64>, _>(idx).ok().flatten()),
         "NUMERIC" => {
             let val: Option<rust_decimal::Decimal> = row.try_get::<_, _>(idx).ok().flatten();
             val.map(|v: rust_decimal::Decimal| {
-                v.to_string().parse::<f64>().map(|n| json!(n)).unwrap_or(json!(v.to_string()))
-            }).unwrap_or(Value::Null)
+                v.to_string()
+                    .parse::<f64>()
+                    .map(|n| json!(n))
+                    .unwrap_or(json!(v.to_string()))
+            })
+            .unwrap_or(Value::Null)
         }
         "DATE" => value::date_fallback(
-            row.try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(idx).ok().flatten(),
+            row.try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(idx)
+                .ok()
+                .flatten(),
             row.try_get::<Option<String>, _>(idx).ok().flatten(),
             row.try_get::<Option<Vec<u8>>, _>(idx).ok().flatten(),
         ),
         "TIMESTAMP" => value::datetime_fallback(
-            row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx).ok().flatten(),
+            row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx)
+                .ok()
+                .flatten(),
             row.try_get::<Option<String>, _>(idx).ok().flatten(),
             row.try_get::<Option<Vec<u8>>, _>(idx).ok().flatten(),
         ),
         "TIMESTAMPTZ" => value::timestamptz_fallback(
-            row.try_get::<Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>, _>(idx).ok().flatten(),
+            row.try_get::<Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>, _>(idx)
+                .ok()
+                .flatten(),
             row.try_get::<Option<String>, _>(idx).ok().flatten(),
             row.try_get::<Option<Vec<u8>>, _>(idx).ok().flatten(),
         ),
         "TIME" => value::time_fallback(
-            row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(idx).ok().flatten(),
+            row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(idx)
+                .ok()
+                .flatten(),
             row.try_get::<Option<String>, _>(idx).ok().flatten(),
             row.try_get::<Option<Vec<u8>>, _>(idx).ok().flatten(),
         ),
@@ -240,11 +271,9 @@ fn pg_value_to_json(row: &sqlx::postgres::PgRow, idx: usize) -> Value {
                 Value::Null
             }
         }
-        _ => {
-            value::string_fallback(
-                row.try_get::<Option<String>, _>(idx).ok().flatten(),
-                row.try_get::<Option<Vec<u8>>, _>(idx).ok().flatten(),
-            )
-        }
+        _ => value::string_fallback(
+            row.try_get::<Option<String>, _>(idx).ok().flatten(),
+            row.try_get::<Option<Vec<u8>>, _>(idx).ok().flatten(),
+        ),
     }
 }

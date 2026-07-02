@@ -20,8 +20,8 @@
 //! ```
 
 mod functions;
-mod tokenizer;
 mod tables;
+mod tokenizer;
 
 mod context;
 mod detectors;
@@ -36,7 +36,7 @@ mod tests;
 pub(crate) use tokenizer::*;
 
 pub use context::{detect_context, detect_context_with_dialect};
-pub use statements::{find_statement_span, find_all_statement_ranges};
+pub use statements::{find_all_statement_ranges, find_statement_span};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SqlDialect {
@@ -62,9 +62,16 @@ pub enum ContextType {
     Keyword,
     Table,
     Column,
-    DotColumn { table: String, schema: Option<String> },
-    SchemaTable { schema: String },
-    InsertColumn { table: String },
+    DotColumn {
+        table: String,
+        schema: Option<String>,
+    },
+    SchemaTable {
+        schema: String,
+    },
+    InsertColumn {
+        table: String,
+    },
     Connection,
     Database,
     DataType,

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 
-use poste_exec::sql_connection::{ConnectionStore, test_connection};
+use poste_exec::sql_connection::{test_connection, ConnectionStore};
 
 #[derive(Parser)]
 pub enum ConnectionAction {
@@ -73,7 +73,10 @@ pub async fn execute(action: ConnectionAction) -> Result<()> {
                         let host = item["host"].as_str().unwrap_or("?");
                         let port = item["port"].as_u64().unwrap_or(0);
                         let db = item["database"].as_str().unwrap_or("?");
-                        println!("  {} {} ({}) — {}:{}/{}", icon, name, dialect, host, port, db);
+                        println!(
+                            "  {} {} ({}) — {}:{}/{}",
+                            icon, name, dialect, host, port, db
+                        );
                     }
 
                     // Show resolved URL
@@ -92,16 +95,27 @@ pub async fn execute(action: ConnectionAction) -> Result<()> {
             let store = ConnectionStore::load(&search_dir)?;
             let env_vars = crate::run::load_env_vars(&search_dir, &env);
 
-            let config = store.get(&name)
+            let config = store
+                .get(&name)
                 .ok_or_else(|| anyhow::anyhow!("Connection '{}' not found", name))?;
 
             // Resolve variables
             let mut resolved = config.clone();
-            resolved.host = resolved.host.map(|s| poste_core::substitute_vars(&s, &env_vars));
-            resolved.password = resolved.password.map(|s| poste_core::substitute_vars(&s, &env_vars));
-            resolved.user = resolved.user.map(|s| poste_core::substitute_vars(&s, &env_vars));
-            resolved.database = resolved.database.map(|s| poste_core::substitute_vars(&s, &env_vars));
-            resolved.path = resolved.path.map(|s| poste_core::substitute_vars(&s, &env_vars));
+            resolved.host = resolved
+                .host
+                .map(|s| poste_core::substitute_vars(&s, &env_vars));
+            resolved.password = resolved
+                .password
+                .map(|s| poste_core::substitute_vars(&s, &env_vars));
+            resolved.user = resolved
+                .user
+                .map(|s| poste_core::substitute_vars(&s, &env_vars));
+            resolved.database = resolved
+                .database
+                .map(|s| poste_core::substitute_vars(&s, &env_vars));
+            resolved.path = resolved
+                .path
+                .map(|s| poste_core::substitute_vars(&s, &env_vars));
 
             print!("Testing connection '{}' ... ", name);
             std::io::Write::flush(&mut std::io::stdout())?;

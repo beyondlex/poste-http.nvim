@@ -60,11 +60,15 @@ pub(crate) fn make_detect_response(result: &ContextResult) -> ContextDetectRespo
         sql_context::ContextType::SchemaTable { schema } => Some(schema.clone()),
         _ => None,
     };
-    let tables: Vec<TableRefInfo> = result.tables.iter().map(|t| TableRefInfo {
-        name: t.name.clone(),
-        alias: t.alias.clone(),
-        schema: t.schema.clone(),
-    }).collect();
+    let tables: Vec<TableRefInfo> = result
+        .tables
+        .iter()
+        .map(|t| TableRefInfo {
+            name: t.name.clone(),
+            alias: t.alias.clone(),
+            schema: t.schema.clone(),
+        })
+        .collect();
     ContextDetectResponse {
         version: 1,
         ctx_type,
@@ -112,8 +116,14 @@ pub fn execute(action: ContextAction) -> Result<()> {
             let lines: Vec<&str> = input.lines().collect();
             let span = sql_context::find_statement_span(&lines, cursor_line);
             let response = match span {
-                Some((start, end)) => ContextStmtResponse { start_line: start, end_line: end },
-                None => ContextStmtResponse { start_line: 0, end_line: 0 },
+                Some((start, end)) => ContextStmtResponse {
+                    start_line: start,
+                    end_line: end,
+                },
+                None => ContextStmtResponse {
+                    start_line: 0,
+                    end_line: 0,
+                },
             };
             println!("{}", serde_json::to_string(&response)?);
         }

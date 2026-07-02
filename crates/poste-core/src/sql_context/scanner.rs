@@ -1,11 +1,13 @@
 use super::tokenizer::{
-    is_column_keyword, is_predicate_keyword, is_table_keyword,
-    kw_eq, skip_back, Token, TokenKind,
+    is_column_keyword, is_predicate_keyword, is_table_keyword, kw_eq, skip_back, Token, TokenKind,
 };
 use super::ContextType;
 
 pub(crate) fn detect_scan_backward(
-    tokens: &[Token], cursor_idx: usize, sql: &str, cursor_on_ident: bool,
+    tokens: &[Token],
+    cursor_idx: usize,
+    sql: &str,
+    cursor_on_ident: bool,
 ) -> ContextType {
     let mut i = cursor_idx;
     let mut after_comma = false;
@@ -32,7 +34,13 @@ pub(crate) fn detect_scan_backward(
                     return ContextType::Table;
                 }
                 if is_column_keyword(&kw) {
-                    if !skip_one_ident && (kw == "select" || kw == "where" || kw == "having" || kw == "returning" || kw == "after") {
+                    if !skip_one_ident
+                        && (kw == "select"
+                            || kw == "where"
+                            || kw == "having"
+                            || kw == "returning"
+                            || kw == "after")
+                    {
                         if cursor_on_ident {
                             return ContextType::Column;
                         }
@@ -72,9 +80,7 @@ pub(crate) fn detect_scan_backward(
                                 TokenKind::Comma | TokenKind::Op => {
                                     return ContextType::Column;
                                 }
-                                TokenKind::StrLit
-                                | TokenKind::NumLit
-                                | TokenKind::DollarStr => {
+                                TokenKind::StrLit | TokenKind::NumLit | TokenKind::DollarStr => {
                                     return ContextType::Keyword;
                                 }
                                 _ => break,
@@ -96,7 +102,9 @@ pub(crate) fn detect_scan_backward(
                 }
                 if kw == "column" && skip_one_ident {
                     if let Some(prev) = skip_back(tokens, i) {
-                        if tokens[prev].kind == TokenKind::Keyword && kw_eq(tokens[prev].text(sql), "modify") {
+                        if tokens[prev].kind == TokenKind::Keyword
+                            && kw_eq(tokens[prev].text(sql), "modify")
+                        {
                             return ContextType::Column;
                         }
                     }
@@ -169,7 +177,9 @@ pub(crate) fn detect_scan_backward(
             }
         }
 
-        if i == 0 { break; }
+        if i == 0 {
+            break;
+        }
         i -= 1;
     }
 

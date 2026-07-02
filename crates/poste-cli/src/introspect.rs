@@ -44,11 +44,21 @@ pub async fn execute(args: IntrospectArgs) -> Result<()> {
 
     // Resolve variables and build URL
     let mut resolved = config.clone();
-    resolved.host = resolved.host.map(|s| poste_core::substitute_vars(&s, &env_vars));
-    resolved.password = resolved.password.map(|s| poste_core::substitute_vars(&s, &env_vars));
-    resolved.user = resolved.user.map(|s| poste_core::substitute_vars(&s, &env_vars));
-    resolved.database = resolved.database.map(|s| poste_core::substitute_vars(&s, &env_vars));
-    resolved.path = resolved.path.map(|s| poste_core::substitute_vars(&s, &env_vars));
+    resolved.host = resolved
+        .host
+        .map(|s| poste_core::substitute_vars(&s, &env_vars));
+    resolved.password = resolved
+        .password
+        .map(|s| poste_core::substitute_vars(&s, &env_vars));
+    resolved.user = resolved
+        .user
+        .map(|s| poste_core::substitute_vars(&s, &env_vars));
+    resolved.database = resolved
+        .database
+        .map(|s| poste_core::substitute_vars(&s, &env_vars));
+    resolved.path = resolved
+        .path
+        .map(|s| poste_core::substitute_vars(&s, &env_vars));
 
     let mut connection_url = resolved.to_url();
     let dialect_name = resolved.dialect.clone();

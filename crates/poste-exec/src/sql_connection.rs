@@ -175,10 +175,9 @@ impl ConnectionStore {
     /// Resolve a connection name to a URL, substituting environment variables.
     /// Returns the connection URL string.
     pub fn resolve(&self, name: &str, env_vars: &HashMap<String, String>) -> Result<String> {
-        let config = self
-            .connections
-            .get(name)
-            .ok_or_else(|| anyhow::anyhow!("Connection '{}' not found in connections.json", name))?;
+        let config = self.connections.get(name).ok_or_else(|| {
+            anyhow::anyhow!("Connection '{}' not found in connections.json", name)
+        })?;
 
         // Clone and substitute variables in all string fields
         let mut resolved = config.clone();
@@ -213,7 +212,10 @@ impl ConnectionStore {
             })
             .collect();
         items.sort_by(|a, b| {
-            a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
+            a["name"]
+                .as_str()
+                .unwrap_or("")
+                .cmp(b["name"].as_str().unwrap_or(""))
         });
         items
     }
@@ -364,18 +366,12 @@ mod tests {
         vars.insert("db_host".to_string(), "localhost".to_string());
         vars.insert("db_pass".to_string(), "secret".to_string());
 
-        assert_eq!(
-            substitute_vars("{{db_host}}", &vars),
-            "localhost"
-        );
+        assert_eq!(substitute_vars("{{db_host}}", &vars), "localhost");
         assert_eq!(
             substitute_vars("host={{db_host}} pass={{db_pass}}", &vars),
             "host=localhost pass=secret"
         );
-        assert_eq!(
-            substitute_vars("{{missing}}", &vars),
-            "{{missing}}"
-        );
+        assert_eq!(substitute_vars("{{missing}}", &vars), "{{missing}}");
     }
 
     #[test]

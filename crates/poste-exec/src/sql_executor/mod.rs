@@ -4,16 +4,16 @@
 //! Returns structured JSON responses compatible with the Lua-side
 //! dataset renderer.
 
-mod value;
-mod postgres;
 mod mysql;
+mod postgres;
 mod sqlite;
+mod value;
 
-use poste_core::{Protocol, Request};
-use poste_core::sql_parser;
 use crate::response::Response;
 use crate::sql_dialect;
 use anyhow::Result;
+use poste_core::sql_parser;
+use poste_core::{Protocol, Request};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -38,7 +38,12 @@ pub async fn execute_sql(request: &Request) -> Result<Response> {
                 "connection": parsed.connection,
                 "dialect": dialect,
             }))?;
-            return Ok(make_response(&request.protocol, &parsed.connection, body, format!("Context → {}", db_name)));
+            return Ok(make_response(
+                &request.protocol,
+                &parsed.connection,
+                body,
+                format!("Context → {}", db_name),
+            ));
         }
     }
 
@@ -50,7 +55,12 @@ pub async fn execute_sql(request: &Request) -> Result<Response> {
     }
 }
 
-fn make_response(protocol: &Protocol, connection: &str, body: String, status_text: String) -> Response {
+fn make_response(
+    protocol: &Protocol,
+    connection: &str,
+    body: String,
+    status_text: String,
+) -> Response {
     let proto_name = match protocol {
         Protocol::Postgres => "postgres",
         Protocol::Mysql => "mysql",
@@ -99,7 +109,9 @@ fn build_response(
     // A statement is a "query" (SELECT/SHOW/WITH/etc) if affected_rows is None.
     // Mutations (INSERT/UPDATE/DELETE) set affected_rows; 0-row queries still lack it.
     // Exclude error results — they have affected_rows=None but are not queries.
-    let is_query = results.iter().any(|r| r.affected_rows.is_none() && r.error.is_none());
+    let is_query = results
+        .iter()
+        .any(|r| r.affected_rows.is_none() && r.error.is_none());
     let total_rows: usize = results.iter().map(|r| r.row_count).sum();
     let total_affected: u64 = results.iter().filter_map(|r| r.affected_rows).sum();
 
@@ -153,9 +165,19 @@ fn build_response(
     let body = serde_json::to_string(&body_obj)?;
 
     let status_text = if is_query {
-        format!("{} row{} returned in {}ms", total_rows, if total_rows == 1 { "" } else { "s" }, total_ms)
+        format!(
+            "{} row{} returned in {}ms",
+            total_rows,
+            if total_rows == 1 { "" } else { "s" },
+            total_ms
+        )
     } else if total_affected > 0 {
-        format!("{} row{} affected in {}ms", total_affected, if total_affected == 1 { "" } else { "s" }, total_ms)
+        format!(
+            "{} row{} affected in {}ms",
+            total_affected,
+            if total_affected == 1 { "" } else { "s" },
+            total_ms
+        )
     } else {
         format!("Query OK in {}ms", total_ms)
     };
@@ -190,7 +212,10 @@ mod tests {
         use sqlx::sqlite::SqlitePoolOptions;
         let db_path = "/tmp/poste_test_exec.db";
         std::process::Command::new("sqlite3")
-            .args([db_path, "CREATE TABLE IF NOT EXISTS t (x INT); INSERT OR REPLACE INTO t VALUES (42);"])
+            .args([
+                db_path,
+                "CREATE TABLE IF NOT EXISTS t (x INT); INSERT OR REPLACE INTO t VALUES (42);",
+            ])
             .output()
             .unwrap();
 
@@ -228,10 +253,15 @@ mod tests {
         }];
         let resp = build_response(&protocol, "test", &None, results, 3).unwrap();
         let body: serde_json::Value = serde_json::from_str(&resp.body).unwrap();
-        assert_eq!(body["type"], "resultset",
-            "0-row SELECT with affected_rows=None should be resultset");
-        assert!(resp.status_text.contains("0 rows returned"),
-            "status_text should say '0 rows returned', got: {}", resp.status_text);
+        assert_eq!(
+            body["type"], "resultset",
+            "0-row SELECT with affected_rows=None should be resultset"
+        );
+        assert!(
+            resp.status_text.contains("0 rows returned"),
+            "status_text should say '0 rows returned', got: {}",
+            resp.status_text
+        );
     }
 
     #[test]
@@ -250,7 +280,9 @@ mod tests {
         }];
         let resp = build_response(&protocol, "test", &None, results, 5).unwrap();
         let body: serde_json::Value = serde_json::from_str(&resp.body).unwrap();
-        assert_eq!(body["type"], "affected",
-            "INSERT with affected_rows=Some should be affected");
+        assert_eq!(
+            body["type"], "affected",
+            "INSERT with affected_rows=Some should be affected"
+        );
     }
 }

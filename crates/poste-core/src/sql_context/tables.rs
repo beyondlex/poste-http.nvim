@@ -6,8 +6,10 @@
 //! Compatibility layer: `extract_tables()` now delegates to `scope::resolve_scope()`.
 
 use super::scope;
+use super::tokenizer::{
+    is_column_keyword, is_known_keyword, is_predicate_keyword, is_table_keyword,
+};
 use super::tokenizer::{kw_eq, skip_forward, Token, TokenKind};
-use super::tokenizer::{is_column_keyword, is_known_keyword, is_predicate_keyword, is_table_keyword};
 use super::TableRef;
 
 // ---------------------------------------------------------------------------
@@ -27,10 +29,19 @@ pub(crate) fn extract_tables(tokens: &[Token], sql: &str) -> Vec<TableRef> {
 /// Parse a table reference starting at token index `i`.
 /// Returns (schema, table_name, alias, tokens_consumed).
 pub(crate) fn parse_table_ref<'a>(
-    tokens: &[Token], i: usize, sql: &'a str
+    tokens: &[Token],
+    i: usize,
+    sql: &'a str,
 ) -> (Option<&'a str>, &'a str, Option<&'a str>, usize) {
     let first = match tokens.get(i) {
-        Some(t) if matches!(t.kind, TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword) => t,
+        Some(t)
+            if matches!(
+                t.kind,
+                TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword
+            ) =>
+        {
+            t
+        }
         _ => return (None, "", None, 0),
     };
 
@@ -43,7 +54,10 @@ pub(crate) fn parse_table_ref<'a>(
             // Find the table name after the dot
             if let Some(table_idx) = skip_forward(tokens, dot_idx) {
                 let table_tok = &tokens[table_idx];
-                if matches!(table_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword) {
+                if matches!(
+                    table_tok.kind,
+                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword
+                ) {
                     let table = table_tok.display_text(sql);
 
                     // Check for 3-level: database.schema.table
@@ -51,7 +65,10 @@ pub(crate) fn parse_table_ref<'a>(
                         if tokens[next_dot_idx].kind == TokenKind::Dot {
                             if let Some(third_idx) = skip_forward(tokens, next_dot_idx) {
                                 let third_tok = &tokens[third_idx];
-                                if matches!(third_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword) {
+                                if matches!(
+                                    third_tok.kind,
+                                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword
+                                ) {
                                     // 3-level: database.schema.table → schema = middle, table = last
                                     let schema_text = table;
                                     let table_text = third_tok.display_text(sql);
@@ -59,7 +76,9 @@ pub(crate) fn parse_table_ref<'a>(
 
                                     // Check for alias after 3-level table
                                     if let Some(alias_idx) = skip_forward(tokens, third_idx) {
-                                        if let Some((alias, c)) = try_extract_alias(tokens, alias_idx, sql, i) {
+                                        if let Some((alias, c)) =
+                                            try_extract_alias(tokens, alias_idx, sql, i)
+                                        {
                                             return (Some(schema_text), table_text, Some(alias), c);
                                         }
                                     }
@@ -87,7 +106,9 @@ pub(crate) fn parse_table_ref<'a>(
             let mut j = dot_idx;
             while j < tokens.len() {
                 match tokens[j].kind {
-                    TokenKind::Dot => { j += 1; }
+                    TokenKind::Dot => {
+                        j += 1;
+                    }
                     TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword => {
                         let table = tokens[j].display_text(sql);
                         consumed = j - i + 2;
@@ -121,7 +142,8 @@ pub(crate) fn parse_table_ref<'a>(
         if matches!(alias_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
             let alias_text = alias_tok.display_text(sql);
             let lower = alias_text.to_ascii_lowercase();
-            if !is_table_keyword(&lower) && !is_column_keyword(&lower)
+            if !is_table_keyword(&lower)
+                && !is_column_keyword(&lower)
                 && !is_predicate_keyword(&lower)
                 && !matches!(lower.as_str(), "as" | "on" | "using")
             {
@@ -138,7 +160,10 @@ pub(crate) fn parse_table_ref<'a>(
 /// Handles both `alias` and `AS alias` forms.
 /// Returns `(alias_text, total_consumed_from_start)` or `None`.
 fn try_extract_alias<'a>(
-    tokens: &[Token], idx: usize, sql: &'a str, start: usize
+    tokens: &[Token],
+    idx: usize,
+    sql: &'a str,
+    start: usize,
 ) -> Option<(&'a str, usize)> {
     let tok = &tokens[idx];
     // Handle "AS alias"
@@ -147,7 +172,8 @@ fn try_extract_alias<'a>(
             let alias_tok = &tokens[after_as];
             if matches!(alias_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
                 let alias_text = alias_tok.display_text(sql);
-                if !is_table_keyword(alias_text) && !is_column_keyword(alias_text)
+                if !is_table_keyword(alias_text)
+                    && !is_column_keyword(alias_text)
                     && !is_predicate_keyword(alias_text)
                     && !is_known_keyword(alias_text)
                 {
@@ -158,7 +184,8 @@ fn try_extract_alias<'a>(
     // Handle bare "alias"
     } else if matches!(tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
         let alias_text = tok.display_text(sql);
-        if !is_table_keyword(alias_text) && !is_column_keyword(alias_text)
+        if !is_table_keyword(alias_text)
+            && !is_column_keyword(alias_text)
             && !is_predicate_keyword(alias_text)
             && !is_known_keyword(alias_text)
         {

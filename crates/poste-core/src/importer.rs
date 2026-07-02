@@ -8,9 +8,19 @@ pub enum ImportDirective {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RunDirective {
-    ByName { name: String, vars: HashMap<String, String> },
-    ByAlias { alias: String, name: String, vars: HashMap<String, String> },
-    ByPath { path: String, vars: HashMap<String, String> },
+    ByName {
+        name: String,
+        vars: HashMap<String, String>,
+    },
+    ByAlias {
+        alias: String,
+        name: String,
+        vars: HashMap<String, String>,
+    },
+    ByPath {
+        path: String,
+        vars: HashMap<String, String>,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -29,7 +39,10 @@ pub fn parse_import(line: &str) -> Option<ImportDirective> {
     if let Some((path, alias)) = rest.split_once(" as ") {
         let path = path.trim().to_string();
         let alias = alias.trim().to_string();
-        if !path.is_empty() && !alias.is_empty() && alias.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        if !path.is_empty()
+            && !alias.is_empty()
+            && alias.chars().all(|c| c.is_alphanumeric() || c == '_')
+        {
             return Some(ImportDirective::Aliased { path, alias });
         }
     }
@@ -74,7 +87,10 @@ pub fn parse_run(line: &str) -> Option<RunDirective> {
     // run #Name
     if let Some(name) = target.strip_prefix('#') {
         if !name.is_empty() {
-            return Some(RunDirective::ByName { name: name.to_string(), vars });
+            return Some(RunDirective::ByName {
+                name: name.to_string(),
+                vars,
+            });
         }
     }
 
@@ -147,7 +163,9 @@ pub fn build_index(imports: &[ImportDirective]) -> (ImportIndex, Vec<String>) {
                     errors.push(format!("Duplicate alias '{}'", alias));
                 } else {
                     used_aliases.insert(alias.clone(), true);
-                    index.aliased_imports.insert(alias.clone(), directive.clone());
+                    index
+                        .aliased_imports
+                        .insert(alias.clone(), directive.clone());
                 }
             }
         }
@@ -238,16 +256,24 @@ mod tests {
     #[test]
     fn test_parse_import_bare() {
         let d = parse_import("import ./auth.http").unwrap();
-        assert_eq!(d, ImportDirective::Bare { path: "./auth.http".to_string() });
+        assert_eq!(
+            d,
+            ImportDirective::Bare {
+                path: "./auth.http".to_string()
+            }
+        );
     }
 
     #[test]
     fn test_parse_import_aliased() {
         let d = parse_import("import ./orders.http as orders").unwrap();
-        assert_eq!(d, ImportDirective::Aliased {
-            path: "./orders.http".to_string(),
-            alias: "orders".to_string(),
-        });
+        assert_eq!(
+            d,
+            ImportDirective::Aliased {
+                path: "./orders.http".to_string(),
+                alias: "orders".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -260,20 +286,26 @@ mod tests {
     #[test]
     fn test_parse_run_by_name() {
         let d = parse_run("run #Login").unwrap();
-        assert_eq!(d, RunDirective::ByName {
-            name: "Login".to_string(),
-            vars: HashMap::new(),
-        });
+        assert_eq!(
+            d,
+            RunDirective::ByName {
+                name: "Login".to_string(),
+                vars: HashMap::new(),
+            }
+        );
     }
 
     #[test]
     fn test_parse_run_by_alias() {
         let d = parse_run("run #orders.ListOrders").unwrap();
-        assert_eq!(d, RunDirective::ByAlias {
-            alias: "orders".to_string(),
-            name: "ListOrders".to_string(),
-            vars: HashMap::new(),
-        });
+        assert_eq!(
+            d,
+            RunDirective::ByAlias {
+                alias: "orders".to_string(),
+                name: "ListOrders".to_string(),
+                vars: HashMap::new(),
+            }
+        );
     }
 
     #[test]
@@ -281,10 +313,13 @@ mod tests {
         let d = parse_run("run #Login (@token=xyz)").unwrap();
         let mut expected_vars = HashMap::new();
         expected_vars.insert("token".to_string(), "xyz".to_string());
-        assert_eq!(d, RunDirective::ByName {
-            name: "Login".to_string(),
-            vars: expected_vars,
-        });
+        assert_eq!(
+            d,
+            RunDirective::ByName {
+                name: "Login".to_string(),
+                vars: expected_vars,
+            }
+        );
     }
 
     #[test]
@@ -293,27 +328,39 @@ mod tests {
         let mut expected_vars = HashMap::new();
         expected_vars.insert("token".to_string(), "xyz".to_string());
         expected_vars.insert("env".to_string(), "staging".to_string());
-        assert_eq!(d, RunDirective::ByName {
-            name: "Login".to_string(),
-            vars: expected_vars,
-        });
+        assert_eq!(
+            d,
+            RunDirective::ByName {
+                name: "Login".to_string(),
+                vars: expected_vars,
+            }
+        );
     }
 
     #[test]
     fn test_parse_run_by_path() {
         let d = parse_run("run ./batch.http").unwrap();
-        assert_eq!(d, RunDirective::ByPath {
-            path: "./batch.http".to_string(),
-            vars: HashMap::new(),
-        });
+        assert_eq!(
+            d,
+            RunDirective::ByPath {
+                path: "./batch.http".to_string(),
+                vars: HashMap::new(),
+            }
+        );
     }
 
     #[test]
     fn test_parse_imports_from_content() {
-        let content = "import ./auth.http\nimport ./orders.http as orders\n\n### Request\nGET /api\n";
+        let content =
+            "import ./auth.http\nimport ./orders.http as orders\n\n### Request\nGET /api\n";
         let imports = parse_imports_from_content(content);
         assert_eq!(imports.len(), 2);
-        assert_eq!(imports[0], ImportDirective::Bare { path: "./auth.http".to_string() });
+        assert_eq!(
+            imports[0],
+            ImportDirective::Bare {
+                path: "./auth.http".to_string()
+            }
+        );
     }
 
     #[test]
@@ -326,8 +373,13 @@ mod tests {
     #[test]
     fn test_build_index_no_conflicts() {
         let imports = vec![
-            ImportDirective::Bare { path: "./a.http".to_string() },
-            ImportDirective::Aliased { path: "./b.http".to_string(), alias: "b".to_string() },
+            ImportDirective::Bare {
+                path: "./a.http".to_string(),
+            },
+            ImportDirective::Aliased {
+                path: "./b.http".to_string(),
+                alias: "b".to_string(),
+            },
         ];
         let (index, errors) = build_index(&imports);
         assert!(errors.is_empty());
@@ -338,8 +390,14 @@ mod tests {
     #[test]
     fn test_build_index_alias_conflict() {
         let imports = vec![
-            ImportDirective::Aliased { path: "./a.http".to_string(), alias: "ns".to_string() },
-            ImportDirective::Aliased { path: "./b.http".to_string(), alias: "ns".to_string() },
+            ImportDirective::Aliased {
+                path: "./a.http".to_string(),
+                alias: "ns".to_string(),
+            },
+            ImportDirective::Aliased {
+                path: "./b.http".to_string(),
+                alias: "ns".to_string(),
+            },
         ];
         let (_index, errors) = build_index(&imports);
         assert!(!errors.is_empty());
@@ -371,17 +429,21 @@ mod tests {
     #[test]
     fn test_import_alias_with_underscore() {
         let d = parse_import("import ./my_orders.http as my_orders").unwrap();
-        assert_eq!(d, ImportDirective::Aliased {
-            path: "./my_orders.http".to_string(),
-            alias: "my_orders".to_string(),
-        });
+        assert_eq!(
+            d,
+            ImportDirective::Aliased {
+                path: "./my_orders.http".to_string(),
+                alias: "my_orders".to_string(),
+            }
+        );
     }
 
     // ---- extract_request_names ----
 
     #[test]
     fn test_extract_request_names_basic() {
-        let content = "import ./auth.http\n\n### Login\nGET /api/login\n\n### Logout\nGET /api/logout\n";
+        let content =
+            "import ./auth.http\n\n### Login\nGET /api/login\n\n### Logout\nGET /api/logout\n";
         let names = extract_request_names(content);
         assert_eq!(names.len(), 2);
         assert_eq!(names[0], (3, "Login".to_string()));

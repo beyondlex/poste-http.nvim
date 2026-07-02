@@ -4,8 +4,8 @@ use sqlx::mysql::{MySqlPool, MySqlPoolOptions, MySqlRow};
 use sqlx::Row;
 
 use super::{IntrospectParams, IntrospectType};
-use crate::sql_dialect::{Dialect, MysqlDialect};
 use crate::sql_ddl;
+use crate::sql_dialect::{Dialect, MysqlDialect};
 
 pub(super) async fn introspect_mysql(params: &IntrospectParams) -> Result<Value> {
     let pool = MySqlPoolOptions::new()
@@ -36,9 +36,7 @@ pub(super) async fn introspect_mysql(params: &IntrospectParams) -> Result<Value>
                 .map(|row| json!({ "name": col_idx(row, 0) }))
                 .collect()
         }
-        IntrospectType::Schemas => {
-            Vec::new()
-        }
+        IntrospectType::Schemas => Vec::new(),
         IntrospectType::Tables => {
             let sql = dialect.list_tables();
             let rows = sqlx::query(sql).fetch_all(&pool).await?;
@@ -52,10 +50,9 @@ pub(super) async fn introspect_mysql(params: &IntrospectParams) -> Result<Value>
                 .collect()
         }
         IntrospectType::Columns => {
-            let table = params
-                .table
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("table parameter required for columns introspection"))?;
+            let table = params.table.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("table parameter required for columns introspection")
+            })?;
             let sql = dialect.list_columns().replace("{}", table);
             let rows = sqlx::query(&sql).fetch_all(&pool).await?;
             let fk_sql = format!(
@@ -66,19 +63,18 @@ pub(super) async fn introspect_mysql(params: &IntrospectParams) -> Result<Value>
                    AND kcu.referenced_table_name IS NOT NULL",
                 table.replace('\'', "''")
             );
-            let fk_rows = sqlx::query(&fk_sql).fetch_all(&pool).await.unwrap_or_default();
-            let fk_map: std::collections::HashMap<String, (String, String)> = fk_rows.iter().map(|r| {
-                (col(r, "col"), (
-                    col(r, "ref_table"),
-                    col(r, "ref_col"),
-                ))
-            }).collect();
+            let fk_rows = sqlx::query(&fk_sql)
+                .fetch_all(&pool)
+                .await
+                .unwrap_or_default();
+            let fk_map: std::collections::HashMap<String, (String, String)> = fk_rows
+                .iter()
+                .map(|r| (col(r, "col"), (col(r, "ref_table"), col(r, "ref_col"))))
+                .collect();
             rows.iter()
                 .map(|row| {
                     let col_name = col(row, "Field");
-                    let (ref_table, ref_col) = fk_map.get(&col_name)
-                        .cloned()
-                        .unwrap_or_default();
+                    let (ref_table, ref_col) = fk_map.get(&col_name).cloned().unwrap_or_default();
                     json!({
                         "name": col_name,
                         "type": col(row, "Type"),
@@ -94,10 +90,9 @@ pub(super) async fn introspect_mysql(params: &IntrospectParams) -> Result<Value>
                 .collect()
         }
         IntrospectType::Indexes => {
-            let table = params
-                .table
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("table parameter required for indexes introspection"))?;
+            let table = params.table.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("table parameter required for indexes introspection")
+            })?;
             let sql = dialect.list_indexes().replace("{}", table);
             let rows = sqlx::query(&sql).fetch_all(&pool).await?;
             use std::collections::BTreeMap;
@@ -108,7 +103,9 @@ pub(super) async fn introspect_mysql(params: &IntrospectParams) -> Result<Value>
                 let is_unique = row.try_get::<i32, _>("Non_unique").unwrap_or(1) == 0;
                 let entry = index_map.entry(key_name).or_default();
                 entry.0.push(column_name);
-                if is_unique { entry.1 = true; }
+                if is_unique {
+                    entry.1 = true;
+                }
             }
             index_map
                 .into_iter()
@@ -123,11 +120,7 @@ pub(super) async fn introspect_mysql(params: &IntrospectParams) -> Result<Value>
                 .collect()
         }
         IntrospectType::Ddl => {
-            build_create_table_from_introspect_mysql(
-                &pool,
-                params.table.as_deref(),
-            )
-            .await?
+            build_create_table_from_introspect_mysql(&pool, params.table.as_deref()).await?
         }
     };
 
@@ -149,7 +142,8 @@ async fn build_create_table_from_introspect_mysql(
 ) -> Result<Vec<serde_json::Value>> {
     use sqlx::Row;
 
-    let table = table.ok_or_else(|| anyhow::anyhow!("table parameter required for ddl introspection"))?;
+    let table =
+        table.ok_or_else(|| anyhow::anyhow!("table parameter required for ddl introspection"))?;
 
     fn col(row: &MySqlRow, name: &str) -> String {
         let bytes: Vec<u8> = row.get(name);
@@ -220,14 +214,22 @@ async fn build_create_table_from_introspect_mysql(
     let schema_def = sql_ddl::TableSchema {
         name: table.to_string(),
         columns,
-        primary_key: if pk_cols.is_empty() { None } else { Some(pk_cols) },
+        primary_key: if pk_cols.is_empty() {
+            None
+        } else {
+            Some(pk_cols)
+        },
         comment: table_comment,
     };
 
     if let Some(ddl_generator) = sql_ddl::ddl_for("mysql") {
         let ddl = ddl_generator.create_table(&schema_def);
-        return Ok(vec![json!({"ddl": ddl, "type": "ddl", "table": table, "dialect": "mysql"})]);
+        return Ok(vec![
+            json!({"ddl": ddl, "type": "ddl", "table": table, "dialect": "mysql"}),
+        ]);
     }
 
-    Ok(vec![json!({"ddl": format!("-- Could not create DDL for table '{}'", table)})])
+    Ok(vec![
+        json!({"ddl": format!("-- Could not create DDL for table '{}'", table)}),
+    ])
 }

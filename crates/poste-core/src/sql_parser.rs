@@ -105,7 +105,9 @@ pub fn split_statements(body: &str) -> Vec<String> {
                             current.push('"');
                             // Check for escaped quote ""
                             if chars.peek() == Some(&'"') {
-                                current.push(chars.next().expect("peek confirmed double-quote exists"));
+                                current.push(
+                                    chars.next().expect("peek confirmed double-quote exists"),
+                                );
                             } else {
                                 break;
                             }
@@ -118,7 +120,7 @@ pub fn split_statements(body: &str) -> Vec<String> {
             // Line comment: -- ...
             '-' if chars.peek() == Some(&'-') => {
                 chars.next(); // consume second -
-                // Consume until end of line (skip, not part of any statement)
+                              // Consume until end of line (skip, not part of any statement)
                 for ch in chars.by_ref() {
                     if ch == '\n' {
                         break;
@@ -221,7 +223,8 @@ mod tests {
 
     #[test]
     fn test_split_strips_directives() {
-        let body = "-- @connection postgres://localhost/test\n-- @database mydb\nSELECT 1; SELECT 2;";
+        let body =
+            "-- @connection postgres://localhost/test\n-- @database mydb\nSELECT 1; SELECT 2;";
         let stmts = split_statements(body);
         assert_eq!(stmts, vec!["SELECT 1", "SELECT 2"]);
     }
@@ -267,7 +270,10 @@ mod tests {
         assert_eq!(detect_use_statement("USE mydb"), Some("mydb".to_string()));
         assert_eq!(detect_use_statement("use mydb;"), Some("mydb".to_string()));
         assert_eq!(detect_use_statement("USE `mydb`"), Some("mydb".to_string()));
-        assert_eq!(detect_use_statement("USE \"mydb\""), Some("mydb".to_string()));
+        assert_eq!(
+            detect_use_statement("USE \"mydb\""),
+            Some("mydb".to_string())
+        );
         assert_eq!(detect_use_statement("SELECT 1"), None);
         assert_eq!(detect_use_statement("USELESS"), None);
     }
@@ -278,7 +284,7 @@ mod tests {
             "-- @connection postgres://localhost/test\n\
              -- @database mydb\n\
              SELECT * FROM users;\n\
-             SELECT * FROM orders;"
+             SELECT * FROM orders;",
         );
         let result = parse_sql_request(&req).unwrap();
         assert_eq!(result.connection, "postgres://localhost/test");

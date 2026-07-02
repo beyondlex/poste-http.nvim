@@ -96,9 +96,13 @@ end
 local function save_body_to_file(body, content_type, r)
   local cfg = state.config or {}
   local preview_lines = cfg.body_preview_lines or 20
+  local cache_dir = cfg.response_cache_dir or vim.fn.stdpath("cache") .. "/poste_res"
 
-  -- Save to temp file
-  local tmp_file = vim.fn.tempname() .. ".txt"
+  -- Ensure cache directory exists
+  vim.fn.mkdir(cache_dir, "p")
+
+  -- Save to file with timestamp-based name to avoid conflicts
+  local tmp_file = string.format("%s/res_%s.txt", cache_dir, vim.fn.strftime("%Y%m%d_%H%M%S_%6N"))
   local f = io.open(tmp_file, "w")
   if not f then return nil end
   f:write(body)
@@ -976,5 +980,51 @@ function M.apply_verbose_highlights(buf, lines, r)
 end
 
 M.pretty_body = pretty_body
+
+--- Clean up old response files from the cache directory.
+--- @param max_age_minutes number  Remove files older than this (default: 60 min)
+--- @return number cleaned_count  Number of files removed
+function M.clean_response_cache(max_age_minutes)
+  max_age_minutes = max_age_minutes or 60
+  local cache_dir = state.config.response_cache_dir
+  if not cache_dir or cache_dir == "" then return 0 end
+  if not vim.fn.isdirectory(cache_dir) then return 0 end
+
+  local uv = vim.uv or vim.loop
+  local now = uv.gettimeofday() -- milliseconds
+  local cutoff_ms = max_age_minutes * 60 * 1000
+  local cleaned = 0
+
+  local fd = uv.fs_opendir(cache_dir, nil, 0)
+  if not fd then return 0 end
+
+  local entries = uv.fs_readdir(fd)
+  while entries and #entries > 0 do
+    for _, entry in ipairs(entries) do
+      local path = cache_dir .. "/" .. entry.name
+      local stat = uv.fs_stat(path)
+      if stat and stat.mtime then
+        -- mtime is a table with {sec, nsec}
+        local mtime_ms = stat.mtime.sec * 1000 + stat.mtime.nsec / 1000000
+        if now - mtime_ms > cutoff_ms then
+          uv.fs_unlink(path)
+          cleaned = cleaned + 1
+        end
+      end
+    end
+    entries = uv.fs_readdir(fd)
+  end
+  uv.fs_closedir(fd)
+
+  -- Remove empty cache directory
+  if cleaned > 0 then
+    local remaining = uv.fs_readdir(uv.fs_opendir(cache_dir, nil, 0))
+    if not remaining or #remaining == 0 then
+      uv.fs_rmdir(cache_dir)
+    end
+  end
+
+  return cleaned
+end
 
 return M

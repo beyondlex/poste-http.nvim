@@ -13,6 +13,10 @@ M.config = {
   split_size = 80,
   log_file = vim.fn.stdpath("cache") .. "/poste.log",
   import_chunk_size = 100,
+  -- Truncate large text responses: save to temp file, show preview + file link
+  max_body_bytes = 100 * 1024,    -- 100 KB
+  max_body_lines = 500,
+  body_preview_lines = 20,
 
   -- Preferred SQL formatter order. If a formatter fails (e.g. sqlfluff can't
   -- parse SHOW TABLES), Poste automatically falls back to the next in the list.

@@ -3,7 +3,7 @@
 local state = require("poste.state")
 
 local redis_ns = vim.api.nvim_create_namespace("poste_redis")
-local file_link_ns = vim.api.nvim_create_namespace("poste_file_link")
+local file_link_ns = vim.api.nvim.nvim_create_namespace("poste_file_link")
 
 local M = {}
 
@@ -79,6 +79,49 @@ local function human_size(bytes)
   else
     return string.format("%.1f %s", n, units[idx])
   end
+end
+
+--- Return true if the body is too large to display inline.
+local function is_large_body(body)
+  if not body or body == "" then return false end
+  local cfg = state.config or {}
+  local max_bytes = cfg.max_body_bytes or 100 * 1024
+  local max_lines = cfg.max_body_lines or 500
+  if #body > max_bytes then return true end
+  if #body:gmatch("\n") >= max_lines - 1 then return true end
+  return false
+end
+
+--- Save body to a temp file and return truncated preview lines with a file link.
+local function save_body_to_file(body, content_type, r)
+  local cfg = state.config or {}
+  local preview_lines = cfg.body_preview_lines or 20
+
+  -- Save to temp file
+  local tmp_file = vim.fn.tempname() .. ".txt"
+  local f = io.open(tmp_file, "w")
+  if not f then return nil end
+  f:write(body)
+  f:close()
+
+  -- Store in response metadata for gd keymap
+  if not r.metadata then r.metadata = {} end
+  r.metadata.file_path = tmp_file
+  r.metadata.file_size = #body
+  r.metadata.file_content_type = content_type
+
+  -- Build truncated preview
+  local lines = split_lines(body)
+  local truncated = {}
+  local preview_count = math.min(preview_lines, #lines)
+  for i = 1, preview_count do
+    table.insert(truncated, lines[i])
+  end
+  local remaining = #lines - preview_count
+  table.insert(truncated, string.format("...  (%d more lines, %s total)", remaining, human_size(#body)))
+  table.insert(truncated, string.format("  File:        %s", tmp_file))
+
+  return truncated
 end
 
 --- Simple JSON pretty-printer
@@ -264,7 +307,7 @@ function M.format_body(r)
   end
 
   -- Binary file response: show file info instead of mangled raw content
-  if r.metadata and r.metadata.file_path then
+  if r.metadata and r.metadata.file_path and r.metadata.file_content_type and not r.metadata.file_content_type:find("text") and not r.metadata.file_content_type:find("json") and not r.metadata.file_content_type:find("xml") and not r.metadata.file_content_type:find("html") then
     local lines = {}
     table.insert(lines, "▸ Binary File Response")
     table.insert(lines, "")
@@ -276,21 +319,31 @@ function M.format_body(r)
     return lines
   end
 
+  -- Large text response: truncate and save to file
+  if is_large_body(r.body) then
+    return save_body_to_file(r.body, r.content_type, r)
+  end
+
   local body = pretty_body(r.body, r.content_type)
   return split_lines(body)
 end
 
---- Apply an extmark highlight on the file path portion of the "Open file:"
---- line.  Only the path itself is rendered as a blue, underlined link.
+--- Apply extmark highlights on file path portions of "Open file:" and
+--- "File:" lines.  Only the path itself is rendered as a blue, underlined link.
 function M.apply_file_link_highlight(buf, lines)
   vim.api.nvim_buf_clear_namespace(buf, file_link_ns, 0, -1)
   for i, line in ipairs(lines) do
-    local path_start = line:match("^  Open file:%s+")
-    if path_start then
-      local col = #path_start
+    -- Match both "  Open file:   /path" and "  File:        /path"
+    local prefix
+    if line:match("^  Open file:%s+") then
+      prefix = line:match("^  Open file:%s+")
+    elseif line:match("^  File:%s+") then
+      prefix = line:match("^  File:%s+")
+    end
+    if prefix then
+      local col = #prefix
       if col < #line then
         local row = i - 1
-        -- Highlight only the path part
         vim.api.nvim_buf_set_extmark(buf, file_link_ns, row, col, {
           end_row = row, end_col = #line,
           hl_group = "PosteFileLink",
@@ -592,10 +645,16 @@ function M.format_verbose(r, pending)
     if r.body and r.body ~= "" then
       table.insert(lines, "▸ Response Body")
       if r.metadata and r.metadata.file_path then
-        -- File saved by Rust executor
+        -- File saved by Rust executor (binary or large text)
         table.insert(lines, string.format("  Path:         %s", r.metadata.file_path))
         table.insert(lines, string.format("  Size:         %s  (%s bytes)", human_size(r.metadata.file_size), r.metadata.file_size or "?"))
         table.insert(lines, string.format("  Content-Type: %s", r.metadata.file_content_type or r.content_type or "?"))
+      elseif is_large_body(r.body) then
+        -- Large text body: truncate and save
+        local truncated = save_body_to_file(r.body, r.content_type, r)
+        for _, tl in ipairs(truncated) do
+          table.insert(lines, "  " .. tl)
+        end
       else
         local body = pretty_body(r.body, r.content_type)
         for l in body:gmatch("[^\r\n]+") do

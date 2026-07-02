@@ -361,7 +361,9 @@ local function execute_request(src_buf, line, binary, file, modified_content, re
     end
 
     -- Inject global vars
-    buf_content, _ = inject_global_vars(buf_content, block_start, state.global_vars)
+    local global_count
+    buf_content, global_count = inject_global_vars(buf_content, block_start, state.global_vars)
+    block_end = block_end + global_count
 
     -- Process form data and extract assertion blocks
     buf_content = request_vars.process_form_data(src_buf, line, buf_content)

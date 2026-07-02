@@ -83,19 +83,21 @@ end
 
 --- Return true if the body is too large to display inline.
 local function is_large_body(body)
-  if not body or body == "" then return false end
+  if not body or type(body) ~= "string" then return false end
   local cfg = state.config or {}
-  local max_bytes = cfg.max_body_bytes or 100 * 1024
-  local max_lines = cfg.max_body_lines or 500
+  local max_bytes = tonumber(cfg.max_body_bytes) or 100 * 1024
+  local max_lines = tonumber(cfg.max_body_lines) or 500
   if #body > max_bytes then return true end
-  if body:gsub("\n", "\n") >= max_lines - 1 then return true end
+  local line_count = 1
+  for _ in body:gmatch("\n") do line_count = line_count + 1 end
+  if line_count >= max_lines then return true end
   return false
 end
 
 --- Save body to a temp file and return truncated preview lines with a file link.
 local function save_body_to_file(body, content_type, r)
   local cfg = state.config or {}
-  local preview_lines = cfg.body_preview_lines or 20
+  local preview_lines = tonumber(cfg.body_preview_lines) or 20
   local cache_dir = cfg.response_cache_dir or vim.fn.stdpath("cache") .. "/poste_res"
 
   -- Ensure cache directory exists
@@ -985,7 +987,7 @@ M.pretty_body = pretty_body
 --- @param max_age_minutes number  Remove files older than this (default: 60 min)
 --- @return number cleaned_count  Number of files removed
 function M.clean_response_cache(max_age_minutes)
-  max_age_minutes = max_age_minutes or 60
+  max_age_minutes = tonumber(max_age_minutes) or 60
   local cache_dir = state.config.response_cache_dir
   if not cache_dir or cache_dir == "" then return 0 end
   if not vim.fn.isdirectory(cache_dir) then return 0 end

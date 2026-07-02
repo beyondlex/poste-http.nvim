@@ -88,7 +88,7 @@ local function is_large_body(body)
   local max_bytes = cfg.max_body_bytes or 100 * 1024
   local max_lines = cfg.max_body_lines or 500
   if #body > max_bytes then return true end
-  if #body:gmatch("\n") >= max_lines - 1 then return true end
+  if body:gsub("\n", "\n") >= max_lines - 1 then return true end
   return false
 end
 

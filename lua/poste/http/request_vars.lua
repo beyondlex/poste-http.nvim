@@ -108,40 +108,20 @@ local function strip_prompt_lines(content)
 end
 
 --- Collect all ### request blocks with their names and line ranges.
+--- Delegates to cache.lua block index.
 --- Returns list of { name = "Request Name", start_line = 1, end_line = 5 }
 --- All line numbers are 1-indexed.
 function M.collect_requests(buf)
+  local cache = require("poste.http.cache")
+  local bc = cache.get_buffer_cache(buf)
   local requests = {}
-  local total = vim.api.nvim_buf_line_count(buf)
-  local i = 1
-
-  while i <= total do
-    local line_text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-    if line_text:match("^%s*###") then
-      local name = vim.trim(line_text:gsub("^%s*###", ""))
-      local start_line = i
-      local end_line = total
-
-      -- Find end of this block (next ### or EOF)
-      for j = i + 1, total do
-        local next_text = vim.api.nvim_buf_get_lines(buf, j - 1, j, false)[1] or ""
-        if next_text:match("^%s*###") then
-          end_line = j - 1
-          break
-        end
-      end
-
-      table.insert(requests, {
-        name = name,
-        start_line = start_line,
-        end_line = end_line,
-      })
-      i = end_line + 1
-    else
-      i = i + 1
-    end
+  for _, block in ipairs(bc.blocks or {}) do
+    table.insert(requests, {
+      name = block.name or "",
+      start_line = block.start_line,
+      end_line = block.end_line,
+    })
   end
-
   return requests
 end
 

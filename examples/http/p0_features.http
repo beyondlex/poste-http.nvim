@@ -37,8 +37,8 @@ Content-Type: application/json
   "timestamp": "{{$timestamp}}",
   "date": "{{$date}}",
   "randomInt": {{$randomInt}},
-      "same_uuid": "{{$uuid}}"
-  }
+  "same_uuid": "{{$uuid}}"
+}
 
 > {%
 client.test("0.1: All magic vars substituted", function()

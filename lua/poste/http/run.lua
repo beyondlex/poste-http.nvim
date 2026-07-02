@@ -163,7 +163,7 @@ local function handle_job_exit(code, stderr_buf, src_buf, req_line, req_block, r
 end
 
 --- Build pending request info from buf_content for the Verb tab.
-local function build_pending_request(src_buf, buf_content, req_block, block_start, file)
+local function build_pending_request(src_buf, buf_content, req_block, block_start, block_end, file)
   local header_parts = {}
   if req_block.headers then
     for _, h in ipairs(req_block.headers) do
@@ -190,31 +190,55 @@ local function build_pending_request(src_buf, buf_content, req_block, block_star
     return text
   end
 
-  -- Extract the resolved URL and body from buf_content
+  -- Extract the resolved URL and body using block boundaries
   local req_method = ""
   local req_url = ""
   local body = ""
-  if block_start then
-    local header_text = vim.trim(vim.api.nvim_buf_get_lines(src_buf, block_start - 1, block_start, false)[1] or "")
-    local sep_pos = header_text ~= "" and buf_content:find(vim.pesc(header_text), 1, true)
-    if sep_pos then
-      local after_sep = buf_content:find("\n", sep_pos)
-      if after_sep then
-        local req_line_end = buf_content:find("\n", after_sep + 1)
-        if req_line_end then
-          local resolved_req = buf_content:sub(after_sep + 1, req_line_end - 1)
-          req_method, req_url = resolved_req:match("^(%S+)%s+(.+)$")
+  if block_start and block_end then
+    local lines = vim.split(buf_content, "\n", { plain = true })
+    local in_prescript = false
+    local request_found = false
+    local body_start_idx = nil
+    for i = block_start, math.min(block_end, #lines) do
+      local text = lines[i] or ""
+      local trimmed = vim.trim(text)
+      if in_prescript then
+        if trimmed == "%}" then in_prescript = false end
+      elseif trimmed:match("^<%s*{%%") then
+        if not trimmed:match("%%}$") then in_prescript = true end
+      elseif trimmed:match("^###") then
+        -- skip ### header line
+      elseif trimmed:match("^<%s*%.") or trimmed:match("^@%S+%s*[= ]") then
+        -- skip file includes and @vars in header area
+      elseif not request_found then
+        if trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
+          req_method, req_url = text:match("^(%S+)%s+(.+)$")
+          if req_method then request_found = true end
+        end
+      elseif not body_start_idx then
+        -- After request line: skip headers until empty line
+        if trimmed == "" then
+          body_start_idx = i + 1
         end
       end
-      local next_sep = buf_content:find("\n###", sep_pos + 1)
-      local block_end_pos = next_sep or #buf_content + 1
-      local after_req = (buf_content:find("\n", sep_pos) or sep_pos) + 1
-      local header_end = buf_content:find("\n\n", after_req)
-      if header_end and header_end < block_end_pos then
-        body = buf_content:sub(header_end + 2, block_end_pos - 1)
-        body = body:gsub("\n+$", "")
+    end
+    -- Determine actual body end: scan backward from block_end past empties/comments
+    local actual_end = block_end
+    for i = block_end, block_start, -1 do
+      local trimmed = vim.trim(lines[i] or "")
+      if trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
+        actual_end = i
+        break
       end
     end
+    if body_start_idx and body_start_idx <= math.min(actual_end, #lines) then
+      local body_lines = {}
+      for i = body_start_idx, math.min(actual_end, #lines) do
+        table.insert(body_lines, lines[i] or "")
+      end
+      body = table.concat(body_lines, "\n")
+    end
+    body = body:gsub("[\r\n]+$", "")
   end
 
   req_url = resolve_vars(req_url)
@@ -374,12 +398,12 @@ local function execute_request(src_buf, line, binary, file, modified_content, re
     local req_block = indicators.extract_request_block(src_buf, line)
     local req_text = req_block.request_line
 
-    callback(buf_content, req_block, req_text, assertion_code, script_vars, current_req_name, block_start)
+    callback(buf_content, req_block, req_text, assertion_code, script_vars, current_req_name, block_start, block_end)
   end)
 end
 
 --- Start curl job via vim.fn.jobstart with stdin piped.
-local function start_curl_job(binary, file, line, buf_content, req_line, src_buf, req_block, req_text, assertion_code, script_vars, current_req_name, block_start)
+local function start_curl_job(binary, file, line, buf_content, req_line, src_buf, req_block, req_text, assertion_code, script_vars, current_req_name, block_start, block_end)
   local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
     vim.fn.shellescape(binary),
     vim.fn.shellescape(file),
@@ -414,7 +438,7 @@ local function start_curl_job(binary, file, line, buf_content, req_line, src_buf
   if job_id > 0 then
     vim.fn.chansend(job_id, buf_content)
     vim.fn.chanclose(job_id, "stdin")
-    build_pending_request(src_buf, buf_content, req_block, block_start, file)
+    build_pending_request(src_buf, buf_content, req_block, block_start, block_end, file)
     view.show_view("verbose")
   else
     indicators.set_indicator(src_buf, req_line, "error")
@@ -494,9 +518,9 @@ function M.run_request()
   -- Standard request pipeline
   prepare_request(src_buf, line, buf_content, binary, file, function(modified_content, req_line, block_start, block_end)
     execute_request(src_buf, line, binary, file, modified_content, req_line, block_start, block_end,
-      function(inner_content, req_block, req_text, assertion_code, script_vars, current_req_name, blk_start)
+      function(inner_content, req_block, req_text, assertion_code, script_vars, current_req_name, blk_start, blk_end)
         start_curl_job(binary, file, line, inner_content, req_line, src_buf, req_block, req_text,
-          assertion_code, script_vars, current_req_name, blk_start)
+          assertion_code, script_vars, current_req_name, blk_start, blk_end)
       end)
   end)
 end

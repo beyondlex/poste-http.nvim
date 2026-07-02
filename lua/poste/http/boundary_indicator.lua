@@ -3,7 +3,6 @@ local M = {}
 local ns = vim.api.nvim_create_namespace("poste_http_boundary")
 local _prev_buf = nil
 local _disabled = false
-local _buf_cache = {}
 
 local function clear_all(buf)
   if buf and vim.api.nvim_buf_is_valid(buf) then
@@ -42,41 +41,14 @@ local function apply_range(buf, start, stop)
   _prev_buf = buf
 end
 
-local function find_block(lines, cursor)
-  local start = nil
-  for i = cursor, 1, -1 do
-    if (lines[i] or ""):match("^###") then
-      start = i
-      break
-    end
-  end
-  if not start then return nil, nil end
-
-  local next_sep = #lines + 1
-  for i = cursor + 1, #lines do
-    if (lines[i] or ""):match("^###") then
-      next_sep = i
-      break
-    end
-  end
-
-  local stop = nil
-  for i = next_sep - 1, start, -1 do
-    local trimmed = (lines[i] or ""):match("^%s*(.-)%s*$")
-    if trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
-      stop = i
-      break
-    end
-  end
-  if not stop then stop = start end
-
-  -- If cursor is after the block's last content line but before the next ###,
-  -- it's on a separator line — don't attach to either block.
-  if cursor > stop and cursor < next_sep then
-    return nil, nil
-  end
-
-  return start, stop
+--- Find the request block for a given cursor position.
+--- Delegates to cache.lua block index for O(1) lookup.
+local function find_block(buf, cursor)
+  local cache = require("poste.http.cache")
+  local block = cache.get_block_at_line(buf, cursor)
+  if not block then return nil, nil end
+  local stop_line = block.last_content_line or block.end_line
+  return block.start_line, stop_line
 end
 
 local function update(buf, cursor)
@@ -84,13 +56,7 @@ local function update(buf, cursor)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   local total = vim.api.nvim_buf_line_count(buf)
   if total == 0 then return end
-  local ct = vim.api.nvim_buf_get_changedtick(buf)
-  local cached = _buf_cache[buf]
-  if not cached or cached.ct ~= ct or #cached.lines ~= total then
-    cached = { ct = ct, lines = vim.api.nvim_buf_get_lines(buf, 0, total, false) }
-    _buf_cache[buf] = cached
-  end
-  local start, stop = find_block(cached.lines, cursor)
+  local start, stop = find_block(buf, cursor)
   if not start then clear_all(_prev_buf); _prev_buf = nil; return end
   apply_range(buf, start - 1, stop - 1)
 end

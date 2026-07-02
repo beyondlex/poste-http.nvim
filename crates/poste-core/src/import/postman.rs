@@ -53,7 +53,7 @@ impl SpecImporter for PostmanImporter {
             }
 
             let mut content = String::new();
-            content.push_str(&format!("@base_url = {{{{base_url}}}}\n"));
+            content.push_str("@base_url = {{{{base_url}}}}\n");
             content.push('\n');
 
             process_items(items, &mut content, &mut env_vars, &mut warnings, &base_url, "");
@@ -78,7 +78,7 @@ fn process_items(
     items: &[Value],
     content: &mut String,
     env_vars: &mut HashMap<String, String>,
-    warnings: &mut Vec<String>,
+    _warnings: &mut Vec<String>,
     base_url: &str,
     _folder_path: &str,
 ) {
@@ -88,7 +88,7 @@ fn process_items(
             // It's a folder — process items inline
             let folder_name = item.get("name").and_then(|n| n.as_str()).unwrap_or("folder");
             content.push_str(&format!("# --- {} ---\n", folder_name));
-            process_items(sub_items, content, env_vars, warnings, base_url, folder_name);
+            process_items(sub_items, content, env_vars, _warnings, base_url, folder_name);
             content.push('\n');
             continue;
         }
@@ -225,7 +225,7 @@ fn process_items(
 fn extract_url(request: &Value, _method: &str, _base_url: &str, env_vars: &mut HashMap<String, String>) -> String {
     let url = match request.get("url") {
         Some(u) => u,
-        None => return format!("{{{{base_url}}}}"),
+        None => return "{{base_url}}".to_string(),
     };
 
     // If URL is a raw string, use it directly
@@ -263,7 +263,7 @@ fn extract_url(request: &Value, _method: &str, _base_url: &str, env_vars: &mut H
         .unwrap_or_default();
 
     if host_parts.is_empty() && path_parts.is_empty() {
-        return format!("{{{{base_url}}}}");
+        return "{{base_url}}".to_string();
     }
 
     let protocol = url.get("protocol").and_then(|p| p.as_str()).unwrap_or("https");
@@ -300,7 +300,7 @@ fn extract_url(request: &Value, _method: &str, _base_url: &str, env_vars: &mut H
     let url_string = format!("{}{}{}", full_host, path, query_str);
     env_vars.entry("base_url".to_string()).or_insert_with(|| {
         if host_parts.len() > 1 {
-            format!("{}://{}{}", protocol, host, if port.is_some() { format!(":{}", port.unwrap()) } else { String::new() })
+            format!("{}://{}{}", protocol, host, if let Some(p) = port { format!(":{}", p) } else { String::new() })
         } else {
             full_host.clone()
         }
@@ -321,9 +321,7 @@ fn replace_postman_vars(s: &str, env_vars: &mut HashMap<String, String>) -> Stri
     let re = regex::Regex::new(r"\{\{([^}]+)\}\}").unwrap();
     for cap in re.captures_iter(s) {
         let var_name = cap[1].to_string();
-        if !env_vars.contains_key(&var_name) {
-            env_vars.insert(var_name, String::new());
-        }
+        env_vars.entry(var_name).or_default();
     }
     s.to_string()
 }

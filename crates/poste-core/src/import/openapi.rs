@@ -136,7 +136,7 @@ impl SpecImporter for OpenApiImporter {
             let mut content = String::new();
 
             // File-level base_url variable
-            content.push_str(&format!("@base_url = {{{{base_url}}}}\n"));
+            content.push_str("@base_url = {{{{base_url}}}}\n");
             content.push('\n');
 
             for op in ops {
@@ -162,10 +162,7 @@ impl SpecImporter for OpenApiImporter {
                     if let ReferenceOr::Item(Parameter::Query { parameter_data, .. }) = param {
                         let var_name = sanitize_var_name(&parameter_data.name);
                         query_parts.push(format!("{}={}", &parameter_data.name, poste_var(&var_name)));
-                        if !env_vars.contains_key(&var_name) {
-                            let default = extract_default_from_param(parameter_data);
-                            env_vars.insert(var_name, default);
-                        }
+                        env_vars.entry(var_name).or_insert_with(|| extract_default_from_param(parameter_data));
                     }
                 }
 
@@ -183,28 +180,19 @@ impl SpecImporter for OpenApiImporter {
                         ReferenceOr::Item(Parameter::Header { parameter_data, .. }) => {
                             let var_name = sanitize_var_name(&parameter_data.name);
                             content.push_str(&format!("{}: {}\n", parameter_data.name, poste_var(&var_name)));
-                            if !env_vars.contains_key(&var_name) {
-                                let default = extract_default_from_param(parameter_data);
-                                env_vars.insert(var_name, default);
-                            }
+                            env_vars.entry(var_name).or_insert_with(|| extract_default_from_param(parameter_data));
                         }
                         ReferenceOr::Item(Parameter::Query { .. }) => {
                             // Already handled in request line above
                         }
                         ReferenceOr::Item(Parameter::Path { parameter_data, .. }) => {
                             let var_name = sanitize_var_name(&parameter_data.name);
-                            if !env_vars.contains_key(&var_name) {
-                                let default = extract_default_from_param(parameter_data);
-                                env_vars.insert(var_name, default);
-                            }
+                            env_vars.entry(var_name).or_insert_with(|| extract_default_from_param(parameter_data));
                         }
                         ReferenceOr::Item(Parameter::Cookie { parameter_data, .. }) => {
                             let var_name = sanitize_var_name(&parameter_data.name);
                             content.push_str(&format!("Cookie: {}={}\n", parameter_data.name, poste_var(&var_name)));
-                            if !env_vars.contains_key(&var_name) {
-                                let default = extract_default_from_param(parameter_data);
-                                env_vars.insert(var_name, default);
-                            }
+                            env_vars.entry(var_name).or_insert_with(|| extract_default_from_param(parameter_data));
                         }
                         ReferenceOr::Reference { reference } => {
                             warnings.push(format!("Skipping $ref parameter: {}", reference));
@@ -213,6 +201,7 @@ impl SpecImporter for OpenApiImporter {
                 }
 
                 // Security: inject auth headers based on operation or global security
+                #[allow(clippy::option_as_ref_deref)]
                 let op_security = op.security.as_ref()
                     .map(|s| s.as_slice())
                     .or_else(|| global_security.map(|s| s.as_slice()));
@@ -404,8 +393,7 @@ fn sanitize_var_name(name: &str) -> String {
 fn sanitize_path_segment(path: &str) -> String {
     path.trim_start_matches('/')
         .replace('/', "_")
-        .replace('{', "")
-        .replace('}', "")
+        .replace(['{', '}'], "")
         .replace('-', "_")
 }
 

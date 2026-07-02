@@ -75,6 +75,13 @@ local function render_view(view, lines, filetype)
     end
   end
 
+  if view == "request" then
+    local buf = buffer.get_buf()
+    if buf then
+      format.apply_request_highlights(buf, lines)
+    end
+  end
+
   if view == "assertions" then
     local buf = buffer.get_buf()
     if buf then

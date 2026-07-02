@@ -4,8 +4,8 @@
 //! tables, columns, and indexes. Uses the `Dialect` trait from `sql_dialect.rs`
 //! for SQL generation and handles per-dialect parameter binding differences.
 
-mod postgres;
 mod mysql;
+mod postgres;
 mod sqlite;
 
 use anyhow::Result;

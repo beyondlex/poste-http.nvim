@@ -1,5 +1,5 @@
-use super::tokenizer::{kw_eq, skip_forward, Token, TokenKind, is_table_keyword, is_known_keyword};
 use super::tables::parse_table_ref;
+use super::tokenizer::{is_known_keyword, is_table_keyword, kw_eq, skip_forward, Token, TokenKind};
 use super::TableRef;
 
 pub(crate) struct CteRef {
@@ -13,13 +13,18 @@ pub(crate) struct QueryScope {
 
 impl QueryScope {
     pub(crate) fn empty() -> Self {
-        QueryScope { tables: vec![], ctes: vec![] }
+        QueryScope {
+            tables: vec![],
+            ctes: vec![],
+        }
     }
 
     fn add_table(&mut self, table: TableRef) {
-        if !self.tables.iter().any(|t| {
-            t.name == table.name && t.alias == table.alias && t.schema == table.schema
-        }) {
+        if !self
+            .tables
+            .iter()
+            .any(|t| t.name == table.name && t.alias == table.alias && t.schema == table.schema)
+        {
             self.tables.push(table);
         }
     }
@@ -100,9 +105,19 @@ fn extract_cte_names(tokens: &[Token], with_idx: usize, sql: &str, scope: &mut Q
         match tokens[i].kind {
             TokenKind::Keyword if found_cte => {
                 let kw = tokens[i].text(sql).to_ascii_lowercase();
-                if matches!(kw.as_str(), "select" | "update" | "delete" | "insert"
-                    | "create" | "alter" | "drop" | "truncate" | "explain" | "show")
-                {
+                if matches!(
+                    kw.as_str(),
+                    "select"
+                        | "update"
+                        | "delete"
+                        | "insert"
+                        | "create"
+                        | "alter"
+                        | "drop"
+                        | "truncate"
+                        | "explain"
+                        | "show"
+                ) {
                     break;
                 }
                 if kw_eq(tokens[i].text(sql), "as") {
@@ -128,7 +143,8 @@ fn extract_cte_names(tokens: &[Token], with_idx: usize, sql: &str, scope: &mut Q
                 let mut check = i + 1;
                 while check < tokens.len() {
                     match tokens[check].kind {
-                        TokenKind::Whitespace | TokenKind::LineComment
+                        TokenKind::Whitespace
+                        | TokenKind::LineComment
                         | TokenKind::BlockComment => {
                             check += 1;
                         }
@@ -199,7 +215,10 @@ fn extract_derived_table_alias(tokens: &[Token], lp_idx: usize, sql: &str) -> Op
         if alias_tok.kind == TokenKind::Keyword && kw_eq(alias_tok.text(sql), "as") {
             if let Some(name_idx) = skip_forward(tokens, alias_start) {
                 let name_tok = &tokens[name_idx];
-                if matches!(name_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword) {
+                if matches!(
+                    name_tok.kind,
+                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword
+                ) {
                     return Some(name_tok.display_text(sql).to_string());
                 }
             }
@@ -239,8 +258,14 @@ mod tests {
         let tokens = tokenize(sql);
         let scope = resolve_scope(&tokens, sql);
         assert_eq!(scope.tables.len(), 2);
-        assert!(scope.tables.iter().any(|t| t.name == "users" && t.alias == Some("u".into())));
-        assert!(scope.tables.iter().any(|t| t.name == "posts" && t.alias == Some("p".into())));
+        assert!(scope
+            .tables
+            .iter()
+            .any(|t| t.name == "users" && t.alias == Some("u".into())));
+        assert!(scope
+            .tables
+            .iter()
+            .any(|t| t.name == "posts" && t.alias == Some("p".into())));
     }
 
     #[test]
@@ -285,7 +310,10 @@ mod tests {
         let sql = "SELECT * FROM public.users";
         let tokens = tokenize(sql);
         let scope = resolve_scope(&tokens, sql);
-        assert!(scope.tables.iter().any(|t| t.name == "users" && t.schema == Some("public".into())));
+        assert!(scope
+            .tables
+            .iter()
+            .any(|t| t.name == "users" && t.schema == Some("public".into())));
     }
 
     #[test]
@@ -301,11 +329,20 @@ mod tests {
         let sql = "SELECT * FROM (SELECT * FROM (SELECT * FROM deep) AS mid) AS outer WHERE ";
         let tokens = tokenize(sql);
         let scope = resolve_scope(&tokens, sql);
-        assert!(scope.tables.iter().any(|t| t.name == "outer"),
-            "outer should be visible, got tables: {:?}", scope.tables);
-        assert!(!scope.tables.iter().any(|t| t.name == "deep"),
-            "deep should not leak, got tables: {:?}", scope.tables);
-        assert!(!scope.tables.iter().any(|t| t.name == "mid"),
-            "mid should not leak (inner alias), got tables: {:?}", scope.tables);
+        assert!(
+            scope.tables.iter().any(|t| t.name == "outer"),
+            "outer should be visible, got tables: {:?}",
+            scope.tables
+        );
+        assert!(
+            !scope.tables.iter().any(|t| t.name == "deep"),
+            "deep should not leak, got tables: {:?}",
+            scope.tables
+        );
+        assert!(
+            !scope.tables.iter().any(|t| t.name == "mid"),
+            "mid should not leak (inner alias), got tables: {:?}",
+            scope.tables
+        );
     }
 }

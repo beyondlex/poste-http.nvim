@@ -1,23 +1,21 @@
 use super::detectors::{
-    try_bare_set, try_directive, try_dot_column, try_for_update_of,
-    try_grant_revoke, try_insert_column, try_show_statement,
+    try_bare_set, try_directive, try_dot_column, try_for_update_of, try_grant_revoke,
+    try_insert_column, try_show_statement,
 };
 use super::scanner::detect_scan_backward;
 use super::scope;
-use super::tokenizer::{
-    extract_prefix, find_token_at_offset, tokenize, TokenKind,
-};
 use super::statements;
-use super::{
-    functions, ContextResult, ContextType, SqlDialect,
-};
+use super::tokenizer::{extract_prefix, find_token_at_offset, tokenize, TokenKind};
+use super::{functions, ContextResult, ContextType, SqlDialect};
 
 pub fn detect_context(sql: &str, offset: usize) -> Option<ContextResult> {
     detect_context_with_dialect(sql, offset, SqlDialect::Generic)
 }
 
 pub fn detect_context_with_dialect(
-    sql: &str, offset: usize, dialect: SqlDialect,
+    sql: &str,
+    offset: usize,
+    dialect: SqlDialect,
 ) -> Option<ContextResult> {
     let tokens = tokenize(sql);
     if tokens.is_empty() {
@@ -40,7 +38,10 @@ pub fn detect_context_with_dialect(
     let cursor_tok = &tokens[cursor_idx];
 
     let in_string = cursor_tok.kind == TokenKind::StrLit;
-    let in_comment = matches!(cursor_tok.kind, TokenKind::LineComment | TokenKind::BlockComment);
+    let in_comment = matches!(
+        cursor_tok.kind,
+        TokenKind::LineComment | TokenKind::BlockComment
+    );
     if in_string {
         let funcs = functions::known_functions_for_dialect(dialect);
         return Some(ContextResult {
@@ -150,12 +151,20 @@ pub fn detect_context_with_dialect(
         });
     }
 
-    let cursor_on_ident = matches!(cursor_tok.kind,
-        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword | TokenKind::NumLit | TokenKind::At)
-        || (matches!(cursor_tok.kind, TokenKind::Whitespace)
-            && offset > 0
-            && offset <= sql.len()
-            && sql[..offset].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_'));
+    let cursor_on_ident = matches!(
+        cursor_tok.kind,
+        TokenKind::Ident
+            | TokenKind::QuotedIdent
+            | TokenKind::Keyword
+            | TokenKind::NumLit
+            | TokenKind::At
+    ) || (matches!(cursor_tok.kind, TokenKind::Whitespace)
+        && offset > 0
+        && offset <= sql.len()
+        && sql[..offset]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_'));
     let context_type = detect_scan_backward(&tokens, cursor_idx, sql, cursor_on_ident);
 
     Some(ContextResult {
@@ -167,4 +176,3 @@ pub fn detect_context_with_dialect(
         in_comment: false,
     })
 }
-

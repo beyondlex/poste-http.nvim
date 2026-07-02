@@ -218,7 +218,9 @@ impl Tokenizer {
                 continue;
             }
 
-            if let Some(region) = Self::try_parse_request_line(trimmed, line, in_body, found_method_line) {
+            if let Some(region) =
+                Self::try_parse_request_line(trimmed, line, in_body, found_method_line)
+            {
                 regions.push(region);
                 found_method_line = true;
                 i += 1;
@@ -240,8 +242,10 @@ impl Tokenizer {
 
     fn try_parse_multiline_script(line: &str, lines: &[&str], i: &mut usize) -> Option<Region> {
         let trimmed = line.trim();
-        let is_pre = (trimmed.starts_with("< {%") || trimmed.starts_with("<{%")) && !trimmed.contains("%}");
-        let is_post = (trimmed.starts_with("> {%") || trimmed.starts_with(">{%")) && !trimmed.contains("%}");
+        let is_pre =
+            (trimmed.starts_with("< {%") || trimmed.starts_with("<{%")) && !trimmed.contains("%}");
+        let is_post =
+            (trimmed.starts_with("> {%") || trimmed.starts_with(">{%")) && !trimmed.contains("%}");
 
         if !is_pre && !is_post {
             return None;
@@ -290,7 +294,9 @@ impl Tokenizer {
             name: name.clone(),
             value: raw_value.clone(),
             raw: format!("@{} =>>>\n{}\n<<<", name, raw_value),
-            style: VarStyle::Multiline { terminator: "<<<".to_string() },
+            style: VarStyle::Multiline {
+                terminator: "<<<".to_string(),
+            },
         })
     }
 
@@ -316,20 +322,32 @@ impl Tokenizer {
     fn try_parse_import(trimmed: &str, raw_line: &str) -> Option<Region> {
         let rest = trimmed.strip_prefix("import ")?;
         let (path, alias) = if let Some(idx) = rest.find(" as ") {
-            (rest[..idx].trim().to_string(), Some(rest[idx + 4..].trim().to_string()))
+            (
+                rest[..idx].trim().to_string(),
+                Some(rest[idx + 4..].trim().to_string()),
+            )
         } else {
             (rest.trim().to_string(), None)
         };
-        Some(Region::Import { path, alias, raw: raw_line.to_string() })
+        Some(Region::Import {
+            path,
+            alias,
+            raw: raw_line.to_string(),
+        })
     }
 
     fn try_parse_run(trimmed: &str, raw_line: &str) -> Option<Region> {
         let target = trimmed.strip_prefix("run ")?.trim().to_string();
-        Some(Region::Run { target, raw: raw_line.to_string() })
+        Some(Region::Run {
+            target,
+            raw: raw_line.to_string(),
+        })
     }
 
     fn try_parse_separator(trimmed: &str, raw_line: &str) -> Option<Region> {
-        trimmed.starts_with("###").then(|| Region::Separator(raw_line.to_string()))
+        trimmed
+            .starts_with("###")
+            .then(|| Region::Separator(raw_line.to_string()))
     }
 
     fn try_parse_inline_script(trimmed: &str, raw_line: &str) -> Option<Region> {
@@ -344,9 +362,15 @@ impl Tokenizer {
         let code_end = trimmed.rfind("%}").unwrap_or(trimmed.len());
         let code = trimmed[code_start..code_end].trim().to_string();
         Some(if is_pre {
-            Region::PreScript { code, style: ScriptStyle::Inline(raw_line.to_string()) }
+            Region::PreScript {
+                code,
+                style: ScriptStyle::Inline(raw_line.to_string()),
+            }
         } else {
-            Region::PostScript { code, style: ScriptStyle::Inline(raw_line.to_string()) }
+            Region::PostScript {
+                code,
+                style: ScriptStyle::Inline(raw_line.to_string()),
+            }
         })
     }
 
@@ -387,7 +411,12 @@ impl Tokenizer {
 
     fn try_parse_var(trimmed: &str, raw_line: &str) -> Option<Region> {
         let (name, value) = Self::parse_var_line(trimmed)?;
-        Some(Region::VarDef { name, value: value.clone(), raw: raw_line.to_string(), style: VarStyle::Simple })
+        Some(Region::VarDef {
+            name,
+            value: value.clone(),
+            raw: raw_line.to_string(),
+            style: VarStyle::Simple,
+        })
     }
 
     fn parse_var_line(line: &str) -> Option<(String, String)> {
@@ -413,7 +442,12 @@ impl Tokenizer {
         None
     }
 
-    fn try_parse_request_line(trimmed: &str, raw_line: &str, in_body: bool, found_method_line: bool) -> Option<Region> {
+    fn try_parse_request_line(
+        trimmed: &str,
+        raw_line: &str,
+        in_body: bool,
+        found_method_line: bool,
+    ) -> Option<Region> {
         if in_body || found_method_line {
             return None;
         }
@@ -436,7 +470,10 @@ impl Tokenizer {
         }
         let (key, value) = trimmed.split_once(':')?;
         let key_trimmed = key.trim();
-        if key_trimmed.is_empty() || !is_valid_header_key(key_trimmed) || key_trimmed.starts_with('@') {
+        if key_trimmed.is_empty()
+            || !is_valid_header_key(key_trimmed)
+            || key_trimmed.starts_with('@')
+        {
             return None;
         }
         Some(Region::Header {
@@ -447,7 +484,10 @@ impl Tokenizer {
     }
 
     fn is_http_method(s: &str) -> bool {
-        matches!(s, "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS" | "TRACE" | "CONNECT")
+        matches!(
+            s,
+            "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS" | "TRACE" | "CONNECT"
+        )
     }
 }
 
@@ -456,7 +496,8 @@ fn is_valid_var_name(name: &str) -> bool {
 }
 
 fn is_valid_header_key(key: &str) -> bool {
-    key.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    key.chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
 }
 
 pub struct Formatter;
@@ -528,7 +569,11 @@ impl Formatter {
 
         // Rule 8: trailing newline
         let trimmed = out.trim_end().to_string();
-        if trimmed.is_empty() { String::new() } else { format!("{}\n", trimmed) }
+        if trimmed.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", trimmed)
+        }
     }
 
     fn format_file_header(regions: &[&Region], out: &mut String) {
@@ -543,7 +588,9 @@ impl Formatter {
                     import_lines.push(r.raw_text());
                     has_imports = true;
                 }
-                Region::VarDef { name, value, style, .. } => {
+                Region::VarDef {
+                    name, value, style, ..
+                } => {
                     match style {
                         VarStyle::Simple => var_lines.push(format!("@{} = {}", name, value)),
                         VarStyle::Multiline { .. } => {
@@ -553,7 +600,11 @@ impl Formatter {
                     has_vars = true;
                 }
                 Region::Comment(text) => {
-                    var_lines.push(if text.is_empty() { "#".into() } else { format!("#{}", text) });
+                    var_lines.push(if text.is_empty() {
+                        "#".into()
+                    } else {
+                        format!("#{}", text)
+                    });
                     has_vars = true;
                 }
                 Region::Prompt(rest) => {
@@ -569,21 +620,34 @@ impl Formatter {
         }
 
         if has_imports {
-            for line in &import_lines { out.push_str(line); out.push('\n'); }
+            for line in &import_lines {
+                out.push_str(line);
+                out.push('\n');
+            }
         }
-        if has_imports && has_vars { out.push('\n'); }
+        if has_imports && has_vars {
+            out.push('\n');
+        }
         if has_vars {
-            for line in &var_lines { out.push_str(line); out.push('\n'); }
+            for line in &var_lines {
+                out.push_str(line);
+                out.push('\n');
+            }
         }
     }
 
-fn format_request_block(regions: &[&Region], out: &mut String) {
+    fn format_request_block(regions: &[&Region], out: &mut String) {
         let classified = Self::classify_request_block(regions);
 
         Self::emit_preamble(&classified.preamble, out);
         Self::emit_request_line(classified.request_line.as_ref(), out);
         Self::emit_headers(&classified.headers, out);
-        Self::emit_body(&classified.body, classified.body_separator, &classified.post_scripts, out);
+        Self::emit_body(
+            &classified.body,
+            classified.body_separator,
+            &classified.post_scripts,
+            out,
+        );
         Self::emit_post_scripts(&classified.post_scripts, out);
         Self::emit_after_post(&classified.after_post, out);
         Self::emit_trailing(&classified.trailing, classified.request_line.is_some(), out);
@@ -605,10 +669,17 @@ fn format_request_block(regions: &[&Region], out: &mut String) {
         for r in regions {
             match r {
                 Region::PreScript { .. } if !found_req => preamble.push(r.raw_text()),
-                Region::VarDef { name, value, style, .. } if !found_req => {
+                Region::VarDef {
+                    name, value, style, ..
+                } if !found_req => {
                     preamble.push(Self::format_var_def(name, value, style));
                 }
-                Region::RequestLine { method, url, version, .. } => {
+                Region::RequestLine {
+                    method,
+                    url,
+                    version,
+                    ..
+                } => {
                     request_line = Some((method.clone(), url.clone(), version.clone()));
                     found_req = true;
                 }
@@ -640,7 +711,11 @@ fn format_request_block(regions: &[&Region], out: &mut String) {
                     }
                 }
                 Region::Comment(text) => {
-                    let line = if text.is_empty() { "#".into() } else { format!("#{}", text) };
+                    let line = if text.is_empty() {
+                        "#".into()
+                    } else {
+                        format!("#{}", text)
+                    };
                     if has_post {
                         after_post.push(line);
                     } else if !found_req {
@@ -711,7 +786,10 @@ fn format_request_block(regions: &[&Region], out: &mut String) {
         }
     }
 
-    fn emit_request_line(request_line: Option<&(String, String, Option<String>)>, out: &mut String) {
+    fn emit_request_line(
+        request_line: Option<&(String, String, Option<String>)>,
+        out: &mut String,
+    ) {
         if let Some((method, url, version)) = request_line {
             out.push_str(method);
             out.push(' ');

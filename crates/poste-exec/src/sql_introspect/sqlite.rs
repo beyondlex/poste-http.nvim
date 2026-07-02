@@ -1,11 +1,11 @@
 use anyhow::Result;
 use serde_json::{json, Value};
-use sqlx::Row;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sqlx::Row;
 
 use super::{IntrospectParams, IntrospectType};
-use crate::sql_dialect::{Dialect, SqliteDialect};
 use crate::sql_connection::normalize_sqlite_connection;
+use crate::sql_dialect::{Dialect, SqliteDialect};
 
 pub(super) async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value> {
     let conn_str = normalize_sqlite_connection(&params.connection_url)?;
@@ -31,9 +31,7 @@ pub(super) async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value
                 })
                 .collect()
         }
-        IntrospectType::Schemas => {
-            Vec::new()
-        }
+        IntrospectType::Schemas => Vec::new(),
         IntrospectType::Tables => {
             let sql = dialect.list_tables();
             let rows = sqlx::query(sql).fetch_all(&pool).await?;
@@ -47,27 +45,33 @@ pub(super) async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value
                 .collect()
         }
         IntrospectType::Columns => {
-            let table = params
-                .table
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("table parameter required for columns introspection"))?;
+            let table = params.table.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("table parameter required for columns introspection")
+            })?;
             let quoted = dialect.quote_identifier(table);
             let sql = dialect.list_columns().replace("{}", &quoted);
             let rows = sqlx::query(&sql).fetch_all(&pool).await?;
-            let fk_pragma = format!("SELECT \"from\", \"table\", \"to\" FROM pragma_foreign_key_list('{}')", table);
-            let fk_rows = sqlx::query(&fk_pragma).fetch_all(&pool).await.unwrap_or_default();
-            let fk_map: std::collections::HashMap<String, (String, String)> = fk_rows.iter().map(|r| {
-                (r.get::<String, _>("from"), (
-                    r.get::<String, _>("table"),
-                    r.get::<String, _>("to"),
-                ))
-            }).collect();
+            let fk_pragma = format!(
+                "SELECT \"from\", \"table\", \"to\" FROM pragma_foreign_key_list('{}')",
+                table
+            );
+            let fk_rows = sqlx::query(&fk_pragma)
+                .fetch_all(&pool)
+                .await
+                .unwrap_or_default();
+            let fk_map: std::collections::HashMap<String, (String, String)> = fk_rows
+                .iter()
+                .map(|r| {
+                    (
+                        r.get::<String, _>("from"),
+                        (r.get::<String, _>("table"), r.get::<String, _>("to")),
+                    )
+                })
+                .collect();
             rows.iter()
                 .map(|row| {
                     let col_name: String = row.get("name");
-                    let (fk_table, fk_column) = fk_map.get(&col_name)
-                        .cloned()
-                        .unwrap_or_default();
+                    let (fk_table, fk_column) = fk_map.get(&col_name).cloned().unwrap_or_default();
                     json!({
                         "name": col_name,
                         "type": row.get::<String, _>("type"),
@@ -82,10 +86,9 @@ pub(super) async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value
                 .collect()
         }
         IntrospectType::Indexes => {
-            let table = params
-                .table
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("table parameter required for indexes introspection"))?;
+            let table = params.table.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("table parameter required for indexes introspection")
+            })?;
             let quoted = dialect.quote_identifier(table);
             let sql = dialect.list_indexes().replace("{}", &quoted);
             let rows = sqlx::query(&sql).fetch_all(&pool).await?;
@@ -94,9 +97,11 @@ pub(super) async fn introspect_sqlite(params: &IntrospectParams) -> Result<Value
                 let name: String = row.get("name");
                 let unique: bool = row.get::<i64, _>("unique") > 0;
                 let mut columns: Vec<String> = Vec::new();
-                if let Ok(info_rows) = sqlx::query(
-                    "SELECT name FROM pragma_index_info(?)"
-                ).bind(&name).fetch_all(&pool).await {
+                if let Ok(info_rows) = sqlx::query("SELECT name FROM pragma_index_info(?)")
+                    .bind(&name)
+                    .fetch_all(&pool)
+                    .await
+                {
                     for info in &info_rows {
                         columns.push(info.get::<String, _>("name"));
                     }
@@ -141,9 +146,13 @@ async fn build_create_table_from_introspect_sqlite(
     if let Some(row) = rows.first() {
         let create_sql: Option<String> = row.get("sql");
         if let Some(ddl) = create_sql {
-            return Ok(vec![json!({"ddl": ddl, "type": "ddl", "table": table, "dialect": "sqlite"})]);
+            return Ok(vec![
+                json!({"ddl": ddl, "type": "ddl", "table": table, "dialect": "sqlite"}),
+            ]);
         }
     }
 
-    Ok(vec![json!({"ddl": format!("-- Table '{}' not found", table)})])
+    Ok(vec![
+        json!({"ddl": format!("-- Table '{}' not found", table)}),
+    ])
 }

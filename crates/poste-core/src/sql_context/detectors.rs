@@ -1,11 +1,15 @@
-use super::tokenizer::{
-    kw_eq, is_table_keyword, skip_back, skip_forward, Token, TokenKind,
-};
+use super::tokenizer::{is_table_keyword, kw_eq, skip_back, skip_forward, Token, TokenKind};
 use super::ContextType;
 
-pub(crate) fn try_dot_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
+pub(crate) fn try_dot_column(
+    tokens: &[Token],
+    cursor_idx: usize,
+    sql: &str,
+) -> Option<ContextType> {
     let check_dot = |dot_idx: usize| -> Option<ContextType> {
-        if dot_idx == 0 { return None; }
+        if dot_idx == 0 {
+            return None;
+        }
         let prev = dot_idx - 1;
         let prev_idx = match tokens[prev].kind {
             TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment => {
@@ -31,13 +35,17 @@ pub(crate) fn try_dot_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> 
                     if tokens[before].kind == TokenKind::Dot {
                         if let Some(schema_tok_idx) = skip_back(tokens, before) {
                             let schema_tok = &tokens[schema_tok_idx];
-                            if matches!(schema_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent) {
+                            if matches!(schema_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent)
+                            {
                                 schema = Some(schema_tok.display_text(sql).to_string());
                             }
                         }
                     }
                 }
-                Some(ContextType::DotColumn { table: ident, schema })
+                Some(ContextType::DotColumn {
+                    table: ident,
+                    schema,
+                })
             }
             _ => None,
         }
@@ -56,7 +64,11 @@ pub(crate) fn try_dot_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> 
     None
 }
 
-pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
+pub(crate) fn try_insert_column(
+    tokens: &[Token],
+    cursor_idx: usize,
+    sql: &str,
+) -> Option<ContextType> {
     let mut i = cursor_idx;
 
     if tokens[i].kind == TokenKind::RParen {
@@ -69,12 +81,18 @@ pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) 
                 while let Some(idx) = skip_back(tokens, j) {
                     j = idx;
                     match tokens[idx].kind {
-                        TokenKind::LParen => { i = idx; found_lparen = true; break; }
+                        TokenKind::LParen => {
+                            i = idx;
+                            found_lparen = true;
+                            break;
+                        }
                         TokenKind::RParen | TokenKind::Semi => break,
                         _ => continue,
                     }
                 }
-                if !found_lparen { return None; }
+                if !found_lparen {
+                    return None;
+                }
             }
         } else {
             return None;
@@ -89,12 +107,18 @@ pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) 
                 while let Some(idx) = skip_back(tokens, j) {
                     j = idx;
                     match tokens[idx].kind {
-                        TokenKind::LParen => { found_lparen = true; i = idx; break; }
+                        TokenKind::LParen => {
+                            found_lparen = true;
+                            i = idx;
+                            break;
+                        }
                         TokenKind::RParen | TokenKind::Semi => break,
                         _ => continue,
                     }
                 }
-                if !found_lparen { return None; }
+                if !found_lparen {
+                    return None;
+                }
             }
         } else {
             return None;
@@ -106,7 +130,10 @@ pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) 
             return None;
         }
         let tbl_tok = &tokens[tbl_idx];
-        if !matches!(tbl_tok.kind, TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword) {
+        if !matches!(
+            tbl_tok.kind,
+            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword
+        ) {
             return None;
         }
         let table = tbl_tok.display_text(sql).to_string();
@@ -122,7 +149,9 @@ pub(crate) fn try_insert_column(tokens: &[Token], cursor_idx: usize, sql: &str) 
                         return None;
                     }
                     let insert_tok = &tokens[insert_idx];
-                    if insert_tok.kind == TokenKind::Keyword && kw_eq(insert_tok.text(sql), "insert") {
+                    if insert_tok.kind == TokenKind::Keyword
+                        && kw_eq(insert_tok.text(sql), "insert")
+                    {
                         return Some(ContextType::InsertColumn { table });
                     }
                 }
@@ -184,8 +213,15 @@ pub(crate) fn try_directive(tokens: &[Token], cursor_idx: usize, sql: &str) -> O
     None
 }
 
-pub(crate) fn try_show_statement(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
-    let start = if matches!(tokens[cursor_idx].kind, TokenKind::Ident | TokenKind::Keyword) {
+pub(crate) fn try_show_statement(
+    tokens: &[Token],
+    cursor_idx: usize,
+    sql: &str,
+) -> Option<ContextType> {
+    let start = if matches!(
+        tokens[cursor_idx].kind,
+        TokenKind::Ident | TokenKind::Keyword
+    ) {
         skip_back(tokens, cursor_idx)?
     } else {
         cursor_idx
@@ -229,8 +265,15 @@ pub(crate) fn try_show_statement(tokens: &[Token], cursor_idx: usize, sql: &str)
     }
 }
 
-pub(crate) fn try_grant_revoke(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
-    let start = if matches!(tokens[cursor_idx].kind, TokenKind::Ident | TokenKind::Keyword) {
+pub(crate) fn try_grant_revoke(
+    tokens: &[Token],
+    cursor_idx: usize,
+    sql: &str,
+) -> Option<ContextType> {
+    let start = if matches!(
+        tokens[cursor_idx].kind,
+        TokenKind::Ident | TokenKind::Keyword
+    ) {
         skip_back(tokens, cursor_idx)?
     } else {
         cursor_idx
@@ -280,8 +323,15 @@ pub(crate) fn try_grant_revoke(tokens: &[Token], cursor_idx: usize, sql: &str) -
     }
 }
 
-pub(crate) fn try_for_update_of(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
-    let start = if matches!(tokens[cursor_idx].kind, TokenKind::Ident | TokenKind::Keyword) {
+pub(crate) fn try_for_update_of(
+    tokens: &[Token],
+    cursor_idx: usize,
+    sql: &str,
+) -> Option<ContextType> {
+    let start = if matches!(
+        tokens[cursor_idx].kind,
+        TokenKind::Ident | TokenKind::Keyword
+    ) {
         skip_back(tokens, cursor_idx)?
     } else {
         cursor_idx
@@ -319,7 +369,10 @@ pub(crate) fn try_for_update_of(tokens: &[Token], cursor_idx: usize, sql: &str) 
 }
 
 pub(crate) fn try_bare_set(tokens: &[Token], cursor_idx: usize, sql: &str) -> Option<ContextType> {
-    let start = if matches!(tokens[cursor_idx].kind, TokenKind::Ident | TokenKind::Keyword) {
+    let start = if matches!(
+        tokens[cursor_idx].kind,
+        TokenKind::Ident | TokenKind::Keyword
+    ) {
         skip_back(tokens, cursor_idx)?
     } else {
         cursor_idx

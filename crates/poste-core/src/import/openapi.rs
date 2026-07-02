@@ -1,8 +1,8 @@
 use crate::import::{HttpFile, ImportResult, SpecImporter};
 use anyhow::{Context, Result};
 use openapiv3::{
-    OpenAPI, PathItem, Operation, ReferenceOr, Parameter, ParameterSchemaOrContent, Schema,
-    RequestBody, SchemaKind, Type, ObjectType,
+    ObjectType, OpenAPI, Operation, Parameter, ParameterSchemaOrContent, PathItem, ReferenceOr,
+    RequestBody, Schema, SchemaKind, Type,
 };
 use std::collections::HashMap;
 
@@ -18,7 +18,9 @@ impl OpenApiImporter {
     }
 
     pub fn with_base_url(url: &str) -> Self {
-        Self { base_url: Some(url.to_string()) }
+        Self {
+            base_url: Some(url.to_string()),
+        }
     }
 
     /// Extract the base URL from the spec or use override.
@@ -44,7 +46,10 @@ impl OpenApiImporter {
             let item = match item {
                 ReferenceOr::Item(item) => item,
                 ReferenceOr::Reference { reference } => {
-                    eprintln!("[poste import] warning: skipping $ref '{}' at path '{}'", reference, path_str);
+                    eprintln!(
+                        "[poste import] warning: skipping $ref '{}' at path '{}'",
+                        reference, path_str
+                    );
                     continue;
                 }
             };
@@ -61,19 +66,21 @@ impl OpenApiImporter {
                 let http_path = path_str.replace('{', "{{").replace('}', "}}");
 
                 for tag in &tags {
-                    by_tag.entry(tag.clone())
-                        .or_default()
-                        .push(OperationInfo {
-                            method: method.to_uppercase(),
-                            http_path: http_path.clone(),
-                            operation_id: op.operation_id.clone().unwrap_or_else(|| {
-                                format!("{}{}", method.to_lowercase(), sanitize_path_segment(path_str))
-                            }),
-                            summary: op.summary.clone().unwrap_or_default(),
-                            parameters: op.parameters.clone(),
-                            request_body: op.request_body.clone(),
-                            security: op.security.clone(),
-                        });
+                    by_tag.entry(tag.clone()).or_default().push(OperationInfo {
+                        method: method.to_uppercase(),
+                        http_path: http_path.clone(),
+                        operation_id: op.operation_id.clone().unwrap_or_else(|| {
+                            format!(
+                                "{}{}",
+                                method.to_lowercase(),
+                                sanitize_path_segment(path_str)
+                            )
+                        }),
+                        summary: op.summary.clone().unwrap_or_default(),
+                        parameters: op.parameters.clone(),
+                        request_body: op.request_body.clone(),
+                        security: op.security.clone(),
+                    });
                 }
             }
         }
@@ -83,8 +90,15 @@ impl OpenApiImporter {
 
     /// Generate safe filename from tag name.
     fn tag_to_filename(tag: &str) -> String {
-        let sanitized: String = tag.chars()
-            .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        let sanitized: String = tag
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         if sanitized.is_empty() {
             "default".to_string()
@@ -161,8 +175,14 @@ impl SpecImporter for OpenApiImporter {
                 for param in &op.parameters {
                     if let ReferenceOr::Item(Parameter::Query { parameter_data, .. }) = param {
                         let var_name = sanitize_var_name(&parameter_data.name);
-                        query_parts.push(format!("{}={}", &parameter_data.name, poste_var(&var_name)));
-                        env_vars.entry(var_name).or_insert_with(|| extract_default_from_param(parameter_data));
+                        query_parts.push(format!(
+                            "{}={}",
+                            &parameter_data.name,
+                            poste_var(&var_name)
+                        ));
+                        env_vars
+                            .entry(var_name)
+                            .or_insert_with(|| extract_default_from_param(parameter_data));
                     }
                 }
 
@@ -179,20 +199,34 @@ impl SpecImporter for OpenApiImporter {
                     match param {
                         ReferenceOr::Item(Parameter::Header { parameter_data, .. }) => {
                             let var_name = sanitize_var_name(&parameter_data.name);
-                            content.push_str(&format!("{}: {}\n", parameter_data.name, poste_var(&var_name)));
-                            env_vars.entry(var_name).or_insert_with(|| extract_default_from_param(parameter_data));
+                            content.push_str(&format!(
+                                "{}: {}\n",
+                                parameter_data.name,
+                                poste_var(&var_name)
+                            ));
+                            env_vars
+                                .entry(var_name)
+                                .or_insert_with(|| extract_default_from_param(parameter_data));
                         }
                         ReferenceOr::Item(Parameter::Query { .. }) => {
                             // Already handled in request line above
                         }
                         ReferenceOr::Item(Parameter::Path { parameter_data, .. }) => {
                             let var_name = sanitize_var_name(&parameter_data.name);
-                            env_vars.entry(var_name).or_insert_with(|| extract_default_from_param(parameter_data));
+                            env_vars
+                                .entry(var_name)
+                                .or_insert_with(|| extract_default_from_param(parameter_data));
                         }
                         ReferenceOr::Item(Parameter::Cookie { parameter_data, .. }) => {
                             let var_name = sanitize_var_name(&parameter_data.name);
-                            content.push_str(&format!("Cookie: {}={}\n", parameter_data.name, poste_var(&var_name)));
-                            env_vars.entry(var_name).or_insert_with(|| extract_default_from_param(parameter_data));
+                            content.push_str(&format!(
+                                "Cookie: {}={}\n",
+                                parameter_data.name,
+                                poste_var(&var_name)
+                            ));
+                            env_vars
+                                .entry(var_name)
+                                .or_insert_with(|| extract_default_from_param(parameter_data));
                         }
                         ReferenceOr::Reference { reference } => {
                             warnings.push(format!("Skipping $ref parameter: {}", reference));
@@ -202,7 +236,9 @@ impl SpecImporter for OpenApiImporter {
 
                 // Security: inject auth headers based on operation or global security
                 #[allow(clippy::option_as_ref_deref)]
-                let op_security = op.security.as_ref()
+                let op_security = op
+                    .security
+                    .as_ref()
                     .map(|s| s.as_slice())
                     .or_else(|| global_security.map(|s| s.as_slice()));
                 if let Some(security_reqs) = op_security {
@@ -210,50 +246,72 @@ impl SpecImporter for OpenApiImporter {
                         for (scheme_name, _scopes) in req {
                             if let Some(scheme) = security_schemes.get(scheme_name) {
                                 match scheme {
-                                    openapiv3::SecurityScheme::APIKey { location, name, .. } => {
-                                        match location {
-                                            openapiv3::APIKeyLocation::Header => {
-                                                let var_name = sanitize_var_name(name);
-                                                content.push_str(&format!("{}: {}\n", name, poste_var(&var_name)));
-                                                env_vars.entry(var_name).or_default();
-                                            }
-                                            openapiv3::APIKeyLocation::Query => {
-                                                let var_name = sanitize_var_name(name);
-                                                env_vars.entry(var_name).or_default();
-                                            }
-                                            openapiv3::APIKeyLocation::Cookie => {
-                                                let var_name = sanitize_var_name(name);
-                                                content.push_str(&format!("Cookie: {}={}\n", name, poste_var(&var_name)));
-                                                env_vars.entry(var_name).or_default();
-                                            }
+                                    openapiv3::SecurityScheme::APIKey {
+                                        location, name, ..
+                                    } => match location {
+                                        openapiv3::APIKeyLocation::Header => {
+                                            let var_name = sanitize_var_name(name);
+                                            content.push_str(&format!(
+                                                "{}: {}\n",
+                                                name,
+                                                poste_var(&var_name)
+                                            ));
+                                            env_vars.entry(var_name).or_default();
                                         }
-                                    }
+                                        openapiv3::APIKeyLocation::Query => {
+                                            let var_name = sanitize_var_name(name);
+                                            env_vars.entry(var_name).or_default();
+                                        }
+                                        openapiv3::APIKeyLocation::Cookie => {
+                                            let var_name = sanitize_var_name(name);
+                                            content.push_str(&format!(
+                                                "Cookie: {}={}\n",
+                                                name,
+                                                poste_var(&var_name)
+                                            ));
+                                            env_vars.entry(var_name).or_default();
+                                        }
+                                    },
                                     openapiv3::SecurityScheme::HTTP { scheme, .. } => {
                                         match scheme.to_lowercase().as_str() {
                                             "bearer" => {
-                                                content.push_str("Authorization: Bearer {{auth_token}}\n");
+                                                content.push_str(
+                                                    "Authorization: Bearer {{auth_token}}\n",
+                                                );
                                                 env_vars.entry("auth_token".into()).or_default();
                                             }
                                             "basic" => {
-                                                content.push_str("Authorization: Basic {{basic_auth}}\n");
+                                                content.push_str(
+                                                    "Authorization: Basic {{basic_auth}}\n",
+                                                );
                                                 env_vars.entry("basic_auth".into()).or_default();
                                             }
                                             other => {
                                                 let var_name = format!("auth_{}", other);
-                                                content.push_str(&format!("Authorization: {other} {}\n", poste_var(&var_name)));
+                                                content.push_str(&format!(
+                                                    "Authorization: {other} {}\n",
+                                                    poste_var(&var_name)
+                                                ));
                                                 env_vars.entry(var_name).or_default();
                                             }
                                         }
                                     }
                                     _ => {
                                         // OAuth2 / OpenIDConnect — placeholder
-                                        let var_name = format!("{}_token", sanitize_var_name(scheme_name));
-                                        content.push_str(&format!("# {} auth required\n", scheme_name));
+                                        let var_name =
+                                            format!("{}_token", sanitize_var_name(scheme_name));
+                                        content.push_str(&format!(
+                                            "# {} auth required\n",
+                                            scheme_name
+                                        ));
                                         env_vars.entry(var_name).or_default();
                                     }
                                 }
                             } else {
-                                warnings.push(format!("Security scheme '{}' not found in components.securitySchemes", scheme_name));
+                                warnings.push(format!(
+                                    "Security scheme '{}' not found in components.securitySchemes",
+                                    scheme_name
+                                ));
                             }
                         }
                     }
@@ -265,11 +323,12 @@ impl SpecImporter for OpenApiImporter {
                         ReferenceOr::Item(item) => Some(item),
                         ReferenceOr::Reference { reference } => {
                             match resolve_ref_request_body(&api, reference) {
-                                Some(resolved) => {
-                                    Some(resolved)
-                                }
+                                Some(resolved) => Some(resolved),
                                 None => {
-                                    warnings.push(format!("Could not resolve request body $ref: {}", reference));
+                                    warnings.push(format!(
+                                        "Could not resolve request body $ref: {}",
+                                        reference
+                                    ));
                                     None
                                 }
                             }
@@ -313,10 +372,17 @@ impl SpecImporter for OpenApiImporter {
                                     if let Some(s) = get_schema(&api, schema) {
                                         match content_type.as_str() {
                                             "application/x-www-form-urlencoded" => {
-                                                write_form_body(&mut content, s, &api, &mut env_vars);
+                                                write_form_body(
+                                                    &mut content,
+                                                    s,
+                                                    &api,
+                                                    &mut env_vars,
+                                                );
                                             }
                                             "application/json" | "application/xml" => {
-                                                if let Some(json) = generate_json_skeleton(s, &api, 0) {
+                                                if let Some(json) =
+                                                    generate_json_skeleton(s, &api, 0)
+                                                {
                                                     content.push_str(&json);
                                                     content.push('\n');
                                                 }
@@ -365,14 +431,30 @@ struct OperationInfo {
 /// Collect (method_name, Operation) pairs from a PathItem.
 fn collect_methods(item: &PathItem) -> Vec<(&str, &Operation)> {
     let mut ops = Vec::new();
-    if let Some(ref op) = item.get { ops.push(("GET", op)); }
-    if let Some(ref op) = item.post { ops.push(("POST", op)); }
-    if let Some(ref op) = item.put { ops.push(("PUT", op)); }
-    if let Some(ref op) = item.delete { ops.push(("DELETE", op)); }
-    if let Some(ref op) = item.patch { ops.push(("PATCH", op)); }
-    if let Some(ref op) = item.options { ops.push(("OPTIONS", op)); }
-    if let Some(ref op) = item.head { ops.push(("HEAD", op)); }
-    if let Some(ref op) = item.trace { ops.push(("TRACE", op)); }
+    if let Some(ref op) = item.get {
+        ops.push(("GET", op));
+    }
+    if let Some(ref op) = item.post {
+        ops.push(("POST", op));
+    }
+    if let Some(ref op) = item.put {
+        ops.push(("PUT", op));
+    }
+    if let Some(ref op) = item.delete {
+        ops.push(("DELETE", op));
+    }
+    if let Some(ref op) = item.patch {
+        ops.push(("PATCH", op));
+    }
+    if let Some(ref op) = item.options {
+        ops.push(("OPTIONS", op));
+    }
+    if let Some(ref op) = item.head {
+        ops.push(("HEAD", op));
+    }
+    if let Some(ref op) = item.trace {
+        ops.push(("TRACE", op));
+    }
     ops
 }
 
@@ -383,10 +465,21 @@ fn poste_var(name: &str) -> String {
 
 /// Create a safe variable name from a parameter name.
 fn sanitize_var_name(name: &str) -> String {
-    let s: String = name.chars()
-        .map(|c| if c == '-' || c == '.' || c == ' ' { '_' } else { c })
+    let s: String = name
+        .chars()
+        .map(|c| {
+            if c == '-' || c == '.' || c == ' ' {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
-    if s.is_empty() { "param".to_string() } else { s }
+    if s.is_empty() {
+        "param".to_string()
+    } else {
+        s
+    }
 }
 
 /// Create a safe path segment for fallback operationId generation.
@@ -465,7 +558,11 @@ fn extract_enum_values(schema: &Schema) -> Option<Vec<String>> {
     match &schema.schema_kind {
         SchemaKind::Type(Type::String(s)) => {
             let vals: Vec<String> = s.enumeration.iter().filter_map(|e| e.clone()).collect();
-            if !vals.is_empty() { Some(vals) } else { None }
+            if !vals.is_empty() {
+                Some(vals)
+            } else {
+                None
+            }
         }
         SchemaKind::Type(Type::Array(arr)) => {
             arr.items.as_ref().and_then(|items| match items.as_item() {
@@ -474,10 +571,16 @@ fn extract_enum_values(schema: &Schema) -> Option<Vec<String>> {
             })
         }
         SchemaKind::Any(any) => {
-            let vals: Vec<String> = any.enumeration.iter()
+            let vals: Vec<String> = any
+                .enumeration
+                .iter()
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect();
-            if !vals.is_empty() { Some(vals) } else { None }
+            if !vals.is_empty() {
+                Some(vals)
+            } else {
+                None
+            }
         }
         _ => None,
     }
@@ -487,18 +590,20 @@ fn extract_enum_values(schema: &Schema) -> Option<Vec<String>> {
 fn write_prompt_for_param(content: &mut String, api: &OpenAPI, param: &ReferenceOr<Parameter>) {
     if let ReferenceOr::Item(param) = param {
         let (var_name, schema_ref) = match param {
-            Parameter::Query { parameter_data, .. } => {
-                (parameter_data.name.clone(), match &parameter_data.format {
+            Parameter::Query { parameter_data, .. } => (
+                parameter_data.name.clone(),
+                match &parameter_data.format {
                     ParameterSchemaOrContent::Schema(s) => Some(s),
                     ParameterSchemaOrContent::Content(_) => None,
-                })
-            }
-            Parameter::Path { parameter_data, .. } => {
-                (parameter_data.name.clone(), match &parameter_data.format {
+                },
+            ),
+            Parameter::Path { parameter_data, .. } => (
+                parameter_data.name.clone(),
+                match &parameter_data.format {
                     ParameterSchemaOrContent::Schema(s) => Some(s),
                     ParameterSchemaOrContent::Content(_) => None,
-                })
-            }
+                },
+            ),
             _ => return,
         };
 
@@ -506,7 +611,11 @@ fn write_prompt_for_param(content: &mut String, api: &OpenAPI, param: &Reference
             if let Some(schema) = get_schema(api, schema_ref) {
                 if let Some(values) = extract_enum_values(schema) {
                     let sanitized = sanitize_var_name(&var_name);
-                    content.push_str(&format!("# @prompt {} [{}]\n", sanitized, values.join(", ")));
+                    content.push_str(&format!(
+                        "# @prompt {} [{}]\n",
+                        sanitized,
+                        values.join(", ")
+                    ));
                 }
             }
         }
@@ -542,7 +651,10 @@ fn skeleton_value_for_schema(schema: &Schema, api: &OpenAPI, depth: usize) -> se
         }
         SchemaKind::Type(Type::Number(n)) => {
             if let Some(first) = n.enumeration.first().and_then(|e| *e) {
-                serde_json::Value::Number(serde_json::Number::from_f64(first).unwrap_or_else(|| serde_json::Number::from_f64(0.0).unwrap()))
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(first)
+                        .unwrap_or_else(|| serde_json::Number::from_f64(0.0).unwrap()),
+                )
             } else {
                 serde_json::Value::Number(serde_json::Number::from_f64(0.0).unwrap())
             }
@@ -572,8 +684,10 @@ fn skeleton_value_for_schema(schema: &Schema, api: &OpenAPI, depth: usize) -> se
         }
         SchemaKind::Type(Type::Object(_)) => {
             if depth <= 2 {
-                let json = generate_json_skeleton(schema, api, depth).unwrap_or_else(|| "{}".to_string());
-                serde_json::from_str(&json).unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
+                let json =
+                    generate_json_skeleton(schema, api, depth).unwrap_or_else(|| "{}".to_string());
+                serde_json::from_str(&json)
+                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
             } else {
                 serde_json::Value::Object(serde_json::Map::new())
             }
@@ -585,8 +699,10 @@ fn skeleton_value_for_schema(schema: &Schema, api: &OpenAPI, depth: usize) -> se
             }
             // Check if it has object properties
             if !any.properties.is_empty() && depth <= 2 {
-                let json = generate_json_skeleton(schema, api, depth).unwrap_or_else(|| "{}".to_string());
-                serde_json::from_str(&json).unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
+                let json =
+                    generate_json_skeleton(schema, api, depth).unwrap_or_else(|| "{}".to_string());
+                serde_json::from_str(&json)
+                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
             } else {
                 serde_json::Value::Null
             }
@@ -614,9 +730,7 @@ fn generate_json_skeleton(schema: &Schema, api: &OpenAPI, depth: usize) -> Optio
     let mut map = serde_json::Map::new();
     for (name, prop) in properties.iter().take(8) {
         let val = match prop {
-            ReferenceOr::Item(prop_schema) => {
-                skeleton_value_for_schema(prop_schema, api, depth)
-            }
+            ReferenceOr::Item(prop_schema) => skeleton_value_for_schema(prop_schema, api, depth),
             ReferenceOr::Reference { reference } => {
                 if let Some(resolved) = resolve_ref_schema(api, reference) {
                     skeleton_value_for_schema(resolved, api, depth)
@@ -631,7 +745,12 @@ fn generate_json_skeleton(schema: &Schema, api: &OpenAPI, depth: usize) -> Optio
 }
 
 /// Write form-urlencoded body from schema properties.
-fn write_form_body(content: &mut String, schema: &Schema, _api: &OpenAPI, env_vars: &mut HashMap<String, String>) {
+fn write_form_body(
+    content: &mut String,
+    schema: &Schema,
+    _api: &OpenAPI,
+    env_vars: &mut HashMap<String, String>,
+) {
     let properties = match &schema.schema_kind {
         SchemaKind::Type(Type::Object(ObjectType { properties, .. })) => properties,
         SchemaKind::Any(any) => &any.properties,
@@ -724,8 +843,16 @@ mod tests {
         let result = import_one(spec, "https://api.example.com");
         assert_eq!(result.files.len(), 2);
         let paths: Vec<&str> = result.files.iter().map(|f| f.path.as_str()).collect();
-        assert!(paths.contains(&"pets.http"), "should have pets.http: {:?}", paths);
-        assert!(paths.contains(&"store.http"), "should have store.http: {:?}", paths);
+        assert!(
+            paths.contains(&"pets.http"),
+            "should have pets.http: {:?}",
+            paths
+        );
+        assert!(
+            paths.contains(&"store.http"),
+            "should have store.http: {:?}",
+            paths
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -752,12 +879,27 @@ mod tests {
         }"#;
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
-        assert!(c.contains("{{petId}}"), "path param should be {{var}}: {}", c);
+        assert!(
+            c.contains("{{petId}}"),
+            "path param should be {{var}}: {}",
+            c
+        );
         // Also check that the raw path template doesn't leak through
-        assert!(!c.contains("/pets/{petId}"), "raw path should be replaced: {}", c);
+        assert!(
+            !c.contains("/pets/{petId}"),
+            "raw path should be replaced: {}",
+            c
+        );
         // Should also have the path param in env_vars (with the path param name)
-        assert!(result.env_vars.contains_key("petId"), "env_vars should contain petId");
-        assert_eq!(result.env_vars.get("petId").unwrap(), &String::new(), "default should be empty");
+        assert!(
+            result.env_vars.contains_key("petId"),
+            "env_vars should contain petId"
+        );
+        assert_eq!(
+            result.env_vars.get("petId").unwrap(),
+            &String::new(),
+            "default should be empty"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -784,7 +926,10 @@ mod tests {
         }"#;
         let importer = OpenApiImporter::with_base_url("https://my.api.com/v2");
         let result = importer.import(spec).unwrap();
-        assert_eq!(result.env_vars.get("base_url").unwrap(), "https://my.api.com/v2");
+        assert_eq!(
+            result.env_vars.get("base_url").unwrap(),
+            "https://my.api.com/v2"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -816,7 +961,10 @@ mod tests {
 
     #[test]
     fn test_tag_to_filename_sanitization() {
-        assert_eq!(OpenApiImporter::tag_to_filename("User Management"), "user_management");
+        assert_eq!(
+            OpenApiImporter::tag_to_filename("User Management"),
+            "user_management"
+        );
         assert_eq!(OpenApiImporter::tag_to_filename("Pets"), "pets");
         assert_eq!(OpenApiImporter::tag_to_filename(""), "default");
     }
@@ -847,7 +995,11 @@ mod tests {
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
         assert!(c.contains("?limit={{limit}}"), "query on URL: {}", c);
-        assert!(c.contains("status={{status}}"), "second query on URL: {}", c);
+        assert!(
+            c.contains("status={{status}}"),
+            "second query on URL: {}",
+            c
+        );
         assert!(result.env_vars.contains_key("limit"), "limit in env_vars");
         assert!(result.env_vars.contains_key("status"), "status in env_vars");
     }
@@ -877,7 +1029,10 @@ mod tests {
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
         assert!(c.contains("X-Request-Id"), "header name: {}", c);
-        assert!(result.env_vars.contains_key("X_Request_Id"), "header var should be X_Request_Id");
+        assert!(
+            result.env_vars.contains_key("X_Request_Id"),
+            "header var should be X_Request_Id"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -905,7 +1060,10 @@ mod tests {
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
         assert!(c.contains("Cookie:"), "Cookie header: {}", c);
-        assert!(result.env_vars.contains_key("session_id"), "cookie var in env");
+        assert!(
+            result.env_vars.contains_key("session_id"),
+            "cookie var in env"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -936,7 +1094,11 @@ mod tests {
         }"#;
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
-        assert!(c.contains("Content-Type: application/json"), "content type: {}", c);
+        assert!(
+            c.contains("Content-Type: application/json"),
+            "content type: {}",
+            c
+        );
         assert!(c.contains("Fluffy"), "example value: {}", c);
         assert!(c.contains("cat"), "example value: {}", c);
     }
@@ -975,7 +1137,11 @@ mod tests {
         }"#;
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
-        assert!(c.contains("Content-Type: application/json"), "content type: {}", c);
+        assert!(
+            c.contains("Content-Type: application/json"),
+            "content type: {}",
+            c
+        );
         assert!(c.contains("Doggo"), "schema example: {}", c);
     }
 
@@ -1028,7 +1194,11 @@ mod tests {
         let c = &result.files[0].content;
         assert!(c.contains("### createPet"), "should have request: {}", c);
         assert!(c.contains("POST"), "should have method: {}", c);
-        assert!(c.contains("Content-Type: application/json"), "resolved content type: {}", c);
+        assert!(
+            c.contains("Content-Type: application/json"),
+            "resolved content type: {}",
+            c
+        );
         assert!(c.contains("\"name\""), "schema properties: {}", c);
         assert!(c.contains("\"age\""), "schema properties: {}", c);
     }
@@ -1066,7 +1236,11 @@ mod tests {
         }"#;
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
-        assert!(c.contains("Content-Type: multipart/form-data"), "content type: {}", c);
+        assert!(
+            c.contains("Content-Type: multipart/form-data"),
+            "content type: {}",
+            c
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1100,7 +1274,11 @@ mod tests {
         }"#;
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
-        assert!(c.contains("# @prompt status [available, pending, sold]"), "prompt directive: {}", c);
+        assert!(
+            c.contains("# @prompt status [available, pending, sold]"),
+            "prompt directive: {}",
+            c
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1140,7 +1318,11 @@ mod tests {
         }"#;
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
-        assert!(c.contains("Content-Type: application/x-www-form-urlencoded"), "content type: {}", c);
+        assert!(
+            c.contains("Content-Type: application/x-www-form-urlencoded"),
+            "content type: {}",
+            c
+        );
         assert!(c.contains("name={{name}}"), "form field: {}", c);
         assert!(c.contains("status={{status}}"), "form field: {}", c);
         assert!(result.env_vars.contains_key("name"), "name in env_vars");
@@ -1182,7 +1364,11 @@ mod tests {
         }"#;
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
-        assert!(c.contains("Content-Type: application/json"), "content type: {}", c);
+        assert!(
+            c.contains("Content-Type: application/json"),
+            "content type: {}",
+            c
+        );
         assert!(c.contains("\"quantity\": 0"), "default integer: {}", c);
         assert!(c.contains("\"status\": \"\""), "default string: {}", c);
         assert!(c.contains("\"complete\": false"), "default bool: {}", c);
@@ -1257,7 +1443,11 @@ mod tests {
         }"#;
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
-        assert!(c.contains("X-API-Key: {{X_API_Key}}"), "api key header: {}", c);
+        assert!(
+            c.contains("X-API-Key: {{X_API_Key}}"),
+            "api key header: {}",
+            c
+        );
         assert!(result.env_vars.contains_key("X_API_Key"), "api key in env");
     }
 
@@ -1291,8 +1481,15 @@ mod tests {
         }"#;
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
-        assert!(c.contains("Authorization: Bearer {{auth_token}}"), "bearer auth: {}", c);
-        assert!(result.env_vars.contains_key("auth_token"), "auth_token in env");
+        assert!(
+            c.contains("Authorization: Bearer {{auth_token}}"),
+            "bearer auth: {}",
+            c
+        );
+        assert!(
+            result.env_vars.contains_key("auth_token"),
+            "auth_token in env"
+        );
     }
 
     // -----------------------------------------------------------------------

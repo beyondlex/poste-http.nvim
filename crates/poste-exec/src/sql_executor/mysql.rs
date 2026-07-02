@@ -1,12 +1,12 @@
 use std::time::Instant;
 
-use poste_core::{replace_database_in_url, Protocol};
 use poste_core::sql_parser;
+use poste_core::{replace_database_in_url, Protocol};
 use serde_json::{json, Value};
 
-use crate::response::Response;
 use super::value;
-use super::{StatementResult, build_response};
+use super::{build_response, StatementResult};
+use crate::response::Response;
 
 pub(super) async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> anyhow::Result<Response> {
     use sqlx::mysql::{MySqlPoolOptions, MySqlRow};
@@ -27,7 +27,9 @@ pub(super) async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> anyhow
             let safe_db = db_name.replace('`', "``");
             conn.execute(format!("USE `{}`", safe_db).as_str())
                 .await
-                .map_err(|e| anyhow::anyhow!("Failed to switch to database '{}': {}", db_name, e))?;
+                .map_err(|e| {
+                    anyhow::anyhow!("Failed to switch to database '{}': {}", db_name, e)
+                })?;
             current_url = replace_database_in_url(&current_url, &db_name);
             continue;
         }
@@ -100,7 +102,8 @@ pub(super) async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> anyhow
                     original_sql: None,
                 })
             }
-        }.await;
+        }
+        .await;
 
         match stmt_result {
             Ok(mut sr) => {
@@ -118,7 +121,13 @@ pub(super) async fn execute_mysql(parsed: &sql_parser::SqlParseResult) -> anyhow
     }
 
     let total_ms = total_start.elapsed().as_millis() as u64;
-    build_response(&Protocol::Mysql, &parsed.connection, &parsed.database, results, total_ms)
+    build_response(
+        &Protocol::Mysql,
+        &parsed.connection,
+        &parsed.database,
+        results,
+        total_ms,
+    )
 }
 
 fn mysql_value_to_json(row: &sqlx::mysql::MySqlRow, idx: usize) -> Value {
@@ -134,27 +143,43 @@ fn mysql_value_to_json(row: &sqlx::mysql::MySqlRow, idx: usize) -> Value {
 
     match type_name {
         "BOOLEAN" => value::opt_json(row.try_get::<Option<bool>, _>(idx).ok().flatten()),
-        "TINYINT" => {
-            value::opt_json(row.try_get::<Option<i8>, _>(idx).ok().flatten().map(|v| v as i64))
-        }
-        "TINYINT UNSIGNED" => {
-            value::opt_json(row.try_get::<Option<u8>, _>(idx).ok().flatten().map(|v| v as i64))
-        }
-        "SMALLINT" => {
-            value::opt_json(row.try_get::<Option<i16>, _>(idx).ok().flatten().map(|v| v as i64))
-        }
-        "SMALLINT UNSIGNED" => {
-            value::opt_json(row.try_get::<Option<u16>, _>(idx).ok().flatten().map(|v| v as i64))
-        }
-        "MEDIUMINT" | "MEDIUMINT UNSIGNED" | "INT" => {
-            value::opt_json(row.try_get::<Option<i32>, _>(idx).ok().flatten().map(|v| v as i64))
-        }
-        "INT UNSIGNED" => {
-            value::opt_json(row.try_get::<Option<u32>, _>(idx).ok().flatten().map(|v| v as i64))
-        }
-        "BIGINT" => {
-            value::opt_json(row.try_get::<Option<i64>, _>(idx).ok().flatten())
-        }
+        "TINYINT" => value::opt_json(
+            row.try_get::<Option<i8>, _>(idx)
+                .ok()
+                .flatten()
+                .map(|v| v as i64),
+        ),
+        "TINYINT UNSIGNED" => value::opt_json(
+            row.try_get::<Option<u8>, _>(idx)
+                .ok()
+                .flatten()
+                .map(|v| v as i64),
+        ),
+        "SMALLINT" => value::opt_json(
+            row.try_get::<Option<i16>, _>(idx)
+                .ok()
+                .flatten()
+                .map(|v| v as i64),
+        ),
+        "SMALLINT UNSIGNED" => value::opt_json(
+            row.try_get::<Option<u16>, _>(idx)
+                .ok()
+                .flatten()
+                .map(|v| v as i64),
+        ),
+        "MEDIUMINT" | "MEDIUMINT UNSIGNED" | "INT" => value::opt_json(
+            row.try_get::<Option<i32>, _>(idx)
+                .ok()
+                .flatten()
+                .map(|v| v as i64),
+        ),
+        "INT UNSIGNED" => value::opt_json(
+            row.try_get::<Option<u32>, _>(idx)
+                .ok()
+                .flatten()
+                .map(|v| v as i64),
+        ),
+        "BIGINT" => value::opt_json(row.try_get::<Option<i64>, _>(idx).ok().flatten()),
         "BIGINT UNSIGNED" => {
             if let Ok(Some(v)) = row.try_get::<Option<u64>, _>(idx) {
                 json!(v.to_string())
@@ -167,30 +192,42 @@ fn mysql_value_to_json(row: &sqlx::mysql::MySqlRow, idx: usize) -> Value {
         "DECIMAL" => {
             let val: Option<rust_decimal::Decimal> = row.try_get::<_, _>(idx).ok().flatten();
             val.map(|v: rust_decimal::Decimal| {
-                v.to_string().parse::<f64>().map(|n| json!(n)).unwrap_or(json!(v.to_string()))
-            }).unwrap_or(Value::Null)
+                v.to_string()
+                    .parse::<f64>()
+                    .map(|n| json!(n))
+                    .unwrap_or(json!(v.to_string()))
+            })
+            .unwrap_or(Value::Null)
         }
         "DATE" => {
             if let Ok(Some(v)) = row.try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(idx) {
                 json!(v.format("%Y-%m-%d").to_string())
-            } else if let Ok(Some(v)) = row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx) {
+            } else if let Ok(Some(v)) =
+                row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx)
+            {
                 json!(v.format("%Y-%m-%d").to_string())
             } else {
                 Value::Null
             }
         }
-        "DATETIME" => {
-            value::opt_json(row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx).ok().flatten()
-                .map(|v| v.format("%Y-%m-%d %H:%M:%S%.3f").to_string()))
-        }
-        "TIMESTAMP" => {
-            value::opt_json(row.try_get::<Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>, _>(idx).ok().flatten()
-                .map(|v| v.format("%Y-%m-%d %H:%M:%S%.3f").to_string()))
-        }
-        "TIME" => {
-            value::opt_json(row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(idx).ok().flatten()
-                .map(|v| v.format("%H:%M:%S%.3f").to_string()))
-        }
+        "DATETIME" => value::opt_json(
+            row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(idx)
+                .ok()
+                .flatten()
+                .map(|v| v.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
+        ),
+        "TIMESTAMP" => value::opt_json(
+            row.try_get::<Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>, _>(idx)
+                .ok()
+                .flatten()
+                .map(|v| v.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
+        ),
+        "TIME" => value::opt_json(
+            row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(idx)
+                .ok()
+                .flatten()
+                .map(|v| v.format("%H:%M:%S%.3f").to_string()),
+        ),
         "JSON" => {
             if let Ok(Some(json_val)) = row.try_get::<Option<sqlx::types::Json<Value>>, _>(idx) {
                 json_val.0
@@ -203,16 +240,13 @@ fn mysql_value_to_json(row: &sqlx::mysql::MySqlRow, idx: usize) -> Value {
                 Value::Null
             }
         }
-        "VARCHAR" | "VAR_STRING" | "STRING" | "CHAR" |
-        "TEXT" | "TINYTEXT" | "MEDIUMTEXT" | "LONGTEXT" |
-        "ENUM" | "SET" => {
+        "VARCHAR" | "VAR_STRING" | "STRING" | "CHAR" | "TEXT" | "TINYTEXT" | "MEDIUMTEXT"
+        | "LONGTEXT" | "ENUM" | "SET" => {
             value::opt_json(row.try_get::<Option<String>, _>(idx).ok().flatten())
         }
-        _ => {
-            value::string_fallback(
-                row.try_get::<Option<String>, _>(idx).ok().flatten(),
-                row.try_get::<Option<Vec<u8>>, _>(idx).ok().flatten(),
-            )
-        }
+        _ => value::string_fallback(
+            row.try_get::<Option<String>, _>(idx).ok().flatten(),
+            row.try_get::<Option<Vec<u8>>, _>(idx).ok().flatten(),
+        ),
     }
 }

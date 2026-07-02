@@ -1,12 +1,12 @@
-use clap::{Parser, Subcommand};
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 
-mod run;
-mod context;
 mod connection;
+mod context;
 mod fmt;
 mod import;
 mod introspect;
+mod run;
 mod serve;
 mod util;
 

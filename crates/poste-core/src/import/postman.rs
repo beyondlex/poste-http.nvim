@@ -12,7 +12,8 @@ impl SpecImporter for PostmanImporter {
             .context("Failed to parse Postman collection (JSON expected)")?;
 
         // Verify it's a Postman collection
-        let schema = collection.get("info")
+        let schema = collection
+            .get("info")
             .and_then(|i| i.get("schema"))
             .and_then(|s| s.as_str())
             .unwrap_or("");
@@ -28,17 +29,24 @@ impl SpecImporter for PostmanImporter {
         if let Some(vars) = collection.get("variable").and_then(|v| v.as_array()) {
             for var in vars {
                 if let Some(key) = var.get("key").and_then(|k| k.as_str()) {
-                    let value = var.get("value").map(|v| {
-                        if let Some(s) = v.as_str() { s.to_string() }
-                        else { serde_json::to_string(v).unwrap_or_default() }
-                    }).unwrap_or_default();
+                    let value = var
+                        .get("value")
+                        .map(|v| {
+                            if let Some(s) = v.as_str() {
+                                s.to_string()
+                            } else {
+                                serde_json::to_string(v).unwrap_or_default()
+                            }
+                        })
+                        .unwrap_or_default();
                     env_vars.entry(key.to_string()).or_insert(value);
                 }
             }
         }
 
         // Extract base_url from the first request's URL or collection vars
-        let base_url = env_vars.get("base_url")
+        let base_url = env_vars
+            .get("base_url")
             .cloned()
             .or_else(|| env_vars.get("baseUrl").cloned())
             .unwrap_or_else(|| "http://localhost".to_string());
@@ -49,27 +57,46 @@ impl SpecImporter for PostmanImporter {
         // Process items recursively
         if let Some(items) = collection.get("item").and_then(|v| v.as_array()) {
             if items.is_empty() {
-                return Ok(ImportResult { files: vec![], env_vars, warnings });
+                return Ok(ImportResult {
+                    files: vec![],
+                    env_vars,
+                    warnings,
+                });
             }
 
             let mut content = String::new();
             content.push_str("@base_url = {{{{base_url}}}}\n");
             content.push('\n');
 
-            process_items(items, &mut content, &mut env_vars, &mut warnings, &base_url, "");
+            process_items(
+                items,
+                &mut content,
+                &mut env_vars,
+                &mut warnings,
+                &base_url,
+                "",
+            );
 
             if !content.trim().is_empty() {
                 // Determine filename from collection name
-                let name = collection.get("info")
+                let name = collection
+                    .get("info")
                     .and_then(|i| i.get("name"))
                     .and_then(|n| n.as_str())
                     .unwrap_or("collection");
                 let filename = format!("{}.http", sanitize_filename(name));
-                files.push(HttpFile { path: filename, content });
+                files.push(HttpFile {
+                    path: filename,
+                    content,
+                });
             }
         }
 
-        Ok(ImportResult { files, env_vars, warnings })
+        Ok(ImportResult {
+            files,
+            env_vars,
+            warnings,
+        })
     }
 }
 
@@ -86,21 +113,35 @@ fn process_items(
         // Check if it's a folder (has its own "item" array)
         if let Some(sub_items) = item.get("item").and_then(|v| v.as_array()) {
             // It's a folder — process items inline
-            let folder_name = item.get("name").and_then(|n| n.as_str()).unwrap_or("folder");
+            let folder_name = item
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("folder");
             content.push_str(&format!("# --- {} ---\n", folder_name));
-            process_items(sub_items, content, env_vars, _warnings, base_url, folder_name);
+            process_items(
+                sub_items,
+                content,
+                env_vars,
+                _warnings,
+                base_url,
+                folder_name,
+            );
             content.push('\n');
             continue;
         }
 
         // It's a request
-        let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("Unnamed");
+        let name = item
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("Unnamed");
         let request = match item.get("request") {
             Some(r) => r,
             None => continue,
         };
 
-        let method = request.get("method")
+        let method = request
+            .get("method")
             .and_then(|m| m.as_str())
             .unwrap_or("GET")
             .to_uppercase();
@@ -112,12 +153,11 @@ fn process_items(
         if let Some(events) = item.get("event").and_then(|e| e.as_array()) {
             for event in events {
                 let listen = event.get("listen").and_then(|l| l.as_str()).unwrap_or("");
-                let script_lines = event.get("script")
+                let script_lines = event
+                    .get("script")
                     .and_then(|s| s.get("exec"))
                     .and_then(|e| e.as_array())
-                    .map(|arr| {
-                        arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
-                    });
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>());
                 if let Some(lines) = script_lines {
                     if !lines.is_empty() {
                         if listen == "prerequest" {
@@ -160,7 +200,8 @@ fn process_items(
                 "raw" => {
                     if let Some(raw) = body.get("raw").and_then(|r| r.as_str()) {
                         // Detect content type from options or raw content
-                        let content_type = body.get("options")
+                        let content_type = body
+                            .get("options")
                             .and_then(|o| o.get("raw"))
                             .and_then(|r| r.get("language"))
                             .and_then(|l| l.as_str())
@@ -182,7 +223,8 @@ fn process_items(
                     content.push_str("Content-Type: application/x-www-form-urlencoded\n");
                     content.push('\n');
                     if let Some(params) = body.get("urlencoded").and_then(|u| u.as_array()) {
-                        let parts: Vec<String> = params.iter()
+                        let parts: Vec<String> = params
+                            .iter()
                             .filter_map(|p| {
                                 let k = p.get("key").and_then(|k| k.as_str())?;
                                 let v = p.get("value").and_then(|v| v.as_str()).unwrap_or("");
@@ -222,7 +264,12 @@ fn process_items(
 }
 
 /// Extract URL from a Postman request object.
-fn extract_url(request: &Value, _method: &str, _base_url: &str, env_vars: &mut HashMap<String, String>) -> String {
+fn extract_url(
+    request: &Value,
+    _method: &str,
+    _base_url: &str,
+    env_vars: &mut HashMap<String, String>,
+) -> String {
     let url = match request.get("url") {
         Some(u) => u,
         None => return "{{base_url}}".to_string(),
@@ -239,7 +286,9 @@ fn extract_url(request: &Value, _method: &str, _base_url: &str, env_vars: &mut H
                 let after_proto = &processed[pos + 3..];
                 if let Some(slash_pos) = after_proto.find('/') {
                     let extracted_base = &processed[..pos + 3 + slash_pos];
-                    env_vars.entry("base_url".to_string()).or_insert_with(|| extracted_base.to_string());
+                    env_vars
+                        .entry("base_url".to_string())
+                        .or_insert_with(|| extracted_base.to_string());
                     // Return relative path with {{base_url}} prefix
                     let path = &after_proto[slash_pos..];
                     return format!("{{{{base_url}}}}{}", path);
@@ -253,20 +302,35 @@ fn extract_url(request: &Value, _method: &str, _base_url: &str, env_vars: &mut H
     }
 
     // Structured URL object
-    let host_parts: Vec<String> = url.get("host")
+    let host_parts: Vec<String> = url
+        .get("host")
         .and_then(|h| h.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
-    let path_parts: Vec<String> = url.get("path")
+    let path_parts: Vec<String> = url
+        .get("path")
         .and_then(|h| h.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
 
     if host_parts.is_empty() && path_parts.is_empty() {
         return "{{base_url}}".to_string();
     }
 
-    let protocol = url.get("protocol").and_then(|p| p.as_str()).unwrap_or("https");
+    let protocol = url
+        .get("protocol")
+        .and_then(|p| p.as_str())
+        .unwrap_or("https");
     let host = host_parts.join(".");
     let port = url.get("port").and_then(|p| p.as_str());
 
@@ -283,15 +347,19 @@ fn extract_url(request: &Value, _method: &str, _base_url: &str, env_vars: &mut H
 
     // Query params
     let query_str = if let Some(query) = url.get("query").and_then(|q| q.as_array()) {
-        let parts: Vec<String> = query.iter()
+        let parts: Vec<String> = query
+            .iter()
             .filter_map(|p| {
                 let k = p.get("key").and_then(|k| k.as_str())?;
                 let v = p.get("value").and_then(|v| v.as_str()).unwrap_or("");
                 Some(format!("{}={}", k, replace_postman_vars(v, env_vars)))
             })
             .collect();
-        if parts.is_empty() { String::new() }
-        else { format!("?{}", parts.join("&")) }
+        if parts.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", parts.join("&"))
+        }
     } else {
         String::new()
     };
@@ -300,7 +368,16 @@ fn extract_url(request: &Value, _method: &str, _base_url: &str, env_vars: &mut H
     let url_string = format!("{}{}{}", full_host, path, query_str);
     env_vars.entry("base_url".to_string()).or_insert_with(|| {
         if host_parts.len() > 1 {
-            format!("{}://{}{}", protocol, host, if let Some(p) = port { format!(":{}", p) } else { String::new() })
+            format!(
+                "{}://{}{}",
+                protocol,
+                host,
+                if let Some(p) = port {
+                    format!(":{}", p)
+                } else {
+                    String::new()
+                }
+            )
         } else {
             full_host.clone()
         }
@@ -328,11 +405,21 @@ fn replace_postman_vars(s: &str, env_vars: &mut HashMap<String, String>) -> Stri
 
 /// Sanitize a string for use as a filename.
 fn sanitize_filename(name: &str) -> String {
-    let s: String = name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+    let s: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    if s.is_empty() { "collection".to_string() }
-    else { s.to_lowercase() }
+    if s.is_empty() {
+        "collection".to_string()
+    } else {
+        s.to_lowercase()
+    }
 }
 
 #[cfg(test)]
@@ -377,7 +464,11 @@ mod tests {
         assert_eq!(result.files.len(), 1);
         let c = &result.files[0].content;
         assert!(c.contains("### List Items"), "request name: {}", c);
-        assert!(c.contains("GET {{base_url}}/v1/items"), "request line: {}", c);
+        assert!(
+            c.contains("GET {{base_url}}/v1/items"),
+            "request line: {}",
+            c
+        );
     }
 
     #[test]
@@ -412,9 +503,17 @@ mod tests {
         let result = importer.import(spec).unwrap();
         let c = &result.files[0].content;
         assert!(c.contains("### Create Item"), "request name: {}", c);
-        assert!(c.contains("POST {{base_url}}/v1/items"), "request line: {}", c);
+        assert!(
+            c.contains("POST {{base_url}}/v1/items"),
+            "request line: {}",
+            c
+        );
         assert!(c.contains("X-Custom: test123"), "header: {}", c);
-        assert!(c.contains("Content-Type: application/json"), "content type: {}", c);
+        assert!(
+            c.contains("Content-Type: application/json"),
+            "content type: {}",
+            c
+        );
         assert!(c.contains(r#"{"name": "New Item"}"#), "body: {}", c);
     }
 
@@ -475,7 +574,10 @@ mod tests {
         let result = importer.import(spec).unwrap();
         assert!(result.env_vars.contains_key("base_url"));
         assert!(result.env_vars.contains_key("api_key"));
-        assert_eq!(result.env_vars.get("base_url").unwrap(), "https://api.example.com");
+        assert_eq!(
+            result.env_vars.get("base_url").unwrap(),
+            "https://api.example.com"
+        );
     }
 
     #[test]
@@ -507,7 +609,11 @@ mod tests {
         let importer = PostmanImporter;
         let result = importer.import(spec).unwrap();
         let c = &result.files[0].content;
-        assert!(c.contains("Content-Type: application/x-www-form-urlencoded"), "content type: {}", c);
+        assert!(
+            c.contains("Content-Type: application/x-www-form-urlencoded"),
+            "content type: {}",
+            c
+        );
         assert!(c.contains("name=john"), "form field: {}", c);
         assert!(c.contains("age=30"), "form field: {}", c);
     }
@@ -587,6 +693,10 @@ mod tests {
         assert!(c.contains("< {%"), "should have pre-script block: {}", c);
         assert!(c.contains("pm.variables.set"), "prescript content: {}", c);
         assert!(c.contains("> {%"), "should have post-script block: {}", c);
-        assert!(c.contains("pm.response.to.have.status"), "postscript content: {}", c);
+        assert!(
+            c.contains("pm.response.to.have.status"),
+            "postscript content: {}",
+            c
+        );
     }
 }

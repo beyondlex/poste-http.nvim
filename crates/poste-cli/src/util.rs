@@ -1,6 +1,9 @@
 /// Check if a protocol is SQL-based.
 pub fn is_sql_protocol(protocol: &poste_core::Protocol) -> bool {
-    matches!(protocol, poste_core::Protocol::Postgres | poste_core::Protocol::Mysql | poste_core::Protocol::Sqlite)
+    matches!(
+        protocol,
+        poste_core::Protocol::Postgres | poste_core::Protocol::Mysql | poste_core::Protocol::Sqlite
+    )
 }
 
 /// Check if a connection string looks like a URL (not a name).

@@ -15,11 +15,27 @@ fn is_statement_start_keyword(kw: &str) -> bool {
     }
     let up = &buf[..w.len()];
     const KWS: &[&[u8]] = &[
-        b"ALTER", b"BEGIN", b"CALL", b"COMMIT", b"COPY", b"CREATE",
-        b"DECLARE", b"DELETE", b"DROP", b"EXPLAIN", b"GRANT",
-        b"INSERT", b"ROLLBACK", b"REVOKE", b"SELECT",
-        b"SHOW", b"TRUNCATE", b"UPDATE", b"USE",
-        b"VACUUM", b"WITH",
+        b"ALTER",
+        b"BEGIN",
+        b"CALL",
+        b"COMMIT",
+        b"COPY",
+        b"CREATE",
+        b"DECLARE",
+        b"DELETE",
+        b"DROP",
+        b"EXPLAIN",
+        b"GRANT",
+        b"INSERT",
+        b"ROLLBACK",
+        b"REVOKE",
+        b"SELECT",
+        b"SHOW",
+        b"TRUNCATE",
+        b"UPDATE",
+        b"USE",
+        b"VACUUM",
+        b"WITH",
     ];
     KWS.contains(&up)
 }
@@ -58,7 +74,9 @@ fn compute_paren_depths(tokens: &[Token]) -> Vec<i32> {
 ///   `SELECT` contains `UPDATE` (FOR UPDATE), `WITH` contains the next stmt-start keyword.
 /// - Subqueries inside parens are correctly isolated by paren-depth tracking.
 pub(crate) fn find_statement_token_range(
-    tokens: &[Token], cursor_idx: usize, sql: &str,
+    tokens: &[Token],
+    cursor_idx: usize,
+    sql: &str,
 ) -> (usize, usize) {
     let depths = compute_paren_depths(tokens);
 
@@ -80,7 +98,9 @@ pub(crate) fn find_statement_token_range(
     if start == 0 {
         // -- backward scan: find statement start --
         for i in (0..cursor_idx).rev() {
-            if depths[i] != 0 { continue; }
+            if depths[i] != 0 {
+                continue;
+            }
             if tokens[i].kind == TokenKind::Semi {
                 start = i + 1;
                 break;
@@ -105,8 +125,12 @@ pub(crate) fn find_statement_token_range(
         }
         let mut found_container = false;
         for i in (0..start).rev() {
-            if depths[i] != 0 { continue; }
-            if tokens[i].kind == TokenKind::Semi { break; }
+            if depths[i] != 0 {
+                continue;
+            }
+            if tokens[i].kind == TokenKind::Semi {
+                break;
+            }
             if tokens[i].kind == TokenKind::Keyword {
                 let prev = tokens[i].text(sql).to_ascii_lowercase();
                 if is_statement_start_keyword(&prev) {
@@ -119,13 +143,17 @@ pub(crate) fn find_statement_token_range(
                 }
             }
         }
-        if !found_container { break; }
+        if !found_container {
+            break;
+        }
     }
 
     // -- determine which keyword started *this* statement at `start` --
     let mut this_kw = String::new();
     for i in start..=cursor_idx.min(tokens.len().saturating_sub(1)) {
-        if depths[i] != 0 { continue; }
+        if depths[i] != 0 {
+            continue;
+        }
         if tokens[i].kind == TokenKind::Keyword {
             let kw = tokens[i].text(sql).to_ascii_lowercase();
             if is_statement_start_keyword(&kw) {
@@ -143,7 +171,9 @@ pub(crate) fn find_statement_token_range(
     let mut claim_next = this_kw == "with";
 
     for i in start + 1..tokens.len() {
-        if depths[i] != 0 { continue; }
+        if depths[i] != 0 {
+            continue;
+        }
         if tokens[i].kind == TokenKind::Semi {
             end = i;
             break;
@@ -193,7 +223,8 @@ pub fn find_statement_span(lines: &[&str], cursor_line: usize) -> Option<(usize,
     };
 
     let cursor_byte = line_offsets[cursor_line];
-    let cursor_tok = tokens.iter()
+    let cursor_tok = tokens
+        .iter()
         .rposition(|t| t.start <= cursor_byte)
         .unwrap_or(0);
     if cursor_tok >= tokens.len() {
@@ -203,10 +234,12 @@ pub fn find_statement_span(lines: &[&str], cursor_line: usize) -> Option<(usize,
     let (mut start_tok, end_tok) = find_statement_token_range(&tokens, cursor_tok, &text);
 
     // Skip leading whitespace/comments
-    while start_tok < end_tok && matches!(
-        tokens[start_tok].kind,
-        TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment
-    ) {
+    while start_tok < end_tok
+        && matches!(
+            tokens[start_tok].kind,
+            TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment
+        )
+    {
         start_tok += 1;
     }
     if start_tok >= end_tok {
@@ -215,10 +248,12 @@ pub fn find_statement_span(lines: &[&str], cursor_line: usize) -> Option<(usize,
 
     // Skip trailing whitespace/comments so we don't bleed into the next line
     let mut last_tok = end_tok.saturating_sub(1);
-    while last_tok > start_tok && matches!(
-        tokens[last_tok].kind,
-        TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment
-    ) {
+    while last_tok > start_tok
+        && matches!(
+            tokens[last_tok].kind,
+            TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment
+        )
+    {
         last_tok = last_tok.saturating_sub(1);
     }
 
@@ -264,7 +299,9 @@ pub fn find_all_statement_ranges(lines: &[&str]) -> Vec<(usize, usize)> {
     let mut in_with = false;
 
     for (i, t) in tokens.iter().enumerate() {
-        if depths[i] != 0 { continue; }
+        if depths[i] != 0 {
+            continue;
+        }
         if t.kind == TokenKind::Semi {
             result.push((stmt_start, i));
             stmt_start = i + 1;
@@ -298,16 +335,19 @@ pub fn find_all_statement_ranges(lines: &[&str]) -> Vec<(usize, usize)> {
     }
 
     // Convert token ranges → line ranges
-    let out: Vec<(usize, usize)> = result.iter().map(|&(s, e)| {
-        let start_line = byte_to_line(&line_offsets, tokens[s].start);
-        if e == 0 || e > tokens.len() {
-            (start_line, lines.len() - 1)
-        } else {
-            let last = e.saturating_sub(1);
-            let end_line = byte_to_line(&line_offsets, tokens[last].end);
-            (start_line, end_line)
-        }
-    }).collect();
+    let out: Vec<(usize, usize)> = result
+        .iter()
+        .map(|&(s, e)| {
+            let start_line = byte_to_line(&line_offsets, tokens[s].start);
+            if e == 0 || e > tokens.len() {
+                (start_line, lines.len() - 1)
+            } else {
+                let last = e.saturating_sub(1);
+                let end_line = byte_to_line(&line_offsets, tokens[last].end);
+                (start_line, end_line)
+            }
+        })
+        .collect();
 
     out
 }

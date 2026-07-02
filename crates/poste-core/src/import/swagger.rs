@@ -21,7 +21,8 @@ pub fn swagger_to_openapi3(spec: &str) -> Result<String> {
         .context("Failed to parse Swagger spec (tried JSON and YAML)")?;
 
     // Verify it's Swagger 2.0
-    let swagger_ver = swagger.get("swagger")
+    let swagger_ver = swagger
+        .get("swagger")
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if swagger_ver != "2.0" {
@@ -43,13 +44,19 @@ pub fn swagger_to_openapi3(spec: &str) -> Result<String> {
             }
         }
         out.insert("info".to_string(), info);
-
     }
 
     // servers: host + basePath + schemes
-    let host = swagger.get("host").and_then(|v| v.as_str()).unwrap_or("localhost");
-    let base_path = swagger.get("basePath").and_then(|v| v.as_str()).unwrap_or("");
-    let schemes = swagger.get("schemes")
+    let host = swagger
+        .get("host")
+        .and_then(|v| v.as_str())
+        .unwrap_or("localhost");
+    let base_path = swagger
+        .get("basePath")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let schemes = swagger
+        .get("schemes")
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
@@ -58,7 +65,11 @@ pub fn swagger_to_openapi3(spec: &str) -> Result<String> {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_else(|| vec!["https".to_string()]);
-    let protocol = if schemes.contains(&"https".to_string()) { "https" } else { "http" };
+    let protocol = if schemes.contains(&"https".to_string()) {
+        "https"
+    } else {
+        "http"
+    };
     let url = format!("{}://{}{}", protocol, host, base_path);
     let server = serde_json::json!({ "url": url });
     out.insert("servers".to_string(), Value::Array(vec![server]));
@@ -73,31 +84,34 @@ pub fn swagger_to_openapi3(spec: &str) -> Result<String> {
                     if method == "parameters" {
                         // Path-level parameters
                         if let Some(params) = operation.as_array() {
-                            new_path.insert("parameters".to_string(), Value::Array(
-                                convert_parameters(params)
-                            ));
+                            new_path.insert(
+                                "parameters".to_string(),
+                                Value::Array(convert_parameters(params)),
+                            );
                         }
                     } else if let Some(op_obj) = operation.as_object() {
                         let mut new_op = op_obj.clone();
                         // Convert body/formData parameters to requestBody
-                        let body_params: Vec<&Value> = op_obj.get("parameters")
+                        let body_params: Vec<&Value> = op_obj
+                            .get("parameters")
                             .and_then(|v| v.as_array())
                             .map(|arr| arr.iter().collect())
                             .unwrap_or_default();
 
-                        let has_body = body_params.iter().any(|p| {
-                            p.get("in").and_then(|v| v.as_str()) == Some("body")
-                        });
-                        let has_form = body_params.iter().any(|p| {
-                            p.get("in").and_then(|v| v.as_str()) == Some("formData")
-                        });
+                        let has_body = body_params
+                            .iter()
+                            .any(|p| p.get("in").and_then(|v| v.as_str()) == Some("body"));
+                        let has_form = body_params
+                            .iter()
+                            .any(|p| p.get("in").and_then(|v| v.as_str()) == Some("formData"));
 
                         if has_body || has_form {
                             let mut content = serde_json::Map::new();
                             if has_body {
-                                if let Some(body_param) = body_params.iter().find(|p| {
-                                    p.get("in").and_then(|v| v.as_str()) == Some("body")
-                                }) {
+                                if let Some(body_param) = body_params
+                                    .iter()
+                                    .find(|p| p.get("in").and_then(|v| v.as_str()) == Some("body"))
+                                {
                                     if let Some(schema) = body_param.get("schema") {
                                         let mt = serde_json::json!({
                                             "schema": schema
@@ -111,22 +125,36 @@ pub fn swagger_to_openapi3(spec: &str) -> Result<String> {
                                 let mut required = Vec::new();
                                 for p in &body_params {
                                     if p.get("in").and_then(|v| v.as_str()) == Some("formData") {
-                                        let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("field");
-                                        let p_type = p.get("type").and_then(|v| v.as_str()).unwrap_or("string");
+                                        let name = p
+                                            .get("name")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("field");
+                                        let p_type = p
+                                            .get("type")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("string");
                                         let prop = serde_json::json!({
                                             "type": p_type
                                         });
                                         form_props.insert(name.to_string(), prop);
-                                        if p.get("required").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                        if p.get("required")
+                                            .and_then(|v| v.as_bool())
+                                            .unwrap_or(false)
+                                        {
                                             required.push(Value::String(name.to_string()));
                                         }
                                     }
                                 }
                                 let mut form_schema = serde_json::Map::new();
-                                form_schema.insert("type".to_string(), Value::String("object".to_string()));
-                                form_schema.insert("properties".to_string(), Value::Object(form_props));
+                                form_schema.insert(
+                                    "type".to_string(),
+                                    Value::String("object".to_string()),
+                                );
+                                form_schema
+                                    .insert("properties".to_string(), Value::Object(form_props));
                                 if !required.is_empty() {
-                                    form_schema.insert("required".to_string(), Value::Array(required));
+                                    form_schema
+                                        .insert("required".to_string(), Value::Array(required));
                                 }
                                 let mt = serde_json::json!({
                                     "schema": Value::Object(form_schema)
@@ -140,7 +168,8 @@ pub fn swagger_to_openapi3(spec: &str) -> Result<String> {
                         }
 
                         // Convert non-body/formData parameters
-                        let remaining_params: Vec<Value> = body_params.iter()
+                        let remaining_params: Vec<Value> = body_params
+                            .iter()
                             .filter(|p| {
                                 let loc = p.get("in").and_then(|v| v.as_str()).unwrap_or("");
                                 loc != "body" && loc != "formData"
@@ -173,10 +202,14 @@ pub fn swagger_to_openapi3(spec: &str) -> Result<String> {
 
     // securityDefinitions → components.securitySchemes
     if let Some(sec_defs) = swagger.get("securityDefinitions") {
-        let components = out.entry("components".to_string())
+        let components = out
+            .entry("components".to_string())
             .or_insert_with(|| Value::Object(serde_json::Map::new()));
         if let Some(obj) = components.as_object_mut() {
-            obj.insert("securitySchemes".to_string(), convert_security_definitions(sec_defs));
+            obj.insert(
+                "securitySchemes".to_string(),
+                convert_security_definitions(sec_defs),
+            );
         }
     }
 
@@ -190,7 +223,8 @@ pub fn swagger_to_openapi3(spec: &str) -> Result<String> {
 
 /// Convert Swagger 2.0 parameter list to OAS3 parameter list (for non-body params).
 fn convert_parameters(params: &[Value]) -> Vec<Value> {
-    params.iter()
+    params
+        .iter()
         .filter(|p| {
             let loc = p.get("in").and_then(|v| v.as_str()).unwrap_or("");
             loc != "body" && loc != "formData"
@@ -204,8 +238,8 @@ fn convert_swagger_param_to_oas3(param: &Value) -> Value {
     let mut oas3 = param.clone();
     if let Some(obj) = oas3.as_object_mut() {
         // Remove Swagger-specific fields
-        obj.remove("in");  // Keep "in" — same in OAS3
-        // Move schema info to "schema" object
+        obj.remove("in"); // Keep "in" — same in OAS3
+                          // Move schema info to "schema" object
         let p_type = obj.remove("type");
         let p_format = obj.remove("format");
         let p_items = obj.remove("items");
@@ -292,11 +326,19 @@ mod tests {
         let oas3 = swagger_to_openapi3(swagger).unwrap();
         let parsed: Value = serde_json::from_str(&oas3).unwrap();
         assert_eq!(parsed["openapi"], "3.0.0");
-        assert_eq!(parsed["servers"][0]["url"], "https://petstore.swagger.io/v2");
-        assert!(parsed["paths"]["/pet"]["post"].get("requestBody").is_some(),
-            "body param should become requestBody: {}", oas3);
-        assert!(parsed["components"]["schemas"]["Pet"].is_object(),
-            "definitions should become components.schemas");
+        assert_eq!(
+            parsed["servers"][0]["url"],
+            "https://petstore.swagger.io/v2"
+        );
+        assert!(
+            parsed["paths"]["/pet"]["post"].get("requestBody").is_some(),
+            "body param should become requestBody: {}",
+            oas3
+        );
+        assert!(
+            parsed["components"]["schemas"]["Pet"].is_object(),
+            "definitions should become components.schemas"
+        );
     }
 
     #[test]
@@ -369,10 +411,15 @@ mod tests {
         }"#;
         let oas3 = swagger_to_openapi3(swagger).unwrap();
         let parsed: Value = serde_json::from_str(&oas3).unwrap();
-        assert!(parsed["components"]["securitySchemes"]["api_key"].is_object(),
-            "securityDefinitions should become securitySchemes: {}", oas3);
-        assert!(parsed["security"][0].get("api_key").is_some(),
-            "security should be preserved");
+        assert!(
+            parsed["components"]["securitySchemes"]["api_key"].is_object(),
+            "securityDefinitions should become securitySchemes: {}",
+            oas3
+        );
+        assert!(
+            parsed["security"][0].get("api_key").is_some(),
+            "security should be preserved"
+        );
     }
 
     #[test]
@@ -402,7 +449,9 @@ mod tests {
             }
         }"##;
         let oas3 = swagger_to_openapi3(swagger).unwrap();
-        let result = super::super::openapi::OpenApiImporter::new().import(&oas3).unwrap();
+        let result = super::super::openapi::OpenApiImporter::new()
+            .import(&oas3)
+            .unwrap();
         assert_eq!(result.files.len(), 1);
         assert_eq!(result.files[0].path, "pet.http");
         assert!(result.files[0].content.contains("POST {{base_url}}/pet"));

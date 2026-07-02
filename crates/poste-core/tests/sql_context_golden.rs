@@ -72,7 +72,10 @@ fn run_fixture_file(path: &str) {
 
         let result = detect_context_with_dialect(&sql, cursor_pos, dialect);
         let result = result.unwrap_or_else(|| {
-            panic!("[{}#{}] {}: detect_context returned None", file_stem, i, f.name)
+            panic!(
+                "[{}#{}] {}: detect_context returned None",
+                file_stem, i, f.name
+            )
         });
 
         let prefix = &f.expect.prefix;
@@ -81,50 +84,78 @@ fn run_fixture_file(path: &str) {
         let ctx_schema = extract_schema(&result.context_type);
 
         // Compare ctx_type
-        assert_eq!(ctx_type_name, f.expect.ctx_type,
+        assert_eq!(
+            ctx_type_name, f.expect.ctx_type,
             "[{}#{}] {}: ctx_type mismatch\n  sql: {:?}\n  offset: {}",
-            file_stem, i, f.name, sql, cursor_pos);
+            file_stem, i, f.name, sql, cursor_pos
+        );
 
         // Compare ctx_data
-        assert_eq!(ctx_data, f.expect.ctx_data,
+        assert_eq!(
+            ctx_data, f.expect.ctx_data,
             "[{}#{}] {}: ctx_data mismatch (context_type={:?})",
-            file_stem, i, f.name, result.context_type);
+            file_stem, i, f.name, result.context_type
+        );
 
         // Compare ctx_schema
-        assert_eq!(ctx_schema, f.expect.ctx_schema,
+        assert_eq!(
+            ctx_schema, f.expect.ctx_schema,
             "[{}#{}] {}: ctx_schema mismatch",
-            file_stem, i, f.name);
+            file_stem, i, f.name
+        );
 
         // Compare prefix
-        assert_eq!(&result.prefix, prefix,
+        assert_eq!(
+            &result.prefix, prefix,
             "[{}#{}] {}: prefix mismatch, expected {:?} got {:?}",
-            file_stem, i, f.name, prefix, result.prefix);
+            file_stem, i, f.name, prefix, result.prefix
+        );
 
         // Compare in_string
-        assert_eq!(result.in_string, f.expect.in_string,
+        assert_eq!(
+            result.in_string, f.expect.in_string,
             "[{}#{}] {}: in_string mismatch",
-            file_stem, i, f.name);
+            file_stem, i, f.name
+        );
 
         // Compare in_comment
-        assert_eq!(result.in_comment, f.expect.in_comment,
+        assert_eq!(
+            result.in_comment, f.expect.in_comment,
             "[{}#{}] {}: in_comment mismatch",
-            file_stem, i, f.name);
+            file_stem, i, f.name
+        );
 
         // Compare tables (order-insensitive)
-        let result_tables: HashSet<(String, Option<String>, Option<String>)> = result.tables
+        let result_tables: HashSet<(String, Option<String>, Option<String>)> = result
+            .tables
             .iter()
             .map(|t| (t.name.clone(), t.alias.clone(), t.schema.clone()))
             .collect();
-        let expect_tables: HashSet<(String, Option<String>, Option<String>)> = f.expect.tables
+        let expect_tables: HashSet<(String, Option<String>, Option<String>)> = f
+            .expect
+            .tables
             .iter()
             .map(|t| (t.name.clone(), t.alias.clone(), t.schema.clone()))
             .collect();
 
-        assert_eq!(result_tables, expect_tables,
+        assert_eq!(
+            result_tables,
+            expect_tables,
             "[{}#{}] {}: tables mismatch\n  got:      {:?}\n  expected: {:?}",
-            file_stem, i, f.name,
-            result.tables.iter().map(|t| (&t.name, &t.alias, &t.schema)).collect::<Vec<_>>(),
-            f.expect.tables.iter().map(|t| (&t.name, &t.alias, &t.schema)).collect::<Vec<_>>());
+            file_stem,
+            i,
+            f.name,
+            result
+                .tables
+                .iter()
+                .map(|t| (&t.name, &t.alias, &t.schema))
+                .collect::<Vec<_>>(),
+            f.expect
+                .tables
+                .iter()
+                .map(|t| (&t.name, &t.alias, &t.schema))
+                .collect::<Vec<_>>()
+        );
 
         // Compare functions (skip if not in fixture)
         if let Some(ref expected_funcs) = f.expect.functions {
@@ -132,9 +163,11 @@ fn run_fixture_file(path: &str) {
             result_funcs.sort_unstable();
             let mut expected_sorted = expected_funcs.clone();
             expected_sorted.sort_unstable();
-            assert_eq!(result_funcs, expected_sorted,
+            assert_eq!(
+                result_funcs, expected_sorted,
                 "[{}#{}] {}: functions mismatch",
-                file_stem, i, f.name);
+                file_stem, i, f.name
+            );
         }
     }
 }

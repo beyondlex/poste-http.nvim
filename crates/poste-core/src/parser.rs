@@ -1,4 +1,4 @@
-use crate::request::{Request, Protocol};
+use crate::request::{Protocol, Request};
 use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
@@ -61,7 +61,12 @@ impl Parser {
         anyhow::bail!("No request found at line {}", line_num);
     }
 
-    fn parse_block(&self, block: &str, protocol: Protocol, file_vars: &HashMap<String, String>) -> Result<Request> {
+    fn parse_block(
+        &self,
+        block: &str,
+        protocol: Protocol,
+        file_vars: &HashMap<String, String>,
+    ) -> Result<Request> {
         let lines: Vec<&str> = block.lines().collect();
 
         // First line should be ### Request Name
@@ -102,7 +107,10 @@ impl Parser {
             }
 
             // External pre-request script: < ./path.lua
-            if trimmed.starts_with("<") && (trimmed.contains("./") || trimmed.contains("../")) && trimmed.ends_with(".lua") {
+            if trimmed.starts_with("<")
+                && (trimmed.contains("./") || trimmed.contains("../"))
+                && trimmed.ends_with(".lua")
+            {
                 continue;
             }
 
@@ -129,7 +137,10 @@ impl Parser {
             }
 
             // External assertion script: > ./path.lua
-            if trimmed.starts_with(">") && (trimmed.contains("./") || trimmed.contains("../")) && trimmed.ends_with(".lua") {
+            if trimmed.starts_with(">")
+                && (trimmed.contains("./") || trimmed.contains("../"))
+                && trimmed.ends_with(".lua")
+            {
                 continue;
             }
 
@@ -162,7 +173,10 @@ impl Parser {
                     // Resolve {{var}} references using file-level and earlier request-level vars
                     let resolved = self.substitute_vars(&value, file_vars, &request_vars);
                     request_vars.insert(key, resolved);
-                } else if !trimmed.is_empty() && !trimmed.starts_with('#') && !trimmed.starts_with('>') {
+                } else if !trimmed.is_empty()
+                    && !trimmed.starts_with('#')
+                    && !trimmed.starts_with('>')
+                {
                     // This is the actual request line, mark it and add to request_lines
                     found_request_line = true;
                     request_lines.push(line);
@@ -179,12 +193,15 @@ impl Parser {
         // For other protocols, we need @connection directive (block-level, then file-level fallback)
         let connection = match protocol {
             Protocol::Http => String::new(), // Will be extracted from request line
-            _ => self.extract_connection(block, file_vars, &request_vars)
+            _ => self
+                .extract_connection(block, file_vars, &request_vars)
                 .or_else(|_| {
                     // Fallback: look for @connection in file-level variables
-                    file_vars.get("connection")
-                        .cloned()
-                        .ok_or_else(|| anyhow::anyhow!("No @connection directive found in request block or file header"))
+                    file_vars.get("connection").cloned().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "No @connection directive found in request block or file header"
+                        )
+                    })
                 })?,
         };
 
@@ -199,7 +216,12 @@ impl Parser {
         })
     }
 
-    fn extract_connection(&self, block: &str, file_vars: &HashMap<String, String>, request_vars: &HashMap<String, String>) -> Result<String> {
+    fn extract_connection(
+        &self,
+        block: &str,
+        file_vars: &HashMap<String, String>,
+        request_vars: &HashMap<String, String>,
+    ) -> Result<String> {
         let re = Regex::new(r"(?:--|#)\s*@connection\s+(.+)")?;
         for line in block.lines() {
             if let Some(caps) = re.captures(line) {
@@ -346,32 +368,38 @@ impl Parser {
         vars
     }
 
-    fn substitute_vars(&self, input: &str, file_vars: &HashMap<String, String>, request_vars: &HashMap<String, String>) -> String {
+    fn substitute_vars(
+        &self,
+        input: &str,
+        file_vars: &HashMap<String, String>,
+        request_vars: &HashMap<String, String>,
+    ) -> String {
         static VAR_RE: OnceLock<Regex> = OnceLock::new();
-        let re = VAR_RE.get_or_init(|| {
-            Regex::new(r"\{\{([^}]+)\}\}").expect("valid literal regex: {{var}}")
-        });
+        let re = VAR_RE
+            .get_or_init(|| Regex::new(r"\{\{([^}]+)\}\}").expect("valid literal regex: {{var}}"));
         let mut result = input.to_string();
         // Iteratively resolve: if {{token}} → {{admin_token}}, do another pass
         // so {{admin_token}} also gets resolved.  Cap at 20 to prevent infinite loops
         // from circular references like @a = {{b}} @b = {{a}}.
         for _ in 0..20 {
-            let next = re.replace_all(&result, |caps: &regex::Captures| {
-                let var_name = &caps[1];
-                // Priority: request_vars > file_vars > env > magic vars
-                if let Some(val) = request_vars
-                    .get(var_name)
-                    .or_else(|| file_vars.get(var_name))
-                    .or_else(|| self.env.get(var_name))
-                {
-                    return val.clone();
-                }
-                // Magic variables ($timestamp, $uuid, etc.)
-                if let Some(val) = Self::resolve_magic_var(var_name) {
-                    return val;
-                }
-                caps[0].to_string()
-            }).to_string();
+            let next = re
+                .replace_all(&result, |caps: &regex::Captures| {
+                    let var_name = &caps[1];
+                    // Priority: request_vars > file_vars > env > magic vars
+                    if let Some(val) = request_vars
+                        .get(var_name)
+                        .or_else(|| file_vars.get(var_name))
+                        .or_else(|| self.env.get(var_name))
+                    {
+                        return val.clone();
+                    }
+                    // Magic variables ($timestamp, $uuid, etc.)
+                    if let Some(val) = Self::resolve_magic_var(var_name) {
+                        return val;
+                    }
+                    caps[0].to_string()
+                })
+                .to_string();
             if next == result {
                 break;
             }
@@ -385,7 +413,10 @@ impl Parser {
         use std::time::{SystemTime, UNIX_EPOCH};
         match name {
             "$timestamp" => {
-                let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                let ts = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
                 let rnd: u64 = rand::random::<u64>() % 900000 + 100000;
                 Some(format!("{}{}", ts, rnd))
             }
@@ -447,7 +478,9 @@ mod tests {
     fn test_extract_connection_success() {
         let parser = Parser::new(HashMap::new());
         let block = "# @connection redis://localhost:6379\nGET user:123";
-        let result = parser.extract_connection(block, &HashMap::new(), &HashMap::new()).unwrap();
+        let result = parser
+            .extract_connection(block, &HashMap::new(), &HashMap::new())
+            .unwrap();
         assert_eq!(result, "redis://localhost:6379");
     }
 
@@ -463,7 +496,9 @@ mod tests {
     fn test_extract_connection_postgres() {
         let parser = Parser::new(HashMap::new());
         let block = "# @connection postgres://user:pass@localhost:5432/db\nSELECT 1";
-        let result = parser.extract_connection(block, &HashMap::new(), &HashMap::new()).unwrap();
+        let result = parser
+            .extract_connection(block, &HashMap::new(), &HashMap::new())
+            .unwrap();
         assert_eq!(result, "postgres://user:pass@localhost:5432/db");
     }
 
@@ -474,7 +509,9 @@ mod tests {
         env_vars.insert("db_port".to_string(), "5432".to_string());
         let parser = Parser::new(env_vars);
         let block = "# @connection postgres://user:pass@{{db_host}}:{{db_port}}/mydb\nSELECT 1";
-        let result = parser.extract_connection(block, &HashMap::new(), &HashMap::new()).unwrap();
+        let result = parser
+            .extract_connection(block, &HashMap::new(), &HashMap::new())
+            .unwrap();
         assert_eq!(result, "postgres://user:pass@localhost:5432/mydb");
     }
 
@@ -482,14 +519,20 @@ mod tests {
     fn test_parse_variable_line_equals() {
         let parser = Parser::new(HashMap::new());
         let result = parser.parse_variable_line("@host = https://example.com");
-        assert_eq!(result, Some(("host".to_string(), "https://example.com".to_string())));
+        assert_eq!(
+            result,
+            Some(("host".to_string(), "https://example.com".to_string()))
+        );
     }
 
     #[test]
     fn test_parse_variable_line_space() {
         let parser = Parser::new(HashMap::new());
         let result = parser.parse_variable_line("@host https://example.com");
-        assert_eq!(result, Some(("host".to_string(), "https://example.com".to_string())));
+        assert_eq!(
+            result,
+            Some(("host".to_string(), "https://example.com".to_string()))
+        );
     }
 
     #[test]
@@ -510,7 +553,10 @@ mod tests {
 GET {{host}}/users
 "#;
         let vars = parser.extract_file_variables(content);
-        assert_eq!(vars.get("host"), Some(&"https://api.example.com".to_string()));
+        assert_eq!(
+            vars.get("host"),
+            Some(&"https://api.example.com".to_string())
+        );
         assert_eq!(vars.get("token"), Some(&"abc123".to_string()));
     }
 
@@ -525,7 +571,10 @@ GET /users
 "#;
         let vars = parser.extract_file_variables(content);
         assert_eq!(vars.len(), 1);
-        assert_eq!(vars.get("host"), Some(&"https://api.example.com".to_string()));
+        assert_eq!(
+            vars.get("host"),
+            Some(&"https://api.example.com".to_string())
+        );
         assert_eq!(vars.get("should_not_parse"), None);
     }
 
@@ -538,7 +587,9 @@ GET /users
 GET /users/{{user_id}}
 Authorization: Bearer {{api_key}}
 "#;
-        let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        let request = parser
+            .parse_block(block, Protocol::Http, &HashMap::new())
+            .unwrap();
         assert!(request.body.contains("GET /users/123"));
         assert!(request.body.contains("Authorization: Bearer secret"));
     }
@@ -569,7 +620,9 @@ GET http://{{host}}:{{port}}/{{timeout}}
     fn test_prescript_multiline_stripped() {
         let parser = Parser::new(HashMap::new());
         let block = "### Request 1\n< {%\n  local x = 1\n%}\nGET /api/data\n";
-        let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        let request = parser
+            .parse_block(block, Protocol::Http, &HashMap::new())
+            .unwrap();
         assert!(request.body.contains("GET /api/data"));
         assert!(!request.body.contains("{%"));
         assert!(!request.body.contains("local x"));
@@ -578,8 +631,11 @@ GET http://{{host}}:{{port}}/{{timeout}}
     #[test]
     fn test_prescript_singleline_stripped() {
         let parser = Parser::new(HashMap::new());
-        let block = "### Request 1\n< {% request.variables.set(\"token\", \"abc\") %}\nGET /api/data\n";
-        let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        let block =
+            "### Request 1\n< {% request.variables.set(\"token\", \"abc\") %}\nGET /api/data\n";
+        let request = parser
+            .parse_block(block, Protocol::Http, &HashMap::new())
+            .unwrap();
         assert!(request.body.contains("GET /api/data"));
         assert!(!request.body.contains("{%"));
     }
@@ -588,7 +644,9 @@ GET http://{{host}}:{{port}}/{{timeout}}
     fn test_prescript_external_stripped() {
         let parser = Parser::new(HashMap::new());
         let block = "### Request 1\n< ./scripts/gen.lua\nGET /api/data\n";
-        let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        let request = parser
+            .parse_block(block, Protocol::Http, &HashMap::new())
+            .unwrap();
         assert!(request.body.contains("GET /api/data"));
         assert!(!request.body.contains("gen.lua"));
     }
@@ -597,7 +655,9 @@ GET http://{{host}}:{{port}}/{{timeout}}
     fn test_assertion_external_stripped() {
         let parser = Parser::new(HashMap::new());
         let block = "### Request 1\nGET /api/data\n> ./scripts/check.lua\n";
-        let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        let request = parser
+            .parse_block(block, Protocol::Http, &HashMap::new())
+            .unwrap();
         assert!(request.body.contains("GET /api/data"));
         assert!(!request.body.contains("check.lua"));
     }
@@ -615,7 +675,9 @@ GET http://{{host}}:{{port}}/{{timeout}}
     fn test_prescript_injected_vars() {
         let parser = Parser::new(HashMap::new());
         let block = "### Request 1\n@auth_token = injected-value\nGET /api?token={{auth_token}}\n";
-        let request = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        let request = parser
+            .parse_block(block, Protocol::Http, &HashMap::new())
+            .unwrap();
         assert!(request.body.contains("GET /api?token=injected-value"));
     }
 
@@ -625,14 +687,20 @@ GET http://{{host}}:{{port}}/{{timeout}}
     fn test_parse_variable_line_quotes_stripped() {
         let parser = Parser::new(HashMap::new());
         let r = parser.parse_variable_line("@host = \"https://example.com\"");
-        assert_eq!(r, Some(("host".to_string(), "https://example.com".to_string())));
+        assert_eq!(
+            r,
+            Some(("host".to_string(), "https://example.com".to_string()))
+        );
     }
 
     #[test]
     fn test_parse_variable_line_single_quotes_stripped() {
         let parser = Parser::new(HashMap::new());
         let r = parser.parse_variable_line("@host 'http://localhost'");
-        assert_eq!(r, Some(("host".to_string(), "http://localhost".to_string())));
+        assert_eq!(
+            r,
+            Some(("host".to_string(), "http://localhost".to_string()))
+        );
     }
 
     #[test]
@@ -715,7 +783,9 @@ Content-Type: application/json
 POST /api/data
 {{headers}}
 "#;
-        let req = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        let req = parser
+            .parse_block(block, Protocol::Http, &HashMap::new())
+            .unwrap();
         assert!(req.body.contains("POST /api/data"));
         assert!(req.body.contains("Authorization: secret"));
         assert!(req.body.contains("Content-Type: application/json"));
@@ -763,7 +833,9 @@ Authorization: {{token}}
 GET /api
 Authorization: {{token}}
 "#;
-        let req = parser.parse_block(block, Protocol::Http, &HashMap::new()).unwrap();
+        let req = parser
+            .parse_block(block, Protocol::Http, &HashMap::new())
+            .unwrap();
         assert!(req.body.contains("Authorization: secret"));
     }
 
@@ -816,15 +888,23 @@ Authorization: {{token}}
         let content = "### Request 1\nGET /api/one\n\n> {% client.test(\"a\", function() end) %}\n\n# ─────────────────\n# Comment between blocks\n# ─────────────────\n\n### Request 2\nGET /api/two\n";
         let request = parser.parse_at_line(content, 2, "http").unwrap();
         assert!(request.body.contains("GET /api/one"));
-        assert!(!request.body.contains("Comment between blocks"), "body should not contain inter-block comments");
-        assert!(!request.body.contains("──"), "body should not contain inter-block comment decorations");
+        assert!(
+            !request.body.contains("Comment between blocks"),
+            "body should not contain inter-block comments"
+        );
+        assert!(
+            !request.body.contains("──"),
+            "body should not contain inter-block comment decorations"
+        );
     }
 
     #[test]
     fn test_magic_var_in_body() {
         let parser = Parser::new(HashMap::new());
         let content = "### Request\nPOST /api/log\nContent-Type: application/json\n\n{\"ts\": \"{{$timestamp}}\", \"uuid\": \"{{$uuid}}\"}\n";
-        let request = parser.parse_block(content, Protocol::Http, &HashMap::new()).unwrap();
+        let request = parser
+            .parse_block(content, Protocol::Http, &HashMap::new())
+            .unwrap();
         assert!(!request.body.contains("{{$timestamp}}"));
         assert!(!request.body.contains("{{$uuid}}"));
         assert!(request.body.contains("\"ts\": \""));

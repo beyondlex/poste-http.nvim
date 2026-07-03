@@ -184,16 +184,26 @@ describe("block index", function()
   end)
 
   ----------------------------------------------------------------------------
-  -- 10. prompt: # @prompt
+  -- 10. prompt: <<var_name
   ----------------------------------------------------------------------------
   it("prompt", function()
     local buf = create_buf({
       "### Get",
-      '# @prompt username',
+      '<<username',
       "GET /users",
     })
     local c = cache.get_buffer_cache(buf)
-    assert.equals("prompt", c.line_type[2], "# @prompt line should be prompt")
+    assert.equals("prompt", c.line_type[2], "<< line should be prompt")
+  end)
+
+  it("prompt commented with #", function()
+    local buf = create_buf({
+      "### Get",
+      '# <<username',
+      "GET /users",
+    })
+    local c = cache.get_buffer_cache(buf)
+    assert.equals("prompt", c.line_type[2], "# << line should also be prompt by line_type")
   end)
 
   ----------------------------------------------------------------------------

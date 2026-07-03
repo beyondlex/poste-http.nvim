@@ -85,7 +85,7 @@ buffer_blocks[buf] = {
     [8]  = "var",          -- @var / @env 定义
     [9]  = "pre_script",   -- pre-script 行（< {%  或  < ./lua  或  内部行  或  %}）
     [10] = "pre_script",
-    [11] = "prompt",       -- # @prompt 行
+    [11] = "prompt",       -- <<name 提示变量行
     [12] = "var",          -- @var 定义（与 pre-script 交错）
     [13] = "request",      -- METHOD URL 行
     [14] = "header",       -- Key: Value 行
@@ -103,7 +103,7 @@ buffer_blocks[buf] = {
 ```
 
 **为什么不用 `sections` 而用 `line_type`：**
-- block head 内 `@var` / pre-script / `@prompt` 可以任意交错，连续区间无法精确表示
+- block head 内 `@var` / pre-script / `<<var` 可以任意交错，连续区间无法精确表示
 - `line_type` 对每个补全上下文的提问（「这一行属于哪？」）直接回答 O(1)
 - `sections` 可以 `line_type` 推导，不需额外存储
 
@@ -175,7 +175,7 @@ for each line in lines:
     elseif in_post_block:                   -- 在未完的 > {% 块内
       type = "post_script"
       if trimmed == "%}": in_post_block = false
-    elseif line:match("^#%s*@prompt%s"):
+    elseif line:match("^%s*<<%w") or line:match("^%s*#%s*<<"):
       type = "prompt"
     elseif line:match("^[A-Z]+%s+%S"):
       if not request_found_in_block:
@@ -241,7 +241,7 @@ tests/data/http/                   ← 测试用 .http 文件
   ├── multi_block.http
   ├── no_blocks.http               ← 无 ### 的文件
   ├── minimal.http                 ← 只有 ###，无其他内容
-  ├── prompt.http                  ← 含 # @prompt
+  ├── prompt.http                  ← 含 <<name 提示变量
   ├── import_run.http              ← 含 import / run
   └── edge_cases.http              ← 各种边缘案例
 ```
@@ -279,7 +279,7 @@ tests/data/http/                   ← 测试用 .http 文件
 -- Test 7: @var 和 pre-script 交错
 -- Test 8: no ### → 全部是 "file"
 -- Test 9: 空 ### 块
--- Test 10: # @prompt
+-- Test 10: <<name (prompt directive)
 -- Test 11: run 指令
 -- Test 12: import 文件级
 -- Test 13: empty line 后 body 行类型

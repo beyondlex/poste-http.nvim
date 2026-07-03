@@ -79,7 +79,7 @@ enum Region {
     ExternalScript { path: String, script_type: ScriptType },
     /// < path — file content include (JSON) or upload (form), resolved at runtime
     FileUpload(String),
-    /// # @prompt varname [opts] — 整行原样保留
+    /// <<varname [opts] — 整行原样保留
     Prompt(String),
     /// import ./path[ as alias] — 文件级引用
     Import { path: String, alias: Option<String>, raw: String },
@@ -163,11 +163,11 @@ import ./orders.http as orders
 run  #Login (@token=xyz)
 ```
 
-**规则 6：特殊指令行（`# @prompt`）**
+**规则 6：特殊指令行（`<<name`）**
 - 整行保留原样，不修改
 
 ```
-# @prompt username
+<<username
 ```
 
 **规则 7：空白行清理**

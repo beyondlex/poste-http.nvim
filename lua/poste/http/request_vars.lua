@@ -96,11 +96,11 @@ end
 -- Request variable helpers
 ---------------------------------------------------------------------------
 
---- Remove resolved @prompt lines from content (keep @var = value lines)
+--- Remove resolved prompt directive lines from content (keep @var = value lines)
 local function strip_prompt_lines(content)
   local result = {}
   for _, l in ipairs(vim.split(content, "\n", { plain = true })) do
-    if not l:match("^%s*#%s*@prompt%s+%S+") then
+    if not l:match("^%s*<<%S+") then
       table.insert(result, l)
     end
   end
@@ -506,15 +506,15 @@ local function execute_deps_sequential(binary, file, env_name, dep_order, conten
 end
 
 ---------------------------------------------------------------------------
--- Prompt variables (@prompt directives)
+-- Prompt variables (<<name directives)
 ---------------------------------------------------------------------------
 
---- Handle @prompt directives in the current request block only.
+--- Handle prompt directives in the current request block only.
 --- Syntax:
----   # @prompt variable_name                   → text input
----   # @prompt variable_name [opt1, opt2, ...] → selection from list (up/down arrows)
----   # @prompt variable_name [{{Req.response.body.field}}] → dynamic options from request response
---- Only processes @prompt lines within the request block containing cursor_line.
+---   <<variable_name                   → text input
+---   <<variable_name [opt1, opt2, ...] → selection from list (up/down arrows)
+---   <<variable_name [{{Req.response.body.field}}] → dynamic options from request response
+--- Only processes prompt lines within the request block containing cursor_line.
 --- Always prompts for input (no caching) so users can use different values each time.
 --- Processes prompts asynchronously and calls on_complete with modified content.
 --- on_complete(modified_content) is called when all prompts are resolved.
@@ -540,10 +540,10 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
     local line_num = idx
     idx = idx + 1
 
-    -- Only process @prompt within the current request block (1-indexed)
+    -- Only process prompt directives within the current request block (1-indexed)
     if line_num >= start_line and line_num <= end_line then
-      -- Match: # @prompt varname [opt1, opt2, ...]  (selection mode)
-      local varname_sel, options_str = line:match("^%s*#%s*@prompt%s+(%S+)%s*%[(.+)%]")
+      -- Match: <<varname [opt1, opt2, ...]  (selection mode)
+      local varname_sel, options_str = line:match("^%s*<<(%S+)%s*%[(.+)%]")
 
       if varname_sel and options_str then
         -- Check if options contain a request variable reference
@@ -661,8 +661,8 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
         end)
         return
       else
-        -- Match: # @prompt varname  (text input mode)
-        local varname = line:match("^%s*#%s*@prompt%s+(%S+)")
+        -- Match: <<varname  (text input mode)
+        local varname = line:match("^%s*<<(%S+)")
 
         if varname then
           -- vim.fn.input is blocking but handles its own event loop

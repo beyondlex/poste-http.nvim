@@ -19,9 +19,9 @@
 │  ├─ ── 块首段（### 与请求行之间，无序）──
 │  │  ├─ @var = value                            ← 块级变量
 │  │  ├─ @env = envname                          ← 环境覆盖
-│  │  ├─ # @prompt varname                       ← 提示变量
-│  │  ├─ # @prompt varname [opt1, opt2]
-│  │  ├─ # @prompt varname [{{Req.ref}}]
+│  │  ├─ <<varname                               ← 提示变量
+│  │  ├─ <<varname [opt1, opt2]
+│  │  ├─ <<varname [{{Req.ref}}]
 │  │  ├─ < {% code %}                            ← pre-script（单行）
 │  │  ├─ < {%
 │  │  │     code                                 ← pre-script（多行）
@@ -65,7 +65,7 @@
 ```
 
 - 文件任何位置可用，包括文件级、块首段、请求段、断言段
-- `# @prompt` 是唯一不影响注释行的特例（见 2.11）
+- `<<` 行是提示变量，不以 `#` 开头故不与注释冲突
 - `--` 注释风格仅 SQL 文件，HTTP 不支持
 
 ### 2.2 变量定义 `@var`
@@ -262,26 +262,27 @@
 | `variables.*` | 读取 @var |
 | `env.*` | 读取 env.json |
 
-### 2.11 Prompt 提示变量 `# @prompt`
+### 2.11 Prompt 提示变量 `<<name`
 
 ```
-# @prompt <name>                      → 文本输入
-# @prompt <name> [opt1, opt2, ...]    → 静态选择
-# @prompt <name> [{{Req.res.body.x}}] → 动态选择（跨请求引用）
+<<<name>                       → 文本输入
+<<<name> [opt1, opt2, ...]     → 静态选择
+<<<name> [{{Req.res.body.x}}]  → 动态选择（跨请求引用）
 ```
 
-- `# @prompt` 是唯一在补全层面特化的注释类型
+- `<<` 行不以 `#` 开头，因此不会与注释混淆
+- `# <<name ...` 可注释掉提示行，视为注释跳过
 - 仅出现在 `###` 块内、请求行之前
 - 执行时提示用户输入/选择，生成 `@name = value` 行注入块中
-- `@prompt` 行本身在发送给 Rust 前会被 `strip_prompt_lines` 移除
+- `<<` 行本身在发送给 Rust 前会被 `strip_prompt_lines` 移除
 - 多选项使用 `poste_select.select` 异步弹出选择器
 - 动态选项需要先执行依赖请求
 
 **解析流程（`request_vars.lua:handle_prompt_variables`）：**
 1. 扫描当前 `###` 块内所有行
-2. 匹配 `# @prompt varname` 或 `# @prompt varname [...]`
+2. 匹配 `<<varname` 或 `<<varname [...]`
 3. 如果是动态选项，异步执行依赖请求获取选项列表
-4. 用户选择/输入后，替换 `# @prompt` 行为 `@varname = value`
+4. 用户选择/输入后，替换 `<<varname` 行为 `@varname = value`
 5. 最终 `@varname = value` 作为块级 `@var` 参与变量解析
 
 ### 2.12 Import / Run 引用
@@ -349,9 +350,10 @@ run ./batch.http (@env=staging)
 │  无序区域，可任意混合：
 │    • @var, @env
 │    • < {% pre-script %} / < ./script.lua
-│    • # @prompt
+│    • <<name （提示变量）
+│    • # <<name（注释掉的提示变量）
 │    • # comment
-│  （终止于第一个非 @ / < / # / 空行的行）
+│  （终止于第一个非 @ / < / << / # / 空行的行）
 │
 ├─ 请求行（必须是大写 HTTP 方法 + URL）
 ├─ 请求头（Key: Value，零行或多行）
@@ -362,7 +364,7 @@ run ./batch.http (@env=staging)
 ```
 
 **终止条件：**
-- 块首段终止于第一个不符合 `@` / `<` / `#` / 空行的行
+- 块首段终止于第一个不符合 `@` / `<` / `<<` / `#` / 空行的行
 - 断言段由行首 `>` 识别，且只能出现在 `###` 块的最后
 
 ---
@@ -408,7 +410,7 @@ run ./batch.http (@env=staging)
 | `< ./path.lua` ext script | ✅ skip | ❌ | ❌ |
 | `> {% %} ` post-script | ✅ skip | ✅ | ❌ |
 | `> ./path.lua` ext script | ❌ skip | ❌ | ❌ |
-| `# @prompt` | — 仅 Lua 处理 | ❌ 仅 Lua 处理 | ❌ |
+| `<<varname` | — 仅 Lua 处理 | ❌ 仅 Lua 处理 | ❌ |
 | `import` / `run` | ❌ | ❌ 仅 Lua 处理 | ❌ |
 | `@env` 环境覆盖 | ❌ | ❌ | ❌ |
 | `run (@k=v)` 行内变量 | ❌ | ❌ | ❌ |

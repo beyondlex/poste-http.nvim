@@ -2,6 +2,7 @@
 --- Extracted from completion.lua for reuse across modules.
 local M = {}
 local data = require("poste.http.data")
+local cache = require("poste.http.cache")
 
 --- Detect if cursor is inside a pre-request or post-request script block.
 --- Uses cache.lua O(1) line_type lookup instead of buffer scanning.
@@ -14,6 +15,13 @@ local function detect_script_context(buf, cursor_line, cursor_col)
     return "post_script"
   end
   return nil
+end
+
+--- Check if cursor is in file-level area (before first ### block).
+local function is_file_level(buf, line)
+  if not buf or not line then return true end
+  local t = cache.get_line_type(buf, line)
+  return t == "file"
 end
 
 --- Detect the completion context from the line up to cursor.
@@ -74,6 +82,9 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
 
   -- Fast-path: empty or whitespace-only → method completion
   if trimmed == "" then
+    if is_file_level(buf, cursor_line) then
+      return "file_directive", nil
+    end
     return "method", nil
   end
 
@@ -82,8 +93,10 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
   if first_char == "#" then
     -- After ### (request name line) → no completion
     if trimmed:sub(2, 2) == "#" then return nil, nil end
-    -- @prompt directive: allow completion inside {{...}}
-    if not trimmed:match("^#%s*@prompt%s") then
+    -- Commented prompt line (# <<var ...): allow {{ completion
+    if trimmed:match("^#%s*<<") then
+      -- Fall through for {{variable}} completion
+    else
       -- Regular comment lines → no completion
       return nil, nil
     end
@@ -94,12 +107,9 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     return nil, nil
   end
 
-  -- @var definition → no completion
-  if first_char == "@" then
-    return nil, nil
-  end
-
   -- Variable reference: check for unclosed {{ before cursor
+  -- Must be before @var check so @base_url = {{ works (after other early-returns
+  -- like #, -- which don't need {{ support).
   local rev = line_before_cursor:reverse()
   local last_open = rev:find("{{", 1, true)   -- plain string find
   local last_close = rev:find("}}", 1, true)  -- plain string find
@@ -107,6 +117,11 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     -- Cursor is inside an unclosed {{...}}
     local after_open = line_before_cursor:sub(#line_before_cursor - last_open + 2)
     return "variable", after_open
+  end
+
+  -- @var definition (no unclosed {{) → no completion
+  if first_char == "@" then
+    return nil, nil
   end
 
   -- URL check (direct string find instead of pattern)
@@ -138,6 +153,9 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
 
   -- No colon, no space → single word being typed (method or header name)
   if not line_before_cursor:find(" ", 1, true) then
+    if is_file_level(buf, cursor_line) then
+      return "file_directive", nil
+    end
     return "method_or_header", nil
   end
 

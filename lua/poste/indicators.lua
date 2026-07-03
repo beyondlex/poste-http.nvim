@@ -49,8 +49,8 @@ function M.extract_request_block(buf, start_line)
     local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
     if text:match("^%s*###") then break end  -- next block
 
-    -- Skip comments (lines starting with # or --)
-    if text:match("^%s*#") or text:match("^%s*%-%-") then  -- luacheck: ignore 542
+    -- Skip comments and prompt directives
+    if text:match("^%s*#") or text:match("^%s*%-%-") or text:match("^%s*<<") then  -- luacheck: ignore 542
     elseif not request_line and text:match("%S") then
       -- First non-empty non-comment line is the request line
       request_line = text
@@ -99,6 +99,7 @@ function M.find_request_line(buf, start_line)
     elseif trimmed:match("^<%s*{%%.*%%}$") then  -- luacheck: ignore 542
     elseif trimmed:match("^<%s*%.?%.") and trimmed:match("%.lua%s*$") then  -- luacheck: ignore 542
     elseif trimmed:match("^@%S+%s*[= ]") then  -- luacheck: ignore 542
+    elseif trimmed:match("^<<") then  -- skip prompt directives
     elseif trimmed == "" or trimmed:match("^#") or trimmed:match("^%-%-") then  -- luacheck: ignore 542
     else
       -- This is the actual request line

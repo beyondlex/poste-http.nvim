@@ -88,6 +88,12 @@ function M.get_buffer_cache(buf)
         local var_name = line:match("^%s*@(%w[%w_]*)%s*[= ]")
         file_vars[var_name] = true
         t = "var"
+      elseif line:match("^%s*<<(%w[%w_]*)") then
+        local var_name = line:match("^%s*<<(%w[%w_]*)")
+        file_vars[var_name] = true
+        t = "prompt"
+      elseif line:match("^%s*#%s*<<") then
+        t = "prompt"
       elseif line:match("^import%s+") then
         local path, alias = line:match("^import%s+(%S+)%s+as%s+(%S+)")
         if not path then
@@ -166,6 +172,14 @@ function M.get_buffer_cache(buf)
           current_block.block_vars[var_name] = true
         end
         t = "var"
+      elseif line:match("^%s*<<(%w[%w_]*)") then
+        local var_name = line:match("^%s*<<(%w[%w_]*)")
+        if current_block then
+          current_block.block_vars[var_name] = true
+        end
+        t = "prompt"
+      elseif line:match("^%s*#%s*<<") then
+        t = "prompt"
       elseif in_pre_block then
         t = "pre_script"
         if trimmed == "%}" then
@@ -194,8 +208,6 @@ function M.get_buffer_cache(buf)
         if not line:match("%}") then
           in_post_block = true
         end
-      elseif line:match("^%s*#%s*@prompt%s") then
-        t = "prompt"
       elseif line:match("^[A-Z]+%s+%S") then
         if not request_found_in_block then
           t = "request"

@@ -14,14 +14,17 @@ syn region PosteRequestName
 syn match PosteSeparator '^###' contained
 
 " ─── Comments & Directives ──────────────────────────
-" Prompt directive with internal structure (@prompt → varname [opts])
-syn region PostePromptLine start='^\s*#\s*@prompt\s' end='$' keepend
-  \ contains=PostePromptMarker,PostePromptVar,PostePromptOpts
-syn match PostePromptMarker '#\s*@prompt' contained
-syn match PostePromptVar '\S\+' contained
+" Prompt directive: <<varname [opts]
+syn match PostePrompt '^\s*<<.\{-}\(\[.\{-}\]\)\?\s*$'
+  \ contains=PostePromptMarker,PostePromptOpts
+syn match PostePromptMarker '<<' contained
 syn match PostePromptOpts '\[.\{-}\]' contained
   \ contains=PosteVarRef,PosteMagicVar
-syn match PosteComment '^\s*#\%(\s*@prompt\s\)\@!\([^#].*\|$\)'
+" Commented-out prompt: # <<varname [opts]
+syn match PosteCommentedPrompt '^\s*#\s*<<.\{-}\(\[.\{-}\]\)\?\s*$'
+  \ contains=PosteCommentedPromptMarker,PostePromptOpts
+syn match PosteCommentedPromptMarker '#\s*<<' contained
+syn match PosteComment '^\s*#\%(\s*<<\)\@!\([^#].*\|$\)'
 syn match PosteComment '^\s*--.*$'
 
 " ─── import/run cross-file reference directives ─────
@@ -135,7 +138,7 @@ syn region PosteBody start=+^\s*\n+ end=+\n\ze\s*\%(###\|<\s*{%\|>\s*{%\)\|\%$+ 
   \ contains=PosteJsonString,PosteJsonNumber,PosteJsonBoolean,PosteJsonNull,
   \PosteJsonBraces,PosteJsonBrackets,PosteJsonColon,PosteJsonComma,
   \PosteVarRef,PosteMagicVar,PosteVarDef,PosteVarAssign,PosteMultiVarEnd,
-  \PostePromptLine,PosteComment,
+  \PostePrompt,PosteCommentedPrompt,PosteComment,
   \PosteImport,PosteRun,PosteFileUpload,PosteFileRef
 
 syn match  PosteJsonNumber  '[-]\?\%(\d\+\.\d\+\|\d\+\)' contained
@@ -181,9 +184,11 @@ hi def link PosteRunTarget String
 hi def link PosteRunVarDef  PosteVarDef
 hi def link PosteRunVarAssign Operator
 hi def link PosteRunVarValue String
-hi def link PostePromptMarker PreProc
-hi def link PostePromptVar    PosteVarDef
-hi def link PostePromptOpts   String
+hi def link PostePrompt           PreProc
+hi def link PostePromptMarker      Special
+hi def link PostePromptOpts        String
+hi def link PosteCommentedPrompt   Comment
+hi def link PosteCommentedPromptMarker Comment
 hi def link PostePreScript   PreProc
 hi def link PosteAssertion   PreProc
 hi def link PosteScriptMarker Special

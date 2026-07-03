@@ -165,7 +165,7 @@ impl SpecImporter for OpenApiImporter {
                     content.push_str(&format!("# {}\n", op.summary));
                 }
 
-                // Add @prompt lines for parameters with enum constraints
+                // Add prompt directive lines for parameters with enum constraints
                 for param in &op.parameters {
                     write_prompt_for_param(&mut content, &api, param);
                 }
@@ -586,7 +586,7 @@ fn extract_enum_values(schema: &Schema) -> Option<Vec<String>> {
     }
 }
 
-/// Write a `# @prompt` directive line for a parameter with enum constraints.
+/// Write a `<<name` prompt directive line for a parameter with enum constraints.
 fn write_prompt_for_param(content: &mut String, api: &OpenAPI, param: &ReferenceOr<Parameter>) {
     if let ReferenceOr::Item(param) = param {
         let (var_name, schema_ref) = match param {
@@ -612,7 +612,7 @@ fn write_prompt_for_param(content: &mut String, api: &OpenAPI, param: &Reference
                 if let Some(values) = extract_enum_values(schema) {
                     let sanitized = sanitize_var_name(&var_name);
                     content.push_str(&format!(
-                        "# @prompt {} [{}]\n",
+                        "<<{} [{}]\n",
                         sanitized,
                         values.join(", ")
                     ));
@@ -1244,7 +1244,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Step 5e: @prompt for query parameter with enum values
+    // Step 5e: prompt for query parameter with enum values
     // -----------------------------------------------------------------------
 
     #[test]
@@ -1275,7 +1275,7 @@ mod tests {
         let result = import_one(spec, "https://api.example.com");
         let c = &result.files[0].content;
         assert!(
-            c.contains("# @prompt status [available, pending, sold]"),
+            c.contains("<<status [available, pending, sold]"),
             "prompt directive: {}",
             c
         );

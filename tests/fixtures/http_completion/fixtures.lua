@@ -8,10 +8,10 @@ return {
   --   expect_not:  list of labels that MUST NOT be in completion items
 
   -- ── File-level area ──
-  { name = "empty line returns HTTP methods", lines = { "█" }, expect = { "GET", "POST", "PUT" } },
-  { name = "whitespace-only line returns HTTP methods", lines = { "  █" }, expect = { "GET", "POST" } },
-  { name = "single word returns methods + headers", lines = { "G█" }, expect = { "GET", "Content-Type" } },
-  { name = "partial header name returns methods + headers", lines = { "Con█" }, expect = { "Content-Type", "CONNECT" } },
+  { name = "empty line returns file-level directives", lines = { "█" }, expect = { "import", "run" } },
+  { name = "whitespace-only line returns file-level directives", lines = { "  █" }, expect = { "import", "run" } },
+  { name = "single word in file-level returns no methods or headers", lines = { "G█" }, expect_not = { "GET", "Content-Type" } },
+  { name = "partial header name in file-level returns no methods or headers", lines = { "Con█" }, expect_not = { "Content-Type", "CONNECT" } },
   { name = "comment line returns no completion", lines = { "# this is a comment█" }, expect_not = { "GET" } },
   { name = "--- comment returns no completion", lines = { "--- comment█" }, expect_not = { "GET" } },
   { name = "@var definition returns no completion", lines = { "@base_url = http://example.com█" }, expect_not = { "GET" } },
@@ -46,6 +46,10 @@ return {
   { name = "closed }} returns no completion", lines = { "### Test", "{{host}}█" }, expect_not = { "$timestamp" } },
   { name = "second {{ after closed }} returns vars", lines = { "### Test", "{{host}} {{█" }, expect = { "$timestamp", "$uuid" } },
 
+  -- ── Variable on @var line ──
+  { name = "{{ on @var line returns variables", lines = { "@base_url = {{█" }, expect = { "$timestamp", "$uuid" } },
+  { name = "closed }} on @var line returns no completion", lines = { "@base_url = {{host}}█" }, expect_not = { "$timestamp" } },
+
   -- ── Variable with file-level @var ──
   { name = "{{ includes file-level @var", lines = { "@base_url = http://example.com", "### Test", "{{█" }, expect = { "base_url", "$timestamp" } },
   { name = "{{ includes block-level @var", lines = { "### Test", "@limit = 20", "{{█" }, expect = { "limit", "$timestamp" } },
@@ -61,12 +65,16 @@ return {
     expect = { "$timestamp", "redis_host", "redis_port" },
   },
 
-  -- ── @prompt line ──
-  -- @prompt lines allow {{ completion (context_detector passes through), returns magic vars
-  { name = "# @prompt with {{ returns magic vars", lines = { "### Test", "# @prompt fruit [{{█" }, expect = { "$timestamp", "$uuid" } },
+  -- ── Prompt directive lines (<<var_name ...) ──
+  -- Prompt lines allow {{ completion, returns magic vars
+  { name = "<< with {{ returns magic vars", lines = { "### Test", "<<fruit [{{█" }, expect = { "$timestamp", "$uuid" } },
+  { name = "# << commented prompt with {{ returns magic vars", lines = { "### Test", "# <<fruit [{{█" }, expect = { "$timestamp", "$uuid" } },
+  { name = "prompt var in block {{ completion", lines = { "### Test", "<<vs [GET, POST]", "GET {{base_url}}/post", "Content-Type: application/x-www-form-urlencoded", "", "method={{█" }, expect = { "vs", "$timestamp" } },
+  { name = "prompt var in file-level {{ completion", lines = { "<<vs [GET, POST]", "### Test", "{{█" }, expect = { "vs", "$timestamp" } },
+  { name = "prompt var in {{v partial completion", lines = { "### Test", "<<vs [GET, POST]", "GET {{base_url}}/post", "Content-Type: application/x-www-form-urlencoded", "", "method={{v█" }, expect = { "vs" } },
 
   -- ── Directives as completion items ──
-  { name = "empty line returns directives too", lines = { "█" }, expect = { "import", "run" } },
+  { name = "empty file-level line returns only directives", lines = { "█" }, expect = { "import", "run" }, expect_not = { "GET" } },
 
   -- ── Run with import index ──
   {

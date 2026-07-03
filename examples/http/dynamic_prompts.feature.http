@@ -6,20 +6,20 @@ GET https://api.github.com/repos/jqlang/jq/commits?per_page=5
 
 ### Select items
 @key = fruit
-# @prompt item [{{jq.response.body.[].parents[].sha}}]
+<<item [{{jq.response.body.[].parents[].sha}}]
 GET {{base_url}}/get?{{key}}={{item}}
 
 ### Get Items
 GET {{base_url}}/get?items[]=apple&items[]=banana&items[]=cherry&items[]=date&items[]=elderberry
 
 ### Select Fruit
-# @prompt fruit [{{Get Items.response.body.args.items}}]
+<<fruit [{{Get Items.response.body.args.items}}]
 GET {{base_url}}/get?fruit={{fruit}}
 
 ### Static Options
-# @prompt method [GET, POST, PUT, DELETE]
+<<method [GET, POST, PUT, DELETE]
 GET https://httpbin.org/get?method={{method}}
 
 ### Text Input
-# @prompt username
+<<username
 GET https://httpbin.org/get?user={{username}}

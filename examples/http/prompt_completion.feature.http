@@ -1,14 +1,14 @@
 # Short list (≤20 items) — should use inputlist
 ### Short List Test
-# @prompt color [red, green, blue, yellow, purple]
+<<color [red, green, blue, yellow, purple]
 GET https://httpbin.org/get?color={{color}}
 
 # Long list (>20 items) — should use text input + completion
 ### Long List Test
-# @prompt country [USA, Canada, Mexico, Brazil, Argentina, Chile, Peru, Colombia, Venezuela, Ecuador, Bolivia, Paraguay, Uruguay, Guyana, Suriname, France, Germany, Italy, Spain, Portugal, United_Kingdom, Netherlands, Belgium, Switzerland, Austria]
+<<country [USA, Canada, Mexico, Brazil, Argentina, Chile, Peru, Colombia, Venezuela, Ecuador, Bolivia, Paraguay, Uruguay, Guyana, Suriname, France, Germany, Italy, Spain, Portugal, United_Kingdom, Netherlands, Belgium, Switzerland, Austria]
 GET https://httpbin.org/get?country={{country}}
 
 # Medium list (20 items) — should use inputlist
 ### Medium List Test
-# @prompt number [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+<<number [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 GET https://httpbin.org/get?number={{number}}

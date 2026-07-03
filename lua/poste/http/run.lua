@@ -202,6 +202,13 @@ local function build_pending_request(src_buf, buf_content, req_block, block_star
       var_map[vname] = vim.trim(vvalue)
     end
   end
+  -- Also scan in-memory buf_content for @var lines (covers << prompt selection)
+  for _, bl in ipairs(vim.split(buf_content, "\n", { plain = true })) do
+    local vname, vvalue = bl:match("^@([%w_]+)%s*[:=]%s*(.+)$")
+    if vname then
+      var_map[vname] = vim.trim(vvalue)
+    end
+  end
   local function resolve_vars(text)
     if not text or text == "" then return text end
     for name, value in pairs(var_map) do

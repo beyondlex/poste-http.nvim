@@ -25,6 +25,27 @@ local function clear_state()
   state.pending_request = nil
 end
 
+--- Build a synthetic response for a script-only block.
+local function make_script_response(req_text, req_block)
+  return {
+    protocol = "script",
+    status = 200,
+    status_text = "Script executed",
+    latency_ms = 0,
+    url = vim.trim(req_text),
+    content_type = "text/plain",
+    headers = req_block and req_block.headers or {},
+    body = "Script executed. See Assertions or Script Logs tab for details.",
+    cookies = {},
+    metadata = {
+      method = "SCRIPT",
+      exit_code = "0",
+      request_line = vim.trim(req_text),
+      env = state.current_env,
+    },
+  }
+end
+
 --- Build an error response table for a failed request.
 local function make_error_response(req_text, req_block, body_text, err_msg, exit_code)
   return {
@@ -519,6 +540,30 @@ function M.run_request()
   prepare_request(src_buf, line, buf_content, binary, file, function(modified_content, req_line, block_start, block_end)
     execute_request(src_buf, line, binary, file, modified_content, req_line, block_start, block_end,
       function(inner_content, req_block, req_text, assertion_code, script_vars, current_req_name, blk_start, blk_end)
+        if req_text and vim.trim(req_text):upper() == "SCRIPT" then
+          local script_response = make_script_response(req_text, req_block)
+          state.last_response = script_response
+          state._json.query = nil
+          state._json.original_lines = nil
+          state._json.is_filtered = false
+          emit_response(script_response, current_req_name, file, nil, nil)
+
+          local assertion_results = run_and_store_assertions(script_response, assertion_code, script_vars)
+
+          if assertion_results and assertion_results.total > 0 then
+            view.show_view("assertions")
+          elseif state.last_script_logs and #state.last_script_logs > 0 then
+            view.show_view("script_logs")
+          else
+            view.show_view("verbose")
+          end
+
+          set_result_indicator(src_buf, req_line, script_response, assertion_results)
+          local hist_name = (current_req_name or "") ~= "" and current_req_name or ("Script #" .. tostring(req_line + 1))
+          add_to_history(hist_name, script_response, file)
+          return
+        end
+
         start_curl_job(binary, file, line, inner_content, req_line, src_buf, req_block, req_text,
           assertion_code, script_vars, current_req_name, blk_start, blk_end)
       end)

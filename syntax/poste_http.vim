@@ -110,6 +110,7 @@ syn match PosteMethodPATCH  '^\s*PATCH\ze\s'  nextgroup=PosteUrl skipwhite
 syn match PosteMethodHEAD   '^\s*HEAD\ze\s'   nextgroup=PosteUrl skipwhite
 syn match PosteMethodOPTIONS '^\s*OPTIONS\ze\s' nextgroup=PosteUrl skipwhite
 syn match PosteMethodOther  '^\s*\%(TRACE\|CONNECT\)\ze\s' nextgroup=PosteUrl skipwhite
+syn match PosteMethodScript '^\s*[Ss][Cc][Rr][Ii][Pp][Tt]\ze\%(\s\|$\)'
 
 " URL: match scheme://... or plain path
 " contains=PosteVarRef,PosteMagicVar lets {{...}} highlight inside URLs
@@ -171,6 +172,7 @@ hi def link PosteMethodPATCH  Keyword
 hi def link PosteMethodHEAD   Keyword
 hi def link PosteMethodOPTIONS Keyword
 hi def link PosteMethodOther  Keyword
+hi def link PosteMethodScript Keyword
 hi def link PosteUrl         Underlined
 hi def link PosteHttpVersion Constant
 hi def link PosteHeaderKey   Type

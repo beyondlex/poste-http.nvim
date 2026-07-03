@@ -7,7 +7,7 @@ local M = {}
 -- HTTP methods
 ---------------------------------------------------------------------------
 M.http_methods = {
-  "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT"
+  "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT", "SCRIPT"
 }
 
 ---------------------------------------------------------------------------

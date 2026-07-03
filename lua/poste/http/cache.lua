@@ -208,6 +208,13 @@ function M.get_buffer_cache(buf)
         if not line:match("%}") then
           in_post_block = true
         end
+      elseif vim.trim(line):upper() == "SCRIPT" then
+        if not request_found_in_block then
+          t = "request"
+          request_found_in_block = true
+        else
+          t = "body"
+        end
       elseif line:match("^[A-Z]+%s+%S") then
         if not request_found_in_block then
           t = "request"

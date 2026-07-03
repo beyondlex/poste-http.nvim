@@ -49,6 +49,7 @@ function M.setup()
     { "PosteMethodPATCH",  "Keyword" },
     { "PosteMethodHEAD",   "Keyword" },
     { "PosteMethodOPTIONS", "Keyword" },
+    { "PosteMethodScript", "Keyword" },
     { "PosteMethodOther",  "Keyword" },
     { "PosteUrl",          "Normal" },
     { "PosteHttpVersion",  "Constant" },
@@ -103,6 +104,7 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteMethodDELETE", { fg = 0xe06c75, bold = true }) -- red
   vim.api.nvim_set_hl(0, "PosteMethodPATCH",  { fg = 0xc678dd, bold = true }) -- magenta
   vim.api.nvim_set_hl(0, "PosteMethodHEAD",   { fg = 0x56b6c2, bold = true }) -- cyan
+  vim.api.nvim_set_hl(0, "PosteMethodScript", { fg = 0x8a5cf5, bold = true }) -- purple-blue
   vim.api.nvim_set_hl(0, "PosteMethodOther",  { fg = 0x5c6370, bold = true }) -- gray
 
   -- Run directive: bold purple for "run", green for target
@@ -181,8 +183,8 @@ function M.setup()
   state.apply_highlight_overrides({
     "PosteLatency", "PosteSpinner", "PosteSuccess", "PosteError",
     "PosteSeparator", "PosteRequestName", "PosteVarRef", "PosteMagicVar",
-    "PosteMethodGET", "PosteMethodPOST", "PosteMethodPUT", "PosteMethodDELETE",
-    "PosteMethodPATCH", "PosteMethodHEAD", "PosteMethodOPTIONS", "PosteMethodOther",
+    "PosteMethodGET", "PosteMethodPOST",     "PosteMethodPUT", "PosteMethodDELETE",
+    "PosteMethodPATCH", "PosteMethodHEAD", "PosteMethodOPTIONS", "PosteMethodScript", "PosteMethodOther",
     "PosteUrl", "PosteHttpVersion", "PosteHeaderKey",
     "PosteImport", "PosteImportPath", "PosteImportAliasOpt", "PosteImportAlias",
     "PosteRun", "PosteRunTarget", "PosteRunVarDef", "PosteRunVarAssign", "PosteRunVarValue",

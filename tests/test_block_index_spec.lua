@@ -147,7 +147,45 @@ describe("block index", function()
   end)
 
   ----------------------------------------------------------------------------
-  -- 8. no_blocks: file without ###
+  -- 8. SCRIPT keyword: line_type detection
+  ----------------------------------------------------------------------------
+  it("SCRIPT keyword as request line (uppercase)", function()
+    local buf = create_buf({
+      "### Test Script",
+      "SCRIPT",
+      "< {% local x = 1 %}",
+      "> {% client.test('pass', function() end) %}",
+    })
+    local c = cache.get_buffer_cache(buf)
+    assert.equals("head", c.line_type[1], "line 1 should be head")
+    assert.equals("request", c.line_type[2], "line 2 (SCRIPT) should be request")
+    assert.equals("pre_script", c.line_type[3], "line 3 should be pre_script")
+    assert.equals("post_script", c.line_type[4], "line 4 should be post_script")
+  end)
+
+  it("SCRIPT keyword as request line (lowercase)", function()
+    local buf = create_buf({
+      "### Test Script",
+      "script",
+      "> {% client.test('pass', function() end) %}",
+    })
+    local c = cache.get_buffer_cache(buf)
+    assert.equals("head", c.line_type[1], "line 1 should be head")
+    assert.equals("request", c.line_type[2], "line 2 (script) should be request")
+    assert.equals("post_script", c.line_type[3], "line 3 should be post_script")
+  end)
+
+  it("SCRIPT keyword as request line (mixed case)", function()
+    local buf = create_buf({
+      "### Test Script",
+      "Script",
+    })
+    local c = cache.get_buffer_cache(buf)
+    assert.equals("request", c.line_type[2], "line 2 (Script) should be request")
+  end)
+
+  ----------------------------------------------------------------------------
+  -- 11. no_blocks: file without ###
   ----------------------------------------------------------------------------
   it("no_blocks", function()
     local buf = create_buf({
@@ -166,7 +204,7 @@ describe("block index", function()
   end)
 
   ----------------------------------------------------------------------------
-  -- 9. empty_block: buffer with ### then next ###
+  -- 12. empty_block: buffer with ### then next ###
   ----------------------------------------------------------------------------
   it("empty_block", function()
     local buf = create_buf({
@@ -184,7 +222,7 @@ describe("block index", function()
   end)
 
   ----------------------------------------------------------------------------
-  -- 10. prompt: <<var_name
+  -- 13. prompt: <<var_name
   ----------------------------------------------------------------------------
   it("prompt", function()
     local buf = create_buf({
@@ -207,7 +245,7 @@ describe("block index", function()
   end)
 
   ----------------------------------------------------------------------------
-  -- 11. run directive
+  -- 14. run directive
   ----------------------------------------------------------------------------
   it("run", function()
     local buf = create_buf({
@@ -223,7 +261,7 @@ describe("block index", function()
   end)
 
   ----------------------------------------------------------------------------
-  -- 12. import
+  -- 15. import
   ----------------------------------------------------------------------------
   it("import", function()
     local buf = create_buf({
@@ -244,7 +282,7 @@ describe("block index", function()
   end)
 
   ----------------------------------------------------------------------------
-  -- 13. multiple blocks: 3 ### blocks
+  -- 16. multiple blocks: 3 ### blocks
   ----------------------------------------------------------------------------
   it("multiple blocks", function()
     local buf = create_buf({
@@ -278,7 +316,7 @@ describe("block index", function()
   end)
 
   ----------------------------------------------------------------------------
-  -- 14. body after empty: lines after headers empty line are "body"
+  -- 17. body after empty: lines after headers empty line are "body"
   ----------------------------------------------------------------------------
   it("body after empty", function()
     local buf = create_buf({
@@ -303,7 +341,7 @@ describe("block index", function()
   end)
 
   ----------------------------------------------------------------------------
-  -- 15. get_block_at_line
+  -- 18. get_block_at_line
   ----------------------------------------------------------------------------
   it("get_block_at_line", function()
     local buf = create_buf({
@@ -335,7 +373,7 @@ describe("block index", function()
   end)
 
   ----------------------------------------------------------------------------
-  -- 16. get_block_vars
+  -- 19. get_block_vars
   ----------------------------------------------------------------------------
   it("get_block_vars", function()
     local buf = create_buf({

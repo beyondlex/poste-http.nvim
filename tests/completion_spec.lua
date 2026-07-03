@@ -28,6 +28,21 @@ describe("get_items_for_context", function()
       assert.is_true(labels["GET"] or labels["POST"])
     end)
 
+    it("returns SCRIPT as a method completion", function()
+      local buf = block_buf({ "### Test", "" })
+      local items = get_items_for_context("", buf, 2, 0)
+      vim.api.nvim_buf_delete(buf, { force = true })
+
+      local found = false
+      for _, item in ipairs(items) do
+        if item.label == "SCRIPT" then
+          found = true
+          break
+        end
+      end
+      assert.is_true(found, "SCRIPT should appear in method completions")
+    end)
+
     it("returns header names for partial input inside block", function()
       local buf = block_buf({ "### Test", "Con" })
       local items = get_items_for_context("Con", buf, 2, 3)

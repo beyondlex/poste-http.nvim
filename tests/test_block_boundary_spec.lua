@@ -149,6 +149,29 @@ describe("block boundary delegation", function()
       local line = indicators.find_request_line(buf, 3)
       assert.is_nil(line)
     end)
+
+    it("SCRIPT keyword returns its line", function()
+      local buf = create_buf({
+        "### Script Test",
+        "SCRIPT",
+        "< {% local x = 1 %}",
+        "> {% client.test('pass', function() end) %}",
+      })
+      local indicators = require("poste.indicators")
+      local line = indicators.find_request_line(buf, 1)
+      assert.equals(1, line)
+    end)
+
+    it("lowercase script keyword returns its line", function()
+      local buf = create_buf({
+        "### Script Test",
+        "script",
+        "< {% local x = 1 %}",
+      })
+      local indicators = require("poste.indicators")
+      local line = indicators.find_request_line(buf, 1)
+      assert.equals(1, line)
+    end)
   end)
 
   ----------------------------------------------------------------------------

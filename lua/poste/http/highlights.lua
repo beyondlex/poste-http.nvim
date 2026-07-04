@@ -164,6 +164,10 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteVerboseKey", { fg = 0xC678DD })                       -- magenta
   vim.api.nvim_set_hl(0, "PosteVerboseValue", { fg = 0x5c6370 })                     -- grey value
 
+  -- Request tab extmark highlights (Key: bold, Value: gray)
+  vim.api.nvim_set_hl(0, "PosteRequestKey", { fg = 0xABB2BF, bold = true })            -- bright bold
+  vim.api.nvim_set_hl(0, "PosteRequestValue", { fg = 0x5c6370 })                       -- grey
+
   -- Assertions view extmark highlights
   vim.api.nvim_set_hl(0, "PosteAssertSummary", { fg = 0x98c379, bold = true })       -- green bold
   vim.api.nvim_set_hl(0, "PosteAssertSummaryFail", { fg = 0xe06c75, bold = true })   -- red bold
@@ -205,6 +209,7 @@ function M.setup()
     "PosteHttpBoundaryBorder",
     "PosteStatus2xx", "PosteStatus3xx", "PosteStatus4xx", "PosteStatus5xx",
     "PosteVerboseSeparator", "PosteVerboseSection", "PosteVerboseSubHeader", "PosteVerboseKey", "PosteVerboseValue",
+    "PosteRequestKey", "PosteRequestValue",
     "PosteAssertSummary", "PosteAssertSummaryFail",
     "PosteAssertPass", "PosteAssertFail",
     "PosteAssertIconPass", "PosteAssertIconFail",

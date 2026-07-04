@@ -30,9 +30,10 @@ local magic_vars = {
   randomInt = function() return tostring(math.random(0, 9999999)) end,
 }
 
---- Process form data magic variables and file inclusions in the request body.
+--- Process form data magic variables in the request body.
 --- - Replaces {{$timestamp}}, {{$uuid}}, {{$date}}, {{$randomInt}}
---- - Replaces lines like `< path/to/file` with actual file contents
+--- Does NOT expand `< file` directives — that happens in the Rust executor
+--- after block parsing (to avoid ### in file content corrupting block boundaries).
 --- Operates on the current request block only.
 function M.process_form_data(src_buf, cursor_line, content)
   local start_line, end_line = require("poste.indicators").find_request_block_bounds(src_buf, cursor_line)
@@ -54,36 +55,7 @@ function M.process_form_data(src_buf, cursor_line, content)
       for name, value in pairs(generated) do
         processed = processed:gsub("{{%$" .. name .. "}}", value)
       end
-
-      -- Check if this is a file inclusion line: `< path/to/file`
-      local file_path = processed:match("^%s*<%s+(.+)$")
-      if file_path then
-        -- Expand ~ to home directory
-        if file_path:sub(1, 1) == "~" then
-          file_path = vim.fn.expand("~") .. file_path:sub(2)
-        end
-        -- Resolve relative paths against the .http file's directory
-        if file_path:sub(1, 1) == "." then
-          local buf_name = vim.api.nvim_buf_get_name(src_buf)
-          if buf_name and buf_name ~= "" then
-            local buf_dir = vim.fn.fnamemodify(buf_name, ":h")
-            file_path = buf_dir .. "/" .. file_path
-          end
-        end
-        -- Read file contents
-        local f = io.open(file_path, "rb")
-        if f then
-          local file_content = f:read("*a")
-          f:close()
-          table.insert(result, file_content)
-          state.log("INFO", string.format("Included file: %s (%d bytes)", file_path, #file_content))
-        else
-          state.log("ERROR", string.format("Cannot open file: %s", file_path))
-          table.insert(result, processed)  -- keep original line on error
-        end
-      else
-        table.insert(result, processed)
-      end
+      table.insert(result, processed)
     else
       table.insert(result, line)
     end

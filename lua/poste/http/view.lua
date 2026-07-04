@@ -149,7 +149,7 @@ function M.show_view(view)
       end
     end
     if ct:lower():find("multipart/form%-data") then
-      filetype = "markdown"
+      filetype = "text"
     else
       filetype = format.detect_filetype(ct)
     end

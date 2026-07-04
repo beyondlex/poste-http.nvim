@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::io::Read;
+use std::path::{Path, PathBuf};
 
 /// Execute a request at a specific line
 #[derive(Parser)]
@@ -100,6 +101,10 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     let parser = poste_core::Parser::new(env_vars.clone());
     let mut request = parser.parse_at_line(&content, args.line, &file_ext)?;
 
+    // Expand < file directives in the body (must happen after parsing so that
+    // ### in file content doesn't corrupt block boundary detection).
+    request.body = resolve_file_includes(&request.body, &search_dir)?;
+
     // Resolve connection name for SQL protocols
     if crate::util::is_sql_protocol(&request.protocol)
         && !crate::util::is_connection_url(&request.connection)
@@ -180,6 +185,60 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Expand `< file` directives in the request body.
+///
+/// Lines matching `< path` are replaced with the file contents. Supports:
+/// - relative paths (resolved against `base_dir`)
+/// - `~` for home directory
+/// - absolute paths
+///
+/// On read error the original line is kept (same as Lua behavior).
+fn resolve_file_includes(body: &str, base_dir: &Path) -> Result<String> {
+    let home = std::env::var("HOME").ok();
+    let mut result = String::with_capacity(body.len());
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if let Some(path_str) = trimmed.strip_prefix("< ") {
+            let resolved = resolve_include_path(path_str.trim(), base_dir, &home);
+            match std::fs::read(&resolved) {
+                Ok(bytes) => {
+                    let content = String::from_utf8_lossy(&bytes);
+                    result.push_str(&content);
+                    // file content includes its own newlines; don't add another
+                }
+                Err(_) => {
+                    // keep original line on error
+                    result.push_str(line);
+                    result.push('\n');
+                }
+            }
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    // Preserve trailing-newline semantics of the original body
+    if !body.is_empty() && !body.ends_with('\n') && result.ends_with('\n') {
+        result.pop();
+    }
+    Ok(result)
+}
+
+/// Resolve a `< file` include path relative to `base_dir`.
+fn resolve_include_path(path_str: &str, base_dir: &Path, home: &Option<String>) -> PathBuf {
+    if path_str.starts_with('~') {
+        if let Some(h) = home {
+            PathBuf::from(h).join(path_str.strip_prefix("~/").unwrap_or(""))
+        } else {
+            base_dir.join(path_str)
+        }
+    } else if path_str.starts_with('/') {
+        PathBuf::from(path_str)
+    } else {
+        base_dir.join(path_str)
+    }
 }
 
 /// Load env vars for variable substitution.

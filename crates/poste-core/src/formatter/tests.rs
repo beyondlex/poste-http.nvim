@@ -372,7 +372,7 @@ fn test_format_consecutive_blank_lines_compressed() {
 #[test]
 fn test_format_prompt_preserved() {
     let input = "<<username\n\n### Test\nGET /api\n";
-    let output = Formatter::format(input, false).unwrap();
+    let output = Formatter::format(input);
     assert!(output.contains("<<username"));
 }
 

@@ -25,7 +25,8 @@ admin@example.com
 Content-Disposition: form-data; name="avatar"; filename="test.txt"
 Content-Type: text/plain
 
-< ../README_request_variables.md
+< ../README_form_data.md
+
 ------WebKitFormBoundary{{$timestamp}}--
 
 ### Simple JSON POST
@@ -57,7 +58,4 @@ Content-Type: text/plain
 < ../prompt_variables.http
 ------Boundary{{$timestamp}}--
 
-
-### test fild download
-GET http://localhost:8080/index.php/Admin/DataAttendence/attendanceExport?token=f55ebbb1d25d7c411b8f0b1d45826522&type=month&s_month=2026-07&e_month=2026-07
 

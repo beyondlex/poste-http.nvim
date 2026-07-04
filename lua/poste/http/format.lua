@@ -327,23 +327,24 @@ end
 
 local request_ns = vim.api.nvim_create_namespace("poste_request")
 
---- Apply highlights to the Request tab: key:value lines get key in magenta, value in gray.
+--- Apply highlights to the Request tab: key:value lines get key in bold, value in gray.
 function M.apply_request_highlights(buf, lines)
   vim.api.nvim_buf_clear_namespace(buf, request_ns, 0, -1)
   for i, line in ipairs(lines) do
     local row = i - 1
-    if line:match("^  [^:]+:%s") then
+if line:match("^[^*#][^:]*:%s") then
       local colon = line:find(":", 3)
+      if not colon then break end
       if colon then
         vim.api.nvim_buf_set_extmark(buf, request_ns, row, 0, {
           end_row = row, end_col = colon + 1,
-          hl_group = "PosteVerboseKey", priority = 100,
+          hl_group = "PosteRequestKey", priority = 100,
         })
         local val_start = colon + 2
         if val_start <= #line then
           vim.api.nvim_buf_set_extmark(buf, request_ns, row, val_start - 1, {
             end_row = row, end_col = #line,
-            hl_group = "PosteVerboseValue", priority = 100,
+            hl_group = "PosteRequestValue", priority = 100,
           })
         end
       end
@@ -674,7 +675,7 @@ function M.format_verbose(r, pending)
       for l in display_body:gmatch("[^\r\n]+") do
         table.insert(lines, "  " .. l)
       end
-    elseif ct_lower:find("application/x-www-form-urlencoded") then
+    elseif ct_lower:find("application/x%-www%-form%-urlencoded") then
       local form_lines = format_urlencoded_body(request_body)
       if form_lines then
         for _, fl in ipairs(form_lines) do
@@ -891,7 +892,7 @@ function M.format_request_payload(r)
     local boundary = extract_boundary(ct)
     local parts = boundary and parse_multipart_parts(req_body, boundary)
     if parts then
-      table.insert(lines, "## Multipart Form Data")
+      table.insert(lines, "## Multipart Form Data (" .. #parts .. " parts)")
       table.insert(lines, "")
       for i, part in ipairs(parts) do
         local disp = ""
@@ -901,27 +902,42 @@ function M.format_request_payload(r)
         local name = disp:match('name="([^"]*)"') or ("part " .. i)
         local fn = disp:match('filename="([^"]*)"')
         if fn then
-          table.insert(lines, string.format("**%s** (file: %s, %d bytes)", name, fn, #part.body))
+          table.insert(lines, string.format("%s: [file: %s, %d bytes]", name, fn, #part.body))
         else
-          table.insert(lines, string.format("**%s**: %s", name, part.body:gsub("[\r\n]+$", "")))
+          local val = part.body:gsub("[\r\n]+$", "")
+          table.insert(lines, string.format("%s: %s", name, val))
         end
         table.insert(lines, "")
       end
       return lines
    end
-   -- parsed nil → show summary line instead of raw body
-   table.insert(lines, "(multipart form data, " .. #req_body .. " bytes)")
+   -- parsed nil → show raw body excerpt with boundary info
+   table.insert(lines, "(multipart form data — parse failed)")
+   table.insert(lines, "")
+   local boundary_val = extract_boundary(ct)
+   if boundary_val then
+     table.insert(lines, string.format("  boundary: %s", boundary_val))
+   end
+   table.insert(lines, "")
+   -- Show first ~10 lines of raw body for debugging
+   local raw_lines = split_lines(req_body)
+   for j = 1, math.min(10, #raw_lines) do
+     table.insert(lines, "  " .. raw_lines[j])
+   end
+   if #raw_lines > 10 then
+     table.insert(lines, string.format("  ... (%d more lines)", #raw_lines - 10))
+   end
    return lines
  end
 
- -- URL-encoded form data: key-value pairs
- if ct:lower():find("application/x-www-form-urlencoded") then
+-- URL-encoded form data: key-value pairs
+ if ct:lower():find("application/x%-www%-form%-urlencoded") then
    local form_lines = format_urlencoded_body(req_body)
    if form_lines then
      table.insert(lines, "## Form Data")
      table.insert(lines, "")
      for _, fl in ipairs(form_lines) do
-       table.insert(lines, fl)
+       table.insert(lines, (fl:gsub("^  ", "")))
      end
      return lines
    end

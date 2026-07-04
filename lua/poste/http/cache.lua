@@ -38,34 +38,228 @@ function M.get_buffer_cache(buf)
     return cached
   end
 
-  -- Rescan entire buffer for file vars and request names in one pass
+  -- Rescan entire buffer for file vars, request names, line types, blocks, imports in one pass
   local file_vars = {}
   local req_names = {}
   local seen_names = {}
-  local past_file_vars = false
+  local past_first_block = false
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 
-  for _, line in ipairs(lines) do
-    if line:match("^%s*###") then
-      past_file_vars = true
-      local name = line:match("^%s*###%s+(.+)")
-      if name then
-        name = vim.trim(name)
-        if name ~= "" and not seen_names[name] then
-          seen_names[name] = true
-          table.insert(req_names, name)
+  local line_type = {}
+  local blocks = {}
+  local file_imports = {}
+  local current_block = nil
+  local request_found_in_block = false
+  local body_started = false
+  local in_pre_block = false
+  local in_post_block = false
+
+  for i, line in ipairs(lines) do
+    local trimmed = vim.trim(line)
+    local t
+
+    if not past_first_block then
+      if line:match("^%s*###") then
+        past_first_block = true
+        request_found_in_block = false
+        body_started = false
+        in_pre_block = false
+        in_post_block = false
+          current_block = {
+            name = vim.trim(line:match("^%s*###%s*(.*)") or ""),
+            start_line = i,
+            end_line = nil,
+            block_vars = {},
+            has_pre = false,
+            has_post = false,
+            has_run = false,
+            last_content_line = nil,
+          }
+        local name = line:match("^%s*###%s+(.+)")
+        if name then
+          name = vim.trim(name)
+          if name ~= "" and not seen_names[name] then
+            seen_names[name] = true
+            table.insert(req_names, name)
+          end
+        end
+        t = "head"
+      elseif line:match("^%s*@(%w[%w_]*)%s*[= ]") then
+        local var_name = line:match("^%s*@(%w[%w_]*)%s*[= ]")
+        file_vars[var_name] = true
+        t = "var"
+      elseif line:match("^%s*<<(%w[%w_]*)") then
+        local var_name = line:match("^%s*<<(%w[%w_]*)")
+        file_vars[var_name] = true
+        t = "prompt"
+      elseif line:match("^%s*#%s*<<") then
+        t = "prompt"
+      elseif line:match("^import%s+") then
+        local path, alias = line:match("^import%s+(%S+)%s+as%s+(%S+)")
+        if not path then
+          path = line:match("^import%s+(%S+)")
+        end
+        if alias then
+          table.insert(file_imports, { type = "aliased", path = path, alias = alias })
+        elseif path then
+          table.insert(file_imports, { type = "bare", path = path })
+        end
+        t = "file"
+      else
+        if in_pre_block then
+          t = "pre_script"
+          if trimmed == "%}" then
+            in_pre_block = false
+          end
+        elseif in_post_block then
+          t = "post_script"
+          if trimmed == "%}" then
+            in_post_block = false
+          end
+        elseif line:match("^%s*<%s+%.%.?") then
+          t = "pre_script"
+        elseif line:match("^%s*<%s+{%%") then
+          t = "pre_script"
+          if not line:match("%}") then
+            in_pre_block = true
+          end
+        elseif line:match("^%s*>%s+%.%.?") then
+          t = "post_script"
+        elseif line:match("^%s*>%s+{%%") then
+          t = "post_script"
+          if not line:match("%}") then
+            in_post_block = true
+          end
+        else
+          t = "file"
         end
       end
-    elseif not past_file_vars then
-      local var_name = line:match("^%s*@(%w[%w_]*)%s*=")
-      if var_name then file_vars[var_name] = true end
+    else
+      if line:match("^%s*###") then
+        if current_block then
+          current_block.end_line = i - 1
+          if not current_block.last_content_line then
+            current_block.last_content_line = current_block.start_line
+          end
+          table.insert(blocks, current_block)
+        end
+        request_found_in_block = false
+        body_started = false
+        in_pre_block = false
+        in_post_block = false
+          current_block = {
+            name = vim.trim(line:match("^%s*###%s*(.*)") or ""),
+            start_line = i,
+            end_line = nil,
+            block_vars = {},
+            has_pre = false,
+            has_post = false,
+            has_run = false,
+            last_content_line = nil,
+          }
+        local name = line:match("^%s*###%s+(.+)")
+        if name then
+          name = vim.trim(name)
+          if name ~= "" and not seen_names[name] then
+            seen_names[name] = true
+            table.insert(req_names, name)
+          end
+        end
+        t = "head"
+      elseif line:match("^%s*@(%w[%w_]*)%s*[= ]") then
+        local var_name = line:match("^%s*@(%w[%w_]*)%s*[= ]")
+        if current_block then
+          current_block.block_vars[var_name] = true
+        end
+        t = "var"
+      elseif line:match("^%s*<<(%w[%w_]*)") then
+        local var_name = line:match("^%s*<<(%w[%w_]*)")
+        if current_block then
+          current_block.block_vars[var_name] = true
+        end
+        t = "prompt"
+      elseif line:match("^%s*#%s*<<") then
+        t = "prompt"
+      elseif in_pre_block then
+        t = "pre_script"
+        if trimmed == "%}" then
+          in_pre_block = false
+        end
+      elseif line:match("^%s*<%s+%.%.?") then
+        t = "pre_script"
+        if current_block then current_block.has_pre = true end
+      elseif line:match("^%s*<%s+{%%") then
+        t = "pre_script"
+        if current_block then current_block.has_pre = true end
+        if not line:match("%}") then
+          in_pre_block = true
+        end
+      elseif in_post_block then
+        t = "post_script"
+        if trimmed == "%}" then
+          in_post_block = false
+        end
+      elseif line:match("^%s*>%s+%.%.?") then
+        t = "post_script"
+        if current_block then current_block.has_post = true end
+      elseif line:match("^%s*>%s+{%%") then
+        t = "post_script"
+        if current_block then current_block.has_post = true end
+        if not line:match("%}") then
+          in_post_block = true
+        end
+      elseif vim.trim(line):upper() == "SCRIPT" then
+        if not request_found_in_block then
+          t = "request"
+          request_found_in_block = true
+        else
+          t = "body"
+        end
+      elseif line:match("^[A-Z]+%s+%S") then
+        if not request_found_in_block then
+          t = "request"
+          request_found_in_block = true
+        else
+          t = "body"
+        end
+      elseif line:match("^[%w%-]+%s*:") then
+        t = "header"
+      elseif line:match("^run%s+") then
+        t = "run"
+        if current_block then current_block.has_run = true end
+      elseif trimmed == "" then
+        t = "empty"
+        if request_found_in_block and not body_started then
+          body_started = true
+        end
+      else
+        t = "body"
+      end
+
+      if current_block and trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
+        current_block.last_content_line = i
+      end
     end
+
+    line_type[i] = t
+  end
+
+  -- Finalize last block: end_line = last line of buffer (original behavior)
+  if current_block then
+    current_block.end_line = #lines
+    if not current_block.last_content_line then
+      current_block.last_content_line = current_block.start_line
+    end
+    table.insert(blocks, current_block)
   end
 
   local entry = {
     changedtick = ct,
     file_vars = file_vars,
     req_names = req_names,
+    line_type = line_type,
+    blocks = blocks,
+    file_imports = file_imports,
   }
   buffer_caches[buf] = entry
   M.ensure_cache_autocmd(buf)
@@ -77,22 +271,12 @@ function M.collect_file_vars(buf)
   return M.get_buffer_cache(buf).file_vars
 end
 
---- Collect request-level variables (current request block only, not cached).
+--- Collect request-level variables (current request block only).
+--- Uses block index for O(1) lookup instead of buffer scanning.
 function M.collect_request_vars(buf, cursor_line)
-  local vars = {}
-  local ok, indicators = pcall(require, "poste.indicators")
-  if not ok then return vars end
-  local start_line, end_line = indicators.find_request_block_bounds(buf, cursor_line)
-  if not start_line then return vars end
-
-  local lines = vim.api.nvim_buf_get_lines(buf, start_line - 1, end_line, false)
-  for _, line in ipairs(lines) do
-    if not line:match("^%s*###") then
-      local name = line:match("^%s*@(%w[%w_]*)%s*=")
-      if name then vars[name] = true end
-    end
-  end
-  return vars
+  local block = M.get_block_at_line(buf, cursor_line)
+  if not block then return {} end
+  return vim.deepcopy(block.block_vars)
 end
 
 --- Get environment variables from env.json (cached by path + mtime + env).
@@ -153,6 +337,44 @@ end
 --- Get request names from buffer cache.
 function M.collect_request_names(buf)
   return M.get_buffer_cache(buf).req_names
+end
+
+--- Get the line type for a given buffer line.
+--- @param buf number
+--- @param line number (1-indexed)
+--- @return string|nil
+function M.get_line_type(buf, line)
+  local cache = M.get_buffer_cache(buf)
+  return cache.line_type[line]
+end
+
+--- Get the block containing a given line.
+--- @param buf number
+--- @param line number (1-indexed)
+--- @return table|nil  block or nil
+function M.get_block_at_line(buf, line)
+  local cache = M.get_buffer_cache(buf)
+  for _, block in ipairs(cache.blocks) do
+    if line >= block.start_line and line <= block.end_line then
+      -- Check cursor is not on inter-block separator
+      -- (past last content line but before next ###)
+      if block.last_content_line and line > block.last_content_line then
+        return nil
+      end
+      return block
+    end
+  end
+  return nil
+end
+
+--- Get block-level variables for the block containing a given line.
+--- @param buf number
+--- @param line number (1-indexed)
+--- @return table  { name = true, ... }
+function M.get_block_vars(buf, line)
+  local block = M.get_block_at_line(buf, line)
+  if block then return block.block_vars end
+  return {}
 end
 
 --- Collect import index for the buffer (cached, invalidated on buffer change).

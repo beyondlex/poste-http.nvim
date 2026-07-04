@@ -1,21 +1,21 @@
 ### Get Pokemon (text input)
-# @prompt pokemon
+<<pokemon
 GET https://pokeapi.co/api/v2/pokemon/{{pokemon}}
 Accept: application/json
 
 ### Get Pokemon by Generation (selection)
-# @prompt generation [1, 2, 3, 4, 5, 6, 7, 8, 9]
+<<generation [1, 2, 3, 4, 5, 6, 7, 8, 9]
 GET https://pokeapi.co/api/v2/generation/{{generation}}
 Accept: application/json
 
 ### Get Pokemon by Type (selection)
-# @prompt type [normal, fire, water, grass, electric, ice, fighting, poison, ground, flying, psychic, bug, rock, ghost, dragon, dark, steel, fairy]
+<<type [normal, fire, water, grass, electric, ice, fighting, poison, ground, flying, psychic, bug, rock, ghost, dragon, dark, steel, fairy]
 GET https://pokeapi.co/api/v2/type/{{type}}
 Accept: application/json
 
 ### Get Pokemon Ability (selection + text input)
-# @prompt ability [overgrow, blaze, torrent, static, lightning-rod]
-# @prompt custom_name
+<<ability [overgrow, blaze, torrent, static, lightning-rod]
+<<custom_name
 GET https://pokeapi.co/api/v2/ability/{{ability}}
 Accept: application/json
 X-Custom-Name: {{custom_name}}

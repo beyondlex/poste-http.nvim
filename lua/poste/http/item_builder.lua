@@ -331,6 +331,8 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
     end
 
     return items
+  elseif ctx == "file_directive" then
+    items = M.build_items({ "import", "run" }, KIND_REFERENCE)
   elseif ctx == "method" or ctx == "method_or_header" then
     local method_items = M.build_items(data.http_methods, KIND_KEYWORD)
     local header_items = M.build_items(data.header_names, KIND_PROPERTY)

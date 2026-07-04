@@ -30,9 +30,10 @@ local magic_vars = {
   randomInt = function() return tostring(math.random(0, 9999999)) end,
 }
 
---- Process form data magic variables and file inclusions in the request body.
+--- Process form data magic variables in the request body.
 --- - Replaces {{$timestamp}}, {{$uuid}}, {{$date}}, {{$randomInt}}
---- - Replaces lines like `< path/to/file` with actual file contents
+--- Does NOT expand `< file` directives — that happens in the Rust executor
+--- after block parsing (to avoid ### in file content corrupting block boundaries).
 --- Operates on the current request block only.
 function M.process_form_data(src_buf, cursor_line, content)
   local start_line, end_line = require("poste.indicators").find_request_block_bounds(src_buf, cursor_line)
@@ -54,36 +55,7 @@ function M.process_form_data(src_buf, cursor_line, content)
       for name, value in pairs(generated) do
         processed = processed:gsub("{{%$" .. name .. "}}", value)
       end
-
-      -- Check if this is a file inclusion line: `< path/to/file`
-      local file_path = processed:match("^%s*<%s+(.+)$")
-      if file_path then
-        -- Expand ~ to home directory
-        if file_path:sub(1, 1) == "~" then
-          file_path = vim.fn.expand("~") .. file_path:sub(2)
-        end
-        -- Resolve relative paths against the .http file's directory
-        if file_path:sub(1, 1) == "." then
-          local buf_name = vim.api.nvim_buf_get_name(src_buf)
-          if buf_name and buf_name ~= "" then
-            local buf_dir = vim.fn.fnamemodify(buf_name, ":h")
-            file_path = buf_dir .. "/" .. file_path
-          end
-        end
-        -- Read file contents
-        local f = io.open(file_path, "rb")
-        if f then
-          local file_content = f:read("*a")
-          f:close()
-          table.insert(result, file_content)
-          state.log("INFO", string.format("Included file: %s (%d bytes)", file_path, #file_content))
-        else
-          state.log("ERROR", string.format("Cannot open file: %s", file_path))
-          table.insert(result, processed)  -- keep original line on error
-        end
-      else
-        table.insert(result, processed)
-      end
+      table.insert(result, processed)
     else
       table.insert(result, line)
     end
@@ -96,11 +68,11 @@ end
 -- Request variable helpers
 ---------------------------------------------------------------------------
 
---- Remove resolved @prompt lines from content (keep @var = value lines)
+--- Remove resolved prompt directive lines from content (keep @var = value lines)
 local function strip_prompt_lines(content)
   local result = {}
   for _, l in ipairs(vim.split(content, "\n", { plain = true })) do
-    if not l:match("^%s*#%s*@prompt%s+%S+") then
+    if not l:match("^%s*<<%S+") then
       table.insert(result, l)
     end
   end
@@ -108,40 +80,20 @@ local function strip_prompt_lines(content)
 end
 
 --- Collect all ### request blocks with their names and line ranges.
+--- Delegates to cache.lua block index.
 --- Returns list of { name = "Request Name", start_line = 1, end_line = 5 }
 --- All line numbers are 1-indexed.
 function M.collect_requests(buf)
+  local cache = require("poste.http.cache")
+  local bc = cache.get_buffer_cache(buf)
   local requests = {}
-  local total = vim.api.nvim_buf_line_count(buf)
-  local i = 1
-
-  while i <= total do
-    local line_text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-    if line_text:match("^%s*###") then
-      local name = vim.trim(line_text:gsub("^%s*###", ""))
-      local start_line = i
-      local end_line = total
-
-      -- Find end of this block (next ### or EOF)
-      for j = i + 1, total do
-        local next_text = vim.api.nvim_buf_get_lines(buf, j - 1, j, false)[1] or ""
-        if next_text:match("^%s*###") then
-          end_line = j - 1
-          break
-        end
-      end
-
-      table.insert(requests, {
-        name = name,
-        start_line = start_line,
-        end_line = end_line,
-      })
-      i = end_line + 1
-    else
-      i = i + 1
-    end
+  for _, block in ipairs(bc.blocks or {}) do
+    table.insert(requests, {
+      name = block.name or "",
+      start_line = block.start_line,
+      end_line = block.end_line,
+    })
   end
-
   return requests
 end
 
@@ -526,15 +478,15 @@ local function execute_deps_sequential(binary, file, env_name, dep_order, conten
 end
 
 ---------------------------------------------------------------------------
--- Prompt variables (@prompt directives)
+-- Prompt variables (<<name directives)
 ---------------------------------------------------------------------------
 
---- Handle @prompt directives in the current request block only.
+--- Handle prompt directives in the current request block only.
 --- Syntax:
----   # @prompt variable_name                   → text input
----   # @prompt variable_name [opt1, opt2, ...] → selection from list (up/down arrows)
----   # @prompt variable_name [{{Req.response.body.field}}] → dynamic options from request response
---- Only processes @prompt lines within the request block containing cursor_line.
+---   <<variable_name                   → text input
+---   <<variable_name [opt1, opt2, ...] → selection from list (up/down arrows)
+---   <<variable_name [{{Req.response.body.field}}] → dynamic options from request response
+--- Only processes prompt lines within the request block containing cursor_line.
 --- Always prompts for input (no caching) so users can use different values each time.
 --- Processes prompts asynchronously and calls on_complete with modified content.
 --- on_complete(modified_content) is called when all prompts are resolved.
@@ -560,10 +512,10 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
     local line_num = idx
     idx = idx + 1
 
-    -- Only process @prompt within the current request block (1-indexed)
+    -- Only process prompt directives within the current request block (1-indexed)
     if line_num >= start_line and line_num <= end_line then
-      -- Match: # @prompt varname [opt1, opt2, ...]  (selection mode)
-      local varname_sel, options_str = line:match("^%s*#%s*@prompt%s+(%S+)%s*%[(.+)%]")
+      -- Match: <<varname [opt1, opt2, ...]  (selection mode)
+      local varname_sel, options_str = line:match("^%s*<<(%S+)%s*%[(.+)%]")
 
       if varname_sel and options_str then
         -- Check if options contain a request variable reference
@@ -681,8 +633,8 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
         end)
         return
       else
-        -- Match: # @prompt varname  (text input mode)
-        local varname = line:match("^%s*#%s*@prompt%s+(%S+)")
+        -- Match: <<varname  (text input mode)
+        local varname = line:match("^%s*<<(%S+)")
 
         if varname then
           -- vim.fn.input is blocking but handles its own event loop

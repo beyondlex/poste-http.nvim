@@ -27,20 +27,24 @@ local function extract_url_path(line)
 end
 
 --- Scan buffer and collect all ### request blocks.
+--- Delegates outer ### detection to cache.lua block index.
 --- @param bufnr number Buffer handle
 --- @return table[] List of { name, method, url_path, line }
 local function collect_requests(bufnr)
+  local cache = require("poste.http.cache")
+  local bc = cache.get_buffer_cache(bufnr)
   local requests = {}
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-  for i, line in ipairs(lines) do
-    local name = line:match("^%s*###%s+(.+)$")
-    if name then
+  for _, block in ipairs(bc.blocks or {}) do
+    local name = block.name
+    if name and name ~= "" then
       local method = nil
       local url_path = nil
       local in_pre_script = false
+      local scan_end = math.min(block.start_line + 20, math.min(block.end_line, #lines))
 
-      for j = i + 1, math.min(i + 20, #lines) do
+      for j = block.start_line + 1, scan_end do
         local next_line = lines[j]
         local skip = false
 
@@ -65,7 +69,7 @@ local function collect_requests(bufnr)
         end
       end
 
-      table.insert(requests, { name = name, method = method, url_path = url_path, line = i })
+      table.insert(requests, { name = name, method = method, url_path = url_path, line = block.start_line })
     end
   end
 

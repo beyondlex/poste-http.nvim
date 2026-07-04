@@ -57,7 +57,9 @@ function M:get_completions(ctx, callback)
 
   callback({
     items = items,
-    is_incomplete_forward = false,
+    -- Must be true so {{ triggers a re-query: first { → "method_or_header" context,
+    -- second { → "variable" context. Without this, blink caches the first result.
+    is_incomplete_forward = true,
     is_incomplete_backward = false,
   })
 end

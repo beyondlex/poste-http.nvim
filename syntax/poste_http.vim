@@ -14,14 +14,17 @@ syn region PosteRequestName
 syn match PosteSeparator '^###' contained
 
 " ─── Comments & Directives ──────────────────────────
-" Prompt directive with internal structure (@prompt → varname [opts])
-syn region PostePromptLine start='^\s*#\s*@prompt\s' end='$' keepend
-  \ contains=PostePromptMarker,PostePromptVar,PostePromptOpts
-syn match PostePromptMarker '#\s*@prompt' contained
-syn match PostePromptVar '\S\+' contained
+" Prompt directive: <<varname [opts]
+syn match PostePrompt '^\s*<<.\{-}\(\[.\{-}\]\)\?\s*$'
+  \ contains=PostePromptMarker,PostePromptOpts
+syn match PostePromptMarker '<<' contained
 syn match PostePromptOpts '\[.\{-}\]' contained
   \ contains=PosteVarRef,PosteMagicVar
-syn match PosteComment '^\s*#\%(\s*@prompt\s\)\@!\([^#].*\|$\)'
+" Commented-out prompt: # <<varname [opts]
+syn match PosteCommentedPrompt '^\s*#\s*<<.\{-}\(\[.\{-}\]\)\?\s*$'
+  \ contains=PosteCommentedPromptMarker,PostePromptOpts
+syn match PosteCommentedPromptMarker '#\s*<<' contained
+syn match PosteComment '^\s*#\%(\s*<<\)\@!\([^#].*\|$\)'
 syn match PosteComment '^\s*--.*$'
 
 " ─── import/run cross-file reference directives ─────
@@ -107,6 +110,7 @@ syn match PosteMethodPATCH  '^\s*PATCH\ze\s'  nextgroup=PosteUrl skipwhite
 syn match PosteMethodHEAD   '^\s*HEAD\ze\s'   nextgroup=PosteUrl skipwhite
 syn match PosteMethodOPTIONS '^\s*OPTIONS\ze\s' nextgroup=PosteUrl skipwhite
 syn match PosteMethodOther  '^\s*\%(TRACE\|CONNECT\)\ze\s' nextgroup=PosteUrl skipwhite
+syn match PosteMethodScript '^\s*[Ss][Cc][Rr][Ii][Pp][Tt]\ze\%(\s\|$\)'
 
 " URL: match scheme://... or plain path
 " contains=PosteVarRef,PosteMagicVar lets {{...}} highlight inside URLs
@@ -135,7 +139,7 @@ syn region PosteBody start=+^\s*\n+ end=+\n\ze\s*\%(###\|<\s*{%\|>\s*{%\)\|\%$+ 
   \ contains=PosteJsonString,PosteJsonNumber,PosteJsonBoolean,PosteJsonNull,
   \PosteJsonBraces,PosteJsonBrackets,PosteJsonColon,PosteJsonComma,
   \PosteVarRef,PosteMagicVar,PosteVarDef,PosteVarAssign,PosteMultiVarEnd,
-  \PostePromptLine,PosteComment,
+  \PostePrompt,PosteCommentedPrompt,PosteComment,
   \PosteImport,PosteRun,PosteFileUpload,PosteFileRef
 
 syn match  PosteJsonNumber  '[-]\?\%(\d\+\.\d\+\|\d\+\)' contained
@@ -168,6 +172,7 @@ hi def link PosteMethodPATCH  Keyword
 hi def link PosteMethodHEAD   Keyword
 hi def link PosteMethodOPTIONS Keyword
 hi def link PosteMethodOther  Keyword
+hi def link PosteMethodScript Keyword
 hi def link PosteUrl         Underlined
 hi def link PosteHttpVersion Constant
 hi def link PosteHeaderKey   Type
@@ -181,9 +186,11 @@ hi def link PosteRunTarget String
 hi def link PosteRunVarDef  PosteVarDef
 hi def link PosteRunVarAssign Operator
 hi def link PosteRunVarValue String
-hi def link PostePromptMarker PreProc
-hi def link PostePromptVar    PosteVarDef
-hi def link PostePromptOpts   String
+hi def link PostePrompt           PreProc
+hi def link PostePromptMarker      Special
+hi def link PostePromptOpts        String
+hi def link PosteCommentedPrompt   Comment
+hi def link PosteCommentedPromptMarker Comment
 hi def link PostePreScript   PreProc
 hi def link PosteAssertion   PreProc
 hi def link PosteScriptMarker Special

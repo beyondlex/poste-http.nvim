@@ -111,7 +111,7 @@ GET https://api.example.com/step3?token={{Step 2.response.body.token}}
 - If a referenced request hasn't been executed, it will be executed automatically
 - Responses are cached for the current Neovim session
 - If a variable cannot be resolved (e.g., field doesn't exist), the original `{{...}}` placeholder is left unchanged
-- Request variables work alongside file-level variables (`@var = value`) and prompt variables (`# @prompt var`)
+- Request variables work alongside file-level variables (`@var = value`) and prompt variables (`<<var`)
 
 ## Variable Priority
 

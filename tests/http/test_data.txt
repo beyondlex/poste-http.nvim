@@ -1,0 +1,4 @@
+Hello from Poste Test Server's test_data.txt!
+This file is used to test file uploads in multipart/form-data requests.
+Generated at: 2026-07-04
+Poste version: 0.1.0

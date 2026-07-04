@@ -73,6 +73,19 @@ impl Executor {
             req_body
         };
 
+        // For multipart/form-data, convert LF → CRLF as required by the MIME
+        // standard (RFC 2046).  The .http file uses Unix-style \n, but HTTP
+        // boundary delimiters and part headers must use \r\n.  curl's
+        // --data-binary sends the body as-is, so we must normalize here.
+        let is_multipart = req_headers.iter().any(|(k, v)| {
+            k.to_lowercase() == "content-type" && v.contains("multipart/form-data")
+        });
+        let req_body = if is_multipart {
+            req_body.replace('\n', "\r\n")
+        } else {
+            req_body
+        };
+
         let headers_file = tempfile::NamedTempFile::new()?;
         let headers_path = headers_file.path().to_path_buf();
 
@@ -159,8 +172,16 @@ impl Executor {
                 .collect::<Vec<_>>()
                 .join("\n"),
         );
-        if !req_body.trim().is_empty() {
-            metadata.insert("request_body".to_string(), req_body);
+        // Display the raw (unresolved) body in the request preview, so file
+        // includes like `< ./photo.png` are shown as-is rather than dumping
+        // the expanded binary content into the Verbose tab.
+        let display_body = if !request.raw_body.trim().is_empty() {
+            &request.raw_body
+        } else {
+            &req_body
+        };
+        if !display_body.trim().is_empty() {
+            metadata.insert("request_body".to_string(), display_body.clone());
         }
         metadata.insert(
             "timestamp".to_string(),
@@ -203,6 +224,7 @@ impl Executor {
             "-S".to_string(),
             "-v".to_string(),
             "-L".to_string(),
+            "--compressed".to_string(),
             "-X".to_string(),
             method.to_string(),
             "-D".to_string(),

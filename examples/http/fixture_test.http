@@ -1,0 +1,17 @@
+
+import ./basic.http as bs
+
+### Test
+GET {{base_url}}/get
+Content-Type: application/json
+
+{
+  "name": "{{a}}",
+}
+
+### test
+<<exi [GET, POST]
+GET {{base_url}}/get
+Content-Type: application/x-www-form-urlencoded
+
+method={{exi}}

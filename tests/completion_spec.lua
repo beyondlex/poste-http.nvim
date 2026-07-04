@@ -4,10 +4,18 @@
 local completion = require("poste.http.completion")
 local get_items_for_context = completion._test.get_items_for_context
 
+local function block_buf(lines)
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  return buf
+end
+
 describe("get_items_for_context", function()
   describe("method and header completion", function()
-    it("returns HTTP methods for empty line", function()
-      local items = get_items_for_context("")
+    it("returns HTTP methods for empty line inside block", function()
+      local buf = block_buf({ "### Test", "" })
+      local items = get_items_for_context("", buf, 2, 0)
+      vim.api.nvim_buf_delete(buf, { force = true })
 
       assert.is_true(#items > 0)
 
@@ -20,8 +28,25 @@ describe("get_items_for_context", function()
       assert.is_true(labels["GET"] or labels["POST"])
     end)
 
-    it("returns header names for partial input", function()
-      local items = get_items_for_context("Con")
+    it("returns SCRIPT as a method completion", function()
+      local buf = block_buf({ "### Test", "" })
+      local items = get_items_for_context("", buf, 2, 0)
+      vim.api.nvim_buf_delete(buf, { force = true })
+
+      local found = false
+      for _, item in ipairs(items) do
+        if item.label == "SCRIPT" then
+          found = true
+          break
+        end
+      end
+      assert.is_true(found, "SCRIPT should appear in method completions")
+    end)
+
+    it("returns header names for partial input inside block", function()
+      local buf = block_buf({ "### Test", "Con" })
+      local items = get_items_for_context("Con", buf, 2, 3)
+      vim.api.nvim_buf_delete(buf, { force = true })
 
       assert.is_true(#items > 0)
 
@@ -130,12 +155,14 @@ end)
 
 describe("blink.cmp integration", function()
   it("get_completions calls callback with correct response shape", function()
+    local buf = block_buf({ "### Test", "" })
     local response
 
     completion:get_completions(
-      { line = "", cursor = { 1, 0 }, bufnr = 0 },
+      { line = "", cursor = { 2, 0 }, bufnr = buf },
       function(resp) response = resp end
     )
+    vim.api.nvim_buf_delete(buf, { force = true })
 
     assert.is_not_nil(response)
     assert.is_not_nil(response.items)
@@ -145,23 +172,27 @@ describe("blink.cmp integration", function()
   end)
 
   it("get_completions returns items for method context", function()
+    local buf = block_buf({ "### Test", "" })
     local response
 
     completion:get_completions(
-      { line = "", cursor = { 1, 0 }, bufnr = 0 },
+      { line = "", cursor = { 2, 0 }, bufnr = buf },
       function(resp) response = resp end
     )
+    vim.api.nvim_buf_delete(buf, { force = true })
 
     assert.is_true(#response.items > 0)
   end)
 
   it("get_completions returns items for header value context", function()
+    local buf = block_buf({ "### Test", "Content-Type: " })
     local response
 
     completion:get_completions(
-      { line = "Content-Type: ", cursor = { 1, 14 }, bufnr = 0 },
+      { line = "Content-Type: ", cursor = { 2, 14 }, bufnr = buf },
       function(resp) response = resp end
     )
+    vim.api.nvim_buf_delete(buf, { force = true })
 
     assert.is_true(#response.items > 0)
   end)
@@ -251,6 +282,8 @@ describe("nvim-cmp integration", function()
       return
     end
 
+    local buf = block_buf({ "### Test", "" })
+    vim.api.nvim_set_current_buf(buf)
     local response
 
     local instance = source.new()
@@ -261,6 +294,7 @@ describe("nvim-cmp integration", function()
       },
       function(resp) response = resp end
     )
+    vim.api.nvim_buf_delete(buf, { force = true })
 
     assert.is_true(#response.items > 0)
   end)

@@ -481,12 +481,14 @@ function M.goto_definition()
   end
 
   local var_pattern = "^%s*@" .. vim.pesc(req_name) .. "[%s=]"
+  local prompt_pattern = "^%s*<<" .. vim.pesc(req_name) .. "%s"
+  local prompt_comment_pattern = "^%s*#%s*<<" .. vim.pesc(req_name) .. "%s"
   local found_line = nil
 
   if current_req then
     for i = current_req.start_line, current_req.end_line do
       local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-      if text:match(var_pattern) then
+      if text:match(var_pattern) or text:match(prompt_pattern) or text:match(prompt_comment_pattern) then
         found_line = i
         break
       end
@@ -497,7 +499,7 @@ function M.goto_definition()
     local end_line = #requests > 0 and requests[1].start_line - 1 or total
     for i = 1, end_line do
       local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-      if text:match(var_pattern) then
+      if text:match(var_pattern) or text:match(prompt_pattern) or text:match(prompt_comment_pattern) then
         found_line = i
         break
       end
@@ -722,6 +724,8 @@ function M.goto_references()
     end
   else
     local def_pat = "^%s*@" .. esc .. "[%s=]"
+    local prompt_def_pat = "^%s*<<" .. esc .. "%s"
+    local prompt_def_comment_pat = "^%s*#%s*<<" .. esc .. "%s"
     local ref_pat = "{{" .. esc .. "[%}%.]"
 
     local function find_script_ref(text)
@@ -740,7 +744,7 @@ function M.goto_references()
 
     for i = 1, total do
       local text = all_lines[i] or ""
-      if text:match(def_pat) then
+      if text:match(def_pat) or text:match(prompt_def_pat) or text:match(prompt_def_comment_pat) then
         add(i, vim.trim(text), 0)
       elseif not text:match(comment_pat) then
         local ref_col = text:find(ref_pat)

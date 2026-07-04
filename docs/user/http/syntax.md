@@ -313,16 +313,17 @@ GET https://prod.example.com/api
 ### 2.12 变量提示
 
 ```
-# @prompt username
-# @prompt role [admin, user, guest]
-# @prompt item [{{listItems.response.body.items}}]
+<<username
+<<role [admin, user, guest]
+<<item [{{listItems.response.body.items}}]
 ```
 
 **规则**：
-- `# @prompt` 后跟变量名，在请求执行时弹出输入框让用户输入值
+- `<<` 后跟变量名，在请求执行时弹出输入框让用户输入值
 - 支持方括号 `[]` 提供选项列表，用户通过选择器选取
 - 选项列表可引用其他请求的响应：`[{{ReqName.response.body.field}}]`
 - 提示变量解析为 `@varname = value` 注入到请求块中
+- 使用 `# <<varname` 可注释掉该提示行
 
 **实现状态**：Completion (Lua) ❌，Highlight ❌
 
@@ -434,5 +435,5 @@ run ./batch.http
 | `< ./path.lua` | ✅ 跳过 | ❌ | ❌ | — |
 | `> {% %} ` | ✅ 跳过 | ✅ | ❌ | ✅ todo |
 | `> ./path.lua` | ❌ 跳过 | ❌ | ❌ | — |
-| `# @prompt` 变量提示 | — | ❌ | ❌ | — |
+| `<<name` 变量提示 | — | ❌ | ❌ | — |
 | `import` / `run` 文件引用 | ❌ | ❌ | ❌ | ❌ |

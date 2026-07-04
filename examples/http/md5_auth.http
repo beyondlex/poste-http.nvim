@@ -25,13 +25,13 @@ Content-Type: application/json
 %}
 
 ### Verify MD5 in post-request
-GET {{host}}/get?password=secret
-
+script
+@secret = secret
 > {%
   client.test("MD5 available in post-script", function()
-    local hash = md5("secret")
+    local hash = md5(md5(variables.secret))
     client.log("MD5 of 'secret': " .. hash)
-    client.assert(hash == "5ebe2294ecd0e0f08eab7690d2a6ee69",
+    client.assert(hash == "7022cd14c42ff272619d6beacdc9ffde",
       "MD5 hash incorrect: " .. hash)
   end)
 %}

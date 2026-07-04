@@ -49,8 +49,8 @@ function M.extract_request_block(buf, start_line)
     local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
     if text:match("^%s*###") then break end  -- next block
 
-    -- Skip comments (lines starting with # or --)
-    if text:match("^%s*#") or text:match("^%s*%-%-") then  -- luacheck: ignore 542
+    -- Skip comments and prompt directives
+    if text:match("^%s*#") or text:match("^%s*%-%-") or text:match("^%s*<<") then  -- luacheck: ignore 542
     elseif not request_line and text:match("%S") then
       -- First non-empty non-comment line is the request line
       request_line = text
@@ -69,54 +69,21 @@ function M.extract_request_block(buf, start_line)
   return { request_line = request_line or "", headers = headers }
 end
 
---- Find the request definition line: walk backward from `start_line` to
---- find the ### separator, then return the first non-empty, non-comment
---- line after it (the GET/POST/SET/etc line).
+--- Find the request definition line: delegate boundary detection to
+--- cache.lua block index, then scan forward within the block to locate
+--- the first non-empty, non-comment line (the GET/POST/SET/etc line).
 --- Skips pre-request script blocks (< {% ... %} and < ./script.lua) and
 --- variable definitions (@var = value).
 --- Returns (line_number_0indexed, nil) or (nil, nil) if not found.
 function M.find_request_line(buf, start_line)
-  -- Walk backward to find ### separator
-  local header_line = nil
-  for i = start_line, 1, -1 do
-    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-    if text:match("^%s*###") then
-      header_line = i
-      break
-    end
-  end
+  local cache = require("poste.http.cache")
+  local block = cache.get_block_at_line(buf, start_line)
+  if not block then return nil end
 
-  if not header_line then return nil end
-
-  local total = vim.api.nvim_buf_line_count(buf)
-
-  -- Find next ### and last content line of this block
-  local next_sep = total + 1
-  for i = header_line + 1, total do
-    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-    if text:match("^%s*###") then
-      next_sep = i
-      break
-    end
-  end
-
-  -- If cursor is on a separator line between blocks, don't attach to either
-  local last_content = nil
-  for i = next_sep - 1, header_line, -1 do
-    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-    local trimmed = vim.trim(text)
-    if trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
-      last_content = i
-      break
-    end
-  end
-  if start_line > (last_content or header_line) and start_line < next_sep then
-    return nil
-  end
-
+  -- Use block.end_line as the upper bound (cache.lua excludes trailing separators)
   local in_prescript = false
 
-  for i = header_line + 1, total do
+  for i = block.start_line + 1, block.end_line do
     local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
     local trimmed = vim.trim(text)
 
@@ -128,11 +95,11 @@ function M.find_request_line(buf, start_line)
         in_prescript = false
       end
     elseif trimmed:match("^<%s*{%%") and not trimmed:match("%%}$") then
-      -- Multi-line pre-script start: < {% (no closing %})
       in_prescript = true
     elseif trimmed:match("^<%s*{%%.*%%}$") then  -- luacheck: ignore 542
     elseif trimmed:match("^<%s*%.?%.") and trimmed:match("%.lua%s*$") then  -- luacheck: ignore 542
     elseif trimmed:match("^@%S+%s*[= ]") then  -- luacheck: ignore 542
+    elseif trimmed:match("^<<") then  -- skip prompt directives
     elseif trimmed == "" or trimmed:match("^#") or trimmed:match("^%-%-") then  -- luacheck: ignore 542
     else
       -- This is the actual request line
@@ -145,47 +112,12 @@ end
 
 --- Find the request block boundaries for a given cursor line.
 --- Returns (start_line, end_line) as 1-indexed inclusive ranges.
---- A request block starts at ### and ends before the next ### or EOF.
+--- Delegates to cache.lua block index.
 function M.find_request_block_bounds(buf, cursor_line)
-  local total = vim.api.nvim_buf_line_count(buf)
-
-  -- Walk backward to find ###
-  local start_line = nil
-  for i = cursor_line, 1, -1 do
-    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-    if text:match("^%s*###") then
-      start_line = i
-      break
-    end
-  end
-
-  if not start_line then return nil, nil end
-
-  -- Walk forward to find end of block (next ### or EOF)
-  local end_line = total
-  for i = start_line + 1, total do
-    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-    if text:match("^%s*###") then
-      end_line = i - 1
-      break
-    end
-  end
-
-  -- If cursor is on a separator line between blocks, return no bounds
-  local last_content = nil
-  for i = end_line, start_line, -1 do
-    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-    local trimmed = vim.trim(text)
-    if trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
-      last_content = i
-      break
-    end
-  end
-  if cursor_line > (last_content or start_line) then
-    return nil, nil
-  end
-
-  return start_line, end_line
+  local cache = require("poste.http.cache")
+  local block = cache.get_block_at_line(buf, cursor_line)
+  if not block then return nil, nil end
+  return block.start_line, block.end_line
 end
 
 ---------------------------------------------------------------------------

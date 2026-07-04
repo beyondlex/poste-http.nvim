@@ -49,6 +49,7 @@ function M.setup()
     { "PosteMethodPATCH",  "Keyword" },
     { "PosteMethodHEAD",   "Keyword" },
     { "PosteMethodOPTIONS", "Keyword" },
+    { "PosteMethodScript", "Keyword" },
     { "PosteMethodOther",  "Keyword" },
     { "PosteUrl",          "Normal" },
     { "PosteHttpVersion",  "Constant" },
@@ -103,6 +104,7 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteMethodDELETE", { fg = 0xe06c75, bold = true }) -- red
   vim.api.nvim_set_hl(0, "PosteMethodPATCH",  { fg = 0xc678dd, bold = true }) -- magenta
   vim.api.nvim_set_hl(0, "PosteMethodHEAD",   { fg = 0x56b6c2, bold = true }) -- cyan
+  vim.api.nvim_set_hl(0, "PosteMethodScript", { fg = 0x8a5cf5, bold = true }) -- purple-blue
   vim.api.nvim_set_hl(0, "PosteMethodOther",  { fg = 0x5c6370, bold = true }) -- gray
 
   -- Run directive: bold purple for "run", green for target
@@ -162,6 +164,10 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteVerboseKey", { fg = 0xC678DD })                       -- magenta
   vim.api.nvim_set_hl(0, "PosteVerboseValue", { fg = 0x5c6370 })                     -- grey value
 
+  -- Request tab extmark highlights (Key: bold, Value: gray)
+  vim.api.nvim_set_hl(0, "PosteRequestKey", { fg = 0xABB2BF, bold = true })            -- bright bold
+  vim.api.nvim_set_hl(0, "PosteRequestValue", { fg = 0x5c6370 })                       -- grey
+
   -- Assertions view extmark highlights
   vim.api.nvim_set_hl(0, "PosteAssertSummary", { fg = 0x98c379, bold = true })       -- green bold
   vim.api.nvim_set_hl(0, "PosteAssertSummaryFail", { fg = 0xe06c75, bold = true })   -- red bold
@@ -181,8 +187,8 @@ function M.setup()
   state.apply_highlight_overrides({
     "PosteLatency", "PosteSpinner", "PosteSuccess", "PosteError",
     "PosteSeparator", "PosteRequestName", "PosteVarRef", "PosteMagicVar",
-    "PosteMethodGET", "PosteMethodPOST", "PosteMethodPUT", "PosteMethodDELETE",
-    "PosteMethodPATCH", "PosteMethodHEAD", "PosteMethodOPTIONS", "PosteMethodOther",
+    "PosteMethodGET", "PosteMethodPOST",     "PosteMethodPUT", "PosteMethodDELETE",
+    "PosteMethodPATCH", "PosteMethodHEAD", "PosteMethodOPTIONS", "PosteMethodScript", "PosteMethodOther",
     "PosteUrl", "PosteHttpVersion", "PosteHeaderKey",
     "PosteImport", "PosteImportPath", "PosteImportAliasOpt", "PosteImportAlias",
     "PosteRun", "PosteRunTarget", "PosteRunVarDef", "PosteRunVarAssign", "PosteRunVarValue",
@@ -203,6 +209,7 @@ function M.setup()
     "PosteHttpBoundaryBorder",
     "PosteStatus2xx", "PosteStatus3xx", "PosteStatus4xx", "PosteStatus5xx",
     "PosteVerboseSeparator", "PosteVerboseSection", "PosteVerboseSubHeader", "PosteVerboseKey", "PosteVerboseValue",
+    "PosteRequestKey", "PosteRequestValue",
     "PosteAssertSummary", "PosteAssertSummaryFail",
     "PosteAssertPass", "PosteAssertFail",
     "PosteAssertIconPass", "PosteAssertIconFail",

@@ -9,13 +9,6 @@ Accept: application/json
 
 name={{name}}&age={{age}}&city=NewYork
 
-### URL Encoded Form
-POST {{base_url}}/post HTTP/1.1
-Content-Type: application/x-www-form-urlencoded
-Accept: application/json
-
-name={{name}}&age={{age}}&city=NewYork
-
 ### Multipart Form with File Upload
 POST {{base_url}}/post HTTP/1.1
 Content-Type: multipart/form-data; boundary=----WebKitFormBoundary{{$timestamp}}
@@ -32,7 +25,8 @@ admin@example.com
 Content-Disposition: form-data; name="avatar"; filename="test.txt"
 Content-Type: text/plain
 
-< ../README_request_variables.md
+< ../README_form_data.md
+
 ------WebKitFormBoundary{{$timestamp}}--
 
 ### Simple JSON POST
@@ -63,3 +57,5 @@ Content-Type: text/plain
 
 < ../prompt_variables.http
 ------Boundary{{$timestamp}}--
+
+

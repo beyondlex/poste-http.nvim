@@ -14,7 +14,12 @@ pub struct Request {
     pub name: Option<String>,
     pub protocol: Protocol,
     pub connection: String,
+    /// Resolved body after file includes (`< filename`) and magic vars are expanded.
+    /// This is what gets sent as the HTTP request body (via curl --data-binary).
     pub body: String,
+    /// Original body before file include resolution, for display in the request
+    /// preview / Verbose tab.  If empty, falls back to `body`.
+    pub raw_body: String,
 }
 
 /// Replace the database name in a connection URL.

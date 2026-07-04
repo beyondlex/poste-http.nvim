@@ -2,70 +2,26 @@
 --- Extracted from completion.lua for reuse across modules.
 local M = {}
 local data = require("poste.http.data")
+local cache = require("poste.http.cache")
 
 --- Detect if cursor is inside a pre-request or post-request script block.
+--- Uses cache.lua O(1) line_type lookup instead of buffer scanning.
 --- Returns: "pre_script", "post_script", or nil
 local function detect_script_context(buf, cursor_line, cursor_col)
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, cursor_line, false)
-
-  -- Track whether we're inside a script block and what type
-  local in_script = nil  -- "pre" or "post"
-  local _script_start  -- luacheck: ignore 231
-
-  for i, line in ipairs(lines) do
-    if in_script then
-      -- Check if this line closes the script block
-      if line:find("%%}") then
-        -- If we're on the closing line, check if cursor is before %}
-        if i == cursor_line then
-          local close_pos = line:find("%%}")
-          if cursor_col <= close_pos then
-            return in_script == "pre" and "pre_script" or "post_script"
-          end
-        end
-        in_script = nil
-        _script_start = nil
-      elseif i == cursor_line then
-        -- We're inside the script block on this line
-        return in_script == "pre" and "pre_script" or "post_script"
-      end
-    else
-      -- Check for script block start
-      local pre_start = line:find("<%s*{%%")
-      local post_start = line:find(">%s*{%%")
-
-      if pre_start or post_start then
-        local start_pos = pre_start or post_start
-        in_script = pre_start and "pre" or "post"
-        _script_start = i
-
-        -- Check if script closes on same line
-        local close_pos = line:find("%%}")
-        if close_pos then
-          -- Single-line script: < {% ... %} or > {% ... %}
-          if i == cursor_line and cursor_col > start_pos and cursor_col <= close_pos then
-            return in_script == "pre" and "pre_script" or "post_script"
-          end
-          in_script = nil
-          _script_start = nil
-        elseif i == cursor_line then
-          -- Cursor is on the opening line, after the marker
-          if cursor_col > start_pos then
-            return in_script == "pre" and "pre_script" or "post_script"
-          end
-          in_script = nil
-          _script_start = nil
-        end
-      end
-    end
+  local t = require("poste.http.cache").get_line_type(buf, cursor_line)
+  if t == "pre_script" then
+    return "pre_script"
+  elseif t == "post_script" then
+    return "post_script"
   end
-
-  -- If we're still in a script at the end, cursor must be inside it
-  if in_script then
-    return in_script == "pre" and "pre_script" or "post_script"
-  end
-
   return nil
+end
+
+--- Check if cursor is in file-level area (before first ### block).
+local function is_file_level(buf, line)
+  if not buf or not line then return true end
+  local t = cache.get_line_type(buf, line)
+  return t == "file"
 end
 
 --- Detect the completion context from the line up to cursor.
@@ -126,6 +82,9 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
 
   -- Fast-path: empty or whitespace-only → method completion
   if trimmed == "" then
+    if is_file_level(buf, cursor_line) then
+      return "file_directive", nil
+    end
     return "method", nil
   end
 
@@ -134,8 +93,10 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
   if first_char == "#" then
     -- After ### (request name line) → no completion
     if trimmed:sub(2, 2) == "#" then return nil, nil end
-    -- @prompt directive: allow completion inside {{...}}
-    if not trimmed:match("^#%s*@prompt%s") then
+    -- Commented prompt line (# <<var ...): allow {{ completion
+    if trimmed:match("^#%s*<<") then
+      -- Fall through for {{variable}} completion
+    else
       -- Regular comment lines → no completion
       return nil, nil
     end
@@ -146,12 +107,9 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     return nil, nil
   end
 
-  -- @var definition → no completion
-  if first_char == "@" then
-    return nil, nil
-  end
-
   -- Variable reference: check for unclosed {{ before cursor
+  -- Must be before @var check so @base_url = {{ works (after other early-returns
+  -- like #, -- which don't need {{ support).
   local rev = line_before_cursor:reverse()
   local last_open = rev:find("{{", 1, true)   -- plain string find
   local last_close = rev:find("}}", 1, true)  -- plain string find
@@ -159,6 +117,11 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     -- Cursor is inside an unclosed {{...}}
     local after_open = line_before_cursor:sub(#line_before_cursor - last_open + 2)
     return "variable", after_open
+  end
+
+  -- @var definition (no unclosed {{) → no completion
+  if first_char == "@" then
+    return nil, nil
   end
 
   -- URL check (direct string find instead of pattern)
@@ -190,6 +153,9 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
 
   -- No colon, no space → single word being typed (method or header name)
   if not line_before_cursor:find(" ", 1, true) then
+    if is_file_level(buf, cursor_line) then
+      return "file_directive", nil
+    end
     return "method_or_header", nil
   end
 

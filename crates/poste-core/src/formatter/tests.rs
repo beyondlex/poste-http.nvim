@@ -232,7 +232,17 @@ fn test_tokenize_blank_line() {
 
 #[test]
 fn test_tokenize_prompt() {
-    let regions = Tokenizer::tokenize("# @prompt username\n# @prompt role [admin, user]\n");
+    let regions = Tokenizer::tokenize("<<username\n<<role [admin, user]\n");
+    assert_eq!(regions.len(), 2);
+    match &regions[0] {
+        Region::Prompt(rest) => assert_eq!(rest, "username"),
+        _ => panic!("Expected Prompt"),
+    }
+}
+
+#[test]
+fn test_tokenize_prompt_commented() {
+    let regions = Tokenizer::tokenize("# <<username\n# <<role [admin, user]\n");
     assert_eq!(regions.len(), 2);
     match &regions[0] {
         Region::Prompt(rest) => assert_eq!(rest, "username"),
@@ -361,9 +371,9 @@ fn test_format_consecutive_blank_lines_compressed() {
 
 #[test]
 fn test_format_prompt_preserved() {
-    let input = "# @prompt username\n\n### Test\nGET /api\n";
+    let input = "<<username\n\n### Test\nGET /api\n";
     let output = Formatter::format(input);
-    assert!(output.contains("# @prompt username"));
+    assert!(output.contains("<<username"));
 }
 
 #[test]

@@ -97,7 +97,7 @@ impl Region {
                 format!("{}{}", prefix, path)
             }
             Region::FileUpload(s) => format!("< {}", s),
-            Region::Prompt(s) => format!("# @prompt {}", s),
+            Region::Prompt(s) => format!("<<{}", s),
             Region::Import { raw, .. } => raw.clone(),
             Region::Run { raw, .. } => raw.clone(),
             Region::Raw(s) => s.clone(),
@@ -398,7 +398,10 @@ impl Tokenizer {
     }
 
     fn try_parse_prompt(trimmed: &str, _raw_line: &str) -> Option<Region> {
-        let rest = trimmed.strip_prefix("# @prompt")?.trim();
+        let rest = trimmed
+            .strip_prefix("<<")
+            .or_else(|| trimmed.strip_prefix("# <<"))?
+            .trim();
         Some(Region::Prompt(rest.to_string()))
     }
 
@@ -608,7 +611,7 @@ impl Formatter {
                     has_vars = true;
                 }
                 Region::Prompt(rest) => {
-                    var_lines.push(format!("# @prompt {}", rest));
+                    var_lines.push(format!("<<{}", rest));
                     has_vars = true;
                 }
                 _ => {}

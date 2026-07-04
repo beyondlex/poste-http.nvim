@@ -101,6 +101,11 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     let parser = poste_core::Parser::new(env_vars.clone());
     let mut request = parser.parse_at_line(&content, args.line, &file_ext)?;
 
+    // Save raw body AFTER variable substitution but BEFORE file include
+    // resolution — so Verbose/Rqst tabs show `{{host}}` expanded but
+    // `< ./photo.png` kept as-is (not dumping binary content).
+    request.raw_body = request.body.clone();
+
     // Expand < file directives in the body (must happen after parsing so that
     // ### in file content doesn't corrupt block boundary detection).
     request.body = resolve_file_includes(&request.body, &search_dir)?;

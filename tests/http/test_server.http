@@ -1,0 +1,251 @@
+# Poste Test HTTP Server — Quick Test Suite
+# Run with: poste run --file tests/http/test_server.http --line <line>
+
+@host = http://localhost:8888
+
+### 01 — Health check
+GET {{host}}/health
+
+### 02 — GET with query params
+GET {{host}}/get?name=poste&version=1.0&feature=testing
+
+### 03 — POST with JSON body
+POST {{host}}/post
+Content-Type: application/json
+
+{
+  "app": "Poste",
+  "type": "HTTP client",
+  "features": ["curl", "magic vars", "scripts"],
+  "version": 1.0
+}
+
+### 04 — PUT with body
+PUT {{host}}/put
+Content-Type: application/json
+
+{"updated": true, "timestamp": "{{$timestamp}}"}
+
+### 05 — PATCH
+PATCH {{host}}/patch
+Content-Type: application/json
+
+{"patch": true}
+
+### 06 — DELETE
+DELETE {{host}}/delete
+
+### 07 — Headers echo
+GET {{host}}/headers
+X-Custom-Header: test-value-123
+X-Trace-ID: {{$uuid}}
+
+### 08 — Status code 200
+GET {{host}}/status/200
+
+### 09 — Status code 404
+GET {{host}}/status/404
+
+### 10 — Status code 500
+GET {{host}}/status/500
+
+### 11 — Status code 401 (unauthorized)
+GET {{host}}/status/401
+
+### 12 — Status code 403 (forbidden)
+GET {{host}}/status/403
+
+### 13 — Status code 418 (teapot)
+GET {{host}}/status/418
+
+### 14 — Delayed response (1 second)
+GET {{host}}/delay/1
+
+### 15 — Redirect (2 hops)
+GET {{host}}/redirect/2
+
+### 16 — Anything echo (GET)
+GET {{host}}/anything?foo=bar&baz=qux
+
+### 17 — Anything echo (POST)
+POST {{host}}/anything
+Content-Type: application/json
+
+{"any": "data", "nested": {"key": "value"}}
+
+### 18 — JSON response
+GET {{host}}/json
+
+### 19 — XML response
+GET {{host}}/xml
+
+### 20 — HTML response
+GET {{host}}/html
+
+### 21 — UUID
+GET {{host}}/uuid
+
+### 22 — Stream 5 lines
+GET {{host}}/stream/5
+
+### 23 — Basic auth (valid)
+GET {{host}}/basic-auth/admin/secret
+Authorization: Basic admin:secret
+
+### 24 — Bearer token
+GET {{host}}/bearer
+Authorization: Bearer {{$uuid}}
+
+### 25 — Cookies (set then read)
+GET {{host}}/cookies/set?session_id={{$uuid}}&theme=dark
+
+### 26 — Cookies (read after set)
+GET {{host}}/cookies
+
+### 27 — Form data (URL-encoded)
+POST {{host}}/form
+Content-Type: application/x-www-form-urlencoded
+
+name=Poste&version=1.0&test=true
+
+### 28 — Response headers
+GET {{host}}/response-headers?X-Poste-Test=hello&X-Custom-ID=42
+
+### 29 — Cacheable response
+GET {{host}}/cacheable
+
+### 30 — Bytes response
+GET {{host}}/bytes/100
+
+### 31 — Range of numbers
+GET {{host}}/range/1/10
+
+### 32 — Robots.txt
+GET {{host}}/robots.txt
+
+### 33 — Options
+OPTIONS {{host}}/options
+
+### 34 — Head request
+HEAD {{host}}/head
+
+### 35 — Image SVG
+GET {{host}}/image/svg
+
+### 36 — Chunked drip
+GET {{host}}/drip?numbytes=50&duration=1
+
+### 37 — Custom path under /anything
+POST {{host}}/anything/nested/path?debug=true
+Content-Type: application/json
+
+{"custom_path": true}
+
+### 38 — ETag matching (first request gets body, second gets 304)
+GET {{host}}/cached/test-etag-123
+
+### 39 — Encoding UTF-8
+GET {{host}}/encoding/utf-8
+
+### 40 — Gzip compressed response
+GET {{host}}/gzip
+
+### 41 — File upload (single file with form field)
+POST {{host}}/upload HTTP/1.1
+Content-Type: multipart/form-data; boundary=----PosteTestBoundary
+
+------PosteTestBoundary
+Content-Disposition: form-data; name="description"
+
+Upload test from Poste
+------PosteTestBoundary
+Content-Disposition: form-data; name="file"; filename="test_data.txt"
+Content-Type: text/plain
+
+< ./test_data.txt
+------PosteTestBoundary--
+
+### 42 — File upload (multiple files)
+POST {{host}}/upload HTTP/1.1
+Content-Type: multipart/form-data; boundary=----PosteMultiBoundary
+
+------PosteMultiBoundary
+Content-Disposition: form-data; name="note"
+
+Multiple file upload test
+------PosteMultiBoundary
+Content-Disposition: form-data; name="doc1"; filename="test_data.txt"
+Content-Type: text/plain
+
+< ./test_data.txt
+------PosteMultiBoundary
+Content-Disposition: form-data; name="doc2"; filename="smoke_test.sh"
+Content-Type: text/plain
+
+< ./smoke_test.sh
+------PosteMultiBoundary--
+
+### 43 — Upload with interactive prompt for file path
+<<file_path
+POST {{host}}/upload HTTP/1.1
+Content-Type: multipart/form-data; boundary=----PostePromptBoundary
+
+------PostePromptBoundary
+Content-Disposition: form-data; name="description"
+
+Uploaded via prompt variable
+------PostePromptBoundary
+Content-Disposition: form-data; name="file"; filename="uploaded_file.txt"
+Content-Type: text/plain
+
+< {{file_path}}
+------PostePromptBoundary--
+
+### 44 — Upload raw body to /store (returns file_id)
+POST {{host}}/store
+Content-Type: text/plain
+X-Filename: hello_from_poste.txt
+
+Hello from Poste! This file was uploaded at {{$timestamp}}.
+
+> {%
+  client.global.set('store_file_id', response.body.file_id)
+%}
+
+### 45 — Upload multipart to /store
+POST {{host}}/store HTTP/1.1
+Content-Type: multipart/form-data; boundary=----StoreBoundary
+
+------StoreBoundary
+Content-Disposition: form-data; name="file"; filename="test_data.txt"
+Content-Type: text/plain
+
+< ./test_data.txt
+------StoreBoundary--
+
+### 46 — Download stored file (use file_id from #44 or #45 response)
+GET {{host}}/download/{{store_file_id}}
+
+### 47 — List all stored files
+GET {{host}}/files
+
+### 48 — Delete a stored file (use file_id from #44 or #45 response)
+<<store_file_id [{{47 — List all stored files.response.body.files[].file_id}}]
+DELETE {{host}}/files/{{store_file_id}}
+
+### 49 — Store binary file (image/png) to test Poste's binary handling
+POST {{host}}/store
+Content-Type: image/png
+X-Filename: test-image.png
+
+< ./smoke_test.sh
+
+### 50 — Download binary file inline (Poste saves to /tmp, shows summary)
+<<store_file_id [{{47 — List all stored files.response.body.files[].file_id}}]
+GET {{host}}/download/{{store_file_id}}?disposition=inline
+
+### 51 — Download binary file as attachment (forces download dialog)
+GET {{host}}/download/{{store_file_id}}?disposition=attachment
+
+### 52 — Override filename on download
+GET {{host}}/download/{{store_file_id}}?filename=report.pdf&disposition=attachment

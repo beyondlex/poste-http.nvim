@@ -1,0 +1,29 @@
+# Poste Test HTTP Server
+#
+# A lightweight httpbin-like server for testing Poste's HTTP request execution.
+# Logs all incoming requests in detail to stdout (visible via `docker compose logs -f`).
+#
+# Usage:
+#   docker compose up -d                    # Start server on :8888
+#   docker compose logs -f                  # Watch detailed request logs
+#   curl http://localhost:8888/anything     # Test an endpoint
+#   docker compose down                     # Stop server
+#
+# Tip: The server runs on port 8888 to avoid conflicts with common dev tools.
+
+services:
+  poste-test-server:
+    build: .
+    container_name: poste-test-server
+    ports:
+      - "8888:8888"
+    environment:
+      - POSTE_TEST_HOST=0.0.0.0
+      - POSTE_TEST_PORT=8888
+    # Health check (wget is built into python:3.12-slim)
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8888/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s

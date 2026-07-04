@@ -213,6 +213,7 @@ impl Parser {
             protocol,
             connection,
             body,
+            raw_body: String::new(), // filled by CLI after resolve_file_includes
         })
     }
 

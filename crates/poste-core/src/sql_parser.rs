@@ -197,6 +197,7 @@ mod tests {
             protocol: Protocol::Postgres,
             connection: "postgres://localhost/test".to_string(),
             body: body.to_string(),
+            raw_body: body.to_string(),
         }
     }
 

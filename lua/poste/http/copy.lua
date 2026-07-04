@@ -75,39 +75,33 @@ local function collect_var_defs(lines)
   return vars
 end
 
---- Resolve variables in request block content:
---- 1. Collect file-level @var defs (before the block)
---- 2. Load env.json for current env
---- 3. Collect request-level @var defs (within the block)
---- 4. Resolve {{var}} iteratively
---- 5. Replace magic vars ({{$timestamp}}, {{$uuid}}, {{$date}}, {{$randomInt}})
---- 6. Handle file inclusion lines (< /path/to/file)
-local function resolve_request_content(buf, raw_lines, block_start_line)
+--- Collect variables from file-level @var defs and env.json
+local function collect_vars(buf, block_start_line)
   local state = require("poste.state")
-
-  -- 1. File-level @var definitions
   local file_lines = block_start_line > 1
     and vim.api.nvim_buf_get_lines(buf, 0, block_start_line - 2, false) or {}
   local vars = collect_var_defs(file_lines)
-
-  -- 2. env.json variables
   local file_path = vim.api.nvim_buf_get_name(buf)
   local env_vars = load_env_vars(file_path, state.current_env)
   for k, v in pairs(env_vars) do
     vars[k] = v
   end
-
-  -- 3. Resolve file-level vars (they may reference each other or env)
   vars = collect_var_defs(file_lines)
   for name, value in pairs(vars) do
     vars[name] = substitute_vars(value, vars)
   end
-  -- Re-merge env vars after resolution (env takes lower priority)
   for k, v in pairs(env_vars) do
     if not vars[k] then vars[k] = v end
   end
+  return vars
+end
 
-  -- 4. Resolve content: join, substitute magic vars, substitute {{var}}, handle file includes
+--- Resolve variables in request block content:
+--- 1. Replace magic vars ({{$timestamp}}, {{$uuid}}, {{$date}}, {{$randomInt}})
+--- 2. Resolve {{var}} iteratively
+--- 3. Handle file inclusion lines (< /path/to/file)
+local function resolve_request_content(buf, raw_lines, block_start_line)
+  local vars = collect_vars(buf, block_start_line)
   local content = table.concat(raw_lines, "\n")
 
   -- Magic vars
@@ -128,6 +122,8 @@ local function resolve_request_content(buf, raw_lines, block_start_line)
 
   -- File inclusion lines: < /path/to/file
   local inc_lines = vim.split(content, "\n", { plain = true })
+  local buf_name = vim.api.nvim_buf_get_name(buf)
+  local buf_dir = buf_name ~= "" and vim.fn.fnamemodify(buf_name, ":h") or vim.fn.getcwd()
   local out_lines = {}
   for _, line in ipairs(inc_lines) do
     local file_path_inc = line:match("^%s*<%s+(.+)$")
@@ -135,6 +131,8 @@ local function resolve_request_content(buf, raw_lines, block_start_line)
       file_path_inc = vim.trim(file_path_inc)
       if file_path_inc:sub(1, 1) == "~" then
         file_path_inc = vim.fn.expand("~") .. file_path_inc:sub(2)
+      elseif file_path_inc:sub(1, 1) ~= "/" then
+        file_path_inc = vim.fn.simplify(buf_dir .. "/" .. file_path_inc)
       end
       local f = io.open(file_path_inc, "rb")
       if f then
@@ -150,6 +148,84 @@ local function resolve_request_content(buf, raw_lines, block_start_line)
   content = table.concat(out_lines, "\n")
 
   return vim.split(content, "\n", { plain = true })
+end
+
+--- Resolve a relative file path against the buffer directory.
+local function resolve_file_path(path, buf_dir)
+  if not path or path == "" then return nil end
+  path = vim.trim(path)
+  if path:sub(1, 1) == "~" then
+    return vim.fn.expand("~") .. path:sub(2)
+  elseif path:sub(1, 1) ~= "/" then
+    return vim.fn.simplify(buf_dir .. "/" .. path)
+  end
+  return path
+end
+
+--- Build -F flags from multipart/form-data body lines (before resolution).
+--- raw_lines: body lines from the .http file (unresolved, may contain < file refs)
+local function build_multipart_flags(raw_lines, boundary, buf_dir, vars)
+  local flags = {}
+  local boundary_delim = "--" .. boundary
+  local closing_boundary = boundary_delim .. "--"
+  local current_name
+  local current_value = {}
+  local in_headers = true
+  local file_path
+
+  local function flush_part()
+    if not current_name then return end
+    if file_path then
+      local resolved = resolve_file_path(file_path, buf_dir)
+      if resolved then
+        table.insert(flags, "-F " .. shell_escape(current_name .. "=@" .. resolved))
+      end
+    else
+      local value = substitute_vars(table.concat(current_value), vars)
+      value = value:gsub("{{%$timestamp}}", tostring(os.time()))
+      value = value:gsub("{{%$uuid}}", function()
+        local t = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+        return t:gsub("[xy]", function(c)
+          local r = math.random(0, 15)
+          return string.format("%x", c == "x" and r or (r % 4) + 8)
+        end)
+      end)
+      value = value:gsub("{{%$date}}", os.date("%Y-%m-%d"))
+      value = value:gsub("{{%$randomInt}}", tostring(math.random(0, 9999999)))
+      table.insert(flags, "-F " .. shell_escape(current_name .. "=" .. value))
+    end
+  end
+
+  for _, line in ipairs(raw_lines) do
+    local trimmed = vim.trim(line)
+    if trimmed == closing_boundary then
+      flush_part()
+      current_name = nil
+      break
+    elseif trimmed == boundary_delim then
+      flush_part()
+      current_name = nil
+      current_value = {}
+      in_headers = true
+      file_path = nil
+    elseif in_headers then
+      if not line:match("%S") then
+        in_headers = false
+      else
+        local name = line:match('Content%-Disposition:.-name="([^"]+)"')
+        if name then current_name = name end
+      end
+    else
+      local ref = line:match("^%s*<%s+(.+)$")
+      if ref then
+        file_path = vim.trim(ref)
+      else
+        table.insert(current_value, line)
+      end
+    end
+  end
+  flush_part()
+  return flags
 end
 
 --- Extract current request block and convert to curl command.
@@ -245,15 +321,57 @@ function M.copy_as_curl()
   -- URL
   table.insert(parts, shell_escape(url))
 
-  -- Headers
+  -- Detect multipart/form-data (extract boundary from raw header)
+  local is_multipart = false
+  local boundary
   for _, h in ipairs(headers) do
-    table.insert(parts, "-H " .. shell_escape(h[1] .. ": " .. h[2]))
+    if h[1]:lower() == "content-type" then
+      local b = h[2]:match("boundary=([^;]+)")
+      if h[2]:find("multipart/form%-data") and b then
+        is_multipart = true
+        boundary = vim.trim(b)
+      end
+    end
+  end
+
+  -- Parse raw body lines (before resolution) for multipart -F conversion
+  local raw_body_lines = {}
+  if is_multipart then
+    local in_raw_headers = true
+    for i = 2, #raw_lines do
+      local line = raw_lines[i]
+      if in_raw_headers then
+        if not line:match("%S") then
+          in_raw_headers = false
+        end
+      else
+        table.insert(raw_body_lines, line)
+      end
+    end
+  end
+
+  local buf_dir = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":h")
+  if buf_dir == "" then buf_dir = vim.fn.getcwd() end
+
+  -- Headers (skip Content-Type for multipart — curl sets it for -F)
+  for _, h in ipairs(headers) do
+    if not (is_multipart and h[1]:lower() == "content-type") then
+      table.insert(parts, "-H " .. shell_escape(h[1] .. ": " .. h[2]))
+    end
   end
 
   -- Body
   if #body_lines > 0 then
-    local body = table.concat(body_lines, "\n")
-    table.insert(parts, "-d " .. shell_escape(body))
+    if is_multipart and #raw_body_lines > 0 then
+      local vars = collect_vars(buf, start_line)
+      local f_flags = build_multipart_flags(raw_body_lines, boundary, buf_dir, vars)
+      for _, flag in ipairs(f_flags) do
+        table.insert(parts, flag)
+      end
+    else
+      local body = table.concat(body_lines, "\n")
+      table.insert(parts, "--data-binary " .. shell_escape(body))
+    end
   end
 
   local curl_cmd = table.concat(parts, " \\\n  ")

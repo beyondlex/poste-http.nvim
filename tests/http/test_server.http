@@ -162,7 +162,7 @@ Upload test from Poste
 Content-Disposition: form-data; name="file"; filename="test_data.txt"
 Content-Type: text/plain
 
-< ./test_data.txt
+< ./simple.txt
 ------PosteTestBoundary--
 
 ### 42 — File upload (multiple files)

@@ -26,7 +26,35 @@ impl Executor {
     /// Using curl gives us verbose trace output (TLS, DNS, proxy, HTTP/2) for free,
     /// identical to what kulala.nvim shows in its Verbose tab.
     async fn execute_http(request: &Request, cookie_jar: Option<&CookieJar>) -> Result<Response> {
-        let lines: Vec<&str> = request.body.lines().collect();
+        let body_bytes = &request.body;
+
+        // Find the header/body boundary in the raw bytes by scanning for
+        // \r\n\r\n or \n\n.  The headers portion is always ASCII/UTF-8,
+        // but the body may contain binary data (e.g. PNG file upload).
+        let boundary = body_bytes
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .map(|p| (p, 4))
+            .or_else(|| {
+                body_bytes
+                    .windows(2)
+                    .position(|w| w == b"\n\n")
+                    .map(|p| (p, 2))
+            });
+
+        let (head_bytes, body_part) = match boundary {
+            Some((pos, sep_len)) => {
+                (&body_bytes[..pos], &body_bytes[pos + sep_len..])
+            }
+            None => {
+                // No blank line → headers only, no body
+                (body_bytes.as_ref(), &[][..])
+            }
+        };
+
+        let head_str = std::str::from_utf8(head_bytes)
+            .map_err(|_| anyhow::anyhow!("HTTP request headers contain invalid UTF-8"))?;
+        let lines: Vec<&str> = head_str.lines().collect();
         if lines.is_empty() {
             anyhow::bail!("Empty HTTP request");
         }
@@ -42,10 +70,8 @@ impl Executor {
         let url = url.split_whitespace().next().unwrap_or(&url).to_string();
 
         let mut req_headers = Vec::new();
-        let mut body_start = None;
-        for (i, line) in lines.iter().enumerate().skip(1) {
+        for line in lines.iter().skip(1) {
             if line.trim().is_empty() {
-                body_start = Some(i + 1);
                 break;
             }
             if let Some((key, value)) = line.split_once(':') {
@@ -53,47 +79,54 @@ impl Executor {
             }
         }
 
-        let req_body = body_start
-            .map(|s| lines[s..].join("\n"))
-            .unwrap_or_default()
-            .trim_end()
-            .to_string();
+        // Trim trailing whitespace/CR/LF from body part
+        let body_part = trim_end_bytes(body_part);
 
         // For application/x-www-form-urlencoded, strip newlines entirely.
-        // Newlines are not valid in this format and often appear due to
-        // multi-line formatting in the .http file (e.g. each key-value pair
-        // on its own line).  Raw newlines would be appended to the preceding
-        // value, which is almost certainly unintended.
         let is_form_urlencoded = req_headers.iter().any(|(k, v)| {
             k.to_lowercase() == "content-type" && v.contains("x-www-form-urlencoded")
         });
-        let req_body = if is_form_urlencoded {
-            req_body.replace('\n', "")
-        } else {
-            req_body
-        };
 
         // For multipart/form-data, convert LF → CRLF as required by the MIME
         // standard (RFC 2046).  The .http file uses Unix-style \n, but HTTP
-        // boundary delimiters and part headers must use \r\n.  curl's
-        // --data-binary sends the body as-is, so we must normalize here.
+        // boundary delimiters and part headers must use \r\n.
         let is_multipart = req_headers.iter().any(|(k, v)| {
             k.to_lowercase() == "content-type" && v.contains("multipart/form-data")
         });
-        let req_body = if is_multipart {
-            req_body.replace('\n', "\r\n")
+
+        let body_to_send: Vec<u8> = if is_form_urlencoded {
+            body_part.iter().filter(|&&b| b != b'\n').copied().collect()
+        } else if is_multipart {
+            // Replace \n (0x0A) with \r\n (0x0D 0x0A) — note this may affect
+            // binary \n bytes in non-text file content, which is a known
+            // limitation for multipart binary uploads.
+            let mut v = Vec::with_capacity(body_part.len() + 16);
+            for &b in body_part {
+                if b == b'\n' {
+                    v.push(b'\r');
+                }
+                v.push(b);
+            }
+            v
         } else {
-            req_body
+            body_part.to_vec()
         };
 
         let headers_file = tempfile::NamedTempFile::new()?;
         let headers_path = headers_file.path().to_path_buf();
 
+        // Write the request body to a temp file so curl uses
+        // `--data-binary @path` instead of inline data — this avoids
+        // "nul byte found in provided data" errors for binary content.
+        let body_file = tempfile::NamedTempFile::new()?;
+        let body_path = body_file.path().to_path_buf();
+        std::fs::write(&body_path, &body_to_send)?;
+
         let args = Self::build_curl_args(
             &method,
             &url,
             &req_headers,
-            &req_body,
+            &body_path,
             cookie_jar,
             &headers_path,
         );
@@ -130,6 +163,15 @@ impl Executor {
                         response.status
                     )
                 });
+            // Append a file extension based on Content-Type when the filename
+            // has none yet (common for timestamp fallback or bare filenames).
+            let file_name = if !file_name.contains('.') {
+                mime_to_extension(&response.content_type)
+                    .map(|ext| format!("{file_name}{ext}"))
+                    .unwrap_or(file_name)
+            } else {
+                file_name
+            };
             let cache_dir = std::env::var("POSTE_CACHE_DIR")
                 .unwrap_or_else(|_| "/tmp".to_string());
             std::fs::create_dir_all(&cache_dir).ok();
@@ -176,9 +218,9 @@ impl Executor {
         // includes like `< ./photo.png` are shown as-is rather than dumping
         // the expanded binary content into the Verbose tab.
         let display_body = if !request.raw_body.trim().is_empty() {
-            &request.raw_body
+            request.raw_body.clone()
         } else {
-            &req_body
+            String::from_utf8_lossy(body_part).to_string()
         };
         if !display_body.trim().is_empty() {
             metadata.insert("request_body".to_string(), display_body.clone());
@@ -211,11 +253,15 @@ impl Executor {
     }
 
     /// Build curl argument list from parsed request components.
+    ///
+    /// `body_path` is a path to a temp file containing the request body.
+    /// Using `--data-binary @path` avoids "nul byte found in provided data"
+    /// errors when the body contains binary content (e.g. PNG uploads).
     fn build_curl_args(
         method: &str,
         url: &str,
         req_headers: &[(String, String)],
-        req_body: &str,
+        body_path: &std::path::Path,
         cookie_jar: Option<&CookieJar>,
         headers_path: &std::path::Path,
     ) -> Vec<String> {
@@ -238,9 +284,9 @@ impl Executor {
             args.push(format!("{}: {}", key, value));
         }
 
-        if !req_body.trim().is_empty() {
+        if body_path.exists() && body_path.metadata().map(|m| m.len()).unwrap_or(0) > 0 {
             args.push("--data-binary".to_string());
-            args.push(req_body.to_string());
+            args.push(format!("@{}", body_path.display()));
         }
 
         if let Some(jar) = &cookie_jar {
@@ -277,7 +323,7 @@ impl Executor {
 
         // Parse the command from body: concatenate all non-empty, non-comment lines
         let cmd_lines: Vec<&str> = request
-            .body
+            .body_str()
             .lines()
             .map(|l| l.trim())
             .filter(|l| {
@@ -444,15 +490,85 @@ fn http_reason(code: u16) -> &'static str {
     }
 }
 
+/// Strip parameters (charset, boundary, etc.) from a Content-Type value,
+/// returning just the normalized MIME type.
+fn normalize_mime_type(content_type: &str) -> String {
+    content_type
+        .to_lowercase()
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim()
+        .to_string()
+}
+
+/// Map a Content-Type value to a common file extension (with leading dot).
+///
+/// Returns `None` for unknown or text-based types.
+fn mime_to_extension(content_type: &str) -> Option<&'static str> {
+    let mime = normalize_mime_type(content_type);
+    match mime.as_str() {
+        // Images
+        "image/jpeg" => Some(".jpg"),
+        "image/png" => Some(".png"),
+        "image/gif" => Some(".gif"),
+        "image/webp" => Some(".webp"),
+        "image/svg+xml" => Some(".svg"),
+        "image/bmp" => Some(".bmp"),
+        "image/tiff" => Some(".tiff"),
+        "image/x-icon" => Some(".ico"),
+        "image/avif" => Some(".avif"),
+        // Audio
+        "audio/mpeg" => Some(".mp3"),
+        "audio/wav" => Some(".wav"),
+        "audio/ogg" => Some(".ogg"),
+        "audio/flac" => Some(".flac"),
+        "audio/aac" => Some(".aac"),
+        "audio/mp4" => Some(".m4a"),
+        "audio/webm" => Some(".webm"),
+        // Video
+        "video/mp4" => Some(".mp4"),
+        "video/webm" => Some(".webm"),
+        "video/ogg" => Some(".ogv"),
+        "video/x-msvideo" => Some(".avi"),
+        "video/quicktime" => Some(".mov"),
+        "video/x-matroska" => Some(".mkv"),
+        // Application
+        "application/pdf" => Some(".pdf"),
+        "application/zip" => Some(".zip"),
+        "application/gzip" => Some(".gz"),
+        "application/x-tar" => Some(".tar"),
+        "application/x-bzip2" => Some(".bz2"),
+        "application/x-7z-compressed" => Some(".7z"),
+        "application/x-rar-compressed" => Some(".rar"),
+        "application/java-archive" => Some(".jar"),
+        "application/octet-stream" => Some(".bin"),
+        "application/wasm" => Some(".wasm"),
+        "application/x-protobuf" => Some(".pb"),
+        "application/msgpack" => Some(".msgpack"),
+        "application/cbor" => Some(".cbor"),
+        // Office documents
+        "application/vnd.ms-excel" => Some(".xls"),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => Some(".xlsx"),
+        "application/vnd.ms-powerpoint" => Some(".ppt"),
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => {
+            Some(".pptx")
+        }
+        "application/msword" => Some(".doc"),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
+            Some(".docx")
+        }
+        _ => None,
+    }
+}
+
 /// Detect whether a Content-Type indicates binary data that should not be
 /// rendered as text in the response body/verbose tabs.
 ///
 /// Matches common binary MIME types: images, audio, video, archives,
 /// office documents, protobuf, etc.
 fn is_binary_content_type(content_type: &str) -> bool {
-    let ct = content_type.to_lowercase();
-    // Strip parameters (charset, boundary, etc.)
-    let mime = ct.split(';').next().unwrap_or(&ct).trim().to_string();
+    let mime = normalize_mime_type(content_type);
 
     // Image, audio, video
     if mime.starts_with("image/") || mime.starts_with("audio/") || mime.starts_with("video/") {
@@ -616,6 +732,19 @@ fn resolve_path_with_conflict(dir: &str, filename: &str) -> std::path::PathBuf {
 
     // Give up and return the original path (will overwrite)
     base
+}
+
+/// Trim trailing whitespace and control bytes (space, tab, \r, \n) from a byte
+/// slice, returning the trimmed sub-slice.
+fn trim_end_bytes(mut data: &[u8]) -> &[u8] {
+    while let Some(last) = data.last() {
+        if last.is_ascii_whitespace() || *last == 0 {
+            data = &data[..data.len() - 1];
+        } else {
+            break;
+        }
+    }
+    data
 }
 
 /// Convert Redis Value to structured JSON for Lua-side rendering.
@@ -964,6 +1093,69 @@ mod tests {
     #[test]
     fn test_is_binary_content_type_strips_parameters() {
         assert!(is_binary_content_type("image/png; charset=utf-8"));
+    }
+
+    // ---------------------------------------------------------------------------
+    // mime_to_extension
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_mime_to_extension_images() {
+        assert_eq!(mime_to_extension("image/jpeg"), Some(".jpg"));
+        assert_eq!(mime_to_extension("image/png"), Some(".png"));
+        assert_eq!(mime_to_extension("image/gif"), Some(".gif"));
+        assert_eq!(mime_to_extension("image/svg+xml"), Some(".svg"));
+        assert_eq!(mime_to_extension("image/webp"), Some(".webp"));
+        assert_eq!(mime_to_extension("image/bmp"), Some(".bmp"));
+        assert_eq!(mime_to_extension("image/tiff"), Some(".tiff"));
+        assert_eq!(mime_to_extension("image/x-icon"), Some(".ico"));
+    }
+
+    #[test]
+    fn test_mime_to_extension_audio_video() {
+        assert_eq!(mime_to_extension("audio/mpeg"), Some(".mp3"));
+        assert_eq!(mime_to_extension("audio/wav"), Some(".wav"));
+        assert_eq!(mime_to_extension("video/mp4"), Some(".mp4"));
+        assert_eq!(mime_to_extension("video/webm"), Some(".webm"));
+    }
+
+    #[test]
+    fn test_mime_to_extension_application() {
+        assert_eq!(mime_to_extension("application/pdf"), Some(".pdf"));
+        assert_eq!(mime_to_extension("application/zip"), Some(".zip"));
+        assert_eq!(mime_to_extension("application/octet-stream"), Some(".bin"));
+    }
+
+    #[test]
+    fn test_mime_to_extension_text_returns_none() {
+        assert_eq!(mime_to_extension("text/plain"), None);
+        assert_eq!(mime_to_extension("text/html"), None);
+        assert_eq!(mime_to_extension("application/json"), None);
+    }
+
+    #[test]
+    fn test_mime_to_extension_strips_parameters() {
+        assert_eq!(
+            mime_to_extension("image/svg+xml; charset=utf-8"),
+            Some(".svg")
+        );
+    }
+
+    #[test]
+    fn test_mime_to_extension_office() {
+        assert_eq!(
+            mime_to_extension(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            Some(".xlsx")
+        );
+        assert_eq!(mime_to_extension("application/msword"), Some(".doc"));
+        assert_eq!(
+            mime_to_extension(
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ),
+            Some(".pptx")
+        );
     }
 
     // ---------------------------------------------------------------------------

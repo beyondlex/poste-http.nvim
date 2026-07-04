@@ -22,8 +22,8 @@ pub struct SqlParseResult {
 /// The body has already been through variable substitution in `parser.rs`,
 /// so `{{var}}` references are already resolved.
 pub fn parse_sql_request(request: &Request) -> Result<SqlParseResult> {
-    let database = extract_database(&request.body);
-    let statements = split_statements(&request.body);
+    let database = extract_database(request.body_str());
+    let statements = split_statements(request.body_str());
 
     Ok(SqlParseResult {
         connection: request.connection.clone(),
@@ -196,7 +196,7 @@ mod tests {
             name: Some("test".to_string()),
             protocol: Protocol::Postgres,
             connection: "postgres://localhost/test".to_string(),
-            body: body.to_string(),
+            body: body.to_string().into_bytes(),
             raw_body: body.to_string(),
         }
     }

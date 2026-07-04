@@ -1310,7 +1310,6 @@ SAMPLE_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"
   <rect width="200" height="200" fill="#f0f0f0"/>
   <circle cx="100" cy="80" r="40" fill="#4A90D9"/>
   <rect x="60" y="130" width="80" height="60" fill="#50C878" rx="5"/>
-  <text x="100" y="180" text-anchor="middle" font-size="12" fill="#333">Poste Test</text>
 </svg>"""
 
 

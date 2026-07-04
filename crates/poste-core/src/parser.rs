@@ -212,7 +212,7 @@ impl Parser {
             name,
             protocol,
             connection,
-            body,
+            body: body.into_bytes(),
             raw_body: String::new(), // filled by CLI after resolve_file_includes
         })
     }
@@ -591,8 +591,8 @@ Authorization: Bearer {{api_key}}
         let request = parser
             .parse_block(block, Protocol::Http, &HashMap::new())
             .unwrap();
-        assert!(request.body.contains("GET /users/123"));
-        assert!(request.body.contains("Authorization: Bearer secret"));
+        assert!(request.body_str().contains("GET /users/123"));
+        assert!(request.body_str().contains("Authorization: Bearer secret"));
     }
 
     #[test]
@@ -614,7 +614,7 @@ GET http://{{host}}:{{port}}/{{timeout}}
         let request = parser.parse_at_line(content, 6, "http").unwrap();
 
         // host should be from request_vars (highest priority)
-        assert!(request.body.contains("http://request.com:8080/30"));
+        assert!(request.body_str().contains("http://request.com:8080/30"));
     }
 
     #[test]
@@ -624,9 +624,9 @@ GET http://{{host}}:{{port}}/{{timeout}}
         let request = parser
             .parse_block(block, Protocol::Http, &HashMap::new())
             .unwrap();
-        assert!(request.body.contains("GET /api/data"));
-        assert!(!request.body.contains("{%"));
-        assert!(!request.body.contains("local x"));
+        assert!(request.body_str().contains("GET /api/data"));
+        assert!(!request.body_str().contains("{%"));
+        assert!(!request.body_str().contains("local x"));
     }
 
     #[test]
@@ -637,8 +637,8 @@ GET http://{{host}}:{{port}}/{{timeout}}
         let request = parser
             .parse_block(block, Protocol::Http, &HashMap::new())
             .unwrap();
-        assert!(request.body.contains("GET /api/data"));
-        assert!(!request.body.contains("{%"));
+        assert!(request.body_str().contains("GET /api/data"));
+        assert!(!request.body_str().contains("{%"));
     }
 
     #[test]
@@ -648,8 +648,8 @@ GET http://{{host}}:{{port}}/{{timeout}}
         let request = parser
             .parse_block(block, Protocol::Http, &HashMap::new())
             .unwrap();
-        assert!(request.body.contains("GET /api/data"));
-        assert!(!request.body.contains("gen.lua"));
+        assert!(request.body_str().contains("GET /api/data"));
+        assert!(!request.body_str().contains("gen.lua"));
     }
 
     #[test]
@@ -659,8 +659,8 @@ GET http://{{host}}:{{port}}/{{timeout}}
         let request = parser
             .parse_block(block, Protocol::Http, &HashMap::new())
             .unwrap();
-        assert!(request.body.contains("GET /api/data"));
-        assert!(!request.body.contains("check.lua"));
+        assert!(request.body_str().contains("GET /api/data"));
+        assert!(!request.body_str().contains("check.lua"));
     }
 
     #[test]
@@ -668,8 +668,8 @@ GET http://{{host}}:{{port}}/{{timeout}}
         let parser = Parser::new(HashMap::new());
         let content = "### Request 1\nGET /api/data\n> ./scripts/check.lua\n\n### Request 2\nGET /api/other\n";
         let request = parser.parse_at_line(content, 2, "http").unwrap();
-        assert!(request.body.contains("GET /api/data"));
-        assert!(!request.body.contains("check.lua"));
+        assert!(request.body_str().contains("GET /api/data"));
+        assert!(!request.body_str().contains("check.lua"));
     }
 
     #[test]
@@ -679,7 +679,7 @@ GET http://{{host}}:{{port}}/{{timeout}}
         let request = parser
             .parse_block(block, Protocol::Http, &HashMap::new())
             .unwrap();
-        assert!(request.body.contains("GET /api?token=injected-value"));
+        assert!(request.body_str().contains("GET /api?token=injected-value"));
     }
 
     // ---- @var enhancements: quote stripping, {{var}} in values, multi-line blocks ----
@@ -720,7 +720,7 @@ GET /api?{{page}}
         assert_eq!(vars.get("page"), Some(&"pageNum=1&pageSize=10".to_string()));
 
         let req = parser.parse_at_line(content, 5, "http").unwrap();
-        assert!(req.body.contains("GET /api?pageNum=1&pageSize=10"));
+        assert!(req.body_str().contains("GET /api?pageNum=1&pageSize=10"));
     }
 
     #[test]
@@ -739,9 +739,9 @@ POST /api/data
 {"key": "value"}
 "#;
         let req = parser.parse_at_line(content, 8, "http").unwrap();
-        assert!(req.body.contains("Authorization: abc123"));
-        assert!(req.body.contains("X-Custom: yes"));
-        assert!(req.body.contains("{\"key\": \"value\"}"));
+        assert!(req.body_str().contains("Authorization: abc123"));
+        assert!(req.body_str().contains("X-Custom: yes"));
+        assert!(req.body_str().contains("{\"key\": \"value\"}"));
     }
 
     #[test]
@@ -755,8 +755,8 @@ POST /api/data
 GET /{{page}}
 "#;
         let req = parser.parse_at_line(content, 4, "http").unwrap();
-        assert!(req.body.contains("GET /id=99"));
-        assert!(!req.body.contains("{{pageNum}}"));
+        assert!(req.body_str().contains("GET /id=99"));
+        assert!(!req.body_str().contains("{{pageNum}}"));
     }
 
     #[test]
@@ -769,7 +769,7 @@ GET /{{page}}
 GET {{path}}
 "#;
         let req = parser.parse_at_line(content, 5, "http").unwrap();
-        assert!(req.body.contains("GET /api/v1/users"));
+        assert!(req.body_str().contains("GET /api/v1/users"));
     }
 
     #[test]
@@ -787,9 +787,9 @@ POST /api/data
         let req = parser
             .parse_block(block, Protocol::Http, &HashMap::new())
             .unwrap();
-        assert!(req.body.contains("POST /api/data"));
-        assert!(req.body.contains("Authorization: secret"));
-        assert!(req.body.contains("Content-Type: application/json"));
+        assert!(req.body_str().contains("POST /api/data"));
+        assert!(req.body_str().contains("Authorization: secret"));
+        assert!(req.body_str().contains("Content-Type: application/json"));
     }
 
     #[test]
@@ -803,8 +803,8 @@ GET /api
 Authorization: {{token}}
 "#;
         let req = parser.parse_at_line(content, 5, "http").unwrap();
-        assert!(req.body.contains("Authorization: secret"));
-        assert!(!req.body.contains("{{admin_token}}"));
+        assert!(req.body_str().contains("Authorization: secret"));
+        assert!(!req.body_str().contains("{{admin_token}}"));
     }
 
     #[test]
@@ -821,8 +821,8 @@ GET /api
 Authorization: {{token}}
 "#;
         let req = parser.parse_at_line(content, 5, "http").unwrap();
-        assert!(req.body.contains("Authorization: secret"));
-        assert!(!req.body.contains("{{admin_token}}"));
+        assert!(req.body_str().contains("Authorization: secret"));
+        assert!(!req.body_str().contains("{{admin_token}}"));
     }
 
     #[test]
@@ -837,7 +837,7 @@ Authorization: {{token}}
         let req = parser
             .parse_block(block, Protocol::Http, &HashMap::new())
             .unwrap();
-        assert!(req.body.contains("Authorization: secret"));
+        assert!(req.body_str().contains("Authorization: secret"));
     }
 
     #[test]
@@ -888,13 +888,13 @@ Authorization: {{token}}
         let parser = Parser::new(HashMap::new());
         let content = "### Request 1\nGET /api/one\n\n> {% client.test(\"a\", function() end) %}\n\n# ─────────────────\n# Comment between blocks\n# ─────────────────\n\n### Request 2\nGET /api/two\n";
         let request = parser.parse_at_line(content, 2, "http").unwrap();
-        assert!(request.body.contains("GET /api/one"));
+        assert!(request.body_str().contains("GET /api/one"));
         assert!(
-            !request.body.contains("Comment between blocks"),
+            !request.body_str().contains("Comment between blocks"),
             "body should not contain inter-block comments"
         );
         assert!(
-            !request.body.contains("──"),
+            !request.body_str().contains("──"),
             "body should not contain inter-block comment decorations"
         );
     }
@@ -906,10 +906,10 @@ Authorization: {{token}}
         let request = parser
             .parse_block(content, Protocol::Http, &HashMap::new())
             .unwrap();
-        assert!(!request.body.contains("{{$timestamp}}"));
-        assert!(!request.body.contains("{{$uuid}}"));
-        assert!(request.body.contains("\"ts\": \""));
-        assert!(request.body.contains("\"uuid\": \""));
+        assert!(!request.body_str().contains("{{$timestamp}}"));
+        assert!(!request.body_str().contains("{{$uuid}}"));
+        assert!(request.body_str().contains("\"ts\": \""));
+        assert!(request.body_str().contains("\"uuid\": \""));
     }
 
     #[test]
@@ -924,7 +924,7 @@ X-Val: {{a}}
 "#;
         // Should not hang or panic — caps at 20 iterations
         let req = parser.parse_at_line(content, 5, "http").unwrap();
-        let body = req.body;
+        let body = req.body_str();
         assert!(body.contains("X-Val: {{b}}") || body.contains("X-Val: {{a}}"));
     }
 }

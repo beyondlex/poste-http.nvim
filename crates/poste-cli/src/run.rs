@@ -104,11 +104,11 @@ pub async fn execute(args: RunArgs) -> Result<()> {
     // Save raw body AFTER variable substitution but BEFORE file include
     // resolution — so Verbose/Rqst tabs show `{{host}}` expanded but
     // `< ./photo.png` kept as-is (not dumping binary content).
-    request.raw_body = request.body.clone();
+    request.raw_body = request.body_str().to_string();
 
     // Expand < file directives in the body (must happen after parsing so that
     // ### in file content doesn't corrupt block boundary detection).
-    request.body = resolve_file_includes(&request.body, &search_dir)?;
+    request.body = resolve_file_includes(request.body_str(), &search_dir)?;
 
     // Resolve connection name for SQL protocols
     if crate::util::is_sql_protocol(&request.protocol)
@@ -200,32 +200,31 @@ pub async fn execute(args: RunArgs) -> Result<()> {
 /// - absolute paths
 ///
 /// On read error the original line is kept (same as Lua behavior).
-fn resolve_file_includes(body: &str, base_dir: &Path) -> Result<String> {
+fn resolve_file_includes(body: &str, base_dir: &Path) -> Result<Vec<u8>> {
     let home = std::env::var("HOME").ok();
-    let mut result = String::with_capacity(body.len());
+    let mut result = Vec::with_capacity(body.len());
     for line in body.lines() {
         let trimmed = line.trim();
         if let Some(path_str) = trimmed.strip_prefix("< ") {
             let resolved = resolve_include_path(path_str.trim(), base_dir, &home);
             match std::fs::read(&resolved) {
                 Ok(bytes) => {
-                    let content = String::from_utf8_lossy(&bytes);
-                    result.push_str(&content);
+                    result.extend_from_slice(&bytes);
                     // file content includes its own newlines; don't add another
                 }
                 Err(_) => {
                     // keep original line on error
-                    result.push_str(line);
-                    result.push('\n');
+                    result.extend_from_slice(line.as_bytes());
+                    result.push(b'\n');
                 }
             }
         } else {
-            result.push_str(line);
-            result.push('\n');
+            result.extend_from_slice(line.as_bytes());
+            result.push(b'\n');
         }
     }
     // Preserve trailing-newline semantics of the original body
-    if !body.is_empty() && !body.ends_with('\n') && result.ends_with('\n') {
+    if !body.is_empty() && !body.ends_with('\n') && result.last() == Some(&b'\n') {
         result.pop();
     }
     Ok(result)

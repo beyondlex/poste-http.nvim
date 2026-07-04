@@ -132,6 +132,9 @@ HEAD {{host}}/head
 ### 35 — Image SVG
 GET {{host}}/image/svg
 
+### 35 — Image SVG
+GET {{host}}/image/png
+
 ### 36 — Chunked drip
 GET {{host}}/drip?numbytes=50&duration=1
 
@@ -195,8 +198,8 @@ Content-Disposition: form-data; name="description"
 
 Uploaded via prompt variable
 ------PostePromptBoundary
-Content-Disposition: form-data; name="file"; filename="uploaded_file.txt"
-Content-Type: text/plain
+Content-Disposition: form-data; name="file"; filename="uploaded_file.png"
+Content-Type: image/png
 
 < {{file_path}}
 ------PostePromptBoundary--
@@ -221,6 +224,17 @@ Content-Disposition: form-data; name="file"; filename="test_data.txt"
 Content-Type: text/plain
 
 < ./test_data.txt
+------StoreBoundary--
+
+### 45 — Upload multipart to /store
+POST {{host}}/store HTTP/1.1
+Content-Type: multipart/form-data; boundary=----StoreBoundary
+
+------StoreBoundary
+Content-Disposition: form-data; name="file"; filename="test_data.png"
+Content-Type: image/png
+
+< /Users/lex/Downloads/ComfyUI_00423_.png
 ------StoreBoundary--
 
 ### 46 — Download stored file (use file_id from #44 or #45 response)

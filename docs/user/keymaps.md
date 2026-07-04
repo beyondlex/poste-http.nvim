@@ -73,6 +73,7 @@ Poste 的键位按界面元素分组，每个分组有唯一的配置名：
 | `r` | `rerun` | 重新执行当前请求 |
 | `]` | `next_response` | 下一条响应（多响应模式）|
 | `[` | `prev_response` | 上一条响应（多响应模式）|
+| `K` | `image_preview` | 图片响应在 Body 中自动内联渲染；未安装 `image.nvim` 时外部打开 |
 | `<leader>j` | `json_filter` | 交互式 jq 过滤器 |
 | `<leader>jc` | `json_restore` | 恢复原始 JSON |
 | `<leader>jr` | `json_toggle_raw` | 切换 raw/pretty 模式 |

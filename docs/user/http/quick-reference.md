@@ -161,6 +161,7 @@ run #auth.op_login
 | `:PosteEnv` | 显示当前环境 |
 | `:PosteEnv <name>` | 切换环境 |
 | `q`（响应缓冲区） | 关闭响应窗口 |
+| `K`（图片响应） | Body 自动内联预览图片；未安装 `image.nvim` 时外部打开 |
 | `:PosteHttpHistory` | 打开请求历史弹窗 |
 | `<C-h>`（历史列表） | 跳到右侧详情缓冲区 |
 | `<C-l>`（历史详情） | 跳到左侧列表缓冲区 |

@@ -159,6 +159,18 @@ function M.show_view(view)
   end
 
   render_view(view, lines, filetype)
+
+  if view == "body" then
+    local buf = buffer.get_buf()
+    local r = state.last_response
+    if buf and r and r.metadata and format.is_image_content_type(r.metadata.file_content_type) then
+      local ct = r.metadata.file_content_type or r.content_type or ""
+      if format.has_image_nvim() and not ct:match("^image/svg%+xml") then
+        local cursor_line = vim.api.nvim_buf_line_count(buf) - format.inline_image_padding_lines() + 1
+        format.render_response_image(buf, r, cursor_line)
+      end
+    end
+  end
 end
 
 buffer.on_show_view = M.show_view

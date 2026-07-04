@@ -61,6 +61,7 @@ M.config = {
       json_restore = "<leader>jc",
       json_toggle_raw = "<leader>jr",
       json_outline = "<leader>jo",
+      image_preview = "K",
     },
     sql_source = {
       run = "<CR>",

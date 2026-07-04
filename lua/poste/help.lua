@@ -21,7 +21,7 @@ local DESCRIPTIONS = {
     show_history = "Open request history",
     help = "Show this help window",
   },
-    http_response = {
+  http_response = {
     close = "Close response window",
     rerun = "Re-run request",
     view_body = "View response body",
@@ -30,6 +30,7 @@ local DESCRIPTIONS = {
     view_script_logs = "View pre/post script logs",
     next_tab = "Next response tab",
     prev_tab = "Previous response tab",
+    image_preview = "Render image inline or open externally",
   },
   sql_source = {
     run = "Execute SQL statement(s)",

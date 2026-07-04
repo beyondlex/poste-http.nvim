@@ -6,6 +6,7 @@ local M = {}
 
 local response_buffer = nil
 local response_window = nil
+local response_cleanup_group = nil
 
 -- Callback for tab-switching keymaps; set by init.lua after show_view is defined.
 M.on_show_view = nil
@@ -146,6 +147,47 @@ local function get_response_buffer()
   return response_buffer
 end
 
+local function setup_response_cleanup_autocmds()
+  if not response_window or not vim.api.nvim_win_is_valid(response_window) then
+    return
+  end
+
+  if response_cleanup_group then
+    pcall(vim.api.nvim_del_augroup_by_id, response_cleanup_group)
+    response_cleanup_group = nil
+  end
+
+  response_cleanup_group = vim.api.nvim_create_augroup("poste_http_response_cleanup", { clear = true })
+  local win_id = response_window
+  local buf_id = response_buffer
+
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = response_cleanup_group,
+    pattern = tostring(win_id),
+    callback = function()
+      format.close_image_preview()
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("BufWinLeave", {
+    group = response_cleanup_group,
+    buffer = buf_id,
+    callback = function()
+      format.close_image_preview()
+    end,
+  })
+
+  if buf_id and vim.api.nvim_buf_is_valid(buf_id) then
+    vim.api.nvim_create_autocmd("BufWipeout", {
+      group = response_cleanup_group,
+      buffer = buf_id,
+      callback = function()
+        format.close_image_preview()
+      end,
+    })
+  end
+end
+
 --- (Re-)apply response buffer keymaps.
 --- Called on every render to ensure they stay active even after buffer reuse or ftplugin reload.
 local function setup_keymaps(buf)
@@ -155,6 +197,7 @@ local function setup_keymaps(buf)
   local k = state.get_keymap("http_response", "close", "q")
   if k then
     vim.keymap.set("n", k, function()
+      format.close_image_preview()
       if response_window and vim.api.nvim_win_is_valid(response_window) then
         vim.api.nvim_win_close(response_window, true)
         response_window = nil
@@ -260,6 +303,28 @@ local function setup_keymaps(buf)
     vim.fn.jobstart({ opener, file_path }, { detach = true })
     vim.notify(string.format("Opening: %s", file_path), vim.log.levels.INFO, { title = "Poste" })
   end, { buffer = buf, noremap = true, silent = true })
+
+  -- K on image response: try inline render in Body, otherwise open system viewer
+  k = state.get_keymap("http_response", "image_preview", "K")
+  if k then
+    vim.keymap.set("n", k, function()
+      local bufnr = vim.api.nvim_get_current_buf()
+      if bufnr ~= buf then return end
+      local r = state.last_response
+      if not r or not r.metadata or not r.metadata.file_path then return end
+      if not format.is_image_content_type(r.metadata.file_content_type) then return end
+      local ok = false
+      if state.current_view == "body" then
+        if format.has_image_nvim() and not r.metadata.file_content_type:match("^image/svg%+xml") then
+          local cursor_line = vim.api.nvim_buf_line_count(buf) - format.inline_image_padding_lines() + 1
+          ok = format.render_response_image(buf, r, cursor_line)
+        end
+      end
+      if not ok then
+        format.open_image_external(r.metadata.file_path)
+      end
+    end, opts)
+  end
 end
 
 function M.get_buf()
@@ -271,6 +336,7 @@ end
 
 --- Ensure the response split is open and display the given lines
 function M.render_buffer(lines, filetype)
+  format.close_image_preview()
   local buf = get_response_buffer()
 
   -- Make buffer modifiable, write lines, lock again
@@ -306,6 +372,7 @@ function M.render_buffer(lines, filetype)
     end
 
     vim.api.nvim_set_current_win(saved_win)
+    setup_response_cleanup_autocmds()
   end
 
   vim.api.nvim_win_set_buf(response_window, buf)

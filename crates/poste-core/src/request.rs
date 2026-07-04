@@ -15,11 +15,17 @@ pub struct Request {
     pub protocol: Protocol,
     pub connection: String,
     /// Resolved body after file includes (`< filename`) and magic vars are expanded.
-    /// This is what gets sent as the HTTP request body (via curl --data-binary).
-    pub body: String,
+    /// Raw bytes — binary-safe for HTTP file uploads.
+    pub body: Vec<u8>,
     /// Original body before file include resolution, for display in the request
-    /// preview / Verbose tab.  If empty, falls back to `body`.
+    /// preview / Verbose tab.  If empty, falls back to `body` converted to string.
     pub raw_body: String,
+}
+
+impl Request {
+    pub fn body_str(&self) -> &str {
+        std::str::from_utf8(&self.body).unwrap_or("")
+    }
 }
 
 /// Replace the database name in a connection URL.

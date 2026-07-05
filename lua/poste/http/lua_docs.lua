@@ -20,8 +20,8 @@ function M.setup()
   pcall(vim.api.nvim_buf_set_name, lsp_buf, buf_name)
   vim.bo[lsp_buf].filetype = "lua"
   state._lsp_doc_buf = lsp_buf
-  -- Pre-start lua-language-server so the first K press is responsive
-  M._ensure_lua_ls_running()
+  -- LSP client 不在启动时预热，只在首次 hover 时懒加载
+  -- 避免 any LSP start side-effect 干扰 snacks picker 的 buffer 状态
 end
 
 --- Start lua-language-server in background (if not already running).

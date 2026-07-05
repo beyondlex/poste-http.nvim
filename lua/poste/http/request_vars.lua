@@ -501,10 +501,15 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
   local lines = vim.split(content, "\n", { plain = true })
   local result = {}
   local idx = 1
+  local cancelled = false
 
   local function process_next()
     if idx > #lines then
-      on_complete(table.concat(result, "\n"))
+      if cancelled then
+        on_complete(nil)
+      else
+        on_complete(table.concat(result, "\n"))
+      end
       return
     end
 
@@ -567,7 +572,7 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
                         if selected then
                           table.insert(result, string.format("@%s = %s", varname_sel, selected))
                         else
-                          table.insert(result, line)
+                          cancelled = true
                         end
                         process_next()
                       end)
@@ -589,7 +594,7 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
                     if selected then
                       table.insert(result, string.format("@%s = %s", varname_sel, selected))
                     else
-                      table.insert(result, line)
+                      cancelled = true
                     end
                     process_next()
                   end)
@@ -626,8 +631,7 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
           if selected then
             table.insert(result, string.format("@%s = %s", varname_sel, selected))
           else
-            -- User cancelled
-            table.insert(result, line)
+            cancelled = true
           end
           process_next()
         end)
@@ -647,7 +651,7 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
             if ok and value and value ~= "" then
               table.insert(result, string.format("@%s = %s", varname, value))
             else
-              table.insert(result, line)
+              cancelled = true
             end
             process_next()
           end)

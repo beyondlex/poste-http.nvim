@@ -27,25 +27,42 @@ local function normalize_items(items)
 end
 
 local function pick_snacks(items, prompt, on_select)
-  local snacks = require("snacks.picker")
   local picker_items = {}
   for _, item in ipairs(items) do
     picker_items[#picker_items + 1] = {
-      text = item.description ~= "" and (item.name .. "  " .. item.description) or item.name,
-      name = item.name,
+      text = item.name,
       description = item.description,
       key = item.key,
     }
   end
-  snacks({
-    title = prompt,
-    items = picker_items,
-    format = "text",
-    confirm = function(picker, item)
-      picker:close()
-      on_select(item and item.key or nil)
-    end,
-  })
+
+  local resolved = false
+  Snacks.picker.select(
+    picker_items,
+    {
+      prompt = prompt or 'Select items:',
+      layout = 'select',
+      format_item = function(item)
+        local text = item.text
+        if item.description and item.description ~= "" then
+          text = text .. "  " .. item.description
+        end
+        return text
+      end,
+      close = function()
+        if not resolved then
+          resolved = true
+          on_select(nil)
+        end
+      end,
+    },
+    function(item, idx)
+      if not resolved then
+        resolved = true
+        on_select(item and item.key or nil)
+      end
+    end
+  )
 end
 
 -- Fallback: built-in floating window

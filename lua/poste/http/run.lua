@@ -392,6 +392,11 @@ end
 --- Returns (modified_content, req_line, block_start, block_end) via callback.
 local function prepare_request(src_buf, line, buf_content, binary, file, callback)
   request_vars.handle_prompt_variables(src_buf, line, buf_content, binary, file, state.current_env, function(modified_content)
+    if not modified_content then
+      indicators.clear_all(src_buf)
+      state.pending_request = nil
+      return
+    end
     local req_line = indicators.find_request_line(src_buf, line)
     if not req_line then
       indicators.clear_all(src_buf)

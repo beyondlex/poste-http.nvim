@@ -8,7 +8,8 @@ A Neovim plugin for executing HTTP requests from `.http` files.
 
 ```lua
 {
-  "yourusername/poste",
+  "beyondlex/poste",
+  dependencies = { "folke/snacks.nvim" },
   config = function()
     require("poste").setup()
   end,
@@ -19,7 +20,7 @@ A Neovim plugin for executing HTTP requests from `.http` files.
 
 ```lua
 use {
-  "yourusername/poste",
+  "beyondlex/poste",
   config = function()
     require("poste").setup()
   end,
@@ -29,7 +30,7 @@ use {
 ### Using [vim-plug](https://github.com/junegunn/vim-plug)
 
 ```vim
-Plug 'yourusername/poste'
+Plug 'beyondlex/poste'
 ```
 
 Then add to your init.vim:
@@ -89,6 +90,7 @@ vim.o.statusline = vim.o.statusline .. " %{v:lua.poste_status()}"
 
 - Neovim 0.7.0 or later
 - `poste` CLI tool built and available in PATH or in `./target/debug/poste`
+- [snacks.nvim](https://github.com/folke/snacks.nvim) — used for the prompt/picker UI (variable selectors, environment switching, etc.)
 
 ## License
 

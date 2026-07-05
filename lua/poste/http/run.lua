@@ -209,11 +209,41 @@ local function build_pending_request(src_buf, buf_content, req_block, block_star
       var_map[vname] = vim.trim(vvalue)
     end
   end
+  -- Merge env.json string values into var_map (lower priority than @var)
+  if file and file ~= "" then
+    local env_name = state.current_env or state.config.default_env
+    if env_name then
+      local dir = vim.fn.fnamemodify(file, ":h")
+      while dir and dir ~= "" and dir ~= "/" do
+        local candidate = dir .. "/env.json"
+        local f = io.open(candidate, "r")
+        if f then
+          local content = f:read("*a")
+          f:close()
+          local ok, data = pcall(vim.json.decode, content)
+          if ok and type(data) == "table" and type(data[env_name]) == "table" then
+            for k, v in pairs(data[env_name]) do
+              if type(v) == "string" and not var_map[k] then
+                var_map[k] = v
+              end
+            end
+          end
+          break
+        end
+        dir = vim.fn.fnamemodify(dir, ":h")
+      end
+    end
+  end
   local function resolve_vars(text)
     if not text or text == "" then return text end
-    for name, value in pairs(var_map) do
-      local safe_value = value:gsub("%%", "%%%%")
-      text = text:gsub(vim.pesc("{{" .. name .. "}}"), safe_value)
+    -- Iterative resolution (up to 20 passes) to handle chained refs
+    for _ = 1, 20 do
+      local prev = text
+      for name, value in pairs(var_map) do
+        local safe_value = value:gsub("%%", "%%%%")
+        text = text:gsub(vim.pesc("{{" .. name .. "}}"), safe_value)
+      end
+      if text == prev then break end
     end
     return text
   end

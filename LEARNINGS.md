@@ -3,6 +3,8 @@
 Agent self-evolution log. When you fix a non-obvious bug or encounter a
 pitfall, log it here. Check this file before starting any task.
 
+- 2026-07-05: HTTP Verbose tab shows `{{base_url}}/users/42` instead of resolved URL. Fix: `build_pending_request` in `run.lua:212` only resolved `@var` definitions but not `{{var}}` from env.json. Added env.json var resolution with iterative chaining. See `lua/poste/http/run.lua:212`.
+
 ## Format
 
 ```

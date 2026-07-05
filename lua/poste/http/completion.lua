@@ -235,6 +235,7 @@ M._test = {
   mime_types = data.mime_types,
   header_values = data.header_values,
   magic_var_defs = data.magic_var_defs,
+  prompt_mapping_fields = data.prompt_mapping_fields,
 }
 
 return M

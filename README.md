@@ -369,6 +369,80 @@ Requires **blink.cmp**. Auto-registers as `poste_sql` source provider.
 :PosteSQLCmpStatus  " SQL completion status
 ```
 
+## Prompt Variables
+
+Prompt variables allow interactive input when running a request. When you execute a request with `<<` directives, Poste will prompt you for values before sending.
+
+### Text Input
+
+```
+<<username
+```
+
+Shows a text input prompt for `username`. Press `<Enter>` to confirm or `<Esc>` to cancel.
+
+### Selection from List (Simple Strings)
+
+```
+<<method [GET, POST, PUT, DELETE]
+```
+
+Shows a picker with the listed options. Selecting one substitutes `@method = <selected>`.
+
+### Selection with Display Name, Key, and Description
+
+```
+<<method [GET|get|Send a GET request, POST|post|Send a POST request, PUT|put|Send a PUT request]
+```
+
+Each option is formatted as `name|key|description`:
+- **name** — shown in the picker
+- **key** — the actual value substituted into the request
+- **description** — secondary text displayed alongside the name
+
+Picker shows:
+```
+  GET    Send a GET request
+  POST   Send a POST request
+  PUT    Send a PUT request
+```
+
+Selecting `GET` writes `@method = get` (the key, not the display name) into the request.
+
+Two-field form (name|key, no description):
+```
+<<method [GET|get, POST|post]
+```
+
+### Dynamic Options from Another Request
+
+```http
+### Get commits
+GET https://api.github.com/repos/folke/snacks.nvim/commits
+
+### Send email
+<<email [{{1.response.body | {name: .[].commit.author.name, key: .[].commit.author.email, desc: .[].commit.author.name} }}]
+
+POST https://httpbin.org/post
+Content-Type: application/json
+
+{"email": "{{email}}"}
+```
+
+The pipe `|` separates the response reference from a **jq-style mapping expression**:
+
+```
+{{<request_ref> | {name: <path>, key: <path>, desc: <path>} }}
+```
+
+- `<request_ref>` — standard cross-request reference (e.g., `1.response.body`)
+- `<path>` — dot-separated path into the response, using `[]` for array iteration (jq-compatible)
+
+If the response body is already in `{name, key, description}` format, the mapping can be omitted:
+```
+<<email [{{1.response.body}}]
+```
+
 ## SQL Features
 
 ### Connection management

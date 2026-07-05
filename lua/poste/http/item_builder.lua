@@ -351,6 +351,9 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
     if values then
       items = M.build_items(values, KIND_VALUE)
     end
+  elseif ctx == "prompt_mapping" then
+    items = M.build_keyword_items(data.prompt_mapping_fields, KIND_PROPERTY)
+    return items
   end
 
   return items

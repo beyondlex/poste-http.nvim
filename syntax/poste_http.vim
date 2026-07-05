@@ -19,7 +19,15 @@ syn match PostePrompt '^\s*<<.\{-}\(\[.\{-}\]\)\?\s*$'
   \ contains=PostePromptMarker,PostePromptOpts
 syn match PostePromptMarker '<<' contained
 syn match PostePromptOpts '\[.\{-}\]' contained
-  \ contains=PosteVarRef,PosteMagicVar
+  \ contains=PosteVarRef,PosteMagicVar,PostePromptOptSep,PostePromptMapping
+" | separator inside prompt options (name|key|description tuples)
+syn match PostePromptOptSep '|' contained
+" {name: path, key: path, desc: path} inside dynamic options
+syn region PostePromptMapping start='{' end='}' contained
+  \ contains=PostePromptMappingField,PostePromptMappingPath,PostePromptMappingColon
+syn match PostePromptMappingField '\<name\|key\|desc\|\%(description\)\>' contained
+syn match PostePromptMappingColon ':' contained
+syn match PostePromptMappingPath '\.[^,}]*' contained
 " Commented-out prompt: # <<varname [opts]
 syn match PosteCommentedPrompt '^\s*#\s*<<.\{-}\(\[.\{-}\]\)\?\s*$'
   \ contains=PosteCommentedPromptMarker,PostePromptOpts
@@ -189,6 +197,10 @@ hi def link PosteRunVarValue String
 hi def link PostePrompt           PreProc
 hi def link PostePromptMarker      Special
 hi def link PostePromptOpts        String
+hi def link PostePromptOptSep      Delimiter
+hi def link PostePromptMappingField  Type
+hi def link PostePromptMappingColon  Operator
+hi def link PostePromptMappingPath   Identifier
 hi def link PosteCommentedPrompt   Comment
 hi def link PosteCommentedPromptMarker Comment
 hi def link PostePreScript   PreProc

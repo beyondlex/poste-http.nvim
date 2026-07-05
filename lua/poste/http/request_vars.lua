@@ -478,6 +478,148 @@ local function execute_deps_sequential(binary, file, env_name, dep_order, conten
 end
 
 ---------------------------------------------------------------------------
+---------------------------------------------------------------------------
+-- Structured options parsing (name|key|description tuples)
+---------------------------------------------------------------------------
+
+--- Parse options string into {name, key, description}[].
+--- Supports:
+---   "opt"              → {name="opt", key="opt", description=""}
+---   "name|key"         → {name="name", key="key", description=""}
+---   "name|key|desc"    → {name="name", key="key", description="desc"}
+--- @param options_str string  Content inside [...] (comma-separated)
+--- @return table  Array of {name, key, description}
+local function parse_structured_options(options_str)
+  local result = {}
+  for opt in options_str:gmatch("[^,]+") do
+    local trimmed = vim.trim(opt)
+    if trimmed ~= "" then
+      local parts = vim.split(trimmed, "|", { plain = true })
+      if #parts == 1 then
+        -- Simple string (backward compatible)
+        local name = vim.trim(parts[1])
+        table.insert(result, { name = name, key = name, description = "" })
+      else
+        -- Structured: name|key[|description...]
+        local name = vim.trim(parts[1])
+        local key = vim.trim(parts[2])
+        -- Rest is description (rejoin with | to preserve | in desc)
+        local desc_parts = {}
+        for i = 3, #parts do
+          table.insert(desc_parts, parts[i])
+        end
+        local description = vim.trim(table.concat(desc_parts, "|"))
+        table.insert(result, { name = name, key = key, description = description })
+      end
+    end
+  end
+  return result
+end
+
+--- Parse dynamic mapping expression from options string.
+--- Looks for pattern: "{{<ref> | {name: path, key: path, desc: path} }}"
+--- @param options_str string  e.g. "{{Req.body | {name: .x, key: .y} }}"
+--- @return string|nil ref, table|nil mapping
+local function parse_dynamic_mapping(options_str)
+  -- Extract {{...}} ref from options string (greedy to handle nested {})
+  local ref = options_str:match("{{(.+)}}")
+  if not ref then return nil, nil end
+  -- Trim trailing whitespace/braces from the captured inner content
+  ref = vim.trim(ref)
+  -- Check for pipe + mapping expression
+  local response_ref, mapping_expr = ref:match("^(.-)%s*|%s*{(.-)}$")
+  if not response_ref then
+    return ref, nil
+  end
+  -- Parse mapping fields from "{name: path, key: path, desc: path}"
+  local mapping = {}
+  for field_expr in mapping_expr:gmatch("[^,]+") do
+    local field, path = field_expr:match("^%s*(%w+)%s*:%s*(.+)$")
+    if field and path then
+      -- Normalize field name: desc -> description
+      field = field == "desc" and "description" or field
+      mapping[field] = vim.trim(path)
+    end
+  end
+  return response_ref, mapping
+end
+
+--- Apply jq-style path mapping to resolved response data.
+--- Paths use ".[]" to indicate array iteration (jq-compatible).
+--- Without ".[]", treats value as single object.
+--- @param value table  Response data (array or single object)
+--- @param mapping table  {name="path", key="path", description="path"}
+--- @return table  Array of {name, key, description}
+local function apply_jq_mapping(value, mapping)
+  if type(value) ~= "table" then return {} end
+
+  -- Check if mapping paths use .[] (array iteration) or direct paths
+  local uses_array_iteration = false
+  for _, path in pairs(mapping) do
+    if type(path) == "string" and path:find("[]", 1, true) then
+      uses_array_iteration = true
+      break
+    end
+  end
+
+  local items
+  if uses_array_iteration then
+    -- Paths contain .[] → extract the root array from value
+    -- Strip leading .[] prefix from paths and use value as the array
+    -- We assume value is already the array to iterate over
+    if vim.tbl_islist(value) then
+      items = value
+    else
+      items = { value }
+    end
+    -- Strip .[] prefix from mapping paths so paths are relative to each item
+    local clean = {}
+    for field, path in pairs(mapping) do
+      -- Remove leading ".[]" (with optional trailing "."), e.g. ".[].login" → "login"
+      local cleaned = path:gsub("^%.[%[%]][%[%]](%.?)", "")
+      cleaned = cleaned:gsub("^%.", "")
+      clean[field] = cleaned
+    end
+    mapping = clean
+  else
+    -- No array iteration: treat value as array, or wrap single object
+    if vim.tbl_islist(value) then
+      items = value
+    else
+      items = { value }
+    end
+    -- Strip leading "." from paths
+    local clean = {}
+    for field, path in pairs(mapping) do
+      clean[field] = path:match("^%.(.+)") or path
+    end
+    mapping = clean
+  end
+
+  local result = {}
+  for _, item in ipairs(items) do
+    if type(item) == "table" then
+      local entry = {}
+      local has_field = false
+      for _, field in ipairs({ "name", "key", "description" }) do
+        if mapping[field] then
+          local resolved = get_nested_value(item, mapping[field])
+          if resolved ~= nil then
+            entry[field] = tostring(resolved)
+            has_field = true
+          else
+            entry[field] = ""
+          end
+        end
+      end
+      if has_field then
+        table.insert(result, entry)
+      end
+    end
+  end
+  return result
+end
+
 -- Prompt variables (<<name directives)
 ---------------------------------------------------------------------------
 
@@ -554,40 +696,54 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
                 if response then
                   local value = resolve_request_variable(ref_match, { [req_name] = response })
                   if value and type(value) == "table" then
-                    local options = {}
-                    local function flatten(item)
-                      if type(item) == "table" then
-                        for _, sub in ipairs(item) do flatten(sub) end
-                      elseif type(item) == "string" then
-                        table.insert(options, item)
-                      elseif type(item) == "number" then
-                        table.insert(options, tostring(item))
+                    -- Check if this is a structured mapping (contains pipe + {name: ..., key: ...})
+                    local ref_text, mapping = parse_dynamic_mapping("{{" .. ref_match .. "}}")
+                    if mapping then
+                      -- Apply structured mapping to build {name,key,desc} items
+                      local items = apply_jq_mapping(value, mapping)
+                      if #items > 0 then
+                        local prompt = string.format("Select value for '%s'", varname_sel)
+                        poste_select.select(items, prompt, function(selected)
+                          if selected then
+                            table.insert(result, string.format("@%s = %s", varname_sel, selected))
+                          else
+                            cancelled = true
+                          end
+                          process_next()
+                        end)
+                        return
+                      end
+                    else
+                      -- Legacy flatten logic (backward compatible)
+                      local options = {}
+                      local function flatten(item)
+                        if type(item) == "table" then
+                          for _, sub in ipairs(item) do flatten(sub) end
+                        elseif type(item) == "string" then
+                          table.insert(options, item)
+                        elseif type(item) == "number" then
+                          table.insert(options, tostring(item))
+                        end
+                      end
+                      for _, item in ipairs(value) do flatten(item) end
+
+                      if #options > 0 then
+                        local prompt = string.format("Select value for '%s'", varname_sel)
+                        poste_select.select(options, prompt, function(selected)
+                          if selected then
+                            table.insert(result, string.format("@%s = %s", varname_sel, selected))
+                          else
+                            cancelled = true
+                          end
+                          process_next()
+                        end)
+                        return
                       end
                     end
-                    for _, item in ipairs(value) do flatten(item) end
-
-                    if #options > 0 then
-                      local prompt = string.format("Select value for '%s'", varname_sel)
-                      poste_select.select(options, prompt, function(selected)
-                        if selected then
-                          table.insert(result, string.format("@%s = %s", varname_sel, selected))
-                        else
-                          cancelled = true
-                        end
-                        process_next()
-                      end)
-                      return
-                    end
                   end
                 end
-                -- Fallback to static options
-                local options = {}
-                for opt in options_str:gmatch("[^,]+") do
-                  local trimmed = vim.trim(opt)
-                  if trimmed ~= "" and not trimmed:match("{{") then
-                    table.insert(options, trimmed)
-                  end
-                end
+                -- Fallback to static options (structured)
+                local options = parse_structured_options(options_str:gsub("{{[^}]+}}", ""))
                 if #options > 0 then
                   local prompt = string.format("Select value for '%s'", varname_sel)
                   poste_select.select(options, prompt, function(selected)
@@ -610,14 +766,8 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
           end
         end
 
-        -- Static options: parse by splitting on comma and trimming
-        local options = {}
-        for opt in options_str:gmatch("[^,]+") do
-          local trimmed = vim.trim(opt)
-          if trimmed ~= "" then
-            table.insert(options, trimmed)
-          end
-        end
+        -- Static options: parse structured tuples (name|key|description)
+        local options = parse_structured_options(options_str)
 
         if #options == 0 then
           table.insert(result, line)
@@ -771,5 +921,15 @@ function M.cache_response(req_name, response)
     request_response_cache[req_name] = response
   end
 end
+
+---------------------------------------------------------------------------
+-- Test interface
+---------------------------------------------------------------------------
+
+M._test = {
+  parse_structured_options = parse_structured_options,
+  parse_dynamic_mapping    = parse_dynamic_mapping,
+  apply_jq_mapping         = apply_jq_mapping,
+}
 
 return M

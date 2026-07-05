@@ -4,6 +4,10 @@
 ### jq
 GET https://api.github.com/repos/jqlang/jq/commits?per_page=5
 
+### prompt enhance
+<<method [ {{jq.response.body | {name: .[].commit.author.name, key: .[].author.id, desc: .[].commit.author.email} }} ]
+GET https://httpbin.org/get?method={{method}}
+
 ### Select items
 @key = fruit
 <<item [{{jq.response.body.[].parents[].sha}}]
@@ -18,6 +22,10 @@ GET {{base_url}}/get?fruit={{fruit}}
 
 ### Static Options
 <<method [GET, POST, PUT, DELETE]
+GET https://httpbin.org/get?method={{method}}
+
+### Static Options
+<<method [GET|get|get something, POST|post|post something, PUT|put|put something, DELETE|del|delete obj]
 GET https://httpbin.org/get?method={{method}}
 
 ### Text Input

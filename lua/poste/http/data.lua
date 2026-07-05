@@ -875,4 +875,14 @@ M.script_api_docs = {
   },
 }
 
+---------------------------------------------------------------------------
+-- Prompt mapping fields (for jq-style mapping completion)
+---------------------------------------------------------------------------
+M.prompt_mapping_fields = {
+  { name = "name", desc = "Display name in picker" },
+  { name = "key", desc = "Substitution value" },
+  { name = "desc", desc = "Description shown in picker (alias for description)" },
+  { name = "description", desc = "Description shown in picker" },
+}
+
 return M

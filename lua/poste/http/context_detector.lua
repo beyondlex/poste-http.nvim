@@ -116,6 +116,10 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
   if last_open and (not last_close or last_close > last_open) then
     -- Cursor is inside an unclosed {{...}}
     local after_open = line_before_cursor:sub(#line_before_cursor - last_open + 2)
+    -- Check if this is a prompt mapping context (contains | {)
+    if after_open:match("|%s*{%s*$") or after_open:match("|%s*{%s*%w*$") then
+      return "prompt_mapping", after_open
+    end
     return "variable", after_open
   end
 

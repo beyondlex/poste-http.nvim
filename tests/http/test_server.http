@@ -238,6 +238,7 @@ Content-Type: image/png
 ------StoreBoundary--
 
 ### 46 — Download stored file (use file_id from #44 or #45 response)
+<<store_file_id [{{47 — List all stored files.response.body.files[].file_id}}]
 GET {{host}}/download/{{store_file_id}}
 
 ### 47 — List all stored files

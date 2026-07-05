@@ -315,10 +315,8 @@ local function setup_keymaps(buf)
       if not format.is_image_content_type(r.metadata.file_content_type) then return end
       local ok = false
       if state.current_view == "body" then
-        if format.has_image_nvim() and not r.metadata.file_content_type:match("^image/svg%+xml") then
-          local cursor_line = vim.api.nvim_buf_line_count(buf) - format.inline_image_padding_lines() + 1
-          ok = format.render_response_image(buf, r, cursor_line)
-        end
+        local cursor_line = vim.api.nvim_buf_line_count(buf) - format.inline_image_padding_lines() + 1
+        ok = format.render_response_image(buf, r, cursor_line)
       end
       if not ok then
         format.open_image_external(r.metadata.file_path)

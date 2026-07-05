@@ -14,9 +14,11 @@ describe("http image preview", function()
   local format
   local view
   local original_image_preload
+  local original_snacks_preload
 
   before_each(function()
     original_image_preload = package.preload["image"]
+    original_snacks_preload = package.preload["snacks"]
     mock.setup({ buf_line_count = 18, current_cursor = { 1, 0 } })
     state.last_response = nil
     state.pending_request = nil
@@ -33,6 +35,8 @@ describe("http image preview", function()
     package.loaded["poste.http.view"] = nil
     package.loaded["image"] = nil
     package.preload["image"] = original_image_preload
+    package.loaded["snacks"] = nil
+    package.preload["snacks"] = original_snacks_preload
   end)
 
   it("uses image.nvim inline when available", function()
@@ -47,7 +51,6 @@ describe("http image preview", function()
         end,
       }
     end
-
     package.loaded["image"] = nil
 
     local tmp = vim.fn.tempname()
@@ -83,6 +86,46 @@ describe("http image preview", function()
 
     format.open_image_external(tmp)
     assert.is_true(has_call("jobstart"))
+  end)
+
+  it("uses snacks.image when available (priority over image.nvim)", function()
+    local snacks_calls = {}
+    local image_calls = 0
+    package.preload["snacks"] = function()
+      return {
+        image = {
+          supports = function(_) return true end,
+          supports_terminal = function() return true end,
+          placement = {
+            new = function(buf, src, opts)
+              table.insert(snacks_calls, { buf = buf, src = src, opts = opts })
+              return { close = function() end }
+            end,
+          },
+        },
+      }
+    end
+    package.loaded["snacks"] = nil
+    package.preload["image"] = function()
+      return {
+        from_file = function()
+          image_calls = image_calls + 1
+          return { render = function() end }
+        end,
+      }
+    end
+    package.loaded["image"] = nil
+
+    local tmp = vim.fn.tempname()
+    local f = assert(io.open(tmp, "wb"))
+    f:write("PNG")
+    f:close()
+
+    local ok = format.render_image_preview(1, tmp, "image/png", 7)
+    assert.is_true(ok)
+    assert.equals(1, #snacks_calls)
+    assert.equals(tmp, snacks_calls[1].src)
+    assert.equals(0, image_calls)
   end)
 
   it("renders image responses automatically in body view", function()
@@ -122,7 +165,7 @@ describe("http image preview", function()
     assert.equals(1, render_calls)
     local saw_anchor = false
     for _, call in ipairs(mock.calls) do
-      if type(call) == "table" and call.pos and call.pos[1] == 7 then
+      if type(call) == "table" and call.pos and call.pos[1] == 18 then
         saw_anchor = true
         break
       end
@@ -156,5 +199,83 @@ describe("http image preview", function()
 
     format.open_image_external(tmp)
     assert.is_true(has_call("jobstart"))
+  end)
+
+  it("uses snacks.image for svg when available", function()
+    local snacks_calls = {}
+    package.preload["snacks"] = function()
+      return {
+        image = {
+          supports = function(_) return true end,
+          supports_terminal = function() return true end,
+          placement = {
+            new = function(buf, src, opts)
+              table.insert(snacks_calls, { buf = buf, src = src, opts = opts })
+              return { close = function() end }
+            end,
+          },
+        },
+      }
+    end
+    package.loaded["snacks"] = nil
+
+    local tmp = vim.fn.tempname()
+    local f = assert(io.open(tmp, "wb"))
+    f:write("<svg></svg>")
+    f:close()
+
+    local ok = format.render_image_preview(1, tmp, "image/svg+xml")
+    assert.is_true(ok)
+    assert.equals(1, #snacks_calls)
+    assert.equals(tmp, snacks_calls[1].src)
+  end)
+
+  it("has_snacks_image returns true when snacks is available", function()
+    package.preload["snacks"] = function()
+      return {
+        image = {
+          supports = function(_) return true end,
+          supports_terminal = function() return true end,
+        },
+      }
+    end
+    package.loaded["snacks"] = nil
+    format = require("poste.http.format")
+
+    assert.is_true(format.has_snacks_image())
+  end)
+
+  it("has_snacks_image returns false when snacks is unavailable", function()
+    assert.is_false(format.has_snacks_image())
+  end)
+
+  it("close_image_preview cleans up snacks placement", function()
+    local close_calls = 0
+    package.preload["snacks"] = function()
+      return {
+        image = {
+          supports = function(_) return true end,
+          supports_terminal = function() return true end,
+          placement = {
+            new = function()
+              return {
+                close = function() close_calls = close_calls + 1 end,
+              }
+            end,
+          },
+        },
+      }
+    end
+    package.loaded["snacks"] = nil
+    format = require("poste.http.format")
+
+    local tmp = vim.fn.tempname()
+    local f = assert(io.open(tmp, "wb"))
+    f:write("PNG")
+    f:close()
+
+    format.render_image_preview(1, tmp, "image/png")
+    format.close_image_preview()
+    assert.equals(1, close_calls)
   end)
 end)

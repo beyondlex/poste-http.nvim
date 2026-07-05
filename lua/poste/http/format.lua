@@ -8,8 +8,9 @@ local file_link_ns = vim.api.nvim_create_namespace("poste_file_link")
 local M = {}
 local image_preview_state = {
   image = nil,
+  snacks_placement = nil,
 }
-local INLINE_IMAGE_PADDING_LINES = 1
+local INLINE_IMAGE_PADDING_LINES = 2
 
 ---------------------------------------------------------------------------
 -- Content-type → filetype mapping (for treesitter syntax highlighting)
@@ -138,6 +139,15 @@ function M.open_image_external(file_path)
 end
 
 function M.close_image_preview()
+  if image_preview_state.snacks_placement then
+    local p = image_preview_state.snacks_placement
+    image_preview_state.snacks_placement = nil
+    pcall(function()
+      if type(p.close) == "function" then
+        p:close()
+      end
+    end)
+  end
   if image_preview_state.image then
     local img = image_preview_state.image
     image_preview_state.image = nil
@@ -151,6 +161,37 @@ function M.close_image_preview()
       end
     end)
   end
+end
+
+local function try_snacks_image(buf, file_path, cursor_line)
+  local ok, snacks = pcall(require, "snacks")
+  if not ok or type(snacks) ~= "table" then
+    return false
+  end
+  if type(snacks.image) ~= "table" or type(snacks.image.supports) ~= "function" then
+    return false
+  end
+  if not snacks.image.supports(file_path) then
+    return false
+  end
+  local win = vim.fn.bufwinid(buf)
+  if win < 0 then return false end
+
+  local pos_row = (cursor_line or 1)
+
+  M.close_image_preview()
+
+  local placement_ok, placement = pcall(snacks.image.placement.new, buf, file_path, {
+    pos = { pos_row, 0 },
+    inline = true,
+    conceal = false,
+  })
+  if not placement_ok or not placement then
+    return false
+  end
+
+  image_preview_state.snacks_placement = placement
+  return true
 end
 
 local function try_image_nvim(buf, file_path, cursor_line)
@@ -243,6 +284,13 @@ function M.has_image_nvim()
   return ok and type(image) == "table" and type(image.from_file) == "function"
 end
 
+function M.has_snacks_image()
+  local ok, snacks = pcall(require, "snacks")
+  if not ok or type(snacks) ~= "table" then return false end
+  if type(snacks.image) ~= "table" or type(snacks.image.supports) ~= "function" then return false end
+  return snacks.image.supports_terminal()
+end
+
 function M.inline_image_padding_lines()
   return INLINE_IMAGE_PADDING_LINES
 end
@@ -252,8 +300,14 @@ function M.render_image_preview(buf, file_path, content_type, cursor_line)
   if not buf or not vim.api.nvim_buf_is_valid(buf) then return false end
   if not file_path or vim.fn.filereadable(file_path) ~= 1 then return false end
   if not M.is_image_content_type(content_type) then return false end
-  if content_type and content_type:match("^image/svg%+xml") then return false end
 
+  -- snacks supports SVG via imagemagick conversion, try it first
+  if try_snacks_image(buf, file_path, cursor_line) then
+    return true
+  end
+
+  -- image.nvim doesn't support SVG, skip those
+  if content_type and content_type:match("^image/svg%+xml") then return false end
   if try_image_nvim(buf, file_path, cursor_line) then
     return true
   end

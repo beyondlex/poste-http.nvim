@@ -37,7 +37,7 @@ function M._ensure_lua_ls_running()
 
   if vim.fn.executable("lua-language-server") ~= 1 then return false end
 
-  pcall(vim.lsp.start_client, {
+  pcall(vim.lsp.start, {
     name = "lua_ls",
     cmd = { "lua-language-server" },
     root_dir = vim.fn.getcwd(),

@@ -194,6 +194,24 @@ function M.show_var_value()
   end
 
   if not resolved then
+    -- Check client.global vars (set via pre/post scripts)
+    local state = require("poste.state")
+    if state.global_vars and state.global_vars[var_name] then
+      resolved = state.global_vars[var_name]
+      source = "client.global (session var)"
+    end
+  end
+
+  if not resolved then
+    -- Check script_variables (request.variables.set from post-scripts)
+    local state = require("poste.state")
+    if state.script_variables and state.script_variables[var_name] then
+      resolved = state.script_variables[var_name]
+      source = "script variable (session var)"
+    end
+  end
+
+  if not resolved then
     local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     for _, l in ipairs(all_lines) do
       if l:match("^###") then break end

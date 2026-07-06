@@ -75,7 +75,7 @@ local function collect_var_defs(lines)
   return vars
 end
 
---- Collect variables from file-level @var defs and env.json
+--- Collect variables from file-level @var defs, env.json, and session vars (client.global + script_variables)
 local function collect_vars(buf, block_start_line)
   local state = require("poste.state")
   local file_lines = block_start_line > 1
@@ -92,6 +92,17 @@ local function collect_vars(buf, block_start_line)
   end
   for k, v in pairs(env_vars) do
     if not vars[k] then vars[k] = v end
+  end
+  -- Add session-scoped vars from client.global.set and request.variables.set
+  if state.global_vars then
+    for k, v in pairs(state.global_vars) do
+      vars[k] = v
+    end
+  end
+  if state.script_variables then
+    for k, v in pairs(state.script_variables) do
+      vars[k] = v
+    end
   end
   return vars
 end
@@ -247,10 +258,18 @@ function M.copy_as_curl()
   local raw_lines = vim.api.nvim_buf_get_lines(buf, start_line - 1, end_line, false)
   local resolved_lines = resolve_request_content(buf, raw_lines, start_line)
   local request_lines = {}
+  local in_script = false
 
   for _, line in ipairs(resolved_lines) do
-    -- Skip ### separator, comments, and @var definitions
-    if not line:match("^%s*###") and not line:match("^%s*#") and not line:match("^%s*@%S+") then
+    if line:match("^%s*###") then
+      -- skip separator
+    elseif line:match("^%s*#") or line:match("^%s*@%S+") then
+      -- skip comments and @var definitions
+    elseif line:match("^%s*%%}") then
+      in_script = false
+    elseif line:match("^%s*[<>]%s*{%%") then
+      in_script = true
+    elseif not in_script then
       table.insert(request_lines, line)
     end
   end

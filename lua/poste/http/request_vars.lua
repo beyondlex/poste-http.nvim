@@ -666,12 +666,16 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
 
       if varname_sel and options_str then
         -- Check if options contain a request variable reference
-        local ref_match = options_str:match("{{([^}]+%.response%.[^}]+)}}")
+        local ref_match = options_str:match("{{(.+%.response%..+)}}")
 
         if ref_match then
+          -- Parse out clean response ref and optional structured mapping
+          local ref_text, mapping = parse_dynamic_mapping("{{" .. ref_match .. "}}")
+          if not ref_text then ref_text = ref_match end
+
           -- Dynamic options: resolve request variable reference
           local requests = M.collect_requests(buf)
-          local req_name = ref_match:match("^([^%.]+)%.")
+          local req_name = ref_text:match("^([^%.]+)%.")
 
           if req_name then
             -- Find the referenced request
@@ -694,10 +698,12 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
 
               execute_dependent_request_async(binary, file, env_name, dep_req, dep_resolved, function(response)
                 if response then
-                  local value = resolve_request_variable(ref_match, { [req_name] = response })
+                  local value = resolve_request_variable(ref_text, { [req_name] = response })
+                  if type(value) == "string" and mapping then
+                    local ok, parsed = pcall(vim.json.decode, value)
+                    if ok then value = parsed end
+                  end
                   if value and type(value) == "table" then
-                    -- Check if this is a structured mapping (contains pipe + {name: ..., key: ...})
-                    local ref_text, mapping = parse_dynamic_mapping("{{" .. ref_match .. "}}")
                     if mapping then
                       -- Apply structured mapping to build {name,key,desc} items
                       local items = apply_jq_mapping(value, mapping)
@@ -743,7 +749,7 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
                   end
                 end
                 -- Fallback to static options (structured)
-                local options = parse_structured_options(options_str:gsub("{{[^}]+}}", ""))
+                local options = parse_structured_options(options_str:gsub("{{.+}}", ""))
                 if #options > 0 then
                   local prompt = string.format("Select value for '%s'", varname_sel)
                   poste_select.select(options, prompt, function(selected)

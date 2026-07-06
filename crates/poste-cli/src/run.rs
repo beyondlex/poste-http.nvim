@@ -199,11 +199,11 @@ pub async fn execute(args: RunArgs) -> Result<()> {
 /// - `~` for home directory
 /// - absolute paths
 ///
-/// On read error the original line is kept (same as Lua behavior).
+/// Returns an error if the included file cannot be read.
 fn resolve_file_includes(body: &str, base_dir: &Path) -> Result<Vec<u8>> {
     let home = std::env::var("HOME").ok();
     let mut result = Vec::with_capacity(body.len());
-    for line in body.lines() {
+    for (line_idx, line) in body.lines().enumerate() {
         let trimmed = line.trim();
         if let Some(path_str) = trimmed.strip_prefix("< ") {
             let resolved = resolve_include_path(path_str.trim(), base_dir, &home);
@@ -212,10 +212,14 @@ fn resolve_file_includes(body: &str, base_dir: &Path) -> Result<Vec<u8>> {
                     result.extend_from_slice(&bytes);
                     // file content includes its own newlines; don't add another
                 }
-                Err(_) => {
-                    // keep original line on error
-                    result.extend_from_slice(line.as_bytes());
-                    result.push(b'\n');
+                Err(e) => {
+                    anyhow::bail!(
+                        "Cannot read file '{}' included via `< {}` at line {}: {}",
+                        resolved.display(),
+                        path_str.trim(),
+                        line_idx + 1,
+                        e,
+                    );
                 }
             }
         } else {

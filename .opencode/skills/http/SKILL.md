@@ -141,6 +141,7 @@ Assertion (`> {% ... %}`):
 
 `< path/to/file` in the body section replaces the line with file contents.
 Supports `~` and relative paths (relative to `.http` file directory).
+**Fails with a clear error if the file cannot be read** — no silent fallback.
 
 ## Common Pitfalls
 

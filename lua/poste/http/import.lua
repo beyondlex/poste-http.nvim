@@ -332,6 +332,122 @@ function M.resolve_run_at_cursor(buf, cursor_line)
   }
 end
 
+--- Find the end line of a request block in content.
+--- @param content string  Full file content
+--- @param block_start number  ### marker line (1-indexed)
+--- @return number  End line of the block
+local function find_block_end(content, block_start)
+  local lines = vim.split(content, "\n", { plain = true })
+  for i = block_start + 1, #lines do
+    if lines[i]:match("^%s*###") then
+      return i - 1
+    end
+  end
+  return #lines
+end
+
+--- Inject global vars as @var lines after block_start.
+--- Mirrors run.lua:inject_global_vars logic.
+--- @param buf_content string
+--- @param block_start number  ### marker line (1-indexed)
+--- @param global_vars table  { name = value, ... }
+--- @return string, number  Modified content, lines injected
+local function inject_global_vars(buf_content, block_start, global_vars)
+  if not block_start or not global_vars or not next(global_vars) then
+    return buf_content, 0
+  end
+  local glines = vim.split(buf_content, "\n", { plain = true })
+  local result = {}
+  local gcount = 0
+  for _ in pairs(global_vars) do gcount = gcount + 1 end
+  for i, line_text in ipairs(glines) do
+    table.insert(result, line_text)
+    if i == block_start then
+      for name, value in pairs(global_vars) do
+        table.insert(result, string.format("@%s = %s", name, value))
+      end
+    end
+  end
+  return table.concat(result, "\n"), gcount
+end
+
+--- Process target block's pre-script: extract, run in sandbox, inject vars into content.
+--- Handles both request.variables.set() and client.global.set() from pre-scripts.
+--- @param content string  Target file content
+--- @param block_start number  ### marker line (1-indexed)
+--- @param block_end number  End line of target block
+--- @return string  Modified content with pre-script vars + global vars injected
+--- @return number  Total number of lines injected
+local function process_target_pre_script(content, block_start, block_end)
+  local scripts = require("poste.http.scripts")
+
+  local modified_content, pre_code = scripts.extract_pre_script_blocks(content, block_start, block_end)
+  if not pre_code then
+    -- No pre-script, but still inject any existing global vars
+    return inject_global_vars(content, block_start, state.global_vars)
+  end
+
+  local script_vars = scripts.collect_script_variables(modified_content, block_start, block_end)
+  local pre_result = scripts.run_pre_script(pre_code, script_vars)
+
+  if pre_result.error then
+    state.log("ERROR", "Import pre-script error: " .. pre_result.error)
+    return content, 0
+  end
+
+  if pre_result.logs and #pre_result.logs > 0 then
+    state.last_script_logs = state.last_script_logs or {}
+    for _, msg in ipairs(pre_result.logs) do
+      table.insert(state.last_script_logs, msg)
+    end
+  end
+
+  local total_injected = 0
+
+  -- Inject request.variables.set() vars
+  if pre_result.variables and next(pre_result.variables) then
+    local count = 0
+    for _ in pairs(pre_result.variables) do count = count + 1 end
+    modified_content = scripts.inject_pre_script_vars(modified_content, block_start, pre_result.variables)
+    total_injected = total_injected + count
+    block_start = block_start + count  -- so global vars go after them
+  end
+
+  -- Inject client.global.set() vars (set during run_pre_script above)
+  if state.global_vars and next(state.global_vars) then
+    local gcount
+    modified_content, gcount = inject_global_vars(modified_content, block_start, state.global_vars)
+    total_injected = total_injected + gcount or 0
+  end
+
+  return modified_content, total_injected
+end
+
+--- Process target block's post-script: extract and run assertion code.
+--- This enables client.global.set() calls from the target block to persist
+--- (e.g., setting a token) for subsequent requests in the calling file.
+--- @param response table  Parsed response from Rust CLI
+--- @param content string  Target file content (original, before pre-script injection)
+--- @param block_start number  ### marker line (1-indexed)
+--- @param block_end number  End line
+local function process_target_post_script(response, content, block_start, block_end)
+  local assertions = require("poste.http.assertions")
+  local scripts = require("poste.http.scripts")
+
+  local _, assertion_code = assertions.extract_assertion_blocks(content, block_start, block_end)
+  if not assertion_code then return end
+
+  local script_vars = scripts.collect_script_variables(content, block_start, block_end)
+  local results = assertions.run_assertions(response, assertion_code, script_vars)
+
+  if results and results.logs and #results.logs > 0 then
+    state.last_script_logs = state.last_script_logs or {}
+    for _, msg in ipairs(results.logs) do
+      table.insert(state.last_script_logs, msg)
+    end
+  end
+end
+
 --- Execute a run directive by constructing and running a poste command.
 --- Dispatches to the appropriate execution strategy:
 ---   - run #Name / run #alias.Name → execute single request
@@ -352,7 +468,30 @@ function M.execute_run_directive(opts, callback)
   end
 
   if opts.action == "execute" then
-    -- Single request: poste run <file> --line <N> --env <env> --json --stdin
+    -- Read target file content first for pre/post-script processing
+    local f = io.open(opts.path, "r")
+    if not f then
+      vim.notify("Cannot read file: " .. opts.path, vim.log.levels.ERROR, { title = "Poste" })
+      if callback then callback(false, nil) end
+      return
+    end
+    local content = f:read("*a")
+    f:close()
+
+    -- Find target block bounds
+    local block_end = find_block_end(content, opts.line)
+    local orig_block_end = block_end  -- original bounds for post-script on original content
+
+    -- Process pre-script from target block
+    local modified_content, injected_count = process_target_pre_script(content, opts.line, block_end)
+    block_end = block_end + injected_count
+
+    -- Apply variable overrides if specified
+    if opts.vars and next(opts.vars) then
+      opts.line = opts.line + injected_count
+      modified_content = M.apply_variable_overrides(modified_content, opts.line, opts.vars)
+    end
+
     local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
       vim.fn.shellescape(binary),
       vim.fn.shellescape(opts.path),
@@ -398,6 +537,8 @@ function M.execute_run_directive(opts, callback)
         local stdout_text = table.concat(stdout_buf, "\n")
         local ok, parsed = pcall(vim.json.decode, stdout_text)
         if ok and type(parsed) == "table" then
+          -- Run target block's post-script (so client.global.set() persists)
+          process_target_post_script(parsed, content, opts.line, orig_block_end)
           if callback then callback(true, parsed) end
         else
           if callback then callback(false, {
@@ -410,24 +551,8 @@ function M.execute_run_directive(opts, callback)
     })
 
     if job_id > 0 then
-      -- Read the target file content and send via stdin
-      local f = io.open(opts.path, "r")
-      if f then
-        local content = f:read("*a")
-        f:close()
-
-        -- Apply variable overrides if specified
-        if opts.vars and next(opts.vars) then
-          content = M.apply_variable_overrides(content, opts.line, opts.vars)
-        end
-
-        vim.fn.chansend(job_id, content)
-        vim.fn.chanclose(job_id, "stdin")
-      else
-        vim.fn.jobstop(job_id)
-        vim.notify("Cannot read file: " .. opts.path, vim.log.levels.ERROR, { title = "Poste" })
-        if callback then callback(false, nil) end
-      end
+      vim.fn.chansend(job_id, modified_content)
+      vim.fn.chanclose(job_id, "stdin")
     else
       vim.notify("Failed to start poste job for run directive", vim.log.levels.ERROR, { title = "Poste" })
       if callback then callback(false, nil) end
@@ -471,9 +596,12 @@ function M.execute_all_requests(file_path, content, vars, callback)
     local req = requests[idx]
     idx = idx + 1
 
-    local content_to_send = content
+    -- Find block bounds and process pre-script from target block
+    local block_end = find_block_end(content, req.line)
+    local modified_content, _ = process_target_pre_script(content, req.line, block_end)
+
     if vars and next(vars) then
-      content_to_send = M.apply_variable_overrides(content_to_send, req.line, vars)
+      modified_content = M.apply_variable_overrides(modified_content, req.line, vars)
     end
 
     local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
@@ -506,6 +634,8 @@ function M.execute_all_requests(file_path, content, vars, callback)
         local stdout_text = table.concat(stdout_buf, "\n")
         local ok, parsed = pcall(vim.json.decode, stdout_text)
         if ok and type(parsed) == "table" then
+          -- Run target block's post-script so client.global.set() persists
+          process_target_post_script(parsed, content, req.line, block_end)
           table.insert(results, { name = req.name, response = parsed })
         else
           table.insert(results, { name = req.name, response = {
@@ -525,7 +655,7 @@ function M.execute_all_requests(file_path, content, vars, callback)
     })
 
     if job_id > 0 then
-      vim.fn.chansend(job_id, content_to_send)
+      vim.fn.chansend(job_id, modified_content)
       vim.fn.chanclose(job_id, "stdin")
     else
       table.insert(results, { name = req.name, response = {

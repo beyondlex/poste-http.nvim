@@ -204,6 +204,31 @@ References to other request responses (`{{Name.res.body.field}}`) are handled
 separately and do NOT participate in the priority chain. They are resolved by
 looking up the cached response of the named request.
 
+### Syntax
+
+```
+{{RequestName.response.body.field.subfield}}
+{{RequestName.response.headers.HeaderName}}
+{{RequestName.request.body.field}}
+{{RequestName.request.headers.HeaderName}}
+```
+
+### Supported Patterns
+
+| Pattern | Description | Example |
+|---------|-------------|---------|
+| `{{Name.response.body}}` | Entire response body | |
+| `{{Name.response.body.field}}` | Top-level field | `{{Login.response.body.token}}` |
+| `{{Name.response.body.field.subfield}}` | Nested field | `{{Login.response.body.data.user.id}}` |
+| `{{Name.response.body.array[0]}}` | Array element | `{{Users.response.body.items[0]}}` |
+| `{{Name.response.body.array[0].field}}` | Field in array element | `{{Users.response.body.items[0].name}}` |
+| `{{Name.response.headers.Name}}` | Response header (case-insensitive) | `{{Login.response.headers.x-auth-token}}` |
+| `{{Name.request.body.field}}` | Field from request body | |
+| `{{Name.request.headers.Name}}` | Request header | |
+
+### Examples
+
+**Basic usage:**
 ```http
 ### Login
 POST https://api.example.com/login
@@ -211,12 +236,72 @@ Content-Type: application/json
 
 {"username": "admin", "password": "secret"}
 
-### Dashboard
-GET https://api.example.com/dashboard/{{Login.response.body.user.id}}
+### Get User Profile
+GET https://api.example.com/users/{{Login.response.body.username}}
 ```
 
-See [Request Variables](../../../examples/README_request_variables.md) for
-detailed documentation.
+**Nested JSON fields:**
+```http
+### Login
+POST https://api.example.com/login
+Content-Type: application/json
+
+{"user": "admin"}
+
+### Get Profile
+GET https://api.example.com/profile/{{Login.response.body.data.user.name}}
+```
+
+**Array indexing:**
+```http
+### Get Users
+GET https://api.example.com/users
+
+### Get First User
+GET https://api.example.com/users/{{Get Users.response.body.users[0].id}}
+```
+
+**Response headers:**
+```http
+### Login
+POST https://api.example.com/login
+
+### Use Token
+GET https://api.example.com/protected
+Authorization: Bearer {{Login.response.headers.x-auth-token}}
+```
+
+**Chained references:**
+```http
+### Step 1
+POST https://api.example.com/step1
+
+### Step 2
+GET https://api.example.com/step2?id={{Step 1.response.body.id}}
+
+### Step 3
+GET https://api.example.com/step3?token={{Step 2.response.body.token}}
+```
+
+### How It Works
+
+1. **Automatic execution**: When you execute a request with variable references,
+   Poste automatically executes the referenced requests first (if not already cached).
+2. **Response caching**: Executed responses are cached in memory. Subsequent
+   requests referencing the same request will use the cached response.
+3. **Variable substitution**: Variables are substituted before the request is
+   sent to the CLI.
+4. **JSON navigation**: For JSON response bodies, you can navigate nested
+   structures using dot notation (`body.user.name`) or array indexing
+   (`body.items[0].id`).
+
+### Notes
+
+- Request names are case-sensitive and must match the `###` header exactly
+- If a referenced request hasn't been executed, it will be executed automatically
+- Responses are cached for the current Neovim session only
+- If a variable cannot be resolved (e.g., field doesn't exist), the original
+  `{{...}}` placeholder is left unchanged
 
 ---
 

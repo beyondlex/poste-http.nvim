@@ -15,11 +15,7 @@ function M.setup_buffer_keymaps(buf)
 
   local k = km("http_source", "run", "<CR>")
   if k then
-    vim.keymap.set("n", k, function()
-      local outline = package.loaded["poste.http.outline"]
-      if outline then outline.close() end
-      run_request()
-    end, keymap_opts)
+    vim.keymap.set("n", k, run_request, keymap_opts)
   end
   k = km("http_source", "jump_next", "]]")
   if k then vim.keymap.set("n", k, nav.jump_next, keymap_opts) end
@@ -59,7 +55,7 @@ function M.setup_buffer_keymaps(buf)
   k = km("http_source", "toggle_outline", "gs")
   if k then
     vim.keymap.set("n", k, function()
-      require("poste.http.outline").toggle()
+      require("poste.http.symbols").show_symbols()
     end, keymap_opts)
   end
   k = km("http_source", "pick_env", "<leader>vv")

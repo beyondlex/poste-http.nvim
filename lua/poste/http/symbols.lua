@@ -1,5 +1,5 @@
---- Symbol outline: pick an HTTP request from the current file.
---- Uses Telescope when available, falls back to vim.ui.select.
+--- Symbol picker: pick an HTTP request from the current file.
+--- Uses Snacks.picker when available.
 
 local M = {}
 
@@ -24,6 +24,13 @@ local function extract_url_path(line)
     path = url:match("^(/.*)") -- already a path
   end
   return path and path ~= "" and path or nil
+end
+
+--- Truncate a string with ellipsis if it exceeds max length.
+local function truncate(s, max)
+  if not s then return "" end
+  if #s <= max then return s end
+  return s:sub(1, max - 1) .. "…"
 end
 
 --- Scan buffer and collect all ### request blocks.
@@ -59,6 +66,7 @@ local function collect_requests(bufnr)
         end
         if not skip and next_line:match("^%s*@%w") then skip = true end
         if not skip and next_line:match("^%s*#") then skip = true end
+        if not skip and next_line:match("^%s*<<") then skip = true end
 
         if not skip then
           method = next_line:match("^%s*(%u+)%s")
@@ -77,98 +85,40 @@ local function collect_requests(bufnr)
 end
 
 ---------------------------------------------------------------------------
--- Telescope picker
+-- Snacks picker
 ---------------------------------------------------------------------------
 
---- Truncate a string with ellipsis if it exceeds max length.
-local function truncate(s, max)
-  if not s then return "" end
-  if #s <= max then return s end
-  return s:sub(1, max - 1) .. "…"
-end
-
---- Show requests in a Telescope picker.
-local function show_telescope_picker(requests)
-  local pickers = require("telescope.pickers")
-  local finders = require("telescope.finders")
-  local conf = require("telescope.config").values
-  local actions = require("telescope.actions")
-  local action_state = require("telescope.actions.state")
-  local entry_display = require("telescope.pickers.entry_display")
-
-  local displayer = entry_display.create({
-    separator = " ",
-    items = {
-      { width = 8 },   -- method
-      { width = 30 },  -- name
-      { width = 42 },  -- url path
-      { width = 6 },   -- line number
-    },
-  })
-
-  local function make_display(entry)
-    local path = entry.value.url_path
-    return displayer({
-      { entry.value.method or "—", "PosteSymbolMethod" },
-      { truncate(entry.value.name, 30), "Normal" },
-      { path and truncate(path, 42) or "", "Comment" },
-      { "L" .. entry.value.line, "Comment" },
-    })
-  end
-
-  pickers.new({}, {
-    prompt_title = "Requests",
-    finder = finders.new_table({
-      results = requests,
-      entry_maker = function(req)
-        local search_text = (req.method and ("[" .. req.method .. "] ") or "") .. req.name
-        if req.url_path then
-          search_text = search_text .. " " .. req.url_path
-        end
-        return {
-          value = req,
-          display = make_display,
-          ordinal = search_text,
-        }
-      end,
-    }),
-    sorter = conf.generic_sorter({}),
-    attach_mappings = function(prompt_bufnr, _)
-      actions.select_default:replace(function()
-        local selection = action_state.get_selected_entry()
-        actions.close(prompt_bufnr)
-        if selection then
-          vim.api.nvim_win_set_cursor(0, { selection.value.line, 0 })
-          vim.cmd("normal! zz")
-        end
-      end)
-      return true
-    end,
-  }):find()
-end
-
----------------------------------------------------------------------------
--- Fallback: vim.ui.select
----------------------------------------------------------------------------
-
---- Show requests using vim.ui.select (works with any UI provider).
-local function show_select_picker(requests)
+--- Show requests using Snacks.picker.select.
+local function show_snacks_picker(requests)
   local items = {}
-  for i, req in ipairs(requests) do
-    local method_str = req.method and ("[" .. req.method .. "] ") or ""
-    local path_str = req.url_path and (" " .. truncate(req.url_path, 40)) or ""
-    items[i] = method_str .. req.name .. path_str .. "  (L" .. req.line .. ")"
+  for _, req in ipairs(requests) do
+    local method = req.method or "--"
+    local text = method .. "  " .. truncate(req.name, 40)
+    local desc = req.url_path and truncate(req.url_path, 45) or ""
+    items[#items + 1] = {
+      text = text,
+      description = desc,
+      key = req,
+    }
   end
 
-  vim.ui.select(items, {
-    prompt = "Requests:",
-    format_item = function(item) return item end,
-  }, function(_, idx)
-    if idx and requests[idx] then
-      vim.api.nvim_win_set_cursor(0, { requests[idx].line, 0 })
-      vim.cmd("normal! zz")
+  Snacks.picker.select(
+    items,
+    {
+      prompt = "Requests",
+      layout = "select",
+      format_item = function(item)
+        return item.text .. (item.description ~= "" and "  " .. item.description or "")
+      end,
+    },
+    function(item)
+      if item and item.key then
+        local req = item.key
+        vim.api.nvim_win_set_cursor(0, { req.line, 0 })
+        vim.cmd("normal! zz")
+      end
     end
-  end)
+  )
 end
 
 ---------------------------------------------------------------------------
@@ -176,7 +126,6 @@ end
 ---------------------------------------------------------------------------
 
 --- Show symbol picker for the current buffer.
---- Prefers Telescope if available, falls back to vim.ui.select.
 function M.show_symbols()
   local bufnr = vim.api.nvim_get_current_buf()
   local requests = collect_requests(bufnr)
@@ -186,12 +135,7 @@ function M.show_symbols()
     return
   end
 
-  -- Try Telescope first
-  local ok = pcall(show_telescope_picker, requests)
-  if ok then return end
-
-  -- Fallback to vim.ui.select
-  show_select_picker(requests)
+  show_snacks_picker(requests)
 end
 
 return M

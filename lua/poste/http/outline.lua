@@ -25,7 +25,7 @@ local function extract_method_url(buf, start_line, total_lines)
       in_pre = true
     elseif in_pre then
       if trimmed:match("%%}") then in_pre = false end
-    elseif trimmed == "" or trimmed:match("^@%w") or trimmed:match("^#") then  -- luacheck: ignore 542
+    elseif trimmed == "" or trimmed:match("^@%w") or trimmed:match("^#") or trimmed:match("^<<") then  -- luacheck: ignore 542
     else
       local method = trimmed:match("^(%u+)%s")
       if method then
@@ -110,37 +110,49 @@ local function method_hl(method)
   else return "PosteMethodOther" end
 end
 
-local function build_label(item)
+local function build_label(item, max_method_width)
   local win_width = active and vim.api.nvim_win_get_width(active.out_win) or 40
   local method = item.method or "--"
-  local method_len = #method
-  local remaining = math.max(10, win_width - method_len - 2)
+
+  if method == "@" then
+    item._name_start = 1
+    local path_display = item.url_path and ellipsis(item.url_path, win_width - 2) or ""
+    local val = path_display ~= "" and (" " .. path_display) or ""
+    return "@" .. item.name:sub(2) .. val
+  end
+
+  -- Pad method to fixed column width for alignment
+  local method_padded = method .. string.rep(" ", max_method_width - #method)
+  local remaining = win_width - max_method_width - 2
   local name_max = math.max(4, math.min(16, math.floor(remaining * 0.35)))
   local path_max = math.max(3, remaining - name_max - 1)
 
   local path_display = item.url_path and ellipsis(item.url_path, path_max) or ""
   local name_display = "-" .. ellipsis(item.name, name_max - 1)
 
-  if method == "@" then
-    item._name_start = 1
-    local val = path_display ~= "" and (" " .. path_display) or ""
-    return "@" .. item.name:sub(2) .. val
-  end
   if path_display == "" then
-    item._name_start = method_len + 2
-    return method .. "  " .. name_display
+    item._name_start = max_method_width + 2
+    return method_padded .. "  " .. name_display
   end
-  item._name_start = method_len + #path_display + 3
-  return method .. "  " .. path_display .. " " .. name_display
+  item._name_start = max_method_width + #path_display + 3
+  return method_padded .. "  " .. path_display .. " " .. name_display
 end
 
 local function render()
   if not active or not vim.api.nvim_buf_is_valid(active.out_buf) then return end
   local items = collect_items(active.src_buf)
 
+  -- Compute fixed method column width for alignment
+  local max_method_width = 0
+  for _, item in ipairs(items) do
+    local m = (item.method or "--"):len()
+    if m > max_method_width then max_method_width = m end
+  end
+  max_method_width = math.min(max_method_width, 8)
+
   local lines = {}
   for _, item in ipairs(items) do
-    table.insert(lines, build_label(item))
+    table.insert(lines, build_label(item, max_method_width))
   end
 
   vim.bo[active.out_buf].modifiable = true
@@ -148,7 +160,7 @@ local function render()
   vim.api.nvim_buf_clear_namespace(active.out_buf, hl_ns, 0, -1)
 
   for i, item in ipairs(items) do
-    local m_end = (item.method or "--"):len() + 1
+    local m_end = max_method_width + 1
     vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, method_hl(item.method), i - 1, 0, m_end)
     if item._name_start then
       vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, "Comment", i - 1, item._name_start - 1, -1)
@@ -157,6 +169,7 @@ local function render()
 
   vim.bo[active.out_buf].modifiable = false
   active.items = items
+  active.max_method_width = max_method_width
 end
 
 -----------------------------------------------------------------------------
@@ -185,11 +198,12 @@ local function highlight_current()
 
   local current = find_current_item(items, cursor_line[1])
   local data_win = active.out_win
+  local max_method_width = active.max_method_width or 4
 
   vim.api.nvim_buf_clear_namespace(active.out_buf, hl_ns, 0, -1)
 
   for i, item in ipairs(items) do
-    local m_end = (item.method or "--"):len() + 1
+    local m_end = max_method_width + 1
     vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, method_hl(item.method), i - 1, 0, m_end)
     if item._name_start then
       vim.api.nvim_buf_add_highlight(active.out_buf, hl_ns, "Comment", i - 1, item._name_start - 1, -1)
@@ -266,12 +280,22 @@ function M.open()
   vim.bo[out_buf].filetype = "poste_outline"
   vim.bo[out_buf].modifiable = true
 
+  local width = math.min(80, math.max(45, math.floor(vim.o.columns * 0.4)))
+  local height = math.min(20, vim.o.lines - 4)
+  local col = math.floor((vim.o.columns - width) / 2)
+  local row = math.floor((vim.o.lines - height) / 2)
+
   local out_win = vim.api.nvim_open_win(out_buf, true, {
-    split = "right",
-    win = src_win,
+    style = "minimal",
+    relative = "editor",
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    border = "rounded",
+    focusable = true,
+    zindex = 50,
   })
-  vim.api.nvim_win_set_width(out_win, 40)
-  vim.wo[out_win].winfixwidth = true
   vim.wo[out_win].number = false
   vim.wo[out_win].relativenumber = false
   vim.wo[out_win].signcolumn = "no"

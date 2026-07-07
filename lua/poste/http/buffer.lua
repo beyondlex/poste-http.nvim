@@ -113,9 +113,22 @@ function M.prepare_multi_responses(responses)
   response_buffers = {}
 
   local views = { "body", "request", "verbose" }
+  local function request_vars_filetype(r)
+    local ct = ""
+    local req_headers = r.metadata and r.metadata.request_headers
+    if req_headers then
+      for l in req_headers:gmatch("[^\r\n]+") do
+        local k, v = l:match("^([^:]+):%s*(.+)$")
+        if k and k:lower() == "content-type" then ct = v; break end
+      end
+    end
+    if ct == "" or ct:lower():find("multipart/form%-data") then return "text" end
+    return format.detect_filetype(ct)
+  end
+
   local format_fns = {
     body    = function(r) return format.format_body(r), format.detect_filetype(r.content_type) end,
-    request = function(r) return format.format_request_payload(r), "text" end,
+    request = function(r) return format.format_request_payload(r), request_vars_filetype(r) end,
     verbose = function(r) return format.format_verbose(r, nil), "text" end,
   }
 

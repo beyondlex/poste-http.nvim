@@ -8,6 +8,10 @@ local M = {}
 -- Cache for executed request responses: { [request_name] = response_table }
 local request_response_cache = {}
 
+-- Track auto-executed dependency chain for multi-response display
+local _chain_dep_set = {}
+local _chain_dep_order = {}
+
 ---------------------------------------------------------------------------
 -- Form data (multipart/form-data, url-encoded, file uploads, magic vars)
 ---------------------------------------------------------------------------
@@ -271,6 +275,25 @@ local function find_request_variable_refs(block_text)
       local req_name = full_ref:match("^([^%.]+)%.")
       if req_name then
         table.insert(refs, { full = "{{" .. full_ref .. "}}", request_name = req_name })
+      end
+    end
+  end
+  return refs
+end
+
+--- Find request variable references inside <<name [{{dyn_expr}}] prompt directives.
+--- Uses greedy pattern to handle nested {} inside jq filter expressions.
+local function find_dynamic_prompt_refs(block_text)
+  local refs = {}
+  for line in block_text:gmatch("[^\n]+") do
+    local options_str = line:match("^%s*<<%S+%s*%[(.+)%]")
+    if options_str then
+      local full_ref = options_str:match("{{(.+%.response%..+)}}")
+      if full_ref then
+        local req_name = full_ref:match("^([^%.]+)%.")
+        if req_name then
+          table.insert(refs, { full = "{{" .. full_ref .. "}}", request_name = req_name })
+        end
       end
     end
   end
@@ -865,6 +888,10 @@ end
 --- Fully async: executes dependent requests via callback chain, then substitutes variables.
 --- Calls on_complete(resolved_content) when all dependencies are resolved.
 function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, content, on_complete)
+  -- Initialize dependency chain tracking
+  _chain_dep_set = {}
+  _chain_dep_order = {}
+
   local requests = M.collect_requests(buf)
 
   -- Find the current request block
@@ -948,12 +975,27 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
   local dep_idx = 1
   local function execute_next_dep()
     if dep_idx > #pending_deps then
+      -- Build dep chain for multi-response display, sorted by depth descending
+      table.sort(_chain_dep_order, function(a, b) return a.depth > b.depth end)
+      M._dep_chain = {}
+      for _, entry in ipairs(_chain_dep_order) do
+        local resp = request_response_cache[entry.name]
+        if resp then
+          table.insert(M._dep_chain, {name = entry.name, response = resp})
+        end
+      end
       on_complete(substitute_and_finish())
       return
     end
 
     local dep_req = pending_deps[dep_idx]
     dep_idx = dep_idx + 1
+
+    -- Track for multi-response display (depth 0 = top-level dep of current request)
+    if not _chain_dep_set[dep_req.name] then
+      _chain_dep_set[dep_req.name] = true
+      table.insert(_chain_dep_order, { name = dep_req.name, depth = 0 })
+    end
 
     state.log("INFO", string.format("Auto-executing dependency '%s'", dep_req.name))
 
@@ -1079,8 +1121,21 @@ function M.resolve_content_dependencies(binary, file_path, env_name, content, bl
   end
   local block_text = table.concat(block_lines, "\n")
 
-  -- Find request variable references
+  -- Find request variable references (standard + dynamic prompt mappings)
   local refs = find_request_variable_refs(block_text)
+  local dyn_refs = find_dynamic_prompt_refs(block_text)
+  for _, dr in ipairs(dyn_refs) do
+    local found = false
+    for _, r in ipairs(refs) do
+      if r.request_name == dr.request_name then
+        found = true
+        break
+      end
+    end
+    if not found then
+      table.insert(refs, dr)
+    end
+  end
   if #refs == 0 then
     on_complete(content)
     return
@@ -1145,6 +1200,12 @@ function M.resolve_content_dependencies(binary, file_path, env_name, content, bl
     local dep_req = pending_deps[dep_idx]
     dep_idx = dep_idx + 1
 
+    -- Track for multi-response display with depth for topological sort
+    if not _chain_dep_set[dep_req.name] then
+      _chain_dep_set[dep_req.name] = true
+      table.insert(_chain_dep_order, { name = dep_req.name, depth = _depth })
+    end
+
     state.log("INFO", string.format("Resolving dependency '%s' (depth %d)", dep_req.name, _depth))
 
     local function do_execute(resolved_content)
@@ -1166,7 +1227,7 @@ function M.resolve_content_dependencies(binary, file_path, env_name, content, bl
       end)
     end
 
-    resolve_content_dependencies(binary, file_path, env_name, content, dep_req.start_line, do_execute, _depth + 1)
+    M.resolve_content_dependencies(binary, file_path, env_name, content, dep_req.start_line, do_execute, _depth + 1)
   end
 
   execute_next_dep()

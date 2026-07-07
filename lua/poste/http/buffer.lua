@@ -7,6 +7,10 @@ local M = {}
 local response_buffer = nil
 local response_window = nil
 local response_cleanup_group = nil
+local response_keymaps_set = false
+local response_buffers = {}  -- idx → buf_nr, for multi-response buffer-per-entry
+local active_response_idx = nil
+local setup_keymaps  -- forward declaration
 
 -- Callback for tab-switching keymaps; set by init.lua after show_view is defined.
 M.on_show_view = nil
@@ -80,6 +84,44 @@ function M.update_winbar(active)
   vim.wo[response_window].winbar = table.concat(parts)
 end
 
+--- Get the response window (nil if not open or invalid).
+function M.get_response_win()
+  if response_window and vim.api.nvim_win_is_valid(response_window) then
+    return response_window
+  end
+  return nil
+end
+
+--- Check if a pre-rendered body buffer exists for the given index.
+function M.get_response_buffer_for_idx(idx)
+  local buf = response_buffers[idx]
+  if buf and vim.api.nvim_buf_is_valid(buf) then return buf end
+  return nil
+end
+
+--- Pre-render all multi-responses into scratch buffers for instant switching.
+function M.prepare_multi_responses(responses)
+  -- Clean up old buffers
+  for _, buf in pairs(response_buffers) do
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end
+  response_buffers = {}
+
+  for idx, entry in ipairs(responses) do
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].buftype = "nofile"
+    local lines = format.format_body(entry.response)
+    local ft = format.detect_filetype(entry.response.content_type)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].filetype = ft
+    -- Force treesitter to parse now (not lazily on first display in window)
+    pcall(vim.treesitter.start, buf, ft)
+    -- Set keymaps so [ / ] / B / R / E / q etc. work on this buffer
+    setup_keymaps(buf)
+    response_buffers[idx] = buf
+  end
+end
+
 --- Navigate to the next/previous response in multi-response mode.
 --- direction: 1 = next, -1 = previous
 function M.navigate_response(direction)
@@ -92,6 +134,19 @@ function M.navigate_response(direction)
   state._json.original_lines = nil
   state._json.query = nil
   state._json.is_filtered = false
+
+  -- Swap to pre-rendered buffer (instant, no nvim_buf_set_lines, no treesitter re-parse)
+  state.current_view = "body"
+  local buf = response_buffers[idx]
+  if buf and vim.api.nvim_buf_is_valid(buf) and response_window and vim.api.nvim_win_is_valid(response_window) then
+    vim.api.nvim_win_set_buf(response_window, buf)
+    active_response_idx = idx
+    pcall(vim.api.nvim_win_set_cursor, response_window, { 1, 0 })
+    M.update_winbar("body")
+    return
+  end
+
+  -- Fallback: full render (no pre-rendered buffers, e.g. single request)
   if state.current_view and M.on_show_view then
     M.on_show_view(state.current_view)
   end
@@ -190,8 +245,8 @@ end
 
 --- (Re-)apply response buffer keymaps.
 --- Called on every render to ensure they stay active even after buffer reuse or ftplugin reload.
-local function setup_keymaps(buf)
-  local opts = { buffer = buf, noremap = true, silent = true }
+setup_keymaps = function(buf)
+  local opts = { buffer = buf, noremap = true, silent = true, nowait = true }
 
   -- Close window
   local k = state.get_keymap("http_response", "close", "q")
@@ -342,11 +397,18 @@ function M.render_buffer(lines, filetype)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
 
-  -- Set filetype for treesitter highlighting
-  vim.bo[buf].filetype = filetype or "text"
+  -- Set filetype for treesitter highlighting (skip if same to avoid reattach)
+  local new_ft = filetype or "text"
+  if vim.bo[buf].filetype ~= new_ft then
+    vim.bo[buf].filetype = new_ft
+    response_keymaps_set = false
+  end
 
   -- Re-apply keymaps AFTER filetype change so ftplugin keymaps don't win
-  setup_keymaps(buf)
+  if not response_keymaps_set then
+    setup_keymaps(buf)
+    response_keymaps_set = true
+  end
 
   -- Apply Redis-specific extmark highlights if this is a Redis response
   if state.last_response and state.last_response.protocol == "redis" and state.current_view == "body" then
@@ -362,6 +424,7 @@ function M.render_buffer(lines, filetype)
     local cmd = state.config.split_direction == "vertical" and "vsplit" or "split"
     vim.cmd(cmd)
     response_window = vim.api.nvim_get_current_win()
+    response_keymaps_set = false
 
     if state.config.split_direction == "vertical" then
       vim.api.nvim_win_set_width(response_window, state.config.split_size)

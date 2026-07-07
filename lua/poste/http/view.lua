@@ -121,6 +121,16 @@ function M.show_view(view)
 
   local lines, filetype
   if view == "body" then
+    -- Fast path: use pre-rendered buffer for multi-response (avoids nvim_buf_set_lines + treesitter)
+    local idx = state.response_index
+    local rb = idx and buffer.get_response_buffer_for_idx(idx)
+    if rb and buffer.get_response_win() then
+      local win = buffer.get_response_win()
+      vim.api.nvim_win_set_buf(win, rb)
+      buffer.update_winbar("body")
+      return
+    end
+    -- Fallback: render normally
     if not state.last_response.body or state.last_response.body == "" then
       lines = { "(no response body)" }
       filetype = "text"
@@ -168,6 +178,7 @@ function M.show_view(view)
       format.render_response_image(buf, r, cursor_line)
     end
   end
+
 end
 
 buffer.on_show_view = M.show_view

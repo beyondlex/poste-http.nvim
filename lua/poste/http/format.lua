@@ -584,9 +584,13 @@ end
 ---------------------------------------------------------------------------
 
 function M.format_body(r)
+  if r._cached_body then return r._cached_body end
+
   -- Redis protocol: parse structured JSON and render with type-specific formatting
   if r.protocol == "redis" then
-    return format_redis_body(r)
+    local result = format_redis_body(r)
+    r._cached_body = result
+    return result
   end
 
   -- Binary file response: show file info instead of mangled raw content
@@ -611,22 +615,27 @@ function M.format_body(r)
         for _ = 1, INLINE_IMAGE_PADDING_LINES do
           table.insert(lines, "")
         end
+        r._cached_body = lines
         return lines
       else
         table.insert(lines, "  Preview:      press K to open externally")
       end
     end
     table.insert(lines, string.format("  Open file:    %s", r.metadata.file_path))
+    r._cached_body = lines
     return lines
   end
 
   -- Large text response: truncate and save to file
   if is_large_body(r.body) then
+    -- Don't cache large bodies (file-backed, not in memory)
     return save_body_to_file(r.body, r.content_type, r)
   end
 
   local body = pretty_body(r.body, r.content_type)
-  return split_lines(body)
+  local result = split_lines(body)
+  r._cached_body = result
+  return result
 end
 
 --- Apply extmark highlights on file path portions of "Open file:" and
@@ -841,6 +850,7 @@ end
 --- request table, or both.  Response-dependent sections (Status Code,
 --- Response Headers/Body, Connection) are shown only when `r` is provided.
 function M.format_verbose(r, pending)
+  if r and r._cached_verbose then return r._cached_verbose end
   local lines = {}
 
   -- Merge data from response (r) and/or pending request
@@ -945,6 +955,7 @@ function M.format_verbose(r, pending)
         table.insert(lines, "▸ Details")
         table.insert(lines, "  " .. r.body:gsub("\n", "\n  "))
       end
+      r._cached_verbose = lines
       return lines
     end
 
@@ -1002,6 +1013,7 @@ function M.format_verbose(r, pending)
     end
   end
 
+  if r then r._cached_verbose = lines end
   return lines
 end
 

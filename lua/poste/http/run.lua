@@ -5,6 +5,7 @@ local request_vars = require("poste.http.request_vars")
 local scripts = require("poste.http.scripts")
 local assertions = require("poste.http.assertions")
 local view = require("poste.http.view")
+local response_buf = require("poste.http.buffer")
 local import_mod = require("poste.http.import")
 local history = require("poste.http.history")
 local event = require("poste.state.event")
@@ -142,6 +143,20 @@ local function handle_job_stdout(data, src_buf, req_line, req_block, req_text, a
       state._json.is_filtered = false
       state.last_response = parsed
       request_vars.cache_response(current_req_name, parsed)
+      -- Build multi-response view if deps were auto-executed
+      if request_vars._dep_chain and #request_vars._dep_chain > 0 then
+        local chain = {}
+        for _, item in ipairs(request_vars._dep_chain) do
+          table.insert(chain, {name = item.name, response = item.response})
+          history.add_entry(item.name, item.response, nil, nil, file)
+        end
+        table.insert(chain, {name = current_req_name or "Request", response = parsed})
+        state.last_responses = chain
+        state.response_index = #chain
+        request_vars._dep_chain = nil
+        -- Pre-render response buffers for instant [ / ] switching
+        pcall(response_buf.prepare_multi_responses, chain)
+      end
       emit_response(parsed, current_req_name, file, nil, nil)
 
       local assertion_results = run_and_store_assertions(parsed, assertion_code, script_vars)
@@ -176,6 +191,18 @@ local function handle_job_exit(code, stderr_buf, src_buf, req_line, req_block, r
     local body = stderr_text ~= "" and stderr_text or "Request failed with exit code " .. code
     local error_response = make_error_response(req_text, req_block, body, "Failed (exit " .. code .. ")", code)
     state.last_response = error_response
+    if request_vars._dep_chain and #request_vars._dep_chain > 0 then
+      local chain = {}
+      for _, item in ipairs(request_vars._dep_chain) do
+        table.insert(chain, {name = item.name, response = item.response})
+        history.add_entry(item.name, item.response, nil, nil, file)
+      end
+      table.insert(chain, {name = current_req_name or "Request", response = error_response})
+      state.last_responses = chain
+      state.response_index = #chain
+      request_vars._dep_chain = nil
+      pcall(response_buf.prepare_multi_responses, chain)
+    end
     emit_response(error_response, current_req_name, file, nil, nil)
     view.show_view("verbose")
     local err_name = (current_req_name or "") ~= "" and current_req_name or ("Request #" .. req_line + 1)

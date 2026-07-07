@@ -6,6 +6,7 @@ mod context;
 mod fmt;
 mod import;
 mod introspect;
+mod resolve;
 mod run;
 mod serve;
 mod util;
@@ -47,6 +48,8 @@ enum Commands {
         #[command(subcommand)]
         source: import::ImportSource,
     },
+    /// Resolve variables in a request block
+    Resolve(resolve::ResolveArgs),
 }
 
 #[tokio::main]
@@ -76,6 +79,9 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Import { source }) => {
             import::execute(source)?;
+        }
+        Some(Commands::Resolve(args)) => {
+            resolve::execute(args)?;
         }
         None => {}
     }

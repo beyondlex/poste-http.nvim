@@ -1,4 +1,6 @@
 --- Copy HTTP request as curl command.
+local state = require("poste.state")
+
 local M = {}
 
 --- Shell-escape a string for curl argument
@@ -77,7 +79,6 @@ end
 
 --- Collect variables from file-level @var defs, env.json, and session vars (client.global + script_variables)
 local function collect_vars(buf, block_start_line)
-  local state = require("poste.state")
   local file_lines = block_start_line > 1
     and vim.api.nvim_buf_get_lines(buf, 0, block_start_line - 2, false) or {}
   local vars = collect_var_defs(file_lines)
@@ -243,7 +244,6 @@ end
 --- Returns curl command string or nil, error_msg.
 function M.copy_as_curl()
   local indicators = require("poste.indicators")
-  local _ = require("poste.state")
 
   local buf = vim.api.nvim_get_current_buf()
   local cursor_line = vim.fn.line(".")
@@ -254,7 +254,50 @@ function M.copy_as_curl()
     return nil, "No request block found at cursor"
   end
 
-  -- Extract request block text
+  -- Try to resolve via poste resolve CLI first
+  local poste_bin = state.find_poste_binary()
+  if poste_bin then
+    local buf_path = vim.api.nvim_buf_get_name(buf)
+    local args = {
+      poste_bin, "resolve",
+      "--stdin",
+      "--file", buf_path,
+      "--block", tostring(start_line),
+      "--format", "curl",
+    }
+
+    -- Pass session vars if available
+    if state.global_vars and next(state.global_vars) then
+      table.insert(args, "--session-vars")
+      table.insert(args, vim.json.encode(state.global_vars))
+    end
+
+    -- Pass script vars if available
+    if state.script_variables and next(state.script_variables) then
+      table.insert(args, "--script-vars")
+      table.insert(args, vim.json.encode(state.script_variables))
+    end
+
+    table.insert(args, "--env")
+    table.insert(args, state.current_env)
+
+    -- Pipe buffer content as stdin (handles unsaved buffers)
+    local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local stdin_data = table.concat(buf_lines, "\n")
+
+    local ok, sys_obj = pcall(vim.system, args, { stdin = stdin_data, text = true })
+    if ok then
+      local ok2, result = pcall(sys_obj.wait, sys_obj)
+      if ok2 and result.code == 0 then
+        local stdout = result.stdout or ""
+        if stdout ~= "" then
+          return vim.trim(stdout)
+        end
+      end
+    end
+  end
+
+  -- Fallback: manual curl construction (preserves multipart handling)
   local raw_lines = vim.api.nvim_buf_get_lines(buf, start_line - 1, end_line, false)
   local resolved_lines = resolve_request_content(buf, raw_lines, start_line)
   local request_lines = {}

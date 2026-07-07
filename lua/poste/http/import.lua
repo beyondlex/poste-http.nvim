@@ -681,12 +681,15 @@ function M.apply_variable_overrides(content, block_line, vars)
 
   local lines = vim.split(content, "\n", { plain = true })
 
-  -- Find injection point: past all @var defs, blanks, and < {% %} blocks
+  -- Find injection point: past all @var defs, blanks, comments, and < {% %} blocks
+  -- The injection point is set to the LAST line of that preamble, so injected
+  -- P1 import-param @var lines come AFTER existing P2 request-level @var lines.
+  -- HashMap semantics: later @var insertions overwrite earlier ones → P1 wins.
   local inject_at = block_line
   local i = block_line + 1
   while i <= #lines do
     local trimmed = vim.trim(lines[i])
-    if trimmed:match("^@") or trimmed == "" then
+    if trimmed:match("^@") or trimmed == "" or trimmed:match("^[#%-]") then
       inject_at = i
       i = i + 1
     elseif trimmed:match("^<%s*{%%") then
@@ -707,9 +710,9 @@ function M.apply_variable_overrides(content, block_line, vars)
   end
 
   local result = {}
-  for _, line in ipairs(lines) do
+  for idx, line in ipairs(lines) do
     table.insert(result, line)
-    if i == inject_at then
+    if idx == inject_at then
       for name, value in pairs(vars) do
         table.insert(result, string.format("@%s = %s", name, value))
       end

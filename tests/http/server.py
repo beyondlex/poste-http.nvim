@@ -604,6 +604,90 @@ async def uuid_endpoint():
 
 
 # ---------------------------------------------------------------------------
+# Session init — for testing post-script → global var → next request flow
+# ---------------------------------------------------------------------------
+
+
+@app.post("/session/init")
+async def session_init_endpoint(request: Request):
+    """Initialize a session and return a session token + user info.
+
+    The response body contains fields that a post-script can extract
+    and store as global variables for subsequent requests:
+      {
+        "session_token": "sess_<random>",
+        "user": { "id": "<random>", "role": "<random>" },
+        "expires_in": 3600
+      }
+    """
+    body = await request.body()
+    body_str = body.decode("utf-8", errors="replace") if body else ""
+
+    # Parse credentials from body if provided
+    try:
+        creds = json.loads(body_str) if body_str else {}
+    except json.JSONDecodeError:
+        creds = {}
+
+    username = creds.get("username", "test_user")
+    role = creds.get("role", random.choice(["admin", "editor", "viewer"]))
+
+    session_id = str(uuid_mod.uuid4())
+    session_token = f"sess_{uuid_mod.uuid4().hex[:16]}"
+    user_id = f"user_{random.randint(1000, 9999)}"
+
+    resp = {
+        "ok": True,
+        "session_token": session_token,
+        "session_id": session_id,
+        "user": {
+            "id": user_id,
+            "username": username,
+            "role": role,
+        },
+        "permissions": ["read", "write"] if role == "admin" else ["read"],
+        "expires_in": 3600,
+        "server_time": datetime.now(timezone.utc).isoformat(),
+    }
+
+    return JSONResponse(
+        content=resp,
+        headers={
+            "X-Session-Token": session_token,
+            "X-User-Id": user_id,
+            "X-User-Role": role,
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.get("/session/verify")
+async def session_verify_endpoint(request: Request):
+    """Verify a session token passed via Authorization header.
+
+    Used by subsequent requests to test that global vars from
+    a previous request's post-script are correctly resolved.
+    """
+    auth = request.headers.get("authorization", "")
+    token = auth.replace("Bearer ", "") if auth.startswith("Bearer ") else ""
+
+    if not token:
+        return JSONResponse(
+            {"ok": False, "error": "Missing session token"},
+            status_code=401,
+        )
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "verified": True,
+            "via_var": "{{session_token}} was resolved",
+            "token_preview": token[:20] + "..." if len(token) > 20 else token,
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # Random bytes
 # ---------------------------------------------------------------------------
 

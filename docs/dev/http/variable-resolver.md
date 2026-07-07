@@ -41,26 +41,26 @@ Poste 目前有 9 种变量机制，分布在 **3 个独立的解析器**中：
 ### 核心原则：作用域越窄，优先级越高
 
 ```
- 窄 ┌──────────────────────────────────────┐  高
+ 窄 ┌───────────────────────────────────────┐  高
     │  1. Import parameter overrides        │  ← 函数参数
     │     run #Login (@token=xyz)           │     调用者显式传递
-    ├──────────────────────────────────────┤
+    ├───────────────────────────────────────┤
     │  2. Request-local                     │  ← 局部变量
     │     pre-script request.variables.set  │     当前 ### 块内
     │     << prompt 选择值                  │     @var 定义
-    ├──────────────────────────────────────┤
+    ├───────────────────────────────────────┤
     │  3. File-level                        │  ← 模块常量
-    │     @var 写在文件头部                  │     文件内共享
-    ├──────────────────────────────────────┤
+    │     @var 写在文件头部                 │     文件内共享
+    ├───────────────────────────────────────┤
     │  4. Session/Global                    │  ← 全局变量
     │     client.global.set                 │     跨请求/跨文件
-    ├──────────────────────────────────────┤
+    ├───────────────────────────────────────┤
     │  5. Environment                       │  ← 环境配置
     │     env.json                          │     dev/staging/prod
-    ├──────────────────────────────────────┤
- 广  │  6. Magic (built-in)                 │  ← 内置函数
+    ├───────────────────────────────────────┤
+ 广 │  6. Magic (built-in)                  │  ← 内置函数
     │     $timestamp / $uuid / ...          │     运行时生成
-    └──────────────────────────────────────┘  低
+    └───────────────────────────────────────┘  低
 ```
 
 ### 跨文件传参规则
@@ -279,7 +279,7 @@ impl VarResolver {
 1. 写 `VarResolver` 结构体 + `new()` 方法（红：parser.rs 尚无此声明）
 2. 写 resolve("simple_key") 返回 None（红 → 绿：空解析器）
 3. 写每个层级的单元测试：
-   ┌─────────────────────────────────────────────────┐
+   ┌──────────────────────────────────────────────────┐
    │ #[test]                                          │
    │ fn import_params_highest_priority() {            │
    │   let r = VarResolver::new()                     │
@@ -292,18 +292,18 @@ impl VarResolver {
    │ }                                                │
    │                                                  │
    │ #[test]                                          │
-   │ fn fallback_to_next_layer_when_missing() {        │
+   │ fn fallback_to_next_layer_when_missing() {       │
    │   let r = VarResolver::new()                     │
    │     .with_import_params([("a", "1")])            │
    │     .with_request_vars([("b", "2")]);            │
-   │   assert_eq!(r.resolve("a"), Some("1"));          │
-   │   assert_eq!(r.resolve("b"), Some("2"));          │
-   │   assert_eq!(r.resolve("c"), None);               │
+   │   assert_eq!(r.resolve("a"), Some("1"));         │
+   │   assert_eq!(r.resolve("b"), Some("2"));         │
+   │   assert_eq!(r.resolve("c"), None);              │
    │ }                                                │
    │                                                  │
    │ #[test]                                          │
-   │ fn magic_var_fallback() { /* $timestamp 等 */ }   │
-   └─────────────────────────────────────────────────┘
+   │ fn magic_var_fallback() { /* $timestamp 等 */ }  │
+   └──────────────────────────────────────────────────┘
 4. 移除 poste run 路径中重复的 substitute_vars()
 5. 添加 poste resolve CLI 命令
 6. CLI 集成测试：poste resolve --var key --file ... --session-vars ...

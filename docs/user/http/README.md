@@ -1,16 +1,17 @@
-# HTTP 用户文档
+# HTTP User Documentation
 
-> `.http` / `.rest` 文件语法快速参考
+> Quick reference for `.http` / `.rest` file syntax
 
-| 文档 | 说明 |
-|------|------|
-| [语法规范](./syntax.md) | 完整语法定义 — 变量、请求块、脚本、跨请求引用、import/run |
-| [快速参考](./quick-reference.md) | 语法速查表 + 请求历史操作指南 |
+| Document | Description |
+|----------|-------------|
+| [Syntax Reference](./syntax.md) | Complete syntax — variables, request blocks, scripts, cross-request refs, import/run |
+| [Variable Resolution](./variables.md) | Variable priority chain — 7 layers, import params, session vars, CLI usage |
+| [Quick Reference](./quick-reference.md) | Syntax cheatsheet + request history guide |
 
-## 快速入门
+## Quick Start
 
-参见[项目 README](../../../README.md)。
+See the [project README](../../../README.md).
 
 ---
 
-*HTTP 用户文档组*
+*HTTP documentation group*

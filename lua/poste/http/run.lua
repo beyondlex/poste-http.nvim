@@ -193,120 +193,103 @@ local function build_pending_request(src_buf, buf_content, req_block, block_star
   end
   local headers_str = table.concat(header_parts, "\n")
 
-  -- Resolve @var definitions from the source buffer
-  local var_map = {}
-  local src_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
-  for _, sl in ipairs(src_lines) do
-    local vname, vvalue = sl:match("^@([%w_]+)%s*[:=]%s*(.+)$")
-    if vname then
-      var_map[vname] = vim.trim(vvalue)
+  -- Resolve via poste resolve CLI
+  local resolved_content = nil
+  local poste_bin = state.find_poste_binary()
+  if poste_bin and file and file ~= "" then
+    local args = {
+      poste_bin, "resolve",
+      "--stdin",
+      "--file", file,
+      "--block", tostring(block_start or 1),
+      "--format", "content",
+    }
+    if state.global_vars and next(state.global_vars) then
+      table.insert(args, "--session-vars")
+      table.insert(args, vim.json.encode(state.global_vars))
     end
-  end
-  -- Also scan in-memory buf_content for @var lines (covers << prompt selection)
-  for _, bl in ipairs(vim.split(buf_content, "\n", { plain = true })) do
-    local vname, vvalue = bl:match("^@([%w_]+)%s*[:=]%s*(.+)$")
-    if vname then
-      var_map[vname] = vim.trim(vvalue)
+    if state.script_variables and next(state.script_variables) then
+      table.insert(args, "--script-vars")
+      table.insert(args, vim.json.encode(state.script_variables))
     end
-  end
-  -- Merge env.json string values into var_map (lower priority than @var)
-  if file and file ~= "" then
-    local env_name = state.current_env or state.config.default_env
-    if env_name then
-      local dir = vim.fn.fnamemodify(file, ":h")
-      while dir and dir ~= "" and dir ~= "/" do
-        local candidate = dir .. "/env.json"
-        local f = io.open(candidate, "r")
-        if f then
-          local content = f:read("*a")
-          f:close()
-          local ok, data = pcall(vim.json.decode, content)
-          if ok and type(data) == "table" and type(data[env_name]) == "table" then
-            for k, v in pairs(data[env_name]) do
-              if type(v) == "string" and not var_map[k] then
-                var_map[k] = v
-              end
-            end
-          end
-          break
+    table.insert(args, "--env")
+    table.insert(args, state.current_env)
+
+    -- Pipe buffer content as stdin (handles unsaved changes)
+    local ok, sys_obj = pcall(vim.system, args, { stdin = buf_content, text = true })
+    if ok then
+      local ok2, result = pcall(sys_obj.wait, sys_obj)
+      if ok2 and result.code == 0 then
+        local stdout = result.stdout or ""
+        if stdout ~= "" then
+          resolved_content = stdout
         end
-        dir = vim.fn.fnamemodify(dir, ":h")
       end
     end
-  end
-  local function resolve_vars(text)
-    if not text or text == "" then return text end
-    -- Iterative resolution (up to 20 passes) to handle chained refs
-    for _ = 1, 20 do
-      local prev = text
-      for name, value in pairs(var_map) do
-        local safe_value = value:gsub("%%", "%%%%")
-        text = text:gsub(vim.pesc("{{" .. name .. "}}"), safe_value)
-      end
-      if text == prev then break end
-    end
-    return text
   end
 
-  -- Extract the resolved URL and body using block boundaries
+  -- Extract method, URL, headers, body from resolved (or raw) content
+  local content = resolved_content or buf_content
   local req_method = ""
   local req_url = ""
   local body = ""
-  if block_start and block_end then
-    local lines = vim.split(buf_content, "\n", { plain = true })
-    local in_prescript = false
-    local request_found = false
-    local body_start_idx = nil
-    for i = block_start, math.min(block_end, #lines) do
-      local text = lines[i] or ""
-      local trimmed = vim.trim(text)
-      if in_prescript then
-        if trimmed == "%}" then in_prescript = false end
-      elseif trimmed:match("^<%s*{%%") then
-        if not trimmed:match("%%}$") then in_prescript = true end
-      elseif trimmed:match("^###") then
-        -- skip ### header line
-      elseif trimmed:match("^<%s*%.") or trimmed:match("^@%S+%s*[= ]") then
-        -- skip file includes and @vars in header area
-      elseif not request_found then
-        if trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
-          req_method, req_url = text:match("^(%S+)%s+(.+)$")
-          if req_method then request_found = true end
-        end
-      elseif not body_start_idx then
-        -- After request line: skip headers until empty line
-        if trimmed == "" then
-          body_start_idx = i + 1
+  local resolved_headers = {}
+  local lines = vim.split(content, "\n", { plain = true })
+  local request_found = false
+  local in_headers = false
+  local body_start_idx = nil
+
+  for i = 1, #lines do
+    local text = lines[i] or ""
+    local trimmed = vim.trim(text)
+
+    if trimmed:match("^###") then
+      -- skip ### header line
+    elseif trimmed:match("^@%S+") then
+      -- skip @var definitions
+    elseif not request_found then
+      if trimmed ~= "" and not trimmed:match("^#") then
+        req_method, req_url = text:match("^(%S+)%s+(.+)$")
+        if req_method then
+          request_found = true
+          in_headers = true
         end
       end
-    end
-    -- Determine actual body end: scan backward from block_end past empties/comments
-    local actual_end = block_end
-    for i = block_end, block_start, -1 do
-      local trimmed = vim.trim(lines[i] or "")
-      if trimmed ~= "" and not trimmed:match("^#") and not trimmed:match("^%-%-") then
-        actual_end = i
-        break
+    elseif in_headers then
+      if trimmed == "" then
+        in_headers = false
+        body_start_idx = i + 1
+      else
+        local key, value = text:match("^([^:]+):%s*(.+)$")
+        if key and value then
+          table.insert(resolved_headers, { vim.trim(key), vim.trim(value) })
+        end
       end
     end
-    if body_start_idx and body_start_idx <= math.min(actual_end, #lines) then
-      local body_lines = {}
-      for i = body_start_idx, math.min(actual_end, #lines) do
-        table.insert(body_lines, lines[i] or "")
-      end
-      body = table.concat(body_lines, "\n")
-    end
-    body = body:gsub("[\r\n]+$", "")
   end
 
-  req_url = resolve_vars(req_url)
-  body = resolve_vars(body)
-  headers_str = resolve_vars(headers_str)
+  if body_start_idx and body_start_idx <= #lines then
+    local body_lines = {}
+    for i = body_start_idx, #lines do
+      table.insert(body_lines, lines[i] or "")
+    end
+    body = table.concat(body_lines, "\n"):gsub("[\r\n]+$", "")
+  end
+
+  -- Use resolved headers if CLI succeeded, else fall back to req_block headers
+  local resolved_headers_str = headers_str
+  if resolved_content and #resolved_headers > 0 then
+    local h_parts = {}
+    for _, h in ipairs(resolved_headers) do
+      table.insert(h_parts, h[1] .. ": " .. h[2])
+    end
+    resolved_headers_str = table.concat(h_parts, "\n")
+  end
 
   state.pending_request = {
     method = req_method,
     url = req_url,
-    headers_str = headers_str,
+    headers_str = resolved_headers_str,
     body = body,
     env = state.current_env,
     timestamp = os.date("%Y-%m-%d %H:%M:%S"),

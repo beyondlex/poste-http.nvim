@@ -1,0 +1,584 @@
+# =============================================================================
+# Variable Resolver Test Suite
+# =============================================================================
+#
+# Tests the unified variable resolver priority chain:
+#   import_params > request_vars > file_vars > session_vars > script_vars > env > magic
+#
+# Prerequisites:
+#   docker compose -f tests/http/docker-compose.yml up -d
+#
+# Run individual tests:
+#   poste run --file tests/http/variable_resolver_test.http --line <line>
+#
+# Test with specific env:
+#   poste run --file tests/http/variable_resolver_test.http --line <line> --env staging
+#
+# Test with session/script vars (via Lua):
+#   (handled automatically by the Neovim plugin)
+#
+# The /anything endpoint echoes back the full request as JSON,
+# so we can verify variables are resolved correctly by checking the response body.
+# =============================================================================
+
+import ./variable_resolver_imported.http as imported
+
+# ── File-level variables (priority 3) ──────────────────────────────────────
+@host = http://localhost:8888
+@api_base = http://localhost:8888
+@api_prefix = /anything
+@default_name = PosteUser
+@page_size = 10
+@base_url = {{api_base}}{{api_prefix}}
+@composite_url = {{base_url}}/composite
+
+# ── File-level variable referencing another file-level variable ─────────────
+@full_endpoint = {{host}}/anything
+
+# ── Cross-request reference (independent of priority chain) ─────────────────
+@last_uuid = {{01 — Health check|Magic vars|Cross-refs.response.body.uuid}}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Category 1: File-level @var resolution
+# ═════════════════════════════════════════════════════════════════════════════
+
+### 01 — Health check | Magic vars | Cross-refs
+# Tests:
+#   - Basic file-level @var resolution ({{host}})
+#   - Magic var {{$uuid}} in request body
+#   - {{$timestamp}} in request body
+GET {{host}}/health
+X-Request-Id: {{$uuid}}
+X-Timestamp: {{$timestamp}}
+
+> {%
+  client.global.set('session_token', 'sess-' .. string.sub(response.body.uuid or 'fallback', 1, 8))
+  client.global.set('global_user_id', 'user_42')
+  client.global.set('global_env', 'dev-override')
+  request.variables.set('script_var_name', 'script_value_abc')
+  request.variables.set('login_count', '3')
+%}
+
+### 02 — File-level @var: simple reference
+# Tests: {{host}} → http://localhost:8888
+GET {{host}}/anything/file-level-simple
+X-Source: file-level-var
+
+### 03 — File-level @var: composite reference
+# Tests: {{base_url}} → {{api_base}}{{api_prefix}} → http://localhost:8888/anything
+GET {{base_url}}/composite-test
+X-Composite: {{base_url}}
+
+### 04 — File-level @var: transitive resolution
+# Tests: {{full_endpoint}} → {{host}}/anything → http://localhost:8888/anything
+GET {{full_endpoint}}/transitive
+X-Transitive: {{full_endpoint}}
+
+### 05 — File-level @var: multi-line definition
+# Tests: @headers_block=>>> ... <<< multi-line variable
+@headers_block=>>>
+X-Custom-Auth: Bearer token123
+X-Client-Id: poste-test
+<<<
+GET {{host}}/anything/multiline-var
+{{headers_block}}
+
+### 06 — File-level @var: reference in URL query params
+# Tests: {{page_size}} → 10
+GET {{host}}/anything/pagination?page=1&size={{page_size}}
+X-Page-Size: {{page_size}}
+
+### 07 — File-level @var: in header value
+# Tests: {{default_name}} → PosteUser
+GET {{host}}/anything/default-user
+X-User: {{default_name}}
+X-Env: dev
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Category 2: Request-level @var (priority 2 — higher than file-level)
+# ═════════════════════════════════════════════════════════════════════════════
+
+### 08 — Request-level @var overrides file-level @var
+# File-level: @page_size = 10
+# Request-level: @page_size = 25
+# Expected: {{page_size}} → 25 (request-level wins)
+@page_size = 25
+GET {{host}}/anything/request-override?size={{page_size}}
+X-Page-Size: {{page_size}}
+
+### 09 — Request-level @var: in JSON body
+@user_id = 99
+@role = admin
+POST {{host}}/anything/user-create
+Content-Type: application/json
+
+{
+  "id": {{user_id}},
+  "role": "{{role}}",
+  "name": "{{default_name}}"
+}
+
+### 10 — Request-level @var: header injection
+@auth_token = req-level-token-456
+GET {{host}}/anything/protected
+Authorization: Bearer {{auth_token}}
+X-Token-Source: request-var
+
+### 11 — Request-level @var: multiple vars in same block
+@item_id = 777
+@item_type = premium
+@discount = 15
+GET {{host}}/anything/item?item_id={{item_id}}&type={{item_type}}&discount={{discount}}
+X-Item-Meta: {{item_id}}/{{item_type}}/{{discount}}
+
+### 12 — Request-level @var: transitive resolution
+@admin_token = admin-secret-999
+@auth_header = Bearer {{admin_token}}
+GET {{host}}/anything/admin
+Authorization: {{auth_header}}
+X-Admin-Token: {{admin_token}}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Category 3: Magic vars {{$timestamp}} {{$uuid}} {{$date}} {{$randomInt}}
+# ═════════════════════════════════════════════════════════════════════════════
+
+### 13 — Magic var: $uuid in header
+GET {{host}}/anything/uuid-test
+X-Request-UUID: {{$uuid}}
+X-Correlation-Id: {{$uuid}}
+
+### 14 — Magic var: $timestamp in body
+POST {{host}}/anything/log-event
+Content-Type: application/json
+
+{
+  "event": "test_event",
+  "timestamp": {{$timestamp}},
+  "source": "variable_resolver_test"
+}
+
+### 15 — Magic var: $date in body
+POST {{host}}/anything/date-test
+Content-Type: application/json
+
+{
+  "date": "{{$date}}",
+  "event": "daily_report"
+}
+
+### 16 — Magic var: $randomInt in query
+GET {{host}}/anything/random-test?nonce={{$randomInt}}
+X-Nonce: {{$randomInt}}
+
+### 17 — Magic var: multiple magics in same request
+POST {{host}}/anything/multi-magic
+Content-Type: application/json
+
+{
+  "uuid": "{{$uuid}}",
+  "timestamp": {{$timestamp}},
+  "date": "{{$date}}",
+  "random": {{$randomInt}}
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Category 4: Priority chain — request_vars > file_vars > env > magic
+# ═════════════════════════════════════════════════════════════════════════════
+
+### 18 — Priority: request-level @var overrides file-level @var
+# File-level: @page_size = 10
+# Request-level: @page_size = 50
+# Expected: {{page_size}} → 50 (request-level wins)
+@page_size = 50
+GET {{host}}/anything/priority-request?size={{page_size}}
+X-Page-Size: {{page_size}}
+
+### 19 — Priority: file-level @var overrides env.json
+# File-level: @api_version = (not set at file level)
+# env.json dev: "api_version": "v1"
+# No request-level override
+# Expected: {{api_version}} → "v1" (from env.json)
+# Run with: poste run --env dev
+GET {{host}}/anything/check-env?version={{api_version}}
+X-Api-Version: {{api_version}}
+
+### 20 — Priority: file-level @var overrides env.json
+# File-level: @api_version = v3
+# env.json dev: "api_version": "v1"
+# Expected: {{api_version}} → "v3" (file-level wins over env)
+@api_version = v3
+GET {{host}}/anything/check-env-override?version={{api_version}}
+X-Api-Version: {{api_version}}
+
+### 21 — Priority: env.json fallback (no file-level, no request-level)
+# env.json dev: "default_page_size": "20"
+# No file-level or request-level override
+# Expected: {{default_page_size}} → "20"
+# Run with: poste run --env dev
+GET {{host}}/anything/env-fallback?page_size={{default_page_size}}
+X-Page-Size: {{default_page_size}}
+
+### 22 — Priority: env.json staging environment
+# env.json staging: "api_version": "v2", "default_page_size": "50"
+# Expected: {{api_version}} → "v2", {{default_page_size}} → "50"
+# Run with: poste run --env staging
+GET {{host}}/anything/staging-check?version={{api_version}}&size={{default_page_size}}
+X-Api-Version: {{api_version}}
+X-Page-Size: {{default_page_size}}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Category 5: Session vars (client.global) and Script vars
+# ═════════════════════════════════════════════════════════════════════════════
+
+### 23 — Session var: client.global set in pre-script
+# The pre-script below sets client.global.session_token
+# This test verifies the session var is available in subsequent requests
+# Note: session vars are set via Lua in the Neovim plugin
+# For CLI testing, use: --session-vars '{"session_token":"sess-abc123"}'
+< {% client.global.set('session_token', 'sess-abc123') %}
+GET {{host}}/anything/session-test
+Authorization: Bearer {{session_token}}
+X-Session-Token: {{session_token}}
+
+### 24 — Session var: persisted across requests
+# This request uses the session_token set by request #23
+# Expected: {{session_token}} → "sess-abc123"
+GET {{host}}/anything/session-persist
+X-Session-Status: active
+Authorization: Bearer {{session_token}}
+
+### 25 — Script var: request.variables.set
+# The pre-script below sets a request-scoped variable
+# Note: script_variables are set via Lua in the Neovim plugin
+# For CLI testing, use: --script-vars '{"script_var_name":"script_value_abc"}'
+< {% request.variables.set('script_var_name', 'script_value_abc') %}
+GET {{host}}/anything/script-var-test
+X-Script-Var: {{script_var_name}}
+
+### 26 — Priority: request-level @var overrides session var
+# Session var: global_user_id = "user_42" (set by request #01)
+# Request-level: @user_id = "override_99"
+# Expected: {{user_id}} → "override_99" (request-level wins)
+@user_id = override_99
+GET {{host}}/anything/session-vs-request
+X-User-Id: {{user_id}}
+X-Session-User-Id: {{global_user_id}}
+
+### 27 — Priority: session var overrides env.json
+# env.json dev: "auth_token_dev": "dev-secret-token-abc123"
+# Session var: auth_token_dev = "session-override-token"
+# Expected: {{auth_token_dev}} → "session-override-token" (session wins)
+# For CLI: --session-vars '{"auth_token_dev":"session-override-token"}'
+GET {{host}}/anything/session-vs-env
+X-Auth-Token: {{auth_token_dev}}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Category 6: Import + run — cross-file flow with post-script global vars
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# This category tests the most complex variable resolver flow:
+#
+#   Step 1:  import ./file.http as alias       ← declare import
+#   Step 2:  run alias#Request (@key=value)    ← execute imported request with params
+#   Step 3:  imported request's post-script    ← sets client.global from response
+#            extracts data
+#   Step 4:  subsequent request uses           ← {{imported_token}} resolves via
+#            {{imported_token}}                   session_vars layer (P4)
+#
+# Priority chain verification:
+#   import params (P1) > request @var (P2) > file @var (P3) > session vars (P4)
+#
+# The imported file (variable_resolver_imported.http) has:
+#   @timeout = 10          ← file-level (P3)
+#
+#   ### Login
+#   POST /session/init
+#   > {% client.global.set('imported_token', ...) %}
+#
+#   ### GetUser
+#   GET /anything/user/{{user_id}}
+
+
+### 28 — Run imported#Login with import params, post-script sets global vars
+# Flow:
+#   1. run imported#Login with P1 import params
+#   2. Imported Login's POST /session/init executes
+#   3. Imported Login's post-script runs:
+#        client.global.set('imported_token', response.body.session_token)
+#        client.global.set('imported_user_id', response.body.user.id)
+#        client.global.set('imported_user_role', response.body.user.role)
+#   4. After this request, the global vars are available in state.global_vars
+#
+# Import params (P1) override file-level @timeout = 10:
+#   @timeout=30 → {{timeout}} in body resolves to 30 (P1 wins over P3)
+#   @username=admin → fills {{username}} in body
+#   @password=secret → fills {{password}} in body
+#   @role=admin → fills {{role}} in body
+run #imported.Login (@timeout=30, @username=admin, @password=secret, @role=admin)
+
+### 29 — Consume global var set by imported request's post-script
+# After #28 ran, imported's Login post-script set:
+#   state.global_vars.imported_token = "<session_token from /session/init response>"
+#   state.global_vars.imported_user_id = "<user.id from response>"
+#   state.global_vars.imported_user_role = "<user.role from response>"
+#
+# These are now available as {{imported_token}}, {{imported_user_id}}, etc.
+# via the session_vars layer (P4) of the VarResolver.
+#
+# For CLI testing: --session-vars '{"imported_token":"sess_...","imported_user_id":"user_..."}'
+GET {{host}}/session/verify
+Authorization: Bearer {{imported_token}}
+X-User-Id: {{imported_user_id}}
+X-User-Role: {{imported_user_role}}
+X-Session-Id: {{imported_session_id}}
+
+### 30 — Run imported#GetUser with import params, post-script sets more globals
+# Flow:
+#   1. run imported#GetUser with P1 import params
+#   2. Imported GetUser's GET /anything/user/{{user_id}} executes
+#      ({{user_id}} → "42" from import param)
+#      ({{auth_token}} → "import-token" from import param)
+#   3. Imported GetUser's post-script runs:
+#        client.global.set('imported_auth_token', response.body.headers.authorization)
+#        client.global.set('imported_url', response.body.url)
+#
+# This also tests that:
+#   - {{default_user}} resolves to file-level "anonymous" (P3) — no import param override
+#   - Import params for user_id and auth_token flow through correctly
+#
+# For CLI: --import-params '{"user_id":"42","auth_token":"import-token"}'
+run #imported.GetUser (@user_id=42, @auth_token=import-token)
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Category 7: Edge cases
+# ═════════════════════════════════════════════════════════════════════════════
+
+### 31 — Edge case: undefined variable remains {{unresolved}}
+# {{undefined_var}} has no definition at any layer
+# Expected: {{undefined_var}} is preserved as-is (not resolved)
+GET {{host}}/anything/undefined-test
+X-Undefined: {{undefined_var}}
+
+### 32 — Edge case: empty string value
+@empty_val =
+GET {{host}}/anything/empty-var
+X-Empty: {{empty_val}}
+
+### 33 — Edge case: variable with special characters
+@special_key = value_with_underscores_and-dashes
+GET {{host}}/anything/special-chars
+X-Special: {{special_key}}
+
+### 34 — Edge case: @var with quoted value
+@quoted_val = "quoted_string_value"
+GET {{host}}/anything/quoted-var
+X-Quoted: {{quoted_val}}
+
+### 35 — Edge case: magic var in URL path
+GET {{host}}/anything/magic-path-{{$uuid}}
+X-Magic-Path: {{$uuid}}
+
+### 36 — Edge case: multiple {{var}} in same line
+@first = hello
+@second = world
+@third = !
+GET {{host}}/anything/multi-per-line?greeting={{first}}-{{second}}-{{third}}
+X-Greeting: {{first}} {{second}}{{third}}
+
+### 37 — Edge case: iterative resolution (chained vars)
+@chain_a = resolved_value_a
+@chain_b = {{chain_a}}
+@chain_c = {{chain_b}}
+GET {{host}}/anything/chain?value={{chain_c}}
+X-Chain: {{chain_c}}
+
+### 38 — Edge case: file-level var referencing request-level var
+# File-level: @composite_url = {{base_url}}/composite
+# Request-level: @extra_path = /sub-resource
+# Note: file-level vars can't reference request-level vars (they're parsed before)
+# This tests that {{composite_url}} resolves correctly
+GET {{host}}/anything/composite
+X-Composite: {{composite_url}}
+
+### 39 — Edge case: env.json variable in response header
+# env.json dev: "env_name": "dev-environment"
+# Expected: {{env_name}} → "dev-environment"
+# Run with: poste run --env dev
+GET {{host}}/anything/env-name
+X-Env-Name: {{env_name}}
+
+### 40 — Edge case: magic var in header value template
+GET {{host}}/anything/magic-header
+X-Timestamp: {{$timestamp}}
+X-Date: {{$date}}
+X-Random: {{$randomInt}}
+
+### 41 — Edge case: all variable types in one request
+# Tests: file-level + request-level + magic vars in a single request
+@request_id = 42
+POST {{host}}/anything/comprehensive
+Content-Type: application/json
+
+{
+  "request_id": {{request_id}},
+  "host": "{{host}}",
+  "uuid": "{{$uuid}}",
+  "timestamp": {{$timestamp}},
+  "date": "{{$date}}",
+  "random": {{$randomInt}},
+  "page_size": {{page_size}},
+  "env": "{{env_name}}"
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Category 8: Cross-request refs ({{Name.res.body.field}})
+# ═════════════════════════════════════════════════════════════════════════════
+
+### 42 — Cross-request ref: reference previous response body
+# This test uses the response from request #01 (the UUID endpoint)
+# {{01 — Health check|Magic vars|Cross-refs.response.body.uuid}}
+# Expected: resolves to the UUID returned by request #01
+GET {{host}}/anything/cross-ref
+X-Previous-UUID: {{01 — Health check|Magic vars|Cross-refs.response.body.uuid}}
+
+### 43 — Cross-request ref: deeper nested path
+# {{02 — File-level @var: simple reference.response.body.headers.X-Source}}
+# Expected: "file-level-var"
+GET {{host}}/anything/cross-ref-header
+X-Previous-Source: {{02 — File-level @var: simple reference.response.body.headers.X-Source}}
+
+### 44 — Cross-request ref: array index access
+# {{41 — Cross-request ref: reference previous response body.response.body.headers}}
+# Tests accessing a nested object from a previous response
+GET {{host}}/anything/cross-ref-nested
+X-Previous-Headers: {{41 — Cross-request ref: reference previous response body.response.body.headers}}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Category 9: Prompt variables (<<name)
+# ═════════════════════════════════════════════════════════════════════════════
+
+### 45 — Prompt variable: interactive input
+# Tests: <<prompt_var prompts the user for input
+# The value entered is used as the variable value
+<<username
+<<password
+POST {{host}}/anything/prompt-login
+Content-Type: application/json
+
+{
+  "username": "{{username}}",
+  "password": "{{password}}"
+}
+
+### 46 — Prompt variable: with default value
+<<greeting [Hello from Poste!]
+GET {{host}}/anything/prompt-greeting?msg={{greeting}}
+X-Greeting: {{greeting}}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Category 10: Post-script → Global var → Next request
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# This is the most critical real-world flow for session management:
+#
+#   Request A:  POST /session/init
+#               → post-script extracts session_token from response body
+#               → client.global.set('session_token', response.body.session_token)
+#               → client.global.set('user_id', response.body.user.id)
+#
+#   Request B:  GET /session/verify
+#               Authorization: Bearer {{session_token}}
+#               → {{session_token}} resolves to the value stored by Request A
+#
+#   Request C:  GET /anything/user/{{user_id}}
+#               → {{user_id}} resolves to the user ID stored by Request A
+#
+# In the Neovim plugin, this works automatically because:
+#   1. Lua runs the post-script, which calls client.global.set()
+#   2. Lua stores the value in state.global_vars
+#   3. When Request B is run, Lua passes --session-vars to poste resolve/run
+#   4. The CLI resolver finds the variable in the session_vars layer
+#
+# For standalone CLI testing, pass --session-vars explicitly:
+#   poste run --line <line_B> --session-vars '{"session_token":"sess_<token>"}'
+#   poste resolve --var session_token --session-vars '{"session_token":"sess_<token>"}'
+
+### 47 — Post-script: set global var from response body
+# Sends login credentials → receives session_token + user.id in response
+# Post-script stores both as client.global vars for subsequent requests
+POST {{host}}/session/init
+Content-Type: application/json
+
+{
+  "username": "poste_test_user",
+  "role": "admin"
+}
+
+> {%
+  client.global.set('session_token', response.body.session_token)
+  client.global.set('user_id', response.body.user.id)
+  client.global.set('user_role', response.body.user.role)
+  client.global.set('session_id', response.body.session_id)
+  client.global.set('server_time', response.body.server_time)
+%}
+
+### 48 — Use global var set by previous post-script: Authorization header
+# {{session_token}} resolves from session_vars (set by #46's post-script)
+# Expected: session_token extracted from /session/init response
+GET {{host}}/session/verify
+Authorization: Bearer {{session_token}}
+X-User-Id: {{user_id}}
+X-User-Role: {{user_role}}
+
+### 49 — Use global var set by previous post-script: URL path
+# {{user_id}} resolves from session_vars (set by #46's post-script)
+# Expected: user.id from /session/init response
+GET {{host}}/anything/user/{{user_id}}
+X-User-Id: {{user_id}}
+X-Session-Id: {{session_id}}
+
+### 50 — Use global var set by previous post-script: query params
+# Multiple global vars from #46's post-script used together
+GET {{host}}/anything/dashboard?user={{user_id}}&role={{user_role}}&session={{session_id}}
+X-Dashboard-User: {{user_id}}
+X-Dashboard-Role: {{user_role}}
+
+### 51 — Global var survives across multiple requests
+# Tests that the global var set by #46's post-script is still available
+# even after several intermediate requests (#47, #48, #49)
+GET {{host}}/anything/session-persistence
+Authorization: Bearer {{session_token}}
+X-Session-Token: {{session_token}}
+X-Server-Time: {{server_time}}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Category 11: Post-script sets var → request-level @var overrides it
+# ═════════════════════════════════════════════════════════════════════════════
+
+### 52 — Request-level @var overrides post-script global var
+# Post-script from #46 set: user_role = "admin"
+# Request-level @var overrides: user_role = "custom_role"
+# Expected: {{user_role}} → "custom_role" (request-level @var wins)
+# This tests that @var in the block takes priority over session_vars
+@user_role = custom_role
+GET {{host}}/anything/role-override
+X-User-Role: {{user_role}}
+X-Session-User-Role: {{user_role}}
+
+### 53 — Post-script sets var → file-level @var overrides it
+# File-level: @page_size = 10
+# Post-script set user_role (no conflict)
+# This tests that session_vars don't leak into unrelated vars
+GET {{host}}/anything/session-isolation
+X-Page-Size: {{page_size}}
+X-User-Role: {{user_role}}
+
+### 54 — Multiple post-scripts: var from #46 still available
+# Tests that global vars persist across the entire session
+# #46 set session_token, user_id, user_role, session_id, server_time
+# All should still be available many requests later
+GET {{host}}/anything/session-longevity
+Authorization: Bearer {{session_token}}
+X-User-Id: {{user_id}}
+X-User-Role: {{user_role}}
+X-Session-Id: {{session_id}}

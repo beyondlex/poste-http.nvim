@@ -115,9 +115,29 @@ GET https://api.example.com/step3?token={{Step 2.response.body.token}}
 
 ## Variable Priority
 
-When multiple variable types exist with the same name, the priority is:
+Poste uses a unified 7-layer priority chain. All `{{variable}}` references
+(except cross-request refs) resolve through the same resolver:
 
-1. **Request variables** (e.g., `{{Login.response.body.token}}`)
-2. **Request-level variables** (`@var = value` in request block)
-3. **File-level variables** (`@var = value` before first `###`)
-4. **Environment variables** (from `env.json`)
+```
+Priority  Source                          Example
+──────────────────────────────────────────────────────────
+ 1 (highest)  Import parameters           run #Login (@timeout=30)
+ 2            Request-local @var          @timeout = 20      (inside ### block)
+ 3            File-level @var             @timeout = 10      (before first ###)
+ 4            Session variables           client.global.set('timeout', '5')
+ 5            Script variables            request.variables.set('timeout', '3')
+ 6            Environment variables       env.json → dev.timeout
+ 7 (lowest)   Magic / built-in            {{$timestamp}}, {{$uuid}}
+```
+
+**Cross-request references** (`{{Login.response.body.token}}`) are a separate
+path and do NOT participate in the priority chain. They are resolved by
+looking up the cached response of the named request.
+
+**Scope rule**: narrower scope = higher priority, like programming languages:
+- Import params → function arguments
+- Request-local → local variables
+- File-level → module constants
+- Session/script → process globals
+- Environment → environment variables
+- Magic → built-in functions

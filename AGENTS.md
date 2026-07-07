@@ -95,4 +95,3 @@ isolated, shared state in `state.lua`.
 | HTTP TDD guide | `docs/dev/http/tdd-guide.md` |
 | SQL design | `docs/dev/sql/design.md` |
 | Agent learnings | `LEARNINGS.md` |
-| Progress tracking | `PROGRESS.md` |

@@ -1,5 +1,4 @@
 local state = require("poste.state")
-local util = require("poste.util")
 local request_vars = require("poste.http.request_vars")
 local context_detector = require("poste.http.context_detector")
 local data = require("poste.http.data")
@@ -173,73 +172,50 @@ function M.show_var_value()
   local resolved = nil
   local source = nil
 
-  local magic_vars = {
-    timestamp = function() return tostring(os.time()) .. math.random(100000, 999999) end,
-    uuid = function()
-      local template = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
-      return template:gsub("[xy]", function(c)
-        local v = (c == "x") and math.random(0, 15) or math.random(8, 11)
-        return string.format("%x", v)
-      end)
-    end,
-    date = function() return os.date("%Y-%m-%d") end,
-    randomInt = function() return tostring(math.random(0, 9999999)) end,
-  }
-  if var_name:match("^%$") then
-    local magic_name = var_name:sub(2)
-    if magic_vars[magic_name] then
-      resolved = magic_vars[magic_name]()
-      source = "magic var"
-    end
-  end
-
-  if not resolved then
-    -- Check client.global vars (set via pre/post scripts)
-    local state = require("poste.state")
-    if state.global_vars and state.global_vars[var_name] then
-      resolved = state.global_vars[var_name]
-      source = "client.global (session var)"
-    end
-  end
-
-  if not resolved then
-    -- Check script_variables (request.variables.set from post-scripts)
-    local state = require("poste.state")
-    if state.script_variables and state.script_variables[var_name] then
-      resolved = state.script_variables[var_name]
-      source = "script variable (session var)"
-    end
-  end
-
-  if not resolved then
-    local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    for _, l in ipairs(all_lines) do
-      if l:match("^###") then break end
-      local def_name, _, def_val = l:match("^%s*@(%w+)%s*(=?)(.*)")
-      if def_name and def_name == var_name then
-        resolved = vim.trim(def_val)
-        source = "file variable"
-        break
-      end
-    end
-  end
-
-  if not resolved then
+  -- Try to resolve via poste resolve CLI
+  local poste_bin = state.find_poste_binary()
+  if poste_bin then
     local buf_path = vim.api.nvim_buf_get_name(buf)
-    if buf_path ~= "" then
-      local search_dir = vim.fn.fnamemodify(buf_path, ":h")
-      local env_file = util.find_file_upwards("env.json", search_dir)
-      if env_file then
-        local env_lines = vim.fn.readfile(env_file)
-        if env_lines and #env_lines > 0 then
-          local ok, env_data = pcall(vim.json.decode, table.concat(env_lines, "\n"))
-          if ok and type(env_data) == "table" then
-            local env_vars = env_data[state.current_env]
-            if env_vars and type(env_vars) == "table" and env_vars[var_name] then
-              resolved = env_vars[var_name]
-              source = "env.json (" .. state.current_env .. ")"
-            end
-          end
+    local block_line = line_num
+
+    -- Build the CLI args
+    local args = {
+      poste_bin, "resolve",
+      "--stdin",
+      "--file", buf_path,
+      "--block", tostring(block_line),
+      "--var", var_name,
+    }
+
+    -- Pass session vars if available
+    if state.global_vars and next(state.global_vars) then
+      table.insert(args, "--session-vars")
+      table.insert(args, vim.json.encode(state.global_vars))
+    end
+
+    -- Pass script vars if available
+    if state.script_variables and next(state.script_variables) then
+      table.insert(args, "--script-vars")
+      table.insert(args, vim.json.encode(state.script_variables))
+    end
+
+    -- Pass current env
+    table.insert(args, "--env")
+    table.insert(args, state.current_env)
+
+    -- Pipe buffer content as stdin (handles unsaved buffers)
+    local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local stdin_data = table.concat(buf_lines, "\n")
+
+    -- Run the CLI command
+    local ok, sys_obj = pcall(vim.system, args, { stdin = stdin_data, text = true })
+    if ok then
+      local ok2, result = pcall(sys_obj.wait, sys_obj)
+      if ok2 and result.code == 0 then
+        local stdout = result.stdout or ""
+        if stdout ~= "" then
+          resolved = vim.trim(stdout)
+          source = "CLI resolver"
         end
       end
     end

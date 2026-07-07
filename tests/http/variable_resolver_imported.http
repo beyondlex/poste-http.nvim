@@ -1,0 +1,57 @@
+# Imported file for variable resolver cross-file import param testing
+# This file is referenced by variable_resolver_test.http via `import` and `run`
+#
+# Flow tested here:
+#   1. main.http: import ./this_file.http as imported
+#   2. main.http: run imported#Login (@timeout=30, @username=admin, ...)
+#   3. This file's Login block executes → post-script sets global vars
+#   4. main.http: subsequent request uses {{imported_token}}
+#
+# File-level vars (P3 in priority chain)
+@host = http://localhost:8888
+@timeout = 10
+@default_user = anonymous
+@username = file_username
+@role = file_role
+
+### Login
+# POST to /session/init — returns session_token, user.id, user.role in response body
+# Post-script extracts these and stores as global vars for the caller to use
+#
+# Import params (P1) override:
+#   @timeout     → 30 (overrides file-level @timeout = 10)
+#   @username    → "admin" (no file-level default)
+#   @password    → "secret"
+#   @role        → "admin" (no file-level default)
+@username = local_username
+@role = local_role
+POST {{host}}/session/init
+Content-Type: application/json
+
+{
+  "username": "{{username}}",
+  "role": "{{role}}",
+  "timeout": {{timeout}}
+}
+
+> {%
+  client.global.set('imported_token', response.body.session_token)
+  client.global.set('imported_user_id', response.body.user.id)
+  client.global.set('imported_user_role', response.body.user.role)
+  client.global.set('imported_session_id', response.body.session_id)
+  client.global.set('imported_server_time', response.body.server_time)
+%}
+
+### GetUser
+# Uses global vars set by Login's post-script (via import params)
+# {{user_id}} comes from import param, {{auth_token}} from import param
+# Both are P1 level — highest priority
+GET {{host}}/anything/user/{{user_id}}
+Authorization: Bearer {{auth_token}}
+X-Source: imported-file
+X-Test-User: {{default_user}}
+
+> {%
+  client.global.set('imported_auth_token', response.body.headers.authorization)
+  client.global.set('imported_url', response.body.url)
+%}

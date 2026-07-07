@@ -11,5 +11,5 @@ pub mod sql_parser;
 
 pub use env::{substitute_vars, Environment};
 pub use formatter::{Formatter, Region, ScriptStyle, ScriptType, Tokenizer, VarStyle};
-pub use parser::Parser;
+pub use parser::{Parser, VarResolver};
 pub use request::{replace_database_in_url, Protocol, Request};

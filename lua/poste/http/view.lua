@@ -119,18 +119,18 @@ function M.show_view(view)
   -- --- Response available: show full data ---
   stop_verbose_timer()
 
+  -- Fast path: use pre-rendered buffer for multi-response (avoids nvim_buf_set_lines + treesitter)
+  local idx = state.response_index
+  local rb = idx and buffer.get_response_buffer_for_idx(idx, view)
+  if rb and buffer.get_response_win() then
+    local win = buffer.get_response_win()
+    vim.api.nvim_win_set_buf(win, rb)
+    buffer.update_winbar(view)
+    return
+  end
+
   local lines, filetype
   if view == "body" then
-    -- Fast path: use pre-rendered buffer for multi-response (avoids nvim_buf_set_lines + treesitter)
-    local idx = state.response_index
-    local rb = idx and buffer.get_response_buffer_for_idx(idx)
-    if rb and buffer.get_response_win() then
-      local win = buffer.get_response_win()
-      vim.api.nvim_win_set_buf(win, rb)
-      buffer.update_winbar("body")
-      return
-    end
-    -- Fallback: render normally
     if not state.last_response.body or state.last_response.body == "" then
       lines = { "(no response body)" }
       filetype = "text"

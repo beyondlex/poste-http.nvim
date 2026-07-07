@@ -8,7 +8,7 @@ local response_buffer = nil
 local response_window = nil
 local response_cleanup_group = nil
 local response_keymaps_set = false
-local response_buffers = {}  -- idx → buf_nr, for multi-response buffer-per-entry
+local response_buffers = {}  -- view → { idx → buf_nr }
 local active_response_idx = nil
 local setup_keymaps  -- forward declaration
 
@@ -92,9 +92,12 @@ function M.get_response_win()
   return nil
 end
 
---- Check if a pre-rendered body buffer exists for the given index.
-function M.get_response_buffer_for_idx(idx)
-  local buf = response_buffers[idx]
+--- Check if a pre-rendered buffer exists for the given index and view.
+function M.get_response_buffer_for_idx(idx, view)
+  view = view or "body"
+  local bufs = response_buffers[view]
+  if not bufs then return nil end
+  local buf = bufs[idx]
   if buf and vim.api.nvim_buf_is_valid(buf) then return buf end
   return nil
 end
@@ -102,23 +105,44 @@ end
 --- Pre-render all multi-responses into scratch buffers for instant switching.
 function M.prepare_multi_responses(responses)
   -- Clean up old buffers
-  for _, buf in pairs(response_buffers) do
-    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  for _, bufs in pairs(response_buffers) do
+    for _, buf in pairs(bufs) do
+      pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    end
   end
   response_buffers = {}
 
+  local views = { "body", "request", "verbose" }
+  local format_fns = {
+    body    = function(r) return format.format_body(r), format.detect_filetype(r.content_type) end,
+    request = function(r) return format.format_request_payload(r), "text" end,
+    verbose = function(r) return format.format_verbose(r, nil), "text" end,
+  }
+
+  for _, view in ipairs(views) do
+    response_buffers[view] = {}
+  end
+
   for idx, entry in ipairs(responses) do
-    local buf = vim.api.nvim_create_buf(false, true)
-    vim.bo[buf].buftype = "nofile"
-    local lines = format.format_body(entry.response)
-    local ft = format.detect_filetype(entry.response.content_type)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].filetype = ft
-    -- Force treesitter to parse now (not lazily on first display in window)
-    pcall(vim.treesitter.start, buf, ft)
-    -- Set keymaps so [ / ] / B / R / E / q etc. work on this buffer
-    setup_keymaps(buf)
-    response_buffers[idx] = buf
+    local r = entry.response
+    for _, view in ipairs(views) do
+      local buf = vim.api.nvim_create_buf(false, true)
+      vim.bo[buf].buftype = "nofile"
+      local ok, result1, result2 = pcall(format_fns[view], r)
+      local lines, ft
+      if ok then
+        lines = result1
+        ft = result2 or "text"
+      else
+        lines = { "(error formatting)" }
+        ft = "text"
+      end
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      vim.bo[buf].filetype = ft
+      pcall(vim.treesitter.start, buf, ft)
+      setup_keymaps(buf)
+      response_buffers[view][idx] = buf
+    end
   end
 end
 
@@ -135,20 +159,21 @@ function M.navigate_response(direction)
   state._json.query = nil
   state._json.is_filtered = false
 
-  -- Swap to pre-rendered buffer (instant, no nvim_buf_set_lines, no treesitter re-parse)
-  state.current_view = "body"
-  local buf = response_buffers[idx]
+  -- Preserve current tab when switching responses
+  local cur_view = state.current_view or "body"
+  local view_bufs = response_buffers[cur_view]
+  local buf = view_bufs and view_bufs[idx]
   if buf and vim.api.nvim_buf_is_valid(buf) and response_window and vim.api.nvim_win_is_valid(response_window) then
     vim.api.nvim_win_set_buf(response_window, buf)
     active_response_idx = idx
     pcall(vim.api.nvim_win_set_cursor, response_window, { 1, 0 })
-    M.update_winbar("body")
+    M.update_winbar(cur_view)
     return
   end
 
-  -- Fallback: full render (no pre-rendered buffers, e.g. single request)
-  if state.current_view and M.on_show_view then
-    M.on_show_view(state.current_view)
+  -- Fallback: full render (view without pre-rendered buffer, e.g. assertions)
+  if M.on_show_view then
+    M.on_show_view(cur_view)
   end
 end
 

@@ -117,7 +117,6 @@ end
 
 --- Pre-render all multi-responses into scratch buffers for instant switching.
 function M.prepare_multi_responses(responses)
-  M.reset_multi_response()
 
   local views = { "body", "request", "verbose" }
   local function request_vars_filetype(r)

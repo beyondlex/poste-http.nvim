@@ -135,7 +135,6 @@ local function handle_job_stdout(data, src_buf, req_line, req_block, req_text, a
 
   vim.schedule(function()
     state.pending_request = nil
-    response_buf.reset_multi_response()
     local ok, parsed = pcall(vim.json.decode, output)
     if ok and parsed and type(parsed) == "table" then
       -- Successful parse
@@ -152,11 +151,15 @@ local function handle_job_stdout(data, src_buf, req_line, req_block, req_text, a
           history.add_entry(item.name, item.response, nil, nil, file)
         end
         table.insert(chain, {name = current_req_name or "Request", response = parsed})
+        response_buf.reset_multi_response()
         state.last_responses = chain
         state.response_index = #chain
         request_vars._dep_chain = nil
-        -- Pre-render response buffers for instant [ / ] switching
         pcall(response_buf.prepare_multi_responses, chain)
+      else
+        state.last_responses = nil
+        state.response_index = nil
+        response_buf.reset_multi_response()
       end
       emit_response(parsed, current_req_name, file, nil, nil)
 
@@ -170,6 +173,9 @@ local function handle_job_stdout(data, src_buf, req_line, req_block, req_text, a
       -- JSON parse failed
       state.log("WARN", "JSON parse failed, showing raw output")
       indicators.set_indicator(src_buf, req_line, "error")
+      state.last_responses = nil
+      state.response_index = nil
+      response_buf.reset_multi_response()
       local error_response = make_error_response(req_text, req_block, output, "JSON parse failed", "?")
       state.last_response = error_response
       emit_response(error_response, current_req_name, file, nil, nil)
@@ -187,7 +193,6 @@ local function handle_job_exit(code, stderr_buf, src_buf, req_line, req_block, r
   state.log("ERROR", string.format("exit code %d", code))
   vim.schedule(function()
     state.pending_request = nil
-    response_buf.reset_multi_response()
     indicators.set_indicator(src_buf, req_line, "error")
     local stderr_text = table.concat(stderr_buf, "\n")
     local body = stderr_text ~= "" and stderr_text or "Request failed with exit code " .. code
@@ -200,10 +205,15 @@ local function handle_job_exit(code, stderr_buf, src_buf, req_line, req_block, r
         history.add_entry(item.name, item.response, nil, nil, file)
       end
       table.insert(chain, {name = current_req_name or "Request", response = error_response})
+      response_buf.reset_multi_response()
       state.last_responses = chain
       state.response_index = #chain
       request_vars._dep_chain = nil
       pcall(response_buf.prepare_multi_responses, chain)
+    else
+      state.last_responses = nil
+      state.response_index = nil
+      response_buf.reset_multi_response()
     end
     emit_response(error_response, current_req_name, file, nil, nil)
     view.show_view("verbose")

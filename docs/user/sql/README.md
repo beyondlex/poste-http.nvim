@@ -1,15 +1,15 @@
-# SQL 用户文档
+# SQL User Documentation
 
-> `.sql` / `.mysql` / `.sqlite` 文件语法快速参考
+> Quick reference for `.sql` / `.mysql` / `.sqlite` file syntax
 
-| 文档 | 说明 |
-|------|------|
-| [快速参考](./quick-reference.md) | SQL 文件语法速查表 |
+| Document | Description |
+|----------|-------------|
+| [Quick Reference](./quick-reference.md) | SQL file syntax cheatsheet |
 
-## 快速入门
+## Quick Start
 
-参见[项目 README](../../../README.md)。
+See the [project README](../../../README.md).
 
 ---
 
-*SQL 用户文档组*
+*SQL documentation group*

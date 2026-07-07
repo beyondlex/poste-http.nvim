@@ -1,5 +1,6 @@
 local state = require("poste.state")
 local format = require("poste.http.format")
+local buffer = require("poste.http.buffer")
 local assertions = require("poste.http.assertions")
 local scripts = require("poste.http.scripts")
 
@@ -145,7 +146,7 @@ local function render_detail()
   end
 
   vim.api.nvim_set_option_value("modifiable", true, { buf = detail_buf })
-  vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, buffer.sanitize_lines(lines))
   vim.api.nvim_set_option_value("modifiable", false, { buf = detail_buf })
   vim.bo[detail_buf].filetype = filetype or "text"
   pcall(vim.api.nvim_win_set_cursor, detail_win, { 1, 0 })
@@ -204,7 +205,7 @@ local function history_jq_filter(query)
   entry._jq.lines = lines
 
   vim.api.nvim_set_option_value("modifiable", true, { buf = detail_buf })
-  vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, buffer.sanitize_lines(lines))
   vim.api.nvim_set_option_value("modifiable", false, { buf = detail_buf })
 
   if detail_win and vim.api.nvim_win_is_valid(detail_win) then
@@ -221,7 +222,7 @@ local function history_jq_restore()
   if not entry or not entry._jq or not entry._jq.original_lines then return end
 
   vim.api.nvim_set_option_value("modifiable", true, { buf = detail_buf })
-  vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, entry._jq.original_lines)
+  vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, buffer.sanitize_lines(entry._jq.original_lines))
   vim.api.nvim_set_option_value("modifiable", false, { buf = detail_buf })
 
   entry._jq = nil

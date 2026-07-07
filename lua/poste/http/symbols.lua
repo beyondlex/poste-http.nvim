@@ -1,42 +1,60 @@
---- Symbol picker: pick an HTTP request from the current file.
---- Uses Snacks.picker when available.
-
 local M = {}
 
 ---------------------------------------------------------------------------
--- Parse requests from buffer
+-- Helpers
 ---------------------------------------------------------------------------
 
---- Extract URL path from a request line.
---- e.g., "GET https://api.example.com/users" → "/users"
---- e.g., "GET {{host}}/api/v1/items" → "/api/v1/items"
 local function extract_url_path(line)
   if not line then return nil end
-  -- Match: METHOD <url>
   local url = line:match("^%s*%u+%s+(.+)")
   if not url then return nil end
-  -- Extract path after host: skip protocol://host or {{var}}/host portion
-  local path = url:match("://[^/]*(.*)") -- after ://host
+  local path = url:match("://[^/]*(.*)")
   if not path then
-    path = url:match("}}(.*)") -- after {{var}}
+    path = url:match("}}(.*)")
   end
   if not path then
-    path = url:match("^(/.*)") -- already a path
+    path = url:match("^(/.*)")
+  end
+  if path and path ~= "" then
+    path = path:gsub("%?.*", "")
   end
   return path and path ~= "" and path or nil
 end
 
---- Truncate a string with ellipsis if it exceeds max length.
+local function truncate_middle(s, max)
+  if not s or #s <= max then return s or "" end
+  local half = math.floor((max - 1) / 2)
+  return s:sub(1, half) .. "…" .. s:sub(#s - half + 1)
+end
+
 local function truncate(s, max)
   if not s then return "" end
   if #s <= max then return s end
   return s:sub(1, max - 1) .. "…"
 end
 
---- Scan buffer and collect all ### request blocks.
---- Delegates outer ### detection to cache.lua block index.
---- @param bufnr number Buffer handle
---- @return table[] List of { name, method, url_path, line }
+local function short_name(name)
+  if not name then return "" end
+  return name:match("([^%.]+)$") or name
+end
+
+local function method_hl(method)
+  if not method or method == "--" then return "PosteMethodOther" end
+  if method == "run" then return "PosteRun" end
+  local m = method:upper()
+  if m == "GET" then return "PosteMethodGET"
+  elseif m == "POST" then return "PosteMethodPOST"
+  elseif m == "PUT" then return "PosteMethodPUT"
+  elseif m == "DELETE" then return "PosteMethodDELETE"
+  elseif m == "PATCH" then return "PosteMethodPATCH"
+  elseif m == "HEAD" then return "PosteMethodHEAD"
+  else return "PosteMethodOther" end
+end
+
+---------------------------------------------------------------------------
+-- Parse requests from buffer
+---------------------------------------------------------------------------
+
 local function collect_requests(bufnr)
   local cache = require("poste.http.cache")
   local bc = cache.get_buffer_cache(bufnr)
@@ -70,14 +88,26 @@ local function collect_requests(bufnr)
 
         if not skip then
           method = next_line:match("^%s*(%u+)%s")
-          if method then
+          if not method then
+            local run_target = next_line:match("^%s*run%s+(%S+)")
+            if run_target then
+              method = "run"
+              url_path = run_target
+            end
+          end
+          if method and method ~= "run" then
             url_path = extract_url_path(next_line)
           end
           break
         end
       end
 
-      table.insert(requests, { name = name, method = method, url_path = url_path, line = block.start_line })
+      table.insert(requests, {
+        name = name,
+        method = method or "--",
+        url_path = url_path,
+        line = block.start_line,
+      })
     end
   end
 
@@ -88,17 +118,37 @@ end
 -- Snacks picker
 ---------------------------------------------------------------------------
 
---- Show requests using Snacks.picker.select.
 local function show_snacks_picker(requests)
+  local max_method_width = 4
+  for _, req in ipairs(requests) do
+    local m = (req.method or "--"):len()
+    if m > max_method_width then max_method_width = m end
+  end
+
   local items = {}
   for _, req in ipairs(requests) do
     local method = req.method or "--"
-    local text = method .. "  " .. truncate(req.name, 40)
-    local desc = req.url_path and truncate(req.url_path, 45) or ""
+    local url, short
+
+    if method == "run" then
+      url = "#" .. req.name
+      short = short_name(req.name)
+    else
+      url = req.url_path or ""
+      short = req.name or ""
+    end
+
+    url = truncate_middle(url, 55)
+    short = truncate(short, 30)
+    local pad = string.rep(" ", max_method_width - method:len())
+
     items[#items + 1] = {
-      text = text,
-      description = desc,
+      text = method .. pad .. "  " .. url .. "  " .. short,
       key = req,
+      _method = method,
+      _pad = pad,
+      _url = url,
+      _short = short,
     }
   end
 
@@ -107,8 +157,17 @@ local function show_snacks_picker(requests)
     {
       prompt = "Requests",
       layout = "select",
-      format_item = function(item)
-        return item.text .. (item.description ~= "" and "  " .. item.description or "")
+      format_item = function(item, supports_chunks)
+        if supports_chunks then
+          return {
+            { item._method .. item._pad, method_hl(item._method) },
+            { "  ", "" },
+            { item._url, "String" },
+            { "  ", "" },
+            { item._short, "Comment" },
+          }
+        end
+        return item.text
       end,
     },
     function(item)
@@ -125,7 +184,6 @@ end
 -- Public API
 ---------------------------------------------------------------------------
 
---- Show symbol picker for the current buffer.
 function M.show_symbols()
   local bufnr = vim.api.nvim_get_current_buf()
   local requests = collect_requests(bufnr)

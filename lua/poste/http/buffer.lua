@@ -156,7 +156,7 @@ function M.prepare_multi_responses(responses)
         lines = { "(error formatting)" }
         ft = "text"
       end
-      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, sanitize_lines(lines))
       vim.bo[buf].filetype = ft
       pcall(vim.treesitter.start, buf, ft)
 
@@ -451,6 +451,22 @@ function M.get_buf()
   return nil
 end
 
+--- Split lines containing embedded newlines into separate entries.
+--- nvim_buf_set_lines rejects strings with \\n inside them.
+local function sanitize_lines(lines)
+  local out = {}
+  for _, line in ipairs(lines) do
+    if line:find("[\n\r]") then
+      for part in line:gmatch("[^\n\r]+") do
+        table.insert(out, part)
+      end
+    else
+      table.insert(out, line)
+    end
+  end
+  return out
+end
+
 --- Ensure the response split is open and display the given lines
 function M.render_buffer(lines, filetype)
   format.close_image_preview()
@@ -458,7 +474,7 @@ function M.render_buffer(lines, filetype)
 
   -- Make buffer modifiable, write lines, lock again
   vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, sanitize_lines(lines))
   vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
 
   -- Set filetype for treesitter highlighting (skip if same to avoid reattach)

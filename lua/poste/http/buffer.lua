@@ -102,15 +102,22 @@ function M.get_response_buffer_for_idx(idx, view)
   return nil
 end
 
---- Pre-render all multi-responses into scratch buffers for instant switching.
-function M.prepare_multi_responses(responses)
-  -- Clean up old buffers
+--- Reset multi-response state. Call before rendering a new request to avoid stale buffers.
+function M.reset_multi_response()
   for _, bufs in pairs(response_buffers) do
     for _, buf in pairs(bufs) do
       pcall(vim.api.nvim_buf_delete, buf, { force = true })
     end
   end
   response_buffers = {}
+  active_response_idx = nil
+  state.last_responses = nil
+  state.response_index = nil
+end
+
+--- Pre-render all multi-responses into scratch buffers for instant switching.
+function M.prepare_multi_responses(responses)
+  M.reset_multi_response()
 
   local views = { "body", "request", "verbose" }
   local function request_vars_filetype(r)

@@ -135,6 +135,7 @@ local function handle_job_stdout(data, src_buf, req_line, req_block, req_text, a
 
   vim.schedule(function()
     state.pending_request = nil
+    response_buf.reset_multi_response()
     local ok, parsed = pcall(vim.json.decode, output)
     if ok and parsed and type(parsed) == "table" then
       -- Successful parse
@@ -186,6 +187,7 @@ local function handle_job_exit(code, stderr_buf, src_buf, req_line, req_block, r
   state.log("ERROR", string.format("exit code %d", code))
   vim.schedule(function()
     state.pending_request = nil
+    response_buf.reset_multi_response()
     indicators.set_indicator(src_buf, req_line, "error")
     local stderr_text = table.concat(stderr_buf, "\n")
     local body = stderr_text ~= "" and stderr_text or "Request failed with exit code " .. code

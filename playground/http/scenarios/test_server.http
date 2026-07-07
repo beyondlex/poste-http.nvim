@@ -165,7 +165,7 @@ Upload test from Poste
 Content-Disposition: form-data; name="file"; filename="test_data.txt"
 Content-Type: text/plain
 
-< ./simple.txt
+< ../data/simple.txt
 ------PosteTestBoundary--
 
 ### 42 — File upload (multiple files)
@@ -180,12 +180,12 @@ Multiple file upload test
 Content-Disposition: form-data; name="doc1"; filename="test_data.txt"
 Content-Type: text/plain
 
-< ./test_data.txt
+< ../data/test_data.txt
 ------PosteMultiBoundary
 Content-Disposition: form-data; name="doc2"; filename="smoke_test.sh"
 Content-Type: text/plain
 
-< ./smoke_test.sh
+< ../data/smoke_test.sh
 ------PosteMultiBoundary--
 
 ### 43 — Upload with interactive prompt for file path
@@ -223,7 +223,7 @@ Content-Type: multipart/form-data; boundary=----StoreBoundary
 Content-Disposition: form-data; name="file"; filename="test_data.txt"
 Content-Type: text/plain
 
-< ./test_data.txt
+< ../data/test_data.txt
 ------StoreBoundary--
 
 ### 45 — Upload multipart to /store

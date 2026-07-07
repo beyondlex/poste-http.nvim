@@ -145,8 +145,10 @@ local function render_detail()
     filetype = "text"
   end
 
+  lines = buffer.sanitize_lines(lines)
+
   vim.api.nvim_set_option_value("modifiable", true, { buf = detail_buf })
-  vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, buffer.sanitize_lines(lines))
+  vim.api.nvim_buf_set_lines(detail_buf, 0, -1, false, lines)
   vim.api.nvim_set_option_value("modifiable", false, { buf = detail_buf })
   vim.bo[detail_buf].filetype = filetype or "text"
   pcall(vim.api.nvim_win_set_cursor, detail_win, { 1, 0 })

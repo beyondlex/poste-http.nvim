@@ -137,29 +137,22 @@ local function read_file(path)
 end
 
 --- Collect all imports and run directives from a buffer's content.
---- Parses file-level imports (before first ###) and block-level run directives.
+--- Imports are collected from anywhere in the file (top-level or between blocks).
 --- @param buf_content string  Full buffer content
 --- @return { imports = table[], runs = table[] }
 function M.collect_directives(buf_content)
   local imports = {}
   local runs = {}
-  local past_first_block = false
 
   for line in buf_content:gmatch("[^\n]+") do
     local imp = parse_import_line(line)
     if imp then
-      if not past_first_block then
-        table.insert(imports, imp)
-      end
+      table.insert(imports, imp)
     else
       local run = parse_run_line(line)
       if run then
         table.insert(runs, run)
       end
-    end
-
-    if line:match("^%s*###") then
-      past_first_block = true
     end
   end
 

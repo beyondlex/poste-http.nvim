@@ -259,3 +259,9 @@ run #auth.LoginWithToken (@token=run_token)
 # Expected: GetIP + GetUA execute sequentially; responses shown
 # in result buffer with per-request progress notifications.
 run ./helper_batch.http
+
+import ./dynamic_prompts.feature.http as prompts
+
+### run request including prompt
+run #prompts.prompt_enhance
+

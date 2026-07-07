@@ -4,9 +4,13 @@
 ### jq
 GET https://api.github.com/repos/jqlang/jq/commits?per_page=5
 
-### prompt enhance
+### prompt_enhance
 <<method [ {{jq.response.body | {name: .[].commit.author.name, key: .[].author.id, desc: .[].commit.author.email} }} ]
-GET https://httpbin.org/get?method={{method}}
+GET {{base_url}}/get?method={{method}}
+
+### test_dependency
+@method = {{prompt_enhance.response.body.url}}
+GET {{base_url}}/get?method={{method}}
 
 ### Select items
 @key = fruit

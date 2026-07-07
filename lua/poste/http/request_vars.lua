@@ -287,6 +287,22 @@ M.find_request_variable_refs = find_request_variable_refs
 --- Execute a single dependent request asynchronously.
 --- Uses cache if available. Calls on_complete(response_or_nil).
 --- Non-blocking: uses jobstart on_exit callback chain.
+--- Read file-level @var lines from the source file (before first ###).
+local function read_file_vars_from_path(file_path)
+  local ok, content = pcall(vim.fn.readfile, file_path)
+  if not ok or type(content) ~= "table" then return "", 0 end
+  local lines = {}
+  for _, line in ipairs(content) do
+    local trimmed = vim.trim(line)
+    if trimmed:match("^@") then
+      table.insert(lines, trimmed)
+    elseif trimmed:match("^###") then
+      break
+    end
+  end
+  return table.concat(lines, "\n"), #lines
+end
+
 local function execute_dependent_request_async(binary, file, env_name, dep_req, resolved_content, on_complete)
   -- Check cache first
   if request_response_cache[dep_req.name] then
@@ -295,14 +311,23 @@ local function execute_dependent_request_async(binary, file, env_name, dep_req, 
     return
   end
 
+  -- Prepend file-level @var lines so the CLI resolver sees them via stdin
+  local file_vars_str, file_var_count = read_file_vars_from_path(file)
+  local stdin_content = resolved_content
+  local line_num = 1
+  if file_var_count > 0 then
+    stdin_content = file_vars_str .. "\n\n" .. resolved_content
+    line_num = file_var_count + 2
+  end
+
   local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
     vim.fn.shellescape(binary),
     vim.fn.shellescape(file),
-    dep_req.start_line,
+    line_num,
     vim.fn.shellescape(env_name)
   )
 
-  state.log("INFO", string.format("Executing dependent request '%s' at line %d", dep_req.name, dep_req.start_line))
+  state.log("INFO", string.format("Executing dependent request '%s' (block text via stdin, line=%d)", dep_req.name, line_num))
 
   local stdout_buf = {}
   local stderr_buf = {}
@@ -383,7 +408,7 @@ local function execute_dependent_request_async(binary, file, env_name, dep_req, 
   end))
 
   -- Send resolved content via stdin
-  local clean_content = strip_prompt_lines(resolved_content)
+  local clean_content = strip_prompt_lines(stdin_content)
   clean_content = assertions.extract_assertion_blocks(clean_content)
   vim.fn.chansend(job_id, clean_content)
   vim.fn.chanclose(job_id, "stdin")
@@ -868,8 +893,8 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
 
   state.log("INFO", string.format("Found %d request variable reference(s)", #refs))
 
-  -- Build list of pending dependencies (1 level only, no transitive resolution).
-  -- Skip deps that are already cached or contain interactive prompt directives (<<).
+  -- Build list of pending dependencies. Transitive resolution is handled
+  -- recursively via resolve_content_dependencies during execution.
   local pending_deps = {}
   for _, ref in ipairs(refs) do
     if request_response_cache[ref.request_name] then
@@ -877,17 +902,7 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
     else
       for _, req in ipairs(requests) do
         if req.name == ref.request_name then
-          -- Check if this dependency has prompt directives (<<variable)
-          local dep_block_lines = {}
-          for i = req.start_line, req.end_line do
-            table.insert(dep_block_lines, all_lines[i] or "")
-          end
-          local dep_text = table.concat(dep_block_lines, "\n")
-          if dep_text:match("<<%S") then
-            state.log("WARN", string.format("Dependency '%s' has prompt directives (<<), cannot auto-execute. Run it manually first.", ref.request_name))
-          else
-            table.insert(pending_deps, req)
-          end
+          table.insert(pending_deps, req)
           break
         end
       end
@@ -918,13 +933,13 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
   end
 
   if #pending_deps == 0 then
-    -- All deps already cached or skipped — substitute immediately
     on_complete(substitute_and_finish())
     return
   end
 
-  -- Execute direct dependencies (1 level only). Each dep is run without
-  -- resolving its own sub-dependencies — those must already be cached.
+  -- Execute dependencies with recursive sub-dep resolution + prompt handling.
+  -- Each dep first resolves its own sub-dependencies recursively, handles any
+  -- <<var prompts (same-buffer only), then executes via CLI and caches response.
   local dep_idx = 1
   local function execute_next_dep()
     if dep_idx > #pending_deps then
@@ -935,23 +950,53 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
     local dep_req = pending_deps[dep_idx]
     dep_idx = dep_idx + 1
 
-    state.log("INFO", string.format("Auto-executing dependency '%s' (1/1 level)", dep_req.name))
+    state.log("INFO", string.format("Auto-executing dependency '%s'", dep_req.name))
 
-    -- Extract dep's block text from original content (no sub-dep resolution)
-    local dep_block_lines = {}
+    -- Check if dep has prompt directives (<<variable)
+    local dep_raw_lines = {}
     for i = dep_req.start_line, dep_req.end_line do
-      table.insert(dep_block_lines, all_lines[i] or "")
+      table.insert(dep_raw_lines, all_lines[i] or "")
     end
-    local dep_block_text = table.concat(dep_block_lines, "\n")
+    local dep_raw_text = table.concat(dep_raw_lines, "\n")
+    local has_prompts = dep_raw_text:match("<<%S")
 
-    execute_dependent_request_async(binary, file, env_name, dep_req, dep_block_text, function(response)
-      if response then
-        state.log("INFO", string.format("Dependency '%s' executed and cached", dep_req.name))
-      else
-        state.log("WARN", string.format("Dependency '%s' failed to execute", dep_req.name))
+    local function do_execute(resolved_content)
+      if not resolved_content then resolved_content = content end
+      local resolved_lines = vim.split(resolved_content, "\n", { plain = true })
+      local dep_lines = {}
+      for i = dep_req.start_line, dep_req.end_line do
+        table.insert(dep_lines, resolved_lines[i] or "")
       end
-      execute_next_dep()
-    end)
+      local dep_block_text = table.concat(dep_lines, "\n")
+
+      execute_dependent_request_async(binary, file, env_name, dep_req, dep_block_text, function(response)
+        if response then
+          state.log("INFO", string.format("Dependency '%s' executed and cached", dep_req.name))
+        else
+          state.log("WARN", string.format("Dependency '%s' failed to execute", dep_req.name))
+        end
+        execute_next_dep()
+      end)
+    end
+
+    local function after_subdep_resolve(subdep_resolved)
+      if not subdep_resolved then subdep_resolved = content end
+      if has_prompts then
+        M.handle_prompt_variables(buf, dep_req.start_line, subdep_resolved, binary, file, env_name, function(prompt_resolved)
+          if not prompt_resolved then
+            state.log("WARN", string.format("Dependency '%s' prompt cancelled, skipping", dep_req.name))
+            execute_next_dep()
+            return
+          end
+          do_execute(prompt_resolved)
+        end)
+      else
+        do_execute(subdep_resolved)
+      end
+    end
+
+    -- Recursively resolve sub-dependencies of this dep before executing it
+    M.resolve_content_dependencies(binary, file, env_name, content, dep_req.start_line, after_subdep_resolve, 1)
   end
 
   execute_next_dep()
@@ -1004,7 +1049,14 @@ end
 --- @param content string  full file content
 --- @param block_line number  ### marker line (1-indexed)
 --- @param on_complete function(string|nil)
-function M.resolve_content_dependencies(binary, file_path, env_name, content, block_line, on_complete)
+function M.resolve_content_dependencies(binary, file_path, env_name, content, block_line, on_complete, _depth)
+  _depth = _depth or 0
+  if _depth > 10 then
+    state.log("ERROR", string.format("Max dependency depth (10) reached at block line %d, aborting resolution", block_line))
+    on_complete(content)
+    return
+  end
+
   local requests = M.collect_requests_from_content(content)
 
   -- Extract target block text and find its bounds
@@ -1029,10 +1081,9 @@ function M.resolve_content_dependencies(binary, file_path, env_name, content, bl
     return
   end
 
-  state.log("INFO", string.format("Found %d request variable reference(s) in target block", #refs))
+  state.log("INFO", string.format("Found %d request variable reference(s) in target block (depth %d)", #refs, _depth))
 
-  -- Build list of pending dependencies (1 level only, no transitive resolution).
-  -- Skip deps that are already cached or contain interactive prompt directives (<<).
+  -- Build list of pending dependencies (transitive resolution).
   local pending_deps = {}
   for _, ref in ipairs(refs) do
     if request_response_cache[ref.request_name] then
@@ -1040,18 +1091,7 @@ function M.resolve_content_dependencies(binary, file_path, env_name, content, bl
     else
       for _, req in ipairs(requests) do
         if req.name == ref.request_name then
-          -- Check if this dependency has prompt directives (<<variable)
-          -- Auto-execution cannot handle interactive prompts
-          local dep_block_lines = {}
-          for i = req.start_line, req.end_line do
-            table.insert(dep_block_lines, lines[i] or "")
-          end
-          local dep_text = table.concat(dep_block_lines, "\n")
-          if dep_text:match("<<%S") then
-            state.log("WARN", string.format("Dependency '%s' has prompt directives (<<), cannot auto-execute. Run it manually first.", ref.request_name))
-          else
-            table.insert(pending_deps, req)
-          end
+          table.insert(pending_deps, req)
           break
         end
       end
@@ -1084,17 +1124,15 @@ function M.resolve_content_dependencies(binary, file_path, env_name, content, bl
   end
 
   if #pending_deps == 0 then
-    -- All deps already cached or skipped — substitute immediately
     on_complete(substitute_and_finish())
     return
   end
 
-  -- Execute direct dependencies (1 level only). Each dep is run without
-  -- resolving its own sub-dependencies — those must already be cached.
+  -- Execute dependencies with recursive sub-dep resolution.
+  -- Each dep first resolves its own sub-dependencies, then is executed via CLI.
   local dep_idx = 1
   local function execute_next_dep()
     if dep_idx > #pending_deps then
-      -- All deps done: substitute and complete
       on_complete(substitute_and_finish())
       return
     end
@@ -1102,24 +1140,28 @@ function M.resolve_content_dependencies(binary, file_path, env_name, content, bl
     local dep_req = pending_deps[dep_idx]
     dep_idx = dep_idx + 1
 
-    state.log("INFO", string.format("Auto-executing dependency '%s' (1/1 level)", dep_req.name))
+    state.log("INFO", string.format("Resolving dependency '%s' (depth %d)", dep_req.name, _depth))
 
-    -- Extract dep's block text from original content (no sub-dep resolution)
-    local dep_block_lines = {}
-    for i = dep_req.start_line, dep_req.end_line do
-      table.insert(dep_block_lines, lines[i] or "")
-    end
-    local dep_block_text = table.concat(dep_block_lines, "\n")
-
-    execute_dependent_request_async(binary, file_path, env_name, dep_req, dep_block_text, function(response)
-      if response then
-        state.log("INFO", string.format("Dependency '%s' executed and cached", dep_req.name))
-      else
-        state.log("WARN", string.format("Dependency '%s' failed to execute", dep_req.name))
+    local function do_execute(resolved_content)
+      if not resolved_content then resolved_content = content end
+      local resolved_lines = vim.split(resolved_content, "\n", { plain = true })
+      local dep_lines = {}
+      for i = dep_req.start_line, dep_req.end_line do
+        table.insert(dep_lines, resolved_lines[i] or "")
       end
-      -- Continue to next dep regardless of success/failure
-      execute_next_dep()
-    end)
+      local dep_block_text = table.concat(dep_lines, "\n")
+
+      execute_dependent_request_async(binary, file_path, env_name, dep_req, dep_block_text, function(response)
+        if response then
+          state.log("INFO", string.format("Dependency '%s' executed and cached", dep_req.name))
+        else
+          state.log("WARN", string.format("Dependency '%s' failed to execute", dep_req.name))
+        end
+        execute_next_dep()
+      end)
+    end
+
+    resolve_content_dependencies(binary, file_path, env_name, content, dep_req.start_line, do_execute, _depth + 1)
   end
 
   execute_next_dep()

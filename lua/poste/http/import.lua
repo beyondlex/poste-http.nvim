@@ -340,6 +340,54 @@ local function find_block_end(content, block_start)
   return #lines
 end
 
+--- Check if a request block contains <<var prompt directives.
+--- @param content string  Full file content
+--- @param block_start number  ### marker line (1-indexed)
+--- @return boolean
+local function has_prompt_directives(content, block_start)
+  local lines = vim.split(content, "\n", { plain = true })
+  for i = block_start + 1, #lines do
+    local line = lines[i]
+    if not line then break end
+    if line:match("^%s*###") then break end
+    if line:match("^%s*<<%S") then return true end
+  end
+  return false
+end
+
+--- Handle <<var prompts in imported file content using a scratch buffer.
+--- Opens a temp Neovim buffer, runs handle_prompt_variables, returns resolved content.
+--- @param content string  Full file content (with sub-deps resolved)
+--- @param block_start number  ### marker line (1-indexed)
+--- @param binary string  poste binary path
+--- @param file_path string  imported file path
+--- @param env_name string  environment name
+--- @param on_complete function(string|nil)
+local function handle_import_prompts(content, block_start, binary, file_path, env_name, on_complete)
+  if not has_prompt_directives(content, block_start) then
+    on_complete(content)
+    return
+  end
+
+  state.log("INFO", string.format("Import target has prompt directives (<<), resolving via scratch buffer"))
+
+  -- Create a scratch buffer and populate with content
+  local buf = vim.api.nvim_create_buf(false, true)
+  pcall(vim.api.nvim_buf_set_option, buf, "buftype", "nofile")
+  local lines = vim.split(content, "\n", { plain = true })
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+  request_vars.handle_prompt_variables(buf, block_start, content, binary, file_path, env_name, function(modified_content)
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    if modified_content then
+      on_complete(modified_content)
+    else
+      state.log("WARN", "Import target prompt cancelled by user")
+      on_complete(nil)
+    end
+  end)
+end
+
 --- Inject global vars as @var lines after block_start.
 --- Mirrors run.lua:inject_global_vars logic.
 --- @param buf_content string
@@ -480,84 +528,95 @@ function M.execute_run_directive(opts, callback)
     -- This executes any uncached {{Name.response.body.*}} refs pointing to
     -- requests in the same file, then substitutes their values before proceeding.
     request_vars.resolve_content_dependencies(binary, opts.path, state.current_env, content, opts.line, function(dep_resolved_content)
-      -- Process pre-script from target block (on dependency-resolved content)
-      local modified_content, injected_count = process_target_pre_script(dep_resolved_content, opts.line, block_end)
-      block_end = block_end + injected_count
+      if not dep_resolved_content then dep_resolved_content = content end
 
-      -- Apply variable overrides if specified
-      if opts.vars and next(opts.vars) then
-        opts.line = opts.line + injected_count
-        modified_content = M.apply_variable_overrides(modified_content, opts.line, opts.vars)
-      end
+      -- Handle <<var prompts in target block via scratch buffer (if any)
+      handle_import_prompts(dep_resolved_content, opts.line, binary, opts.path, state.current_env, function(prompt_resolved)
+        if not prompt_resolved then
+          state.log("WARN", string.format("Import prompt cancelled for '%s', aborting", opts.request_name))
+          if callback then callback(false, nil) end
+          return
+        end
 
-      local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
-        vim.fn.shellescape(binary),
-        vim.fn.shellescape(opts.path),
-        opts.line,
-        vim.fn.shellescape(state.current_env)
-      )
+        -- Process pre-script from target block (on prompt-resolved content)
+        local modified_content, injected_count = process_target_pre_script(prompt_resolved, opts.line, block_end)
+        block_end = block_end + injected_count
 
-      state.log("INFO", string.format("import run: %s", cmd))
+        -- Apply variable overrides if specified
+        if opts.vars and next(opts.vars) then
+          opts.line = opts.line + injected_count
+          modified_content = M.apply_variable_overrides(modified_content, opts.line, opts.vars)
+        end
 
-      local stdout_buf = {}
-      local stderr_buf = {}
+        local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
+          vim.fn.shellescape(binary),
+          vim.fn.shellescape(opts.path),
+          opts.line,
+          vim.fn.shellescape(state.current_env)
+        )
 
-      local job_id = vim.fn.jobstart(cmd, {
-        stdin = "pipe",
-        stdout_buffered = true,
-        stderr_buffered = true,
-        on_stdout = function(_, data)
-          if not data then return end
-          for _, line in ipairs(data) do
-            if line ~= "" then table.insert(stdout_buf, line) end
-          end
-        end,
-        on_stderr = function(_, data)
-          if not data then return end
-          for _, line in ipairs(data) do
-            if line ~= "" then table.insert(stderr_buf, line) end
-          end
-        end,
-        on_exit = function(_, code)
-          if code ~= 0 then
-            vim.schedule(function()
-              vim.notify(string.format("run directive failed (exit %d): %s", code,
-                table.concat(stderr_buf, "\n")), vim.log.levels.ERROR, { title = "Poste" })
+        state.log("INFO", string.format("import run: %s", cmd))
+
+        local stdout_buf = {}
+        local stderr_buf = {}
+
+        local job_id = vim.fn.jobstart(cmd, {
+          stdin = "pipe",
+          stdout_buffered = true,
+          stderr_buffered = true,
+          on_stdout = function(_, data)
+            if not data then return end
+            for _, line in ipairs(data) do
+              if line ~= "" then table.insert(stdout_buf, line) end
+            end
+          end,
+          on_stderr = function(_, data)
+            if not data then return end
+            for _, line in ipairs(data) do
+              if line ~= "" then table.insert(stderr_buf, line) end
+            end
+          end,
+          on_exit = function(_, code)
+            if code ~= 0 then
+              vim.schedule(function()
+                vim.notify(string.format("run directive failed (exit %d): %s", code,
+                  table.concat(stderr_buf, "\n")), vim.log.levels.ERROR, { title = "Poste" })
+                if callback then callback(false, {
+                  status = 0,
+                  status_text = "Failed (exit " .. code .. ")",
+                  body = table.concat(stderr_buf, "\n"),
+                }) end
+              end)
+              return
+            end
+
+            local stdout_text = table.concat(stdout_buf, "\n")
+            local ok, parsed = pcall(vim.json.decode, stdout_text)
+            if ok and type(parsed) == "table" then
+              -- Run target block's post-script (so client.global.set() persists)
+              process_target_post_script(parsed, content, opts.line, orig_block_end)
+              -- Cache the response for cross-request variable resolution
+              request_vars.cache_response(opts.request_name, parsed)
+              if callback then callback(true, parsed) end
+            else
               if callback then callback(false, {
                 status = 0,
-                status_text = "Failed (exit " .. code .. ")",
-                body = table.concat(stderr_buf, "\n"),
+                status_text = "JSON parse failed",
+                body = stdout_text,
               }) end
-            end)
-            return
-          end
+            end
+          end,
+        })
 
-          local stdout_text = table.concat(stdout_buf, "\n")
-          local ok, parsed = pcall(vim.json.decode, stdout_text)
-          if ok and type(parsed) == "table" then
-            -- Run target block's post-script (so client.global.set() persists)
-            process_target_post_script(parsed, content, opts.line, orig_block_end)
-            -- Cache the response for cross-request variable resolution
-            request_vars.cache_response(opts.request_name, parsed)
-            if callback then callback(true, parsed) end
-          else
-            if callback then callback(false, {
-              status = 0,
-              status_text = "JSON parse failed",
-              body = stdout_text,
-            }) end
-          end
-        end,
-      })
-
-      if job_id > 0 then
-        vim.fn.chansend(job_id, modified_content)
-        vim.fn.chanclose(job_id, "stdin")
-      else
-        vim.notify("Failed to start poste job for run directive", vim.log.levels.ERROR, { title = "Poste" })
-        if callback then callback(false, nil) end
-      end
-    end)
+        if job_id > 0 then
+          vim.fn.chansend(job_id, modified_content)
+          vim.fn.chanclose(job_id, "stdin")
+        else
+          vim.notify("Failed to start poste job for run directive", vim.log.levels.ERROR, { title = "Poste" })
+          if callback then callback(false, nil) end
+        end
+      end) -- handle_import_prompts callback end
+    end) -- resolve_content_dependencies callback end
 
   elseif opts.action == "execute_all" then
     -- Execute all requests in the target file

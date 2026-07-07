@@ -868,11 +868,34 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
 
   state.log("INFO", string.format("Found %d request variable reference(s)", #refs))
 
-  -- Build topological execution order for all dependencies
-  local dep_order = build_dep_order(refs, requests, content)
+  -- Build list of pending dependencies (1 level only, no transitive resolution).
+  -- Skip deps that are already cached or contain interactive prompt directives (<<).
+  local pending_deps = {}
+  for _, ref in ipairs(refs) do
+    if request_response_cache[ref.request_name] then
+      -- Already cached, skip execution
+    else
+      for _, req in ipairs(requests) do
+        if req.name == ref.request_name then
+          -- Check if this dependency has prompt directives (<<variable)
+          local dep_block_lines = {}
+          for i = req.start_line, req.end_line do
+            table.insert(dep_block_lines, all_lines[i] or "")
+          end
+          local dep_text = table.concat(dep_block_lines, "\n")
+          if dep_text:match("<<%S") then
+            state.log("WARN", string.format("Dependency '%s' has prompt directives (<<), cannot auto-execute. Run it manually first.", ref.request_name))
+          else
+            table.insert(pending_deps, req)
+          end
+          break
+        end
+      end
+    end
+  end
 
-  if #dep_order == 0 then
-    -- All dependencies already cached, substitute immediately
+  -- Substitution helper: replace all refs with cached values in the block
+  local function substitute_and_finish()
     local resolved_block = block_text
     for _, ref in ipairs(refs) do
       local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
@@ -882,7 +905,6 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
         state.log("WARN", string.format("Could not resolve variable: %s", ref.full))
       end
     end
-
     local result_lines = {}
     local resolved_split = vim.split(resolved_block, "\n", { plain = true })
     for i, l in ipairs(all_lines) do
@@ -892,36 +914,47 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
         table.insert(result_lines, l)
       end
     end
-    on_complete(table.concat(result_lines, "\n"))
+    return table.concat(result_lines, "\n")
+  end
+
+  if #pending_deps == 0 then
+    -- All deps already cached or skipped — substitute immediately
+    on_complete(substitute_and_finish())
     return
   end
 
-  -- Execute dependencies sequentially via callback chain (fully non-blocking)
-  execute_deps_sequential(binary, file, env_name, dep_order, content, requests, 1, function()
-    -- All deps resolved: substitute variables in current block
-    local resolved_block = block_text
-    for _, ref in ipairs(refs) do
-      local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
-      if value then
-        resolved_block = resolved_block:gsub(vim.pesc(ref.full), tostring(value))
-      else
-        state.log("WARN", string.format("Could not resolve variable: %s", ref.full))
-      end
+  -- Execute direct dependencies (1 level only). Each dep is run without
+  -- resolving its own sub-dependencies — those must already be cached.
+  local dep_idx = 1
+  local function execute_next_dep()
+    if dep_idx > #pending_deps then
+      on_complete(substitute_and_finish())
+      return
     end
 
-    -- Replace block in full content
-    local result_lines = {}
-    local resolved_split = vim.split(resolved_block, "\n", { plain = true })
-    for i, l in ipairs(all_lines) do
-      if i >= current_req.start_line and i <= current_req.end_line then
-        table.insert(result_lines, resolved_split[i - current_req.start_line + 1] or l)
-      else
-        table.insert(result_lines, l)
-      end
-    end
+    local dep_req = pending_deps[dep_idx]
+    dep_idx = dep_idx + 1
 
-    on_complete(table.concat(result_lines, "\n"))
-  end)
+    state.log("INFO", string.format("Auto-executing dependency '%s' (1/1 level)", dep_req.name))
+
+    -- Extract dep's block text from original content (no sub-dep resolution)
+    local dep_block_lines = {}
+    for i = dep_req.start_line, dep_req.end_line do
+      table.insert(dep_block_lines, all_lines[i] or "")
+    end
+    local dep_block_text = table.concat(dep_block_lines, "\n")
+
+    execute_dependent_request_async(binary, file, env_name, dep_req, dep_block_text, function(response)
+      if response then
+        state.log("INFO", string.format("Dependency '%s' executed and cached", dep_req.name))
+      else
+        state.log("WARN", string.format("Dependency '%s' failed to execute", dep_req.name))
+      end
+      execute_next_dep()
+    end)
+  end
+
+  execute_next_dep()
 end
 
 --- Cache the current request's response for use by subsequent request variables
@@ -998,28 +1031,44 @@ function M.resolve_content_dependencies(binary, file_path, env_name, content, bl
 
   state.log("INFO", string.format("Found %d request variable reference(s) in target block", #refs))
 
-  -- Filter refs: only process uncached refs pointing to requests in this content
-  local local_refs = {}
+  -- Build list of pending dependencies (1 level only, no transitive resolution).
+  -- Skip deps that are already cached or contain interactive prompt directives (<<).
+  local pending_deps = {}
   for _, ref in ipairs(refs) do
-    if not request_response_cache[ref.request_name] then
+    if request_response_cache[ref.request_name] then
+      -- Already cached, skip execution
+    else
       for _, req in ipairs(requests) do
         if req.name == ref.request_name then
-          table.insert(local_refs, ref)
+          -- Check if this dependency has prompt directives (<<variable)
+          -- Auto-execution cannot handle interactive prompts
+          local dep_block_lines = {}
+          for i = req.start_line, req.end_line do
+            table.insert(dep_block_lines, lines[i] or "")
+          end
+          local dep_text = table.concat(dep_block_lines, "\n")
+          if dep_text:match("<<%S") then
+            state.log("WARN", string.format("Dependency '%s' has prompt directives (<<), cannot auto-execute. Run it manually first.", ref.request_name))
+          else
+            table.insert(pending_deps, req)
+          end
           break
         end
       end
     end
   end
 
-  if #local_refs == 0 then
-    -- All deps already cached, substitute immediately
+  -- Substitution helper: replace all refs with cached values in the block
+  local function substitute_and_finish()
     local resolved_block = block_text
+    local all_resolved = true
     for _, ref in ipairs(refs) do
       local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
       if value then
         resolved_block = resolved_block:gsub(vim.pesc(ref.full), tostring(value))
       else
-        state.log("WARN", string.format("Could not resolve variable: %s", ref.full))
+        state.log("WARN", string.format("Could not resolve variable: %s — value may be missing from the response", ref.full))
+        all_resolved = false
       end
     end
     local result_lines = {}
@@ -1031,35 +1080,49 @@ function M.resolve_content_dependencies(binary, file_path, env_name, content, bl
         table.insert(result_lines, l)
       end
     end
-    on_complete(table.concat(result_lines, "\n"))
+    return table.concat(result_lines, "\n")
+  end
+
+  if #pending_deps == 0 then
+    -- All deps already cached or skipped — substitute immediately
+    on_complete(substitute_and_finish())
     return
   end
 
-  -- Build dependency order (topological via DFS)
-  local dep_order = build_dep_order(local_refs, requests, content)
+  -- Execute direct dependencies (1 level only). Each dep is run without
+  -- resolving its own sub-dependencies — those must already be cached.
+  local dep_idx = 1
+  local function execute_next_dep()
+    if dep_idx > #pending_deps then
+      -- All deps done: substitute and complete
+      on_complete(substitute_and_finish())
+      return
+    end
 
-  -- Execute dependencies sequentially, then substitute
-  execute_deps_sequential(binary, file_path, env_name, dep_order, content, requests, 1, function()
-    local resolved_block = block_text
-    for _, ref in ipairs(refs) do
-      local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
-      if value then
-        resolved_block = resolved_block:gsub(vim.pesc(ref.full), tostring(value))
-      else
-        state.log("WARN", string.format("Could not resolve variable: %s", ref.full))
-      end
+    local dep_req = pending_deps[dep_idx]
+    dep_idx = dep_idx + 1
+
+    state.log("INFO", string.format("Auto-executing dependency '%s' (1/1 level)", dep_req.name))
+
+    -- Extract dep's block text from original content (no sub-dep resolution)
+    local dep_block_lines = {}
+    for i = dep_req.start_line, dep_req.end_line do
+      table.insert(dep_block_lines, lines[i] or "")
     end
-    local result_lines = {}
-    local resolved_split = vim.split(resolved_block, "\n", { plain = true })
-    for i, l in ipairs(lines) do
-      if i >= block_line and i <= block_end then
-        table.insert(result_lines, resolved_split[i - block_line + 1] or l)
+    local dep_block_text = table.concat(dep_block_lines, "\n")
+
+    execute_dependent_request_async(binary, file_path, env_name, dep_req, dep_block_text, function(response)
+      if response then
+        state.log("INFO", string.format("Dependency '%s' executed and cached", dep_req.name))
       else
-        table.insert(result_lines, l)
+        state.log("WARN", string.format("Dependency '%s' failed to execute", dep_req.name))
       end
-    end
-    on_complete(table.concat(result_lines, "\n"))
-  end)
+      -- Continue to next dep regardless of success/failure
+      execute_next_dep()
+    end)
+  end
+
+  execute_next_dep()
 end
 
 ---------------------------------------------------------------------------

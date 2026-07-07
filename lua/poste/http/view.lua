@@ -103,7 +103,8 @@ function M.show_view(view)
   -- --- Pending request (no response yet) ---
   if not state.last_response and state.pending_request then
     if view == "verbose" then
-      local lines = format.format_verbose(nil, state.pending_request)
+local lines = format.format_verbose(nil, state.pending_request)
+    lines = buffer.sanitize_lines(lines)
       local filetype = "text"
       render_view(view, lines, filetype)
       start_verbose_timer()

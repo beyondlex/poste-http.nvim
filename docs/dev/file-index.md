@@ -1,146 +1,176 @@
-# Poste 文件索引
+# Poste File Index
 
-> 快速查找关键文件的索引表
-
----
-
-## Rust 核心
-
-| 功能 | 文件 | 说明 |
-|------|------|------|
-| HTTP/Redis 解析 | `crates/poste-core/src/parser.rs` | Tokenize、parse_block、变量替换 |
-| SQL 解析 | `crates/poste-core/src/sql_parser.rs` | @connection 提取、语句分割 |
-| SQL 上下文 | `crates/poste-core/src/sql_context/` | tokenizer、scope resolver、context detect |
-| 共享 Request 类型 | `crates/poste-core/src/request.rs` | Protocol 枚举、Request 结构体 |
-| HTTP/Redis 执行 | `crates/poste-exec/src/executor.rs` | dispatch → curl 执行 |
-| SQL 执行 | `crates/poste-exec/src/sql_executor.rs` | PG/MySQL/SQLite 执行器 |
-| 连接管理 | `crates/poste-exec/src/sql_connection.rs` | connections.json 读写、连接测试 |
-| Dialect 抽象 | `crates/poste-exec/src/sql_dialect.rs` | Dialect trait + 3 种实现 |
-| 内省查询 | `crates/poste-exec/src/sql_introspect.rs` | schema/table/column/index 查询 |
-| DDL 生成 | `crates/poste-exec/src/sql_ddl.rs` | DDL 语句生成器 |
-| Response 结构 | `crates/poste-exec/src/response.rs` | 统一响应格式 |
-| Cookie 管理 | `crates/poste-exec/src/cookie_jar.rs` | Cookie 持久化 |
-| CLI 入口 | `crates/poste-cli/src/main.rs` | run/connection/introspect/fmt/context |
+> Quick reference to key files across the project
 
 ---
 
-## Lua 插件
+## Rust Core
 
-### HTTP 模块 (`lua/poste/`)
+| Function | File | Description |
+|----------|------|-------------|
+| HTTP/Redis parsing | `crates/poste-core/src/parser.rs` | Tokenize, parse_block, variable substitution |
+| SQL parsing | `crates/poste-core/src/sql_parser.rs` | @connection extraction, statement splitting |
+| SQL context | `crates/poste-core/src/sql_context/` | Tokenizer, scope resolver, context detection |
+| Variable resolver | `crates/poste-core/src/parser.rs` | `VarResolver` struct with priority chain |
+| Shared Request type | `crates/poste-core/src/request.rs` | Protocol enum, Request struct |
+| Env.json loading | `crates/poste-core/src/env.rs` | Environment variable loading |
+| Formatter | `crates/poste-core/src/formatter.rs` | `.http` file formatting engine |
+| Importer (OpenAPI/etc) | `crates/poste-core/src/importer.rs` | Import specs to `.http` format |
+| HTTP/Redis execution | `crates/poste-exec/src/executor.rs` | Dispatch → curl execution |
+| SQL execution | `crates/poste-exec/src/sql_executor.rs` | PG/MySQL/SQLite executor |
+| Connection management | `crates/poste-exec/src/sql_connection.rs` | connections.json read/write, test |
+| Dialect abstraction | `crates/poste-exec/src/sql_dialect.rs` | Dialect trait + 3 implementations |
+| Introspection | `crates/poste-exec/src/sql_introspect.rs` | Schema/table/column/index queries |
+| DDL generation | `crates/poste-exec/src/sql_ddl.rs` | DDL statement generator |
+| Response structure | `crates/poste-exec/src/response.rs` | Unified response format |
+| Cookie management | `crates/poste-exec/src/cookie_jar.rs` | Cookie persistence |
+| CLI entry | `crates/poste-cli/src/main.rs` | run/connection/introspect/fmt/context/resolve/serve/import |
 
-| 文件 | 说明 |
-|------|------|
-| `init.lua` | HTTP 执行入口、filetype 分流 |
-| `buffer.lua` | 右侧垂直 split 结果面板 |
-| `completion.lua` | HTTP 智能补全 |
-| `format.lua` | JSON 格式化 |
-| `highlights.lua` | HTTP 语法高亮 |
-| `assertions.lua` | Post-request 断言执行 |
-| `scripts.lua` | Pre-request 脚本执行 |
-| `curl.lua` | curl 命令构建 |
-| `copy.lua` | curl 命令导出 |
-| `select.lua` | 通用 Picker UI |
-| `indicators.lua` | spinner/✓/✘ 指示器 |
-| `state.lua` | 共享状态管理 |
-| `history.lua` | HTTP 请求历史 UI + 持久化 |
+---
 
-### SQL 模块 (`lua/poste/sql/`)
+## Lua Plugin
 
-| 文件 | 说明 |
-|------|------|
-| `init.lua` | SQL 执行入口（对应 HTTP 的 init.lua） |
-| `buffer.lua` | 底部水平 split Dataset 面板 |
-| `format.lua` | 表格渲染（conceal、Virtual Text） |
-| `highlights.lua` | Dataset extmark 高亮 |
-| `verbose.lua` | SQL Verbose 视图格式化 |
-| `context.lua` | 执行上下文管理（connection → database） |
-| `connections.lua` | 连接管理 UI |
-| `db_browser.lua` | 数据库树形浏览器 |
-| `completion.lua` | SQL 智能补全 |
-| `table_ops.lua` | 表操作 UI |
-| `editor.lua` | Dataset 数据编辑 |
-| `export.lua` | 导出功能（CSV/JSON/SQL） |
-| `import.lua` | 导入功能 |
-| `pagination.lua` | 结果分页状态管理 |
+### Shared (`lua/poste/`)
+
+| File | Description |
+|------|-------------|
+| `init.lua` | Entry point, filetype dispatch |
+| `state.lua` | Shared state management |
+| `select.lua` | Generic Picker UI |
+| `indicators.lua` | Spinner/✓/✘ indicators |
+| `buffer_setup.lua` | Buffer boilerplate creation |
+| `constants.lua` | Shared constants |
+| `error.lua` | Error handling |
+| `help.lua` | Help window |
+
+### HTTP Module (`lua/poste/http/`)
+
+| File | Description |
+|------|-------------|
+| `init.lua` | HTTP execution entry |
+| `buffer.lua` | Right vertical split result panel |
+| `run.lua` | Request execution orchestration |
+| `curl.lua` | curl command building |
+| `copy.lua` | curl command export |
+| `format.lua` | JSON formatting |
+| `highlights.lua` | HTTP syntax highlighting (extmarks) |
+| `completion.lua` | HTTP smart completion |
+| `assertions.lua` | Post-request assertion execution |
+| `scripts.lua` | Pre-request script execution |
+| `nav.lua` | Block navigation, variable lookup |
+| `view.lua` | Response tab management (Body/Verbose/Assertions) |
+| `json.lua` | JSON folding, jq filter, outline |
+| `history.lua` | HTTP request history UI + persistence |
+| `symbols.lua` | Document symbol outline |
+| `outline.lua` | Sidebar outline |
+| `request_vars.lua` | Request variable handling, prompt vars |
+| `var_collector.lua` | Variable collection/rollup |
+| `context_detector.lua` | Context detection for completion |
+| `cache.lua` | Response cache for cross-request refs |
+| `env.lua` | Environment switching UI |
+| `import.lua` | Import/run across files |
+| `import_openapi.lua` | OpenAPI import |
+| `import_swagger.lua` | Swagger import |
+| `import_postman.lua` | Postman import |
+| `data.lua` | HTTP history data format helpers |
+| `item_builder.lua` | Completion item builder |
+| `boundary_indicator.lua` | Block boundary indicators |
+| `lua_docs.lua` | Lua API documentation helpers |
+| `md5.lua` | MD5 helper |
+| `script_snippet.lua` | Script snippet insertion |
+
+### SQL Module (`lua/poste/sql/`)
+
+| File | Description |
+|------|-------------|
+| `init.lua` | SQL execution entry |
+| `buffer.lua` | Bottom horizontal split Dataset panel |
+| `buffer_nav.lua` | Dataset cell navigation |
+| `buffer_page.lua` | Dataset pagination |
+| `buffer_search.lua` | Dataset search/filter |
+| `format.lua` | Table rendering (conceal, Virtual Text) |
+| `highlights.lua` | Dataset extmark highlighting |
+| `context.lua` | Execution context management (connection → database) |
+| `connections.lua` | Connection management UI |
+| `db_browser/init.lua` | Database tree browser |
+| `db_browser/tree.lua` | Browser tree rendering |
+| `db_browser/context_menu.lua` | Right-click context menu |
+| `db_browser/operations.lua` | DDL operations |
+| `db_browser/forms.lua` | Input forms |
+| `db_browser/icons.lua` | Tree icons |
+| `db_browser/async.lua` | Async tree loading |
+| `db_browser/completion.lua` | Browser-aware completion |
+| `completion.lua` | SQL smart completion |
+| `completion_ctx.lua` | Lua fallback context detection |
+| `completion_data.lua` | Keywords, functions, metadata cache |
+| `completion_adapter.lua` | blink.cmp adapter |
+| `completion_debug.lua` | Completion debugging |
+| `editor.lua` | Dataset cell editing |
+| `edit_commit.lua` | DML generation and commit |
+| `export.lua` | Export (CSV/JSON/SQL) |
+| `import.lua` | Import orchestration |
+| `import/execute.lua` | Import execution |
+| `import/format.lua` | Import formatting |
+| `import/mapping.lua` | Field mapping UI |
+| `import/preview.lua` | Import preview |
+| `table_ops.lua` | Table operations menu |
+| `nav.lua` | SQL block navigation |
+| `statement.lua` | Statement extraction |
+| `statement_indicator.lua` | Statement boundary indicators |
+| `syntax.lua` | SQL syntax extmarks |
+| `source_format.lua` | Source format utilities |
+| `introspect.lua` | Schema introspection UI |
+| `log_viewer.lua` | SQL log viewer |
+| `dataset.lua` | Dataset data model |
+| `insert_hint.lua` | INSERT template helpers |
+| `prototype.lua` | SQL prototype utilities |
 
 ---
 
 ## VimScript
 
-| 文件 | 说明 |
-|------|------|
-| `syntax/poste_http.vim` | HTTP 语法高亮 |
-| `syntax/poste_sql.vim` | SQL 语法高亮 |
-| `syntax/poste_dataset.vim` | Dataset Buffer 语法 |
-| `ftdetect/poste.vim` | filetype 检测（.http/.sql/.sqlite） |
-| `ftplugin/poste_sql.vim` | SQL filetype 插件 |
+| File | Description |
+|------|-------------|
+| `syntax/poste_http.vim` | HTTP syntax highlighting |
+| `syntax/poste_sql.vim` | SQL syntax highlighting |
+| `syntax/poste_dataset.vim` | Dataset buffer syntax |
+| `ftdetect/poste.vim` | Filetype detection (.http/.sql/.sqlite) |
+| `ftplugin/poste_sql.vim` | SQL filetype plugin settings |
 
 ---
 
-## 测试
+## Tests
 
-| 类型 | 位置 | 说明 |
-|------|------|------|
-| Rust 单元测试 | `crates/*/src/*_tests.rs` | 内联测试 |
-| Lua 单元测试 | `tests/*.lua` | busted 框架 |
-| SQL 集成测试 | `tests/sql/` | Docker Compose (PG + MySQL) |
-| HTTP 高亮测试 | `tests/http_highlight_spec.lua` | 语法高亮验证 |
-| HTTP 补全测试 | `tests/http_completion_spec.lua` | 补全验证 |
-| SQL 补全测试 | `tests/sql_completion_spec.lua` | SQL 补全验证 |
-
----
-
-## 示例文件
-
-| 类型 | 位置 | 说明 |
-|------|------|------|
-| HTTP 示例 | `examples/*.http` | HTTP 请求示例 |
-| SQL 示例 | `examples/*.sql` | SQL 查询示例 |
-| Redis 示例 | `examples/*.redis` | Redis 命令示例 |
-| SQL 测试查询 | `tests/sql/queries/` | 集成测试查询 |
-| SQL 初始化脚本 | `tests/sql/init/` | Docker 初始化脚本 |
+| Type | Location | Description |
+|------|----------|-------------|
+| Rust unit tests | `crates/*/src/*_tests.rs` | Inline tests |
+| Rust integration | `crates/*/tests/` | Integration tests |
+| Lua tests | `tests/*.lua` | busted framework |
+| SQL integration | `tests/sql/` | Docker Compose (PG + MySQL) |
+| HTTP completion tests | `tests/http_completion_spec.lua` | HTTP completion validation |
+| SQL completion tests | `tests/sql_completion_spec.lua` | SQL completion validation |
 
 ---
 
-## 文档
+## Examples
 
-| 文档 | 说明 |
-|------|------|
-| [文档中心](README.md) | 完整文档索引 |
-| [HTTP 用户文档](../user/http/README.md) | HTTP 用户文档组 |
-| [HTTP 开发者文档](./http/README.md) | HTTP 开发者文档组 |
-| [HTTP History 设计](./http/http-history.md) | 请求历史 UI 设计 |
-| [SQL 用户文档](../user/sql/README.md) | SQL 用户文档组 |
-| [SQL 开发者文档](./sql/README.md) | SQL 开发者文档组 |
-| [架构概览](./architecture-overview.md) | 整体架构设计 |
-| [HTTP 实施指南](./http/tdd-guide.md) | TDD 实施步骤 |
-| [HTTP 语法规范](../user/http/syntax.md) | 完整语法定义 |
-| [HTTP 快速参考](../user/http/quick-reference.md) | 语法速查表 |
-| [HTTP Formatter 设计](./http/format-design.md) | 格式化器架构 |
-| [JSON 响应 UX](./http/json-response-ux.md) | JSON 折叠与 jq 探索 |
-| [SQL 功能规划](./sql/design.md) | 6 阶段 SQL 规划 |
-| [SQL 快速参考](../user/sql/quick-reference.md) | 语法速查表 |
-| [SQL Completion P0-P4](./sql/completion/INDEX.md) | 补全系统实施（入口） |
-| [SQL Completion P0-P4 原始计划](./sql/completion/README.zh.md) | 补全系统原始计划 |
-| [SQL 上下文架构](./sql/context-architecture.md) | Context 检测架构 |
-| [Dataset UI 设计](./sql/dataset-ui-design.md) | 结果面板设计 |
-| [数据集编辑实现](./sql/dataset-ui-edit-impl.md) | 数据编辑方案 |
-| [DB Browser 右键菜单](./sql/db-browser-context-menu.md) | 浏览器交互 |
-| [数据导入设计](./sql/data-import-design.md) | CSV/JSON 导入方案 |
-| [Sign Column Postmortem](./indicators-postmortem.md) | Sign column 迁移踩坑记录 |
-| [插件安装](../user/plugin-install.md) | Neovim 插件安装 |
-| [测试指南](./testing.md) | 测试方法 |
-| [Archived 文档](./archived/README.md) | 过时设计文档存档 |
+| Type | Location | Description |
+|------|----------|-------------|
+| HTTP examples | `playground/http/` | HTTP request examples |
+| SQL examples | `examples/*.sql` | SQL query examples |
+| Redis examples | `examples/*.redis` | Redis command examples |
+| SQL test queries | `tests/sql/queries/` | Integration test queries |
+| SQL init scripts | `tests/sql/init/` | Docker init scripts |
 
 ---
 
-## 配置文件
+## Config Files
 
-| 文件 | 说明 |
-|------|------|
-| `env.json` | 环境变量（{{var}} 替换） |
-| `connections.json` | 数据库连接配置 |
+| File | Description |
+|------|-------------|
+| `env.json` | Environment variables ({{var}} substitution) |
+| `connections.json` | Database connection config |
 
 ---
 
-*文件索引 — 最后更新：2026-06-27*
+*File index — Last updated: 2026-07-07*

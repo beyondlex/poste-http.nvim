@@ -2,95 +2,94 @@
 
 > **Status**: P0 ✅ | P1 ✅ | P2 ✅ | P3 ✅ | P4 ✅
 
-如果你是第一次接触这个项目的 AI agent，按以下顺序阅读和执行。
+If you're an AI agent encountering this codebase for the first time, read and follow the steps below in order.
 
 ---
 
-## 1. 必读文件（按顺序）
+## 1. Required Reading (In Order)
 
-| 顺序 | 文件 | 读完应理解 |
-|------|------|-----------|
-| ① | `p0/poste-sql-file-syntax.en.md` (EN) / `p0/poste-sql-file-syntax.zh.md` (ZH) | 文件结构、指令规则、语句边界、JSON 契约、上下文类型语义（共 8 节） |
-| ② | `plan.en.md` (EN) / `plan.zh.md` (ZH) | 各阶段步骤清单、验收命令、提交清单 |
+| Order | File | After reading you should understand |
+|-------|------|-------------------------------------|
+| ① | `p0/poste-sql-file-syntax.en.md` | File structure, directive rules, statement boundaries, JSON contract, context type semantics (8 sections) |
+| ② | `plan.en.md` | Per-phase step checklist, verification commands, commit checklist |
 
-读完后可参考：
+Reference material:
 
-| 参考 | 文件 | 何时看 |
-|------|------|--------|
-| 设计决策 D1-D10 的权衡分析 | `p0/design-decisions.en.md` (EN) / `p0/design-decisions.zh.md` (ZH) | 遇到边界情况或质疑当前选择时 |
-| 会议辩论记录 + 后续决策 | `p0/meeting-minutes.zh.md` (仅中文) | 想理解某个决策为什么会这样定 |
+| Reference | File | When to consult |
+|-----------|------|-----------------|
+| Design decisions D1-D10 trade-off analysis | `p0/design-decisions.en.md` | When encountering edge cases or questioning current design choices |
+| Meeting debate records + subsequent decisions | `p0/meeting-minutes.zh.md` (Chinese only) | To understand why a particular decision was made |
 
-**不需要读**：`README.en.md` / `README.zh.md`（原始计划，已被 `plan.*.md` 替代）、`p0/meeting-agenda.*.md`（历史会议议程）。
+**Don't read**: `README.en.md` / `README.zh.md` (original plan, superseded by `plan.*.md`), `p0/meeting-agenda.*.md` (historical meeting agendas).
 
 ---
 
-## 2. 实施规范
+## 2. Implementation Rules
 
-### 2.1 TDD 优先
+### 2.1 TDD First
 
 ```
-1. 先写测试（或 golden fixture）
-2. 确认测试失败（红）
-3. 实现代码直到测试通过（绿）
-4. 重构
+1. Write test (or golden fixture) first
+2. Confirm test fails (red)
+3. Implement until test passes (green)
+4. Refactor
 ```
 
-- Rust 新功能：先在 `tests/sql_context_golden.rs` 或 `sql_context/tests.rs` 加 fixture/测试
-- Lua 新功能：先在 `tests/sql_completion_*_spec.lua` 加测试
-- 已标记 `BUG`/`BEFORE FIX` 的旧测试：实现修复后**更新测试断言**以匹配正确行为，不要为兼容旧错误保留错误测试
+- Rust new features: add fixture/test in `tests/sql_context_golden.rs` or `sql_context/tests.rs` first
+- Lua new features: add test in `tests/sql_completion_*_spec.lua` first
+- Tests marked `BUG`/`BEFORE FIX`: after fixing, **update test assertions** to match correct behavior, don't preserve tests encoding wrong behavior
 
-### 2.2 每步验收命令
+### 2.2 Verification Commands
 
 ```bash
-# Rust 测试
+# Rust tests
 cargo test -p poste-core sql_context
 
-# Rust golden fixture 测试（P2+）
+# Rust golden fixture tests (P2+)
 cargo test -p poste-core --test sql_context_golden
 
-# Lua 测试
+# Lua tests
 tests/run.sh
 
 # Clippy
 cargo clippy -p poste-core -p poste-cli -p poste-exec -- -D warnings
 ```
 
-### 2.3 变更边界
+### 2.3 Change Boundaries
 
-| 不允许修改 | 原因 |
-|-----------|------|
-| `lua/poste/http/*` | HTTP completion 隔离 |
-| `lua/poste/completion.lua` | HTTP completion 入口（不是 SQL） |
-| `lua/poste/sql/buffer.lua` | SQL 结果渲染 |
-| SQL executor 行为 | 除非阶段明确需要 metadata/cache 支持 |
+| Don't modify | Reason |
+|-------------|--------|
+| `lua/poste/http/*` | HTTP completion isolation |
+| `lua/poste/http/completion.lua` | HTTP completion entry (not SQL) |
+| `lua/poste/sql/buffer.lua` | SQL result rendering |
+| SQL executor behavior | Unless phase explicitly needs metadata/cache support |
 
-### 2.4 进度跟踪
+### 2.4 Progress Tracking
 
-每次实施后更新 `plan.en.md` / `plan.zh.md` 顶部的进度条和勾选项：
+After each implementation step, update the progress bar and checkboxes at the top of `plan.en.md`:
 
 ```markdown
 > **Progress**: P0 ✅ | P1 ⬜/⬜/⬜/⬜ | P2 ⬜ | P3 ⬜ | P4 ⬜
 ```
 
-用 `[x]` 标记已完成的复选框，`⬜` 表示尚未开始，半进度可用 `⬜/⬜/⬜/⬜` 表示子步骤完成数。
+Use `[x]` for completed checkboxes, `⬜` for not started. Partial progress can use `⬜/⬜/⬜/⬜` to show sub-step completion.
 
-### 2.5 契约兼容规则
+### 2.5 Contract Compatibility Rules
 
-- **不删除 JSON 字段**。只增不删。`version` 字段始终存在。
-- Lua 侧接到未知字段直接略过（`deep_clean()` 已处理）。
-- `###` 不再出现在文件格式中。碰到旧代码中的 `###` 处理逻辑应移除。
+- **Don't delete JSON fields**. Only add, never remove. The `version` field must always exist.
+- Lua side ignores unknown fields (`deep_clean()` already handles this).
+- `###` no longer appears in the file format. Code handling `###` in old code should be removed.
 
 ---
 
-## 3. 快速参考
+## 3. Quick Reference
 
-| 需要 | 路径 |
+| Need | Path |
 |------|------|
-| 当前实施步骤 | `plan.en.md` / `plan.zh.md` — 找到第一个未勾选的 `[ ]` |
-| 上下文类型完整表（14 种 + 42 种边缘情况） | `p0/poste-sql-file-syntax.*.md` §5 |
-| JSON 契约字段定义 | `p0/poste-sql-file-syntax.*.md` §4 |
-| 语句边界规则（当前） | `p0/poste-sql-file-syntax.*.md` §3 |
-| 语义级语句边界（未来方向） | `future/semantic-statement-boundary.*.md` |
-| 每阶段改动文件清单 | `plan.*.md` — 各 P1-P4 步骤内标注的 "Files:" 列表 |
-| 全局提交清单 | `plan.*.md` §Global Commit Checklist（文件末尾） |
-
+| Current implementation step | `plan.en.md` — find the first unchecked `[ ]` |
+| Complete context type table (14 types + 42 edge cases) | `p0/poste-sql-file-syntax.en.md` §5 |
+| JSON contract field definitions | `p0/poste-sql-file-syntax.en.md` §4 |
+| Statement boundary rules (current) | `p0/poste-sql-file-syntax.en.md` §3 |
+| Semantic-level statement boundaries (future) | `archived/semantic-statement-boundary.en.md` |
+| Per-phase changed file list | `plan.en.md` — "Files:" lists in each P1-P4 step |
+| Global commit checklist | `plan.en.md` §Global Commit Checklist (file end) |

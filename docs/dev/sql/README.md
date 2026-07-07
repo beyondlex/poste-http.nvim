@@ -1,17 +1,16 @@
-# SQL 开发者文档
+# SQL Developer Documentation
 
-> SQL 执行引擎、补全、UI 设计
+> SQL execution engine, completion, UI design
 
-| 文档 | 说明 |
-|------|------|
-| [SQL 功能设计](./design.md) | **入口文档** — 6 阶段规划（执行引擎 → 连接管理 → 浏览器 → 表操作 → 导入导出 → 高级特性） |
-| [SQL Completion](./completion/INDEX.md) | 补全系统实施指南（P0-P4 ✅） |
-| [上下文架构](./context-architecture.md) | SQL completion context 检测架构 |
-| [Dataset UI 设计](./dataset-ui-design.md) | 结果面板交互设计 |
-| [数据集编辑实现](./dataset-ui-edit-impl.md) | 数据编辑详细实现方案 |
-| [DB Browser 右键菜单](./db-browser-context-menu.md) | 数据库浏览器上下文菜单设计 |
-| [数据导入设计](./data-import-design.md) | CSV/JSON → SQL INSERT 导入方案 |
+| Document | Description |
+|----------|-------------|
+| [Completion System](./completion/INDEX.md) | P0-P4 implementation guide (✅ complete) |
+| [Context Architecture](./context-architecture.md) | SQL completion context detection architecture |
+| [DB Browser Context Menu](./db-browser-context-menu.md) | Database browser context menu design |
+
+> **Archived design docs** (features implemented, kept for reference):  
+> SQL Feature Design, Dataset UI Design, Dataset Editing, Data Import — these are in [archived docs](../archived/README.md) as their features are now implemented.
 
 ---
 
-*SQL 开发者文档组*
+*SQL developer documentation — Last updated: 2026-07-07*

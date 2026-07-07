@@ -1,76 +1,46 @@
-# 开发者文档
+# Developer Documentation
 
-> 架构、实施指南、设计文档
+> Architecture, implementation guides, design documents
 
 ---
 
-## 通用
+## General
 
-| 文档 | 说明 |
-|------|------|
-| [架构概览](./architecture-overview.md) | 整体架构设计 |
-| [文件索引](./file-index.md) | 关键文件速查 |
-| [测试指南](./testing.md) | Rust + Lua + Docker SQL 测试 |
-| [Debug 报告](./debug/README.md) | Bug 根因分析索引 |
-| [Archived 文档](./archived/README.md) | 过时设计文档存档 |
+| Document | Description |
+|----------|-------------|
+| [Architecture Overview](./architecture-overview.md) | Layered architecture, protocol isolation, data flow |
+| [File Index](./file-index.md) | Key files quick reference |
+| [Testing Guide](./testing.md) | Rust + Lua + Docker SQL testing |
+| [Archived Docs](./archived/README.md) | Outdated design documents |
 
-## HTTP 开发者
+## HTTP
 
-| 文档 | 说明 |
-|------|------|
-| [TDD 指南](./http/tdd-guide.md) | HTTP TDD 工作流和测试模式 |
-| [Formatter 设计](./http/format-design.md) | `poste fmt` 架构 |
-| [JSON 响应 UX](./http/json-response-ux.md) | JSON 折叠与 jq 探索 |
-| [OpenAPI/Swagger/Postman 导入计划](./http/openapi-import-plan.md) | TDD 导入功能开发计划 (18 Steps) |
+| Document | Description |
+|----------|-------------|
+| [TDD Guide](./http/tdd-guide.md) | HTTP TDD workflow and test patterns |
+| [Formatter Design](./http/format-design.md) | `poste fmt` architecture (✅ implemented) |
+| [JSON Response UX](./http/json-response-ux.md) | JSON folding and jq exploration |
+| [OpenAPI/Swagger/Postman Import](./http/openapi-import-plan.md) | TDD import feature plan (18 steps) |
+| [HTTP History Design](./http/http-history.md) | Request history UI design |
+| [Block Index Proposal](./http/block-index-proposal.md) | Structured buffer index proposal |
 
-## SQL 开发者
+## SQL
 
-| 文档 | 说明 |
-|------|------|
-| [SQL 功能设计](./sql/design.md) | **入口** — 6 阶段规划 |
-| [SQL Completion](./sql/completion/INDEX.md) | 补全系统实施（P0-P4 ✅） |
-| [上下文架构](./sql/context-architecture.md) | Context 检测设计 |
-| [Dataset UI 设计](./sql/dataset-ui-design.md) | 结果面板交互 |
-| [数据集编辑实现](./sql/dataset-ui-edit-impl.md) | 数据编辑方案 |
-| [DB Browser 右键菜单](./sql/db-browser-context-menu.md) | 浏览器交互 |
-| [数据导入设计](./sql/data-import-design.md) | CSV/JSON 导入方案 |
+| Document | Description |
+|----------|-------------|
+| [Completion System](./sql/completion/INDEX.md) | P0-P4 implementation guide (✅ complete) |
+| [Context Architecture](./sql/context-architecture.md) | Context detection architecture |
+| [DB Browser Context Menu](./sql/db-browser-context-menu.md) | Browser context menu design |
 
-## 文档引用关系
-
-### HTTP 文档链
-
-```
-http/tdd-guide.md (TDD 工作流)
-    ├── 引用 → ../user/http/syntax.md (语法规范)
-    └── 引用 → http/format-design.md (Formatter 设计)
-```
-
-### SQL 文档链
-
-```
-sql/design.md (入口)
-    ├── 引用 → sql/dataset-ui-design.md (结果面板)
-    ├── 引用 → sql/dataset-ui-edit-impl.md (数据编辑)
-    ├── 引用 → sql/db-browser-context-menu.md (右键菜单)
-    ├── 引用 → sql/completion/INDEX.md (补全系统)
-    └── 引用 → sql/data-import-design.md (数据导入)
-```
-
-## 重构计划
-
-| 文档 | 说明 |
-|------|------|
-| [重构实施计划](./refactoring-plan.md) | 代码味道识别、方案、TDD 实施步骤 |
-
-## 构建
+## Build
 
 ```bash
-cargo build          # 编译 CLI
-cargo test           # 运行 Rust 测试
-tests/run.sh         # 运行 Lua 测试
+cargo build          # Build CLI
+cargo test           # Run Rust tests
+tests/run.sh         # Run Lua tests
 ```
 
-### SQL 集成测试
+### SQL Integration Tests
 
 ```bash
 cd tests/sql && docker compose up -d   # PG 16 + MySQL 8.0
@@ -79,13 +49,13 @@ cargo run -- run tests/sql/queries/postgres.sql --line 4 --env dev
 
 ---
 
-## 文档维护约定
+## Documentation Conventions
 
-- 新增功能时，在 `dev/` 对应协议目录下创建设计文档
-- 用户语法参考放在 `user/` 对应协议目录下
-- 保持文档间的交叉引用更新
-- 中文文档优先，英文文档作为补充
+- New features: add design docs under `dev/<protocol>/`
+- User syntax references go under `user/<protocol>/`
+- Keep cross-references up to date
+- English preferred for all documentation
 
 ---
 
-*开发者文档组*
+*Developer documentation - Last updated: 2026-07-07*

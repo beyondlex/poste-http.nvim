@@ -431,13 +431,3 @@ GET {{host}}/health' | poste resolve --stdin --file /tmp/test.http --block 2 --v
 
 ---
 
-## Comparison with Other Tools
-
-| Feature | Poste | Kulala | REST Client (VS Code) |
-|---------|-------|--------|----------------------|
-| Priority layers | 7 (P1–P7) | 3–4 | 3–4 |
-| Import params | P1 (highest) | — | — |
-| Session vars | P4 (client.global) | — | — |
-| Script vars | P5 (request.variables) | — | — |
-| Cross-request refs | Separate path | Similar | Similar |
-| CLI resolver | `poste resolve` | — | — |

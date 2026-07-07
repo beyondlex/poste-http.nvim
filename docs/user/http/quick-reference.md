@@ -155,73 +155,18 @@ Usage: `{{api_base}}` → automatically replaced based on current environment
 
 ## Commands & Keymaps
 
+Full keymap reference in [Keymaps](../keymaps.md). Quick overview:
+
 | Command / Key | Function |
 |---------------|----------|
 | `<leader>rr` | Execute current request |
-| `]]` | Jump to next request |
-| `[[` | Jump to previous request |
-| `:PosteEnv` | Show current environment |
-| `:PosteEnv <name>` | Switch environment |
+| `]]` / `[[` | Jump to next/previous request |
+| `:PosteEnv [name]` | Show/switch environment |
+| `K` | Show variable value / response chain |
+| `<leader>rc` | Copy request as curl |
+| `<leader>l` | Open request history |
 | `q` (response buffer) | Close response window |
-| `K` (image response) | Inline image preview; fallback to external open |
-| `:PosteHttpHistory` | Open request history popup |
-| `<C-h>` (history list) | Jump to right detail buffer |
-| `<C-l>` (history detail) | Jump to left list buffer |
-| `j` / `k` (history list) | Navigate history entries |
-| `<CR>` (history list) | Focus detail panel |
-| `dd` (history list) | Delete current entry |
-| `q` (history popup) | Close history popup |
 
----
-
-## Formatting Rules (`poste fmt`)
-
-- Ensure a blank line before `###`
-- `@var = value`: one space before and after `=`
-- Header key: capitalize first letter, one space after colon
-- JSON body: auto-pretty-print
-- Remove trailing whitespace, collapse excess blank lines
-
----
-
-## Request History (PosteHttpHistory)
-
-`PosteHttpHistory` provides a near-full-screen floating popup showing all HTTP
-request records from the current session, persisted to disk across Neovim sessions.
-
-### Popup Layout
-
-```
-┌───────── " Poste HTTP History " ────────────────┐
-│ Left List (36 cols)   │ Right Detail (remaining) │
-│                       │                          │
-│ Get Profile  23:32    │ [Body[H] | Rqst[R]       │
-│ Request 3    23:30    │  | Verb[L] | Asserts[A]] │
-│ Request 2    22:45    │ ════════════════════════ │
-│ Request 1    21:34    │  (response content)      │
-│ Login        20:33    │                          │
-└───────────────────────┴──────────────────────────┘
-```
-
-### Operations
-
-| Action | Location | Effect |
-|--------|----------|--------|
-| `j` / `k` | Left list | Navigate up/down, auto-update detail |
-| `<CR>` | Left list | Jump cursor to right detail buffer |
-| `dd` | Left list | Delete current history entry |
-| `H` / `R` / `L` / `A` / `S` | Right detail | Switch Body / Rqst / Verb / Asserts / Script tabs |
-| `<Tab>` / `<S-Tab>` | Right detail | Cycle through tabs |
-| `<leader>j` / `<leader>jc` | Right detail (JSON view) | jq filter / restore |
-| `<C-h>` | Right detail | Jump back to left list |
-| `<C-l>` | Left list | Jump to right detail |
-| `q` | Global | Close history popup |
-
-### Storage
-
-History is kept in the current Neovim session memory and cleared on close.
-Max 100 entries. Response bodies over 100KB are truncated automatically.
-
----
+For complete keymaps, see [Keymaps Reference](../keymaps.md).
 
 *HTTP Quick Reference — Last updated: 2026-07-06*

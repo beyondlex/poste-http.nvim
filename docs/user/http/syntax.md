@@ -192,7 +192,7 @@ Content-Type: application/json
 **Rules**:
 - Wrapped in `{{` and `}}`
 - Variable names allow letters, digits, and dots
-- Resolution order (highest to lowest priority):
+- Resolution follows a priority chain (see [Variable Resolution](./variables.md) for full details):
 
 | Priority | Source | Example |
 |----------|--------|---------|
@@ -204,25 +204,9 @@ Content-Type: application/json
 | P6 | Environment variables | `env.json` → `{{key}}` |
 | P7 (lowest) | Magic variables | `$timestamp`, `$uuid` |
 
-**Magic variables**:
+**Cross-request references** (`{{RequestName.response.body.path}}`) do **NOT** participate in the priority chain — they are resolved independently via response cache.
 
-| Name | Description |
-|------|-------------|
-| `{{$timestamp}}` | Current Unix timestamp + random suffix |
-| `{{$uuid}}` | Random UUID v4 |
-| `{{$date}}` | Current date YYYY-MM-DD |
-| `{{$randomInt}}` | Random integer 0–9999999 |
-
-**Cross-request references**:
-
-```
-{{request_name.response.body.path.to.value}}
-{{login.response.body.token}}
-```
-
-- References response content from a previously executed request
-- Format: `{{RequestName.response[.body|.headers|.status].path}}`
-- **Does NOT participate in the priority chain** — resolved independently via response cache
+See [Variable Resolution in Detail](./variables.md) for complete documentation on all variable sources, magic variables, prompt variables, transitive resolution, and the CLI `poste resolve` command.
 
 ### 2.9 Pre-request Script
 
@@ -399,33 +383,15 @@ run ./batch.http
 
 **Implementation status**: All not yet implemented
 
-## 3. Priority / Resolution Order
+## 3. Variable Resolution Order
 
-```
-Variable resolution priority (high → low):
-  1. Import parameters (run #Name (@key=value))     ← caller explicitly passes
-  2. Block-level @variable                           ← inside current ### block
-  3. File-level @variable                            ← before first ###
-  4. Session variables (client.global.set)           ← cross-request/cross-file
-  5. Script variables (request.variables.set)        ← set by scripts
-  6. env.json (current environment)                  ← environment config
-  7. Magic variables ($timestamp, $uuid...)           ← built-in functions
+See [Variable Resolution](./variables.md) for the complete documentation. Key highlights:
 
-Cross-request references ({{Name.response.body.x}}) do NOT participate in the
-priority chain — they are resolved via an independent response cache.
+- **7 priority layers** from import parameters (P1, highest) to magic variables (P7, lowest)
+- **Cross-request references** (`{{Name.response.body.X}}`) are resolved via an independent response cache
+- **Narrower scope = higher priority**: import params > block-level > file-level > session > script > env > magic
 
-Request block location (at runtime):
-  1. Search backward from cursor for the nearest ###
-  2. From that ### to the next ### is the current request block
-```
-
-**Core principle**: narrower scope = higher priority. Programming language analogy:
-- Import params → function arguments
-- Block-level variable → local variables
-- File-level variable → module constants
-- Session/script variables → process globals
-- Environment variables → environment variables
-- Magic → built-in functions
+---
 
 ## 4. Differences from Standard HTTP
 

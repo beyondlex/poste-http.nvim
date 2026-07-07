@@ -4,6 +4,8 @@
 
 A Neovim plugin and Rust CLI for executing HTTP, Redis, SQL (PostgreSQL / MySQL / SQLite) requests from plain text files. Inspired by JetBrains HTTP Client, with focus on keyboard-driven workflows and dataset manipulation.
 
+> 📚 **Full documentation** at [docs/](docs/README.md) — user guides, developer docs, architecture overview, and more.
+
 ## Features
 
 - **File-based requests** — Define requests in `.http`/`.rest`, `.sql`, `.sqlite`, `.redis`, `.mongo` files

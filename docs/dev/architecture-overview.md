@@ -1,136 +1,137 @@
-# Poste 架构概览
+# Poste Architecture Overview
 
-> 多协议请求执行器的整体架构设计
-
----
-
-## 核心设计原则
-
-1. **协议隔离** — HTTP 和 SQL 在实现层完全隔离，只在基础设施层共享
-2. **文件驱动** — 所有请求都来自 `.http` / `.sql` / `.redis` 文件
-3. **键盘优先** — Neovim 插件以键盘操作为核心交互方式
-4. **Rust + Lua** — Rust 负责核心逻辑（解析、执行），Lua 负责 UI（补全、渲染）
+> Overall architecture of the multi-protocol request executor
 
 ---
 
-## 分层架构
+## Core Design Principles
+
+1. **Protocol isolation** — HTTP and SQL are fully isolated at the implementation layer, sharing only infrastructure
+2. **File-driven** — All requests originate from `.http` / `.sql` / `.redis` files
+3. **Keyboard-first** — Neovim plugin uses keyboard as primary interaction mode
+4. **Rust + Lua** — Rust handles core logic (parsing, execution), Lua handles UI (completion, rendering)
+
+---
+
+## Layered Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Neovim 插件层 (Lua)                    │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │  lua/poste/ │  │ lua/poste/  │  │   lua/poste/sql/    │  │
-│  │  (HTTP)     │  │  (通用 UI)  │  │    (SQL 专属)       │  │
-│  │             │  │             │  │                     │  │
-│  │ init.lua    │  │ select.lua  │  │ init.lua            │  │
-│  │ buffer.lua  │  │ indicators  │  │ buffer.lua          │  │
-│  │ completion  │  │ symbols     │  │ format.lua          │  │
-│  │ format.lua  │  │             │  │ highlights.lua      │  │
-│  │ highlights  │  │             │  │ context.lua         │  │
-│  │ assertions  │  │             │  │ connections.lua     │  │
-│  │ scripts     │  │             │  │ db_browser.lua      │  │
-│  │ curl.lua    │  │             │  │ completion.lua      │  │
-│  │ copy.lua    │  │             │  │ editor.lua          │  │
-│  │             │  │             │  │ export/import       │  │
-│  │             │  │             │  │ pagination.lua      │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+│                   Neovim Plugin Layer (Lua)                   │
+│  ┌────────────────────┐  ┌──────────────┐  ┌─────────────┐  │
+│  │  lua/poste/http/   │  │  lua/poste/  │  │lua/poste/sql│  │
+│  │  (HTTP-specific)   │  │  (shared)    │  │(SQL-specific)│  │
+│  │                    │  │              │  │             │  │
+│  │ init.lua           │  │ state.lua    │  │ init.lua    │  │
+│  │ buffer.lua         │  │ select.lua   │  │ buffer.lua  │  │
+│  │ completion.lua     │  │ indicators   │  │ completion  │  │
+│  │ format.lua         │  │ constants    │  │ connections │  │
+│  │ highlights.lua     │  │ error.lua    │  │ db_browser  │  │
+│  │ assertions.lua     │  │ help.lua     │  │ editor.lua  │  │
+│  │ scripts.lua        │  │              │  │ export.lua  │  │
+│  │ curl.lua           │  │              │  │ import.lua  │  │
+│  │ copy.lua           │  │              │  │ context.lua │  │
+│  │ nav.lua            │  │              │  │ pagination  │  │
+│  │ history.lua        │  │              │  │ format.lua  │  │
+│  │ run.lua            │  │              │  │              │  │
+│  │ view.lua           │  │              │  │              │  │
+│  │ json.lua           │  │              │  │              │  │
+│  │ import*.lua        │  │              │  │              │  │
+│  └────────────────────┘  └──────────────┘  └─────────────┘  │
 │                          ↓                                  │
-│              init.lua: filetype 分流                        │
+│              init.lua: filetype dispatch                    │
 │              poste_sql → sql.init.run_sql_request()         │
-│              poste_http → 原有 HTTP 流程                    │
+│              poste_http → http.init.run_request()           │
 └─────────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                    Rust CLI (poste)                         │
+│                    Rust CLI (poste)                          │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │ crates/poste-cli/                                     │  │
-│  │   main.rs: run / conn/ introspect / fmt / context     │  │
+│  │   main.rs: run / conn / introspect / fmt / context    │  │
+│  │           resolve / serve / import                     │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                          ↓                                  │
 │  ┌─────────────────┐  ┌─────────────────────────────────┐   │
 │  │ crates/poste-   │  │ crates/poste-exec/              │   │
-│  │ exec/           │  │                                 │   │
-│  │                 │  │ executor.rs (HTTP/Redis)        │   │
-│  │ executor.rs     │  │ sql_executor.rs(PG/MySQL/SQLite)│   │
-│  │ sql_executor.rs │  │ sql_connection.rs               │   │
-│  │ sql_connection  │  │ sql_dialect.rs                  │   │
-│  │ sql_dialect.rs  │  │ sql_introspect.rs               │   │
-│  │ response.rs     │  │ sql_ddl.rs                      │   │
-│  │ cookie_jar.rs   │  │ response.rs                     │   │
-│  │                 │  │ cookie_jar.rs                   │   │
+│  │ core/           │  │                                 │   │
+│  │ parser.rs       │  │ executor.rs (HTTP/Redis)        │   │
+│  │ sql_parser.rs   │  │ sql_executor.rs(PG/MySQL/SQLite)│   │
+│  │ sql_context/    │  │ sql_connection.rs               │   │
+│  │ request.rs      │  │ sql_dialect.rs                  │   │
+│  │ env.rs          │  │ sql_introspect.rs               │   │
+│  │ formatter.rs    │  │ sql_ddl.rs                      │   │
+│  │ importer.rs     │  │ response.rs                     │   │
+│  │ lib.rs          │  │ cookie_jar.rs                   │   │
 │  └─────────────────┘  └─────────────────────────────────┘   │
-│                          ↓                                  │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │ crates/poste-core/                                    │  │
-│  │   parser.rs (HTTP/Redis 解析)                         │  │
-│  │   sql_parser.rs (SQL 解析)                            │  │
-│  │   sql_context/ (SQL 补全上下文)                       │  │
-│  │   request.rs (共享 Request 类型)                      │  │
-│  │   lib.rs                                              │  │
-│  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                    基础设施层                               │
-│  env.json          — 环境变量（{{var}} 替换）               │
-│  connections.json  — 数据库连接配置                         │
-│  ~/.cache/poste/   — 缓存（查询历史、元数据等）             │
+│                  Infrastructure Layer                        │
+│  env.json          — Environment variables ({{var}} subst)  │
+│  connections.json  — Database connection config             │
+│  ~/.cache/poste/   — Cache (query history, metadata, etc.)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 协议实现对比
+## Protocol Implementation Comparison
 
-| 维度 | HTTP | SQL |
-|------|------|-----|
-| 文件扩展名 | `.http`, `.rest` | `.sql`, `.mysql`, `.sqlite` |
-| 解析器 | `parser.rs` | `sql_parser.rs` |
-| 执行器 | `executor.rs` (curl) | `sql_executor.rs` (sqlx) |
-| 结果面板 | 右侧垂直 split | 底部水平 split |
-| 导航模式 | 普通文本光标 | 单元格 (Cell) 导航 |
-| 补全 | `completion.lua` | `sql/completion.lua` |
-| 语法高亮 | `syntax/poste_http.vim` | `syntax/poste_sql.vim` |
-| 格式化 | `poste fmt` (计划中) | 暂不需要 |
+| Dimension | HTTP | SQL |
+|-----------|------|-----|
+| File extension | `.http`, `.rest` | `.sql`, `.mysql`, `.sqlite` |
+| Parser | `parser.rs` | `sql_parser.rs` |
+| Executor | `executor.rs` (curl) | `sql_executor.rs` (sqlx) |
+| Result panel | Right vertical split | Bottom horizontal split |
+| Navigation | Normal text cursor | Cell (hjkl) navigation |
+| Completion | `http/completion.lua` | `sql/completion.lua` |
+| Syntax highlighting | `syntax/poste_http.vim` | `syntax/poste_sql.vim` |
+| Formatter | `poste fmt` (✅ implemented) | N/A |
 
 ---
 
-## 共享与隔离
+## Shared vs Isolated
 
-### 共享文件（基础设施层）
+### Shared Files (Infrastructure Layer)
 
-| 文件 | 用途 |
-|------|------|
-| `crates/poste-core/src/request.rs` | 共享 Request 类型、Protocol 枚举 |
-| `crates/poste-core/src/parser.rs` | 共享 `substitute_vars()` 变量替换 |
-| `crates/poste-core/src/lib.rs` | 模块导出 |
-| `lua/poste/state.lua` | 共享状态（env、当前连接等） |
-| `lua/poste/select.lua` | 通用 Picker UI |
-| `lua/poste/indicators.lua` | 通用 spinner/✓/✘ |
-| `ftdetect/poste.vim` | filetype 检测 |
+| File | Purpose |
+|------|---------|
+| `crates/poste-core/src/request.rs` | Shared Request type, Protocol enum |
+| `crates/poste-core/src/parser.rs` | Shared `substitute_vars()` variable substitution |
+| `crates/poste-core/src/env.rs` | env.json loading |
+| `crates/poste-core/src/lib.rs` | Module exports |
+| `lua/poste/state.lua` | Shared state (env, current connection, etc.) |
+| `lua/poste/select.lua` | Generic Picker UI |
+| `lua/poste/indicators.lua` | Generic spinner/✓/✘ |
+| `ftdetect/poste.vim` | Filetype detection |
 
-### 隔离文件（协议专属）
+### Isolated Files (Protocol-Specific)
 
-| HTTP 专属 | SQL 专属 |
-|-----------|----------|
-| `lua/poste/init.lua` | `lua/poste/sql/init.lua` |
-| `lua/poste/buffer.lua` | `lua/poste/sql/buffer.lua` |
-| `lua/poste/format.lua` | `lua/poste/sql/format.lua` |
-| `lua/poste/completion.lua` | `lua/poste/sql/completion.lua` |
-| `lua/poste/highlights.lua` | `lua/poste/sql/highlights.lua` |
-| `lua/poste/assertions.lua` | `lua/poste/sql/context.lua` |
-| `lua/poste/scripts.lua` | `lua/poste/sql/connections.lua` |
-| `lua/poste/curl.lua` | `lua/poste/sql/db_browser.lua` |
+| HTTP-specific | SQL-specific |
+|---------------|-------------|
+| `lua/poste/http/init.lua` | `lua/poste/sql/init.lua` |
+| `lua/poste/http/buffer.lua` | `lua/poste/sql/buffer.lua` |
+| `lua/poste/http/format.lua` | `lua/poste/sql/format.lua` |
+| `lua/poste/http/completion.lua` | `lua/poste/sql/completion.lua` |
+| `lua/poste/http/highlights.lua` | `lua/poste/sql/highlights.lua` |
+| `lua/poste/http/assertions.lua` | `lua/poste/sql/context.lua` |
+| `lua/poste/http/scripts.lua` | `lua/poste/sql/connections.lua` |
+| `lua/poste/http/curl.lua` | `lua/poste/sql/db_browser/` |
+| `lua/poste/http/copy.lua` | `lua/poste/sql/editor.lua` |
+| `lua/poste/http/nav.lua` | `lua/poste/sql/export.lua` |
+| `lua/poste/http/view.lua` | `lua/poste/sql/import.lua` |
+| `lua/poste/http/run.lua` | `lua/poste/sql/table_ops.lua` |
 | `syntax/poste_http.vim` | `syntax/poste_sql.vim` |
 | | `syntax/poste_dataset.vim` |
 
 ---
 
-## 关键分流点
+## Key Dispatch Points
 
-### Lua 端分流
+### Lua-side dispatch
 
-`lua/poste/init.lua` 的 `run_request()` 函数：
+`lua/poste/init.lua`'s `run_request()`:
 
 ```lua
 function M.run_request()
@@ -139,13 +140,13 @@ function M.run_request()
     require("poste.sql.init").run_sql_request()
     return
   end
-  -- 原有 HTTP/Redis 流程完全不变
+  -- Existing HTTP/Redis flow unchanged
 end
 ```
 
-### Rust 端分流
+### Rust-side dispatch
 
-`crates/poste-exec/src/executor.rs` 的 dispatch：
+`crates/poste-exec/src/executor.rs` dispatch:
 
 ```rust
 match request.protocol {
@@ -158,31 +159,31 @@ match request.protocol {
 
 ---
 
-## 数据流
+## Data Flow
 
-### HTTP 请求流程
+### HTTP Request Flow
 
 ```
-.http 文件
-  → parser.rs 解析 → Request 结构体
-  → executor.rs 执行 → curl 调用
+.http file
+  → parser.rs parse → Request struct
+  → executor.rs execute → curl call
   → Response JSON
-  → buffer.lua 渲染 → 右侧垂直 split
+  → http/buffer.lua render → right vertical split
 ```
 
-### SQL 请求流程
+### SQL Request Flow
 
 ```
-.sql 文件
-  → sql_parser.rs 解析 → Request + 上下文
-  → sql_executor.rs 执行 → sqlx 查询
-  → Response JSON (结构化结果集)
-  → sql/buffer.lua 渲染 → 底部水平 split (Dataset)
+.sql file
+  → sql_parser.rs parse → Request + context
+  → sql_executor.rs execute → sqlx query
+  → Response JSON (structured result set)
+  → sql/buffer.lua render → bottom horizontal split (Dataset)
 ```
 
 ---
 
-## 依赖关系
+## Dependency Graph
 
 ```
 poste-cli ──→ poste-exec ──→ poste-core
@@ -191,31 +192,30 @@ poste-cli ──→ poste-exec ──→ poste-core
                 ├── curl-rust (HTTP)
                 └── redis-rs (Redis)
 
-lua/poste ──→ Rust CLI (通过 system/jobstart)
+lua/poste ──→ Rust CLI (via system/jobstart)
 ```
 
 ---
 
-## 测试策略
+## Testing Strategy
 
-| 层级 | 工具 | 位置 |
-|------|------|------|
-| Rust 单元测试 | `#[cfg(test)]` | `crates/*/src/*_tests.rs` |
-| Rust 集成测试 | `cargo test` | `crates/*/tests/` |
-| Lua 单元测试 | busted (`tests/run.sh`) | `tests/*.lua` |
-| SQL 集成测试 | Docker Compose | `tests/sql/` |
-
----
-
-## 相关文档
-
-- [HTTP 协议文档](./http/README.md)
-- [SQL 协议文档](./sql/README.md)
-- [HTTP 实施指南](./http/tdd-guide.md)
-- [SQL 功能完整规划](./sql/design.md)
-- [插件安装](./plugin-install.md)
-- [测试指南](./testing.md)
+| Layer | Tool | Location |
+|-------|------|----------|
+| Rust unit tests | `#[cfg(test)]` | `crates/*/src/*_tests.rs` |
+| Rust integration | `cargo test` | `crates/*/tests/` |
+| Lua unit tests | busted (`tests/run.sh`) | `tests/*.lua` |
+| SQL integration | Docker Compose | `tests/sql/` |
 
 ---
 
-*架构概览 — 最后更新：2026-06-24*
+## Related Documents
+
+- [HTTP Developer Docs](./http/README.md)
+- [SQL Developer Docs](./sql/README.md)
+- [HTTP TDD Guide](./http/tdd-guide.md)
+- [File Index](./file-index.md)
+- [Testing Guide](./testing.md)
+
+---
+
+*Architecture overview — Last updated: 2026-07-07*

@@ -1,13 +1,20 @@
-# HTTP 开发者文档
+# HTTP Developer Documentation
 
-> HTTP 协议实施、格式化、JSON 响应设计
+> HTTP protocol implementation, formatting, JSON response design, and request history
 
-| 文档 | 说明 |
-|------|------|
-| [TDD 指南](./tdd-guide.md) | TDD 工作流和测试模式 |
-| [Formatter 设计](./format-design.md) | `poste fmt` 架构 — Region 类型、格式化规则、CLI 集成 |
-| [JSON 响应 UX](./json-response-ux.md) | JSON 折叠与 jq 过滤体验设计 |
+| Document | Description |
+|----------|-------------|
+| [TDD Guide](./tdd-guide.md) | TDD workflow and test patterns |
+| [Formatter Design](./format-design.md) | `poste fmt` architecture — Region types, formatting rules, CLI integration (✅ implemented) |
+| [JSON Response UX](./json-response-ux.md) | JSON folding and jq filter experience design |
+| [HTTP History Design](./http-history.md) | Request history UI and persistence design |
+| [OpenAPI/Swagger/Postman Import Plan](./openapi-import-plan.md) | TDD import feature development plan |
+| [Block Index Proposal](./block-index-proposal.md) | Structured buffer index for completion efficiency |
+
+> **Archived design docs** (feature implemented, kept for reference):  
+> [Variable Resolver Design](../archived/http/variable-resolver.md) — `poste resolve` subcommand and `VarResolver` (✅ implemented)  
+> [Syntax Reference](../archived/http/syntax-reference.md) — Replaced by [user syntax doc](../../user/http/syntax.md)
 
 ---
 
-*HTTP 开发者文档组*
+*HTTP developer documentation — Last updated: 2026-07-07*

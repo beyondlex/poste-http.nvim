@@ -1,78 +1,84 @@
-# Testing the Poste Neovim Plugin
+# Testing Guide
 
-## Quick Test
+> How to run and verify Poste at each layer.
 
-1. Build the CLI:
+## Quick Start
+
 ```bash
+# Build the CLI
 cargo build
+
+# Run all Rust tests
+cargo test
+
+# Run Lua tests (requires Neovim)
+tests/run.sh
+
+# SQL integration tests (requires Docker)
+cd tests/sql && docker compose up -d
+cargo run -- run tests/sql/queries/postgres.sql --line 4 --env dev
 ```
 
-2. Open Neovim with the plugin loaded:
+## Test Layers
+
+| Layer | Tool | Command | Location |
+|-------|------|---------|----------|
+| Rust unit | `#[cfg(test)]` | `cargo test -p <crate>` | `crates/*/src/` |
+| Rust integration | `#[test]` | `cargo test` | `crates/*/tests/` |
+| Lua unit | busted | `tests/run.sh` | `tests/*.lua` |
+| SQL integration | Docker Compose | See above | `tests/sql/` |
+
+## Rust Tests
+
 ```bash
-cd /Users/lex/code/github/poste
-nvim examples/api.http -c "set rtp+=/Users/lex/code/github/poste" -c "runtime plugin/poste.lua"
+# Core (parser, resolver, formatter, importer)
+cargo test -p poste-core
+
+# Executor (HTTP, SQL, connections)
+cargo test -p poste-exec
+
+# CLI (subcommands, integrations)
+cargo test -p poste-cli
+
+# All + clippy
+cargo test && cargo clippy -- -D warnings
 ```
 
-**Note:** The `-c` commands must come after the filename to ensure they run after your vimrc initializes.
+## Lua Tests
 
-3. Test the plugin:
-   - Press `<leader>rr` to run a request
-   - Press `]]` to jump to next request
-   - Press `[[` to jump to previous request
-   - Type `:PosteEnv prod` to switch environment
-   - Type `:PosteEnv` to see current environment
-   - Press `q` in response buffer to close it
+```bash
+# Run all Lua tests
+tests/run.sh
 
-## Test Cases
+# Run specific test file
+busted tests/http_completion_spec.lua
 
-### 1. Basic Request Execution
-- Open `examples/api.http`
-- Move cursor to any request
-- Press `<leader>rr`
-- Verify response appears in vertical split
-- Verify response is formatted (JSON should be pretty-printed)
+# Run SQL completion tests
+busted tests/sql_completion_spec.lua
+```
 
-### 2. Navigation
-- Open `examples/api.http`
-- Press `]]` multiple times to jump forward
-- Press `[[` multiple times to jump backward
-- Verify cursor moves to `###` lines
+## Manual Testing
 
-### 3. Environment Switching
-- Type `:PosteEnv` to see current environment (should be "dev")
-- Type `:PosteEnv staging` to switch
-- Type `:PosteEnv` again to verify it changed
-- Run a request and verify it uses the new environment
+```bash
+# Create a playground environment
+cd playground/http
 
-### 4. Response Buffer
-- Run a request
-- In the response buffer, try:
-  - `gg` to go to top
-  - `G` to go to bottom
-  - `/` to search
-  - `v` for visual mode
-  - `y` to yank
-  - `q` to close
+# Run a request by line number
+poste run playground/http/requests/api.http --line 2 --env dev
 
-## Expected Behavior
+# Resolve a variable
+poste resolve --file playground/http/requests/api.http --block 2 --var host --env dev
 
-- Response should appear in a vertical split (80 columns wide)
-- JSON responses should be pretty-printed
-- Status code and latency should be visible
-- All Vim operations should work in response buffer
-- Pressing `q` should close the response window
+# Introspect database
+poste introspect --connection pg-dev --env dev
+```
 
 ## Troubleshooting
 
-### "Poste binary not found"
-- Make sure you've run `cargo build`
-- The plugin looks for `./target/debug/poste` or `poste` in PATH
+- **"Poste binary not found"** — Run `cargo build` first. The plugin looks for `poste` in PATH or `stdpath("data")/poste/bin/poste`.
+- **Request doesn't execute** — Make sure cursor is on a request line (not on `###` separator) and `env.json` exists.
+- **Response doesn't appear** — Check `:messages` for errors. Verify the binary works: `poste run <file> --line 2 --env dev`.
 
-### Request doesn't execute
-- Make sure cursor is on a request line (not on `###` separator)
-- Check that `env.json` exists in the same directory or parent
-- Verify the environment name is correct (`:PosteEnv`)
+---
 
-### Response doesn't appear
-- Check `:messages` for errors
-- Verify the poste binary is working: `./target/debug/poste run examples/api.http --line 2 --env dev`
+*Testing guide — Last updated: 2026-07-07*`

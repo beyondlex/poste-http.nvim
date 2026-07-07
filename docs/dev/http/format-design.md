@@ -1,91 +1,90 @@
-# Poste HTTP Formatter 设计
+# Poste HTTP Formatter Design
 
-## 1. 背景
+> **Status**: ✅ Implemented — `poste fmt` is available as a CLI subcommand (see `crates/poste-core/src/formatter.rs` and `crates/poste-cli/src/fmt.rs`)
 
-`.http` / `.rest` 文件包含混合内容：`###` 请求块、`@variable` 定义、HTTP 请求行、headers、JSON 请求体、`< {% %}` pre-script、`> {% %}` assertion。没有现成的 formatter 能理解这种混合格式。
+## 1. Background
 
-语法规范见 `syntax.md`。实施计划见 archived `http-impl-guide.md`。
+`.http` / `.rest` files contain mixed content: `###` request blocks, `@variable` definitions, HTTP request lines, headers, JSON bodies, `< {% %}` pre-scripts, `> {% %}` assertions. No existing formatter understands this hybrid format.
 
-当前大量语法元素的实现尚未完成（详见 `syntax.md#5`），立即做 formatter 会导致反复重写。必须先完成前置条件（参见 archived `http-impl-guide.md`）。
+Syntax specification is in [user syntax doc](../../user/http/syntax.md).
 
-## 2. 架构选择：Rust `poste fmt`
+## 2. Architecture Decision: Rust `poste fmt`
 
-**不采用 Lua 实现**（否决 `format-design.md` 旧方案）。
+**Not using a Lua implementation.**
 
-### 理由
+### Rationale
 
-| 维度 | Rust `poste fmt` | Lua 纯实现 |
-|---|---|---|
-| 复用现有基础设施 | ✅ `poste-core` token/region 能力 | ❌ 需重写解析 |
-| CI / pre-commit | ✅ `poste fmt --check` | ❌ 依赖 Neovim |
-| 跨编辑器 | ✅ Helix, VS Code 等都能用 | ❌ 锁死 Neovim |
-| conform 集成 | ✅ `format_command` | ✅ 也行 |
-| 维护 | 一份解析逻辑 | 两份（Rust parser + Lua formatter）|
+| Dimension | Rust `poste fmt` | Lua-only |
+|-----------|------------------|----------|
+| Reuse existing infra | ✅ `poste-core` token/region capability | ❌ Would need re-parsing |
+| CI / pre-commit | ✅ `poste fmt --check` | ❌ Requires Neovim |
+| Cross-editor | ✅ Helix, VS Code, etc. | ❌ Neovim-only |
+| conform.nvim integration | ✅ `format_command` | ✅ Also works |
+| Maintenance | One parsing logic | Two (Rust parser + Lua formatter) |
 
-用户已有 Rust binary（`poste run` 必须编译），`poste fmt` 只是加一个 subcommand，零额外安装。
+Users already have the Rust binary — `poste fmt` is just a subcommand, zero additional install cost.
 
-### 整体架构
+### Overall Architecture
 
 ```
 poste fmt [--check] [--stdin] [file...]
 ```
 
-流程：
+Flow:
 
 ```
 Input (.http text)
     ↓
-Tokenizer ──→ Region list (无损, 保留注释/空白/script 原内容)
+Tokenizer ──→ Region list (lossless, preserves comments/whitespace/scripts)
     ↓
-Formatter  ──→ 按 region 类型应用规则
+Formatter  ──→ Apply rules by region type
     ↓
 Output (.http text)
 ```
 
-Tokenizer vs Parser：
+Tokenizer vs Parser:
 
-| | `parser.rs` (现有) | Tokenizer (新) |
+| | `parser.rs` (existing) | Tokenizer (new) |
 |---|---|---|
-| 目标 | 提取 `Request` 结构体 | 标注所有 region 边界 |
-| 是否保留空白 | ❌ 合并 | ✅ 原样保留 |
-| 是否处理 script | ❌ 剥离 | ✅ 标注为 PreScript/PostScript region |
-| 文件包含 | ❌ 不处理 | ✅ 标注 FileInclude region |
-| 输出 | `Request { name, body }` | `Vec<Region>` |
+| Goal | Extract `Request` struct | Mark all region boundaries |
+| Preserves whitespace | ❌ Merges | ✅ Preserves as-is |
+| Handles scripts | ❌ Strips | ✅ Marks as PreScript/PostScript region |
+| File includes | ❌ Ignores | ✅ Marks FileInclude region |
+| Output | `Request { name, body }` | `Vec<Region>` |
 
-### Region 类型
+### Region Types
 
 ```rust
 enum Region {
-    /// ### Request Name 行
+    /// ### Request Name line
     Separator(String),
-    /// # 注释行
+    /// # comment line
     Comment(String),
-    /// @var = value 定义（文件级或块级，包括 @env = value）
-    /// value 为空时检查是否为 @xxx =>>> ... <<< 多行变量
+    /// @var = value definition (file-level or block-level, including @env = value)
     VarDef { name: String, value: String, raw: String, style: VarStyle },
     /// METHOD URL [HTTP/version]
     RequestLine { method: String, url: String, version: Option<String>, raw: String },
-    /// Key: Value 请求头
+    /// Key: Value header
     Header { key: String, value: String, raw: String },
-    /// 空行
+    /// Blank line
     BlankLine,
-    /// 请求体（文本/JSON/form-url-encoded）
+    /// Request body (text/JSON/form-url-encoded)
     Body { content: String, content_type: Option<String> },
-    /// < {% code %} 或 < {% ... %}
+    /// < {% code %} or < {% ... %}
     PreScript { code: String, style: ScriptStyle },
-    /// > {% code %} 或 > {% ... %}
+    /// > {% code %} or > {% ... %}
     PostScript { code: String, style: ScriptStyle },
-    /// 外部脚本引用：< ./path.lua 或 > ./path.lua
+    /// External script reference: < ./path.lua or > ./path.lua
     ExternalScript { path: String, script_type: ScriptType },
-    /// < path — file content include (JSON) or upload (form), resolved at runtime
+    /// < path — file content include or upload
     FileUpload(String),
-    /// <<varname [opts] — 整行原样保留
+    /// <<varname [opts] — kept as-is
     Prompt(String),
-    /// import ./path[ as alias] — 文件级引用
+    /// import ./path[ as alias] — file-level reference
     Import { path: String, alias: Option<String>, raw: String },
-    /// run #Name|#alias.Name|./path [(@var=val)] — 执行引用
+    /// run #Name|#alias.Name|./path [(@var=val)]
     Run { target: String, raw: String },
-    /// 其他未知内容（原样保留）
+    /// Other unknown content (kept as-is)
     Raw(String),
 }
 
@@ -94,127 +93,105 @@ enum ScriptStyle { Inline(String), Multiline(Vec<String>) }
 enum ScriptType { Pre, Post }
 ```
 
-## 3. 格式化规则（分阶段实现）
+## 3. Formatting Rules (Phased)
 
-### Phase 1 — 结构格式化（纯 text 操作）
+### Phase 1 — Structural Formatting
 
-不需要理解语义，只做机械转换。
+Text-only operations, no semantic understanding needed.
 
-**规则 1：文件级区域间距**
+**Rule 1: File-level spacing**
 ```
-import ./auth.http                         ← import（可有多条）
+import ./auth.http                         ← import (multiple allowed)
 import ./orders.http as orders
-                                           ← 一个空行
-@base_url = https://api.example.com        ← 文件级 @var（可有多条）
+                                           ← one blank line
+@base_url = https://api.example.com        ← file-level @var (multiple allowed)
 @token = eyJ...
-                                           ← 一个空行
-### Get users                              ← 第一个 ###
+                                           ← one blank line
+### Get users                              ← first ###
 ```
 
-- `import`/`run` 与文件级 `@var` 之间一个空行
-- 文件级 `@var` 与第一个 `###` 之间一个空行
-- 没有 `import`/`run` 时，文件级 `@var` 与第一个 `###` 之间仍然一个空行
+- One blank line between `import`/`run` and file-level `@var`
+- One blank line between file-level `@var` and first `###`
+- When no `import`/`run`, still one blank line between `@var` and first `###`
 
-**规则 2：`###` 分隔符**
-- `###` 前确保**有且仅有一个空行**
-- 文件开头的第一个 `###` 前不需要空行（但在文件级区域后需要空行）
-- `###` 后的标题保留原样，尾部空白删除
+**Rule 2: `###` separator**
+- Ensure **exactly one blank line** before `###`
+- First `###` at file start doesn't need preceding blank line (but does after file-level area)
+- Title after `###` preserved as-is, trailing whitespace trimmed
 
 ```
 ### Get users
 ...
-                              ← 空行（确保一个）
+                              ← blank line (exactly one)
 ### Create user
 ```
 
-**规则 3：请求头 Key 规范化**
-- header key 首字母大写（`content-type` → `Content-Type`）
-- `Key:` 冒号后统一一个空格
-- 不改变 header 顺序
+**Rule 3: Header key normalization**
+- Capitalize first letter of header keys (`content-type` → `Content-Type`)
+- One space after colon in `Key:`
+- Don't change header order
 
 ```
-content-type: application/json        ← 改前
-Content-Type: application/json        ← 改后
+content-type: application/json        ← before
+Content-Type: application/json        ← after
 ```
 
-**规则 4：`@variable` 定义格式化**
-- 等号前后统一一个空格（`@var=val` → `@var = val`）
-- 多行变量 `@xxx =>>> ... <<<` 内容原样保留，不修改内部缩进
-- 值中如有 `{{}}` 引用，不做修改
+**Rule 4: `@variable` definition formatting**
+- One space before and after `=` (`@var=val` → `@var = val`)
+- Multi-line `@xxx =>>> ... <<<` content preserved as-is
+- `{{}}` references within values left unchanged
 
 ```
-@base_url=https://api.example.com     ← 改前
-@base_url = https://api.example.com   ← 改后
-
-@payload =>>>                          ← 多行变量，保留原样
-{
-  "name": "test"
-}
-<<<
+@base_url=https://api.example.com     ← before
+@base_url = https://api.example.com   ← after
 ```
 
-**规则 5：`import` / `run` 行**
-- 整行保留原样，不修改
-- 前后间距按规则 1 处理
+**Rule 5: `import` / `run` lines**
+- Entire line preserved as-is
+- Spacing per Rule 1
 
-```
-import ./auth.http
-import ./orders.http as orders
-run  #Login (@token=xyz)
-```
+**Rule 6: Special directive lines (`<<name`)**
+- Entire line preserved as-is
 
-**规则 6：特殊指令行（`<<name`）**
-- 整行保留原样，不修改
+**Rule 7: Whitespace cleanup**
+- File end: ensure one trailing newline
+- Consecutive blank lines: collapse to at most one
 
-```
-<<username
-```
+**Rule 8: Trailing whitespace**
+- Remove all trailing whitespace
 
-**规则 7：空白行清理**
-- 文件末尾：确保一个换行符
-- 多余连续空行：压缩为最多一个空行
+**Rule 9: Post-`###` formatting**
+- Lines after `###` should directly follow (vars or request line)
+- Extra blank lines → collapse to at most one
 
-**规则 8：尾部空白**
-- 移除所有行尾部空白
+### Phase 2 — JSON Body Pretty-printing
 
-**规则 9：`###` 后格式**
-- `###` 行后紧跟变量或请求行
-- 如有多余空行 → 压缩为最多一个空行
-
-```
-### Get users
-@page_size = 20                         ← 无多余空行
-GET {{base_url}}/users
-```
-
-### Phase 2 — JSON Body 美化
-
-**规则 10：JSON 请求体格式化**
-- 检测 header 中 `Content-Type` 含 `json`（大小写不敏感，含 `application/json; charset=utf-8` 等变体）
-- 用 `serde_json` 解析 → `serde_json::to_string_pretty`
-- 如果解析失败 → 保持原样（可能不是 JSON 或语法错误）
+**Rule 10: JSON body formatting**
+- Detect if `Content-Type` header contains `json` (case-insensitive)
+- Parse with `serde_json` → `serde_json::to_string_pretty`
+- If parse fails → keep as-is
 
 ```
 {"name":"test","value":123}
-                              ↓
+              ↓
 {
   "name": "test",
   "value": 123
 }
 ```
 
-### Phase 3 — Script 格式化
+### Phase 3 — Script Formatting
 
-**规则 11：`{% %}` 内部格式化**
-- 保持 `{%` 和 `%}` 边界行
-- 内部代码：2-space 缩进
-- 可选：检测 `prettierd` 并 `jobstart` 调用（如果可用）
+**Rule 11: `{% %}` internal formatting**
+- Keep `{%` and `%}` boundary lines
+- Internal code: 2-space indent
+- Optional: detect `prettierd` and call via `jobstart` (if available)
 
 ```
 > {% client.test("ok", function() {
 client.assert(response.status == 200);
 }) %}
-                              ↓
+              ↓
 > {%
   client.test("ok", function() {
     client.assert(response.status == 200);
@@ -222,7 +199,7 @@ client.assert(response.status == 200);
 %}
 ```
 
-## 4. Poste CLI 集成
+## 4. CLI Integration
 
 ```
 USAGE:
@@ -238,7 +215,7 @@ OPTIONS:
     -h, --help       Print help
 ```
 
-### conform.nvim 集成
+### conform.nvim Integration
 
 ```lua
 require("conform").formatters.poste_http = {
@@ -250,7 +227,7 @@ require("conform").formatters.poste_http = {
 require("conform").formatters_by_ft["poste_http"] = { "poste_http" }
 ```
 
-### CI / pre-commit 集成
+### CI / pre-commit Integration
 
 ```yaml
 # .pre-commit-config.yaml
@@ -263,11 +240,7 @@ require("conform").formatters_by_ft["poste_http"] = { "poste_http" }
       files: \.(http|rest)$
 ```
 
-## 5. 实施
+## 5. Future
 
-所有实施步骤以 archived `http-impl-guide.md` 为准，按 Phase 0 → Phase 1-4 → 后续推进。
-
-与 formatter 设计直接相关的后续事项（不在 archived `http-impl-guide.md` 中）：
-
-- [ ] `kulala-fmt` 兼容适配（复用或借鉴其格式化规则）
+- [ ] `kulala-fmt` compatibility adaptation
 

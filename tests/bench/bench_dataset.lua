@@ -3,11 +3,11 @@
 --- Also provides compare() to diff baseline vs optimized results.
 ---
 --- Usage:
----   nvim --headless -c "set rtp+=." -c "runtime plugin/poste.lua" -c "lua require('tests.bench_dataset').run('output.json')" -c "qa"
----   nvim --headless -c "set rtp+=." -c "lua require('tests.bench_dataset').compare('a.json','b.json')" -c "qa"
+---   nvim --headless -c "set rtp+=." -c "runtime plugin/poste.lua" -c "lua require('tests.bench.bench_dataset').run('output.json')" -c "qa"
+---   nvim --headless -c "set rtp+=." -c "lua require('tests.bench.bench_dataset').compare('a.json','b.json')" -c "qa"
 
 local M = {}
-local DRV = require("tests.bench_dataset_driver")
+local DRV = require("tests.bench.bench_dataset_driver")
 
 -----------------------------------------------------------------
 -- Scenario matrix

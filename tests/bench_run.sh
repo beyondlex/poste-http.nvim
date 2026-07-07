@@ -20,7 +20,7 @@ if [ "$1" = "compare" ]; then
     nvim --headless \
         -c "set rtp+=." \
         -c "runtime plugin/poste.lua" \
-        -c "lua require('tests.bench_dataset').compare('$BASELINE', '$OPTIMIZED')" \
+        -c "lua require('tests.bench.bench_dataset').compare('$BASELINE', '$OPTIMIZED')" \
         -c "qa"
 else
     OUTPUT="${1:-benchmark_output.json}"
@@ -28,7 +28,7 @@ else
     nvim --headless \
         -c "set rtp+=." \
         -c "runtime plugin/poste.lua" \
-        -c "lua require('tests.bench_dataset').run('$OUTPUT')" \
+        -c "lua require('tests.bench.bench_dataset').run('$OUTPUT')" \
         -c "qa"
     echo "Benchmark complete: $OUTPUT"
 fi

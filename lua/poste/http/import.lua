@@ -13,6 +13,7 @@
 ---   - Aliased requests only accessible via #alias.Name, not bare #Name
 ---   - Bare import name collisions: later overrides earlier (warning)
 local state = require("poste.state")
+local request_vars = require("poste.http.request_vars")
 
 local M = {}
 
@@ -475,81 +476,88 @@ function M.execute_run_directive(opts, callback)
     local block_end = find_block_end(content, opts.line)
     local orig_block_end = block_end  -- original bounds for post-script on original content
 
-    -- Process pre-script from target block
-    local modified_content, injected_count = process_target_pre_script(content, opts.line, block_end)
-    block_end = block_end + injected_count
+    -- Resolve request variable dependencies in target block first.
+    -- This executes any uncached {{Name.response.body.*}} refs pointing to
+    -- requests in the same file, then substitutes their values before proceeding.
+    request_vars.resolve_content_dependencies(binary, opts.path, state.current_env, content, opts.line, function(dep_resolved_content)
+      -- Process pre-script from target block (on dependency-resolved content)
+      local modified_content, injected_count = process_target_pre_script(dep_resolved_content, opts.line, block_end)
+      block_end = block_end + injected_count
 
-    -- Apply variable overrides if specified
-    if opts.vars and next(opts.vars) then
-      opts.line = opts.line + injected_count
-      modified_content = M.apply_variable_overrides(modified_content, opts.line, opts.vars)
-    end
+      -- Apply variable overrides if specified
+      if opts.vars and next(opts.vars) then
+        opts.line = opts.line + injected_count
+        modified_content = M.apply_variable_overrides(modified_content, opts.line, opts.vars)
+      end
 
-    local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
-      vim.fn.shellescape(binary),
-      vim.fn.shellescape(opts.path),
-      opts.line,
-      vim.fn.shellescape(state.current_env)
-    )
+      local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
+        vim.fn.shellescape(binary),
+        vim.fn.shellescape(opts.path),
+        opts.line,
+        vim.fn.shellescape(state.current_env)
+      )
 
-    state.log("INFO", string.format("import run: %s", cmd))
+      state.log("INFO", string.format("import run: %s", cmd))
 
-    local stdout_buf = {}
-    local stderr_buf = {}
+      local stdout_buf = {}
+      local stderr_buf = {}
 
-    local job_id = vim.fn.jobstart(cmd, {
-      stdin = "pipe",
-      stdout_buffered = true,
-      stderr_buffered = true,
-      on_stdout = function(_, data)
-        if not data then return end
-        for _, line in ipairs(data) do
-          if line ~= "" then table.insert(stdout_buf, line) end
-        end
-      end,
-      on_stderr = function(_, data)
-        if not data then return end
-        for _, line in ipairs(data) do
-          if line ~= "" then table.insert(stderr_buf, line) end
-        end
-      end,
-      on_exit = function(_, code)
-        if code ~= 0 then
-          vim.schedule(function()
-            vim.notify(string.format("run directive failed (exit %d): %s", code,
-              table.concat(stderr_buf, "\n")), vim.log.levels.ERROR, { title = "Poste" })
+      local job_id = vim.fn.jobstart(cmd, {
+        stdin = "pipe",
+        stdout_buffered = true,
+        stderr_buffered = true,
+        on_stdout = function(_, data)
+          if not data then return end
+          for _, line in ipairs(data) do
+            if line ~= "" then table.insert(stdout_buf, line) end
+          end
+        end,
+        on_stderr = function(_, data)
+          if not data then return end
+          for _, line in ipairs(data) do
+            if line ~= "" then table.insert(stderr_buf, line) end
+          end
+        end,
+        on_exit = function(_, code)
+          if code ~= 0 then
+            vim.schedule(function()
+              vim.notify(string.format("run directive failed (exit %d): %s", code,
+                table.concat(stderr_buf, "\n")), vim.log.levels.ERROR, { title = "Poste" })
+              if callback then callback(false, {
+                status = 0,
+                status_text = "Failed (exit " .. code .. ")",
+                body = table.concat(stderr_buf, "\n"),
+              }) end
+            end)
+            return
+          end
+
+          local stdout_text = table.concat(stdout_buf, "\n")
+          local ok, parsed = pcall(vim.json.decode, stdout_text)
+          if ok and type(parsed) == "table" then
+            -- Run target block's post-script (so client.global.set() persists)
+            process_target_post_script(parsed, content, opts.line, orig_block_end)
+            -- Cache the response for cross-request variable resolution
+            request_vars.cache_response(opts.request_name, parsed)
+            if callback then callback(true, parsed) end
+          else
             if callback then callback(false, {
               status = 0,
-              status_text = "Failed (exit " .. code .. ")",
-              body = table.concat(stderr_buf, "\n"),
+              status_text = "JSON parse failed",
+              body = stdout_text,
             }) end
-          end)
-          return
-        end
+          end
+        end,
+      })
 
-        local stdout_text = table.concat(stdout_buf, "\n")
-        local ok, parsed = pcall(vim.json.decode, stdout_text)
-        if ok and type(parsed) == "table" then
-          -- Run target block's post-script (so client.global.set() persists)
-          process_target_post_script(parsed, content, opts.line, orig_block_end)
-          if callback then callback(true, parsed) end
-        else
-          if callback then callback(false, {
-            status = 0,
-            status_text = "JSON parse failed",
-            body = stdout_text,
-          }) end
-        end
-      end,
-    })
-
-    if job_id > 0 then
-      vim.fn.chansend(job_id, modified_content)
-      vim.fn.chanclose(job_id, "stdin")
-    else
-      vim.notify("Failed to start poste job for run directive", vim.log.levels.ERROR, { title = "Poste" })
-      if callback then callback(false, nil) end
-    end
+      if job_id > 0 then
+        vim.fn.chansend(job_id, modified_content)
+        vim.fn.chanclose(job_id, "stdin")
+      else
+        vim.notify("Failed to start poste job for run directive", vim.log.levels.ERROR, { title = "Poste" })
+        if callback then callback(false, nil) end
+      end
+    end)
 
   elseif opts.action == "execute_all" then
     -- Execute all requests in the target file
@@ -589,73 +597,80 @@ function M.execute_all_requests(file_path, content, vars, callback)
     local req = requests[idx]
     idx = idx + 1
 
-    -- Find block bounds and process pre-script from target block
-    local block_end = find_block_end(content, req.line)
-    local modified_content, _ = process_target_pre_script(content, req.line, block_end)
+    -- Resolve request variable dependencies in this block first.
+    -- This executes any uncached {{Name.response.body.*}} refs pointing to
+    -- requests in the same file, then substitutes their values.
+    request_vars.resolve_content_dependencies(binary, file_path, state.current_env, content, req.line, function(dep_resolved_content)
+      -- Find block bounds and process pre-script from target block (on dependency-resolved content)
+      local block_end = find_block_end(dep_resolved_content, req.line)
+      local modified_content, _ = process_target_pre_script(dep_resolved_content, req.line, block_end)
 
-    if vars and next(vars) then
-      modified_content = M.apply_variable_overrides(modified_content, req.line, vars)
-    end
+      if vars and next(vars) then
+        modified_content = M.apply_variable_overrides(modified_content, req.line, vars)
+      end
 
-    local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
-      vim.fn.shellescape(binary),
-      vim.fn.shellescape(file_path),
-      req.line,
-      vim.fn.shellescape(state.current_env)
-    )
+      local cmd = string.format("%s run %s --line %d --env %s --json --stdin",
+        vim.fn.shellescape(binary),
+        vim.fn.shellescape(file_path),
+        req.line,
+        vim.fn.shellescape(state.current_env)
+      )
 
-    local stdout_buf = {}
-    local stderr_buf = {}
+      local stdout_buf = {}
+      local stderr_buf = {}
 
-    local job_id = vim.fn.jobstart(cmd, {
-      stdin = "pipe",
-      stdout_buffered = true,
-      stderr_buffered = true,
-      on_stdout = function(_, data)
-        if not data then return end
-        for _, line in ipairs(data) do
-          if line ~= "" then table.insert(stdout_buf, line) end
-        end
-      end,
-      on_stderr = function(_, data)
-        if not data then return end
-        for _, line in ipairs(data) do
-          if line ~= "" then table.insert(stderr_buf, line) end
-        end
-      end,
-      on_exit = function(_, code)
-        local stdout_text = table.concat(stdout_buf, "\n")
-        local ok, parsed = pcall(vim.json.decode, stdout_text)
-        if ok and type(parsed) == "table" then
-          -- Run target block's post-script so client.global.set() persists
-          process_target_post_script(parsed, content, req.line, block_end)
-          table.insert(results, { name = req.name, response = parsed })
-        else
-          table.insert(results, { name = req.name, response = {
-            status = code,
-            status_text = "Failed",
-            body = stdout_text,
-            stderr = table.concat(stderr_buf, "\n"),
-          }})
-        end
-        vim.schedule(function()
-          vim.notify(string.format("[%d/%d] %s — %s", idx - 1, #requests, req.name,
-            parsed and (parsed.status .. " " .. (parsed.status_text or "")) or "failed"),
-            vim.log.levels.INFO, { title = "Poste" })
-        end)
+      local job_id = vim.fn.jobstart(cmd, {
+        stdin = "pipe",
+        stdout_buffered = true,
+        stderr_buffered = true,
+        on_stdout = function(_, data)
+          if not data then return end
+          for _, line in ipairs(data) do
+            if line ~= "" then table.insert(stdout_buf, line) end
+          end
+        end,
+        on_stderr = function(_, data)
+          if not data then return end
+          for _, line in ipairs(data) do
+            if line ~= "" then table.insert(stderr_buf, line) end
+          end
+        end,
+        on_exit = function(_, code)
+          local stdout_text = table.concat(stdout_buf, "\n")
+          local ok, parsed = pcall(vim.json.decode, stdout_text)
+          if ok and type(parsed) == "table" then
+            -- Run target block's post-script so client.global.set() persists
+            process_target_post_script(parsed, content, req.line, block_end)
+            -- Cache the response for cross-request variable resolution
+            request_vars.cache_response(req.name, parsed)
+            table.insert(results, { name = req.name, response = parsed })
+          else
+            table.insert(results, { name = req.name, response = {
+              status = code,
+              status_text = "Failed",
+              body = stdout_text,
+              stderr = table.concat(stderr_buf, "\n"),
+            }})
+          end
+          vim.schedule(function()
+            vim.notify(string.format("[%d/%d] %s — %s", idx - 1, #requests, req.name,
+              parsed and (parsed.status .. " " .. (parsed.status_text or "")) or "failed"),
+              vim.log.levels.INFO, { title = "Poste" })
+          end)
+          execute_next()
+        end,
+      })
+
+      if job_id > 0 then
+        vim.fn.chansend(job_id, modified_content)
+        vim.fn.chanclose(job_id, "stdin")
+      else
+        table.insert(results, { name = req.name, response = {
+          status = 0, status_text = "Job start failed", body = "",
+        }})
         execute_next()
-      end,
-    })
-
-    if job_id > 0 then
-      vim.fn.chansend(job_id, modified_content)
-      vim.fn.chanclose(job_id, "stdin")
-    else
-      table.insert(results, { name = req.name, response = {
-        status = 0, status_text = "Job start failed", body = "",
-      }})
-      execute_next()
-    end
+      end
+    end)
   end
 
   execute_next()

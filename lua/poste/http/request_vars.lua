@@ -277,6 +277,9 @@ local function find_request_variable_refs(block_text)
   return refs
 end
 
+--- Public alias for cross-file dependency resolution.
+M.find_request_variable_refs = find_request_variable_refs
+
 ---------------------------------------------------------------------------
 -- Dependent request execution (fully async via callback chain)
 ---------------------------------------------------------------------------
@@ -926,6 +929,137 @@ function M.cache_response(req_name, response)
   if req_name then
     request_response_cache[req_name] = response
   end
+end
+
+--- Check if a request's response is cached.
+function M.is_response_cached(name)
+  return request_response_cache[name] ~= nil
+end
+
+--- Collect named requests from content string (not buffer).
+--- Returns { name = string, start_line = number, end_line = number }[]
+function M.collect_requests_from_content(content)
+  local requests = {}
+  local lines = vim.split(content, "\n", { plain = true })
+  local i = 1
+  while i <= #lines do
+    local name = lines[i]:match("^%s*###%s+(%S.*)$")
+    if name then
+      name = vim.trim(name)
+      local start_line = i
+      local end_line = #lines
+      for j = i + 1, #lines do
+        if lines[j]:match("^%s*###") then
+          end_line = j - 1
+          break
+        end
+      end
+      table.insert(requests, { name = name, start_line = start_line, end_line = end_line })
+    end
+    i = i + 1
+  end
+  return requests
+end
+
+--- Resolve request variable dependencies in a specific block of arbitrary content.
+--- Executes uncached dependencies found in the same content, then substitutes values.
+--- Calls on_complete(modified_content) when done.
+--- For cross-file run directive dependency resolution.
+--- @param binary string  poste binary path
+--- @param file_path string  target file path (for CLI execution)
+--- @param env_name string  environment name
+--- @param content string  full file content
+--- @param block_line number  ### marker line (1-indexed)
+--- @param on_complete function(string|nil)
+function M.resolve_content_dependencies(binary, file_path, env_name, content, block_line, on_complete)
+  local requests = M.collect_requests_from_content(content)
+
+  -- Extract target block text and find its bounds
+  local lines = vim.split(content, "\n", { plain = true })
+  local block_end = #lines
+  for i = block_line + 1, #lines do
+    if lines[i]:match("^%s*###") then
+      block_end = i - 1
+      break
+    end
+  end
+  local block_lines = {}
+  for i = block_line, block_end do
+    table.insert(block_lines, lines[i] or "")
+  end
+  local block_text = table.concat(block_lines, "\n")
+
+  -- Find request variable references
+  local refs = find_request_variable_refs(block_text)
+  if #refs == 0 then
+    on_complete(content)
+    return
+  end
+
+  state.log("INFO", string.format("Found %d request variable reference(s) in target block", #refs))
+
+  -- Filter refs: only process uncached refs pointing to requests in this content
+  local local_refs = {}
+  for _, ref in ipairs(refs) do
+    if not request_response_cache[ref.request_name] then
+      for _, req in ipairs(requests) do
+        if req.name == ref.request_name then
+          table.insert(local_refs, ref)
+          break
+        end
+      end
+    end
+  end
+
+  if #local_refs == 0 then
+    -- All deps already cached, substitute immediately
+    local resolved_block = block_text
+    for _, ref in ipairs(refs) do
+      local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
+      if value then
+        resolved_block = resolved_block:gsub(vim.pesc(ref.full), tostring(value))
+      else
+        state.log("WARN", string.format("Could not resolve variable: %s", ref.full))
+      end
+    end
+    local result_lines = {}
+    local resolved_split = vim.split(resolved_block, "\n", { plain = true })
+    for i, l in ipairs(lines) do
+      if i >= block_line and i <= block_end then
+        table.insert(result_lines, resolved_split[i - block_line + 1] or l)
+      else
+        table.insert(result_lines, l)
+      end
+    end
+    on_complete(table.concat(result_lines, "\n"))
+    return
+  end
+
+  -- Build dependency order (topological via DFS)
+  local dep_order = build_dep_order(local_refs, requests, content)
+
+  -- Execute dependencies sequentially, then substitute
+  execute_deps_sequential(binary, file_path, env_name, dep_order, content, requests, 1, function()
+    local resolved_block = block_text
+    for _, ref in ipairs(refs) do
+      local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
+      if value then
+        resolved_block = resolved_block:gsub(vim.pesc(ref.full), tostring(value))
+      else
+        state.log("WARN", string.format("Could not resolve variable: %s", ref.full))
+      end
+    end
+    local result_lines = {}
+    local resolved_split = vim.split(resolved_block, "\n", { plain = true })
+    for i, l in ipairs(lines) do
+      if i >= block_line and i <= block_end then
+        table.insert(result_lines, resolved_split[i - block_line + 1] or l)
+      else
+        table.insert(result_lines, l)
+      end
+    end
+    on_complete(table.concat(result_lines, "\n"))
+  end)
 end
 
 ---------------------------------------------------------------------------

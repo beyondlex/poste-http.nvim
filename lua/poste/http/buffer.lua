@@ -153,6 +153,26 @@ function M.prepare_multi_responses(responses)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
       vim.bo[buf].filetype = ft
       pcall(vim.treesitter.start, buf, ft)
+
+      -- Apply view-specific extmarks (same as render_view does in view.lua)
+      if view == "verbose" then
+        pcall(vim.treesitter.stop, buf)
+        format.apply_verbose_highlights(buf, lines, r)
+      elseif view == "request" then
+        format.apply_request_highlights(buf, lines)
+      end
+
+      -- File link highlight for binary responses
+      if (view == "body" or view == "verbose") and r.metadata and r.metadata.file_path then
+        format.apply_file_link_highlight(buf, lines)
+      end
+
+      -- JSON setup for body view
+      if view == "body" and ft == "json" then
+        local json = require("poste.http.json")
+        json.setup_buffer(buf)
+      end
+
       setup_keymaps(buf)
       response_buffers[view][idx] = buf
     end

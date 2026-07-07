@@ -669,6 +669,11 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
   end
 
   local lines = vim.split(content, "\n", { plain = true })
+  -- Get request name from the ### header line
+  local header_line = lines[start_line] or ""
+  local request_name = header_line:match("^%s*###%s+(%S.*)$")
+  request_name = request_name and vim.trim(request_name) or ""
+
   local result = {}
   local idx = 1
   local cancelled = false
@@ -736,7 +741,7 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
                       -- Apply structured mapping to build {name,key,desc} items
                       local items = apply_jq_mapping(value, mapping)
                       if #items > 0 then
-                        local prompt = string.format("Select value for '%s'", varname_sel)
+                        local prompt = string.format("[%s] Select value for '%s'", request_name, varname_sel)
                         poste_select.select(items, prompt, function(selected)
                           if selected then
                             table.insert(result, string.format("@%s = %s", varname_sel, selected))
@@ -762,7 +767,7 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
                       for _, item in ipairs(value) do flatten(item) end
 
                       if #options > 0 then
-                        local prompt = string.format("Select value for '%s'", varname_sel)
+                        local prompt = string.format("[%s] Select value for '%s'", request_name, varname_sel)
                         poste_select.select(options, prompt, function(selected)
                           if selected then
                             table.insert(result, string.format("@%s = %s", varname_sel, selected))
@@ -779,7 +784,7 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
                 -- Fallback to static options (structured)
                 local options = parse_structured_options(options_str:gsub("{{.+}}", ""))
                 if #options > 0 then
-                  local prompt = string.format("Select value for '%s'", varname_sel)
+                  local prompt = string.format("[%s] Select value for '%s'", request_name, varname_sel)
                   poste_select.select(options, prompt, function(selected)
                     if selected then
                       table.insert(result, string.format("@%s = %s", varname_sel, selected))
@@ -810,7 +815,7 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
         end
 
         -- Use built-in floating window selector (async)
-        local prompt = string.format("Select value for '%s'", varname_sel)
+        local prompt = string.format("[%s] Select value for '%s'", request_name, varname_sel)
         poste_select.select(options, prompt, function(selected)
           if selected then
             table.insert(result, string.format("@%s = %s", varname_sel, selected))
@@ -828,7 +833,7 @@ function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_
           -- vim.fn.input is blocking but handles its own event loop
           vim.schedule(function()
             local ok, value = pcall(vim.fn.input, {
-              prompt = string.format("Enter value for '%s': ", varname),
+              prompt = string.format("[%s] Enter value for '%s': ", request_name, varname),
               default = "",
             })
 

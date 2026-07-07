@@ -38,6 +38,7 @@ local function start_verbose_timer()
 end
 
 local function render_view(view, lines, filetype)
+  lines = buffer.sanitize_lines(lines)
   buffer.render_buffer(lines, filetype)
   buffer.update_winbar(view)
 

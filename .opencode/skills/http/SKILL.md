@@ -145,6 +145,37 @@ Supports `~` and relative paths (relative to `.http` file directory).
 
 ## Common Pitfalls
 
+### `nvim_buf_set_lines` + Highlight Mismatch
+
+`nvim_buf_set_lines` rejects strings with embedded `\n`. Always `sanitize_lines()`
+before passing. Highlight functions that use `#line` as `end_col` must receive the
+*post-split* lines too, or `end_col` will be out of range.
+
+### Pre-Rendered / Cached Buffers Must Mirror Normal Path
+
+If a buffer is pre-rendered (e.g. multi-response `[`/`]` switching), it must apply
+*everything* the normal `render_view` path does — not just treesitter but also
+`apply_verbose_highlights`, `apply_request_highlights`, file link highlight,
+JSON buffer setup, etc. Grep all callers.
+
+### State Lifecycle
+
+Every global/cached state write needs a corresponding clear. Common offenders:
+`state.response_index`, `state._json`, `state.last_responses`, `request_vars._dep_chain`.
+Write the cleanup first, not last.
+
+### Lua ↔ Rust Data
+
+Field names, types, and encoding must match exactly between Lua and Rust.
+Watch for: NUL bytes (break argv), `\r\n` vs `\n`, `###` in embedded content
+(creates false block boundaries), `--line` arg vs stdin format.
+
+### Job handler branches
+
+When adding logic to `handle_job_stdout` and `handle_job_exit`, update BOTH
+chain (`_dep_chain`) and non-chain (single request) branches. Missing one
+causes whack-a-mole bugs.
+
 ### `--line` Shift After Injection
 
 `run.lua` injects `@var` lines after the `###` header during pre-script and global

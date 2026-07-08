@@ -92,17 +92,6 @@ treesitter — extmarks, highlights, JSON setup, etc.).
 variable, decide when it gets cleared. State that outlives a single request
 will accumulate and cause stale data bugs.
 
-## Known High-Frequency Mistakes
-
-| If you touch... | Also check... |
-|----------------|---------------|
-| `nvim_buf_set_lines` | All inputs need `sanitize_lines()`; all highlight fns using `#line` as `end_col` need same post-split lines |
-| Pre-rendered / cached buffers | Every call from `render_view`, `render_detail`, `prepare_multi_responses`, verbose timer — all must apply both content AND extmarks |
-| Global/cached state | Lifecycle: where set, where read, where cleared (before next request!) |
-| Lua ↔ Rust data | Field names, types, encoding, special chars (NUL, `###`, `\n`, `\r\n`) — test both directions |
-| Job stdout/exit handler | Both `on_stdout` and `on_exit` paths; both chain and non-chain branches |
-| Variable injection (pre‑script, global, form) | Adjust `--line`, `block_end`, `block_start` for every line insert |
-
 See `docs/dev/error-patterns-review.md` for full pattern analysis.
 
 **Rust**: Edition 2021, `anyhow::Result` (app) / `thiserror` (lib), no `unwrap()`

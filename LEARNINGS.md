@@ -3,6 +3,8 @@
 Agent self-evolution log. When you fix a non-obvious bug or encounter a
 pitfall, log it here. Check this file before starting any task.
 
+- 2026-07-08: infra — Added `tools/relation-check.sh` for pre-flight code relation scanning. Run before modifying HTTP Lua code. Covers: `nvim_buf_set_lines` + `sanitize_lines` coverage, state field lifecycle (SET/READ/CLEAR), format function callers, pre-render consistency. Replaces the need for a manually-synced relation map. See `tools/relation-check.sh`.
+
 - 2026-07-05: HTTP Verbose tab shows `{{base_url}}/users/42` instead of resolved URL. Fix: `build_pending_request` in `run.lua:212` only resolved `@var` definitions but not `{{var}}` from env.json. Added env.json var resolution with iterative chaining. See `lua/poste/http/run.lua:212`.
 - 2026-07-05: Picker forced to snacks.nvim. Removed auto-detection (telescope/fzf/mini/snacks chain). `select.lua` now requires snacks as hard dependency, with built-in float + vim.ui.select fallbacks. Normalizes items to `{key, name, description}` format. See `lua/poste/select.lua`.
 - 2026-07-06: `run` directive bypassed pre/post script processing — raw content sent to Rust binary without Lua sandbox. Fix: `import.lua` now runs target block's pre-script before sending; injects both `request.variables.set()` AND `client.global.set()` vars as `@var` lines into the content sent to the Rust binary. Post-script runs after response to persist `client.global.set()` from target block. See `lua/poste/http/import.lua:374-424`.

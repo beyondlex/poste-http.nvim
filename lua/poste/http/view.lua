@@ -29,6 +29,7 @@ local function start_verbose_timer()
     local buf = buffer.get_buf()
     if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
     local lines = format.format_verbose(nil, state.pending_request)
+    lines = buffer.sanitize_lines(lines)
     vim.api.nvim_set_option_value("modifiable", true, { buf = buf })
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     vim.api.nvim_set_option_value("modifiable", false, { buf = buf })

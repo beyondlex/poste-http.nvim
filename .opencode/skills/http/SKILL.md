@@ -195,6 +195,24 @@ path that sets `state.last_response`, also clear `state._json`.
 When a new response arrives, `buffer.lua` creates a new buffer. The old response
 buffer is not automatically closed. Use `PosteCloseResult` or BufDelete pattern.
 
+## Pre-Flight: Run Before Editing
+
+Before making ANY change to `lua/poste/http/`, run:
+
+```bash
+tools/relation-check.sh
+```
+
+This scans the current (not stale) codebase and reports:
+- **`nvim_buf_set_lines`** without `sanitize_lines` on the same path
+- **State field lifecycle** — fields written but never cleared
+- **Format function callers** — all places that call each `format_*` function
+- **Pre-render paths** — cached/render functions and their highlights/extmarks
+
+If the output is clean after your change, you're done. If it shows mismatches
+(e.g. a new `nvim_buf_set_lines` without sanitize, or a state write without
+clear), fix them before committing.
+
 ## Tests
 
 ```bash

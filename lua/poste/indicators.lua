@@ -39,15 +39,22 @@ function M.extract_request_block(buf, start_line)
       break
     end
   end
-  if not header_line then return { request_line = "", headers = {} } end
+  if not header_line then return { request_line = "", headers = {}, name = "" } end
 
   local total = vim.api.nvim_buf_line_count(buf)
   local request_line = nil
   local headers = {}
+  local name = ""
 
-  for i = header_line + 1, total do
+  for i = header_line, total do
     local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
-    if text:match("^%s*###") then break end  -- next block
+    if text:match("^%s*###") then
+      if i == header_line then
+        name = text:match("^%s*###%s+(.*)$") or ""
+      else
+        break
+      end
+    end
 
     -- Skip comments and prompt directives
     if text:match("^%s*#") or text:match("^%s*%-%-") or text:match("^%s*<<") then  -- luacheck: ignore 542
@@ -66,7 +73,7 @@ function M.extract_request_block(buf, start_line)
     end
   end
 
-  return { request_line = request_line or "", headers = headers }
+  return { request_line = request_line or "", headers = headers, name = name }
 end
 
 --- Find the request definition line: delegate boundary detection to

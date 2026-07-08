@@ -403,6 +403,7 @@ local function execute_dependent_request_async(binary, file, env_name, dep_req, 
       end
 
       request_response_cache[dep_req.name] = parsed
+      parsed.request_name = dep_req.name
       state.log("INFO", string.format("Cached response for '%s'", dep_req.name))
       on_complete(parsed)
     end,

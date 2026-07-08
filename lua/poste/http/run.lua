@@ -142,6 +142,7 @@ local function handle_job_stdout(data, src_buf, req_line, req_block, req_text, a
       state._json.original_lines = nil
       state._json.is_filtered = false
       state.last_response = parsed
+      parsed.request_name = current_req_name
       request_vars.cache_response(current_req_name, parsed)
       -- Build multi-response view if deps were auto-executed
       if request_vars._dep_chain and #request_vars._dep_chain > 0 then
@@ -330,6 +331,7 @@ local function build_pending_request(src_buf, buf_content, req_block, block_star
     url = req_url,
     headers_str = resolved_headers_str,
     body = body,
+    name = req_block and req_block.name or "",
     env = state.current_env,
     timestamp = os.date("%Y-%m-%d %H:%M:%S"),
     start_hires = uv.hrtime(),

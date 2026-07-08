@@ -73,6 +73,38 @@ log it in `LEARNINGS.md`. Use a brief format:
 Check `LEARNINGS.md` before starting any task. Similar issues may have been solved
 before. This lets the agent self-evolve across sessions.
 
+## General Rules
+
+**Read first, don't guess.** When touching an unfamiliar API (Neovim Lua API,
+vim.fn, Rust stdlib, curl args, etc.), search the existing codebase for real
+usage before writing new code. If no example exists, read the official docs
+or write a minimal test in `tests/` — never assume an API's boundary
+behaviors (what happens with NUL bytes, embedded newlines, async timing, nil
+values, multi-return, etc.).
+
+**Trace the full call graph.** When modifying a function, search the codebase
+for all callers and sibling paths that share the same logic. Every `nvim_buf_set_lines`
+needs `sanitize_lines` on input. Every state write needs a corresponding clear.
+Every pre-render path must mirror everything the normal path does (not just
+treesitter — extmarks, highlights, JSON setup, etc.).
+
+**Write the cleanup first, not last.** Before adding a global/cached state
+variable, decide when it gets cleared. State that outlives a single request
+will accumulate and cause stale data bugs.
+
+## Known High-Frequency Mistakes
+
+| If you touch... | Also check... |
+|----------------|---------------|
+| `nvim_buf_set_lines` | All inputs need `sanitize_lines()`; all highlight fns using `#line` as `end_col` need same post-split lines |
+| Pre-rendered / cached buffers | Every call from `render_view`, `render_detail`, `prepare_multi_responses`, verbose timer — all must apply both content AND extmarks |
+| Global/cached state | Lifecycle: where set, where read, where cleared (before next request!) |
+| Lua ↔ Rust data | Field names, types, encoding, special chars (NUL, `###`, `\n`, `\r\n`) — test both directions |
+| Job stdout/exit handler | Both `on_stdout` and `on_exit` paths; both chain and non-chain branches |
+| Variable injection (pre‑script, global, form) | Adjust `--line`, `block_end`, `block_start` for every line insert |
+
+See `docs/dev/error-patterns-review.md` for full pattern analysis.
+
 **Rust**: Edition 2021, `anyhow::Result` (app) / `thiserror` (lib), no `unwrap()`
 outside tests, Tokio, workspace deps, `#[cfg(test)]` for new features.
 

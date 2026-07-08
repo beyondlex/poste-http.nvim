@@ -11,6 +11,7 @@ local image_preview_state = {
   snacks_placement = nil,
 }
 local INLINE_IMAGE_PADDING_LINES = 2
+local strip_request_preamble -- forward decl; defined below format_verbose
 
 ---------------------------------------------------------------------------
 -- Content-type → filetype mapping (for treesitter syntax highlighting)
@@ -919,6 +920,7 @@ function M.format_verbose(r, pending)
   -- ▸ Request Body
   if request_body ~= "" then
     table.insert(lines, "▸ Request Body")
+    local verbose_body = strip_request_preamble(request_body, request_headers)
     local ct = ""
     for l in request_headers:gmatch("[^\r\n]+") do
       local k, v = l:match("^([^:]+):%s*(.+)$")
@@ -926,21 +928,21 @@ function M.format_verbose(r, pending)
     end
     local ct_lower = ct:lower()
     if ct_lower:find("multipart/form%-data") then
-      local display_body = M.condense_multipart_body(request_body, ct)
+      local display_body = M.condense_multipart_body(verbose_body, ct)
       for l in display_body:gmatch("[^\r\n]+") do
         table.insert(lines, "  " .. l)
       end
     elseif ct_lower:find("application/x%-www%-form%-urlencoded") then
-      local form_lines = format_urlencoded_body(request_body)
+      local form_lines = format_urlencoded_body(verbose_body)
       if form_lines then
         for _, fl in ipairs(form_lines) do
           table.insert(lines, fl)
         end
       else
-        table.insert(lines, "  " .. request_body)
+        table.insert(lines, "  " .. verbose_body)
       end
     else
-      for l in request_body:gmatch("[^\r\n]+") do
+      for l in verbose_body:gmatch("[^\r\n]+") do
         table.insert(lines, "  " .. l)
       end
     end
@@ -1126,6 +1128,28 @@ end
 
 M.condense_multipart_body = condense_multipart_body
 
+--- Strip the HTTP request line and headers from a raw request body.
+--- Used by format_verbose and format_request_payload to extract body-only content.
+strip_request_preamble = function(raw_body, raw_headers)
+  if not raw_body or raw_body == "" then return raw_body end
+  local all_lines = split_lines(raw_body)
+  local num_headers = 0
+  if raw_headers and raw_headers ~= "" then
+    for _ in raw_headers:gmatch("[^\r\n]+") do
+      num_headers = num_headers + 1
+    end
+  end
+  local body_start = 1 + 1 + num_headers
+  if body_start <= #all_lines then
+    -- Skip leading blank lines (from blank separator between headers and body in .http)
+    while body_start <= #all_lines and all_lines[body_start] == "" do
+      body_start = body_start + 1
+    end
+    return table.concat(all_lines, "\n", body_start)
+  end
+  return raw_body
+end
+
 --- Format the request payload for the dedicated Request tab.
 --- Shows parsed structure: field name, type (file/text), value/size.
 function M.format_request_payload(r)
@@ -1135,6 +1159,7 @@ function M.format_request_payload(r)
     return { "(no request body)" }
   end
 
+  local body_only = strip_request_preamble(req_body, req_headers)
   local lines = {}
   local ct = ""
   if req_headers then
@@ -1147,10 +1172,8 @@ function M.format_request_payload(r)
   -- Multipart form-data: show parsed parts
   if ct:lower():find("multipart/form%-data") then
     local boundary = extract_boundary(ct)
-    local parts = boundary and parse_multipart_parts(req_body, boundary)
+    local parts = boundary and parse_multipart_parts(body_only, boundary)
     if parts then
-      table.insert(lines, "## Multipart Form Data (" .. #parts .. " parts)")
-      table.insert(lines, "")
       for i, part in ipairs(parts) do
         local disp = ""
         for _, h in ipairs(part.headers) do
@@ -1164,20 +1187,15 @@ function M.format_request_payload(r)
           local val = part.body:gsub("[\r\n]+$", "")
           table.insert(lines, string.format("%s: %s", name, val))
         end
-        table.insert(lines, "")
       end
       return lines
    end
-   -- parsed nil → show raw body excerpt with boundary info
    table.insert(lines, "(multipart form data — parse failed)")
-   table.insert(lines, "")
    local boundary_val = extract_boundary(ct)
    if boundary_val then
      table.insert(lines, string.format("  boundary: %s", boundary_val))
    end
-   table.insert(lines, "")
-   -- Show first ~10 lines of raw body for debugging
-   local raw_lines = split_lines(req_body)
+   local raw_lines = split_lines(body_only)
    for j = 1, math.min(10, #raw_lines) do
      table.insert(lines, "  " .. raw_lines[j])
    end
@@ -1187,12 +1205,9 @@ function M.format_request_payload(r)
    return lines
  end
 
--- URL-encoded form data: key-value pairs
  if ct:lower():find("application/x%-www%-form%-urlencoded") then
-   local form_lines = format_urlencoded_body(req_body)
+   local form_lines = format_urlencoded_body(body_only)
    if form_lines then
-     table.insert(lines, "## Form Data")
-     table.insert(lines, "")
      for _, fl in ipairs(form_lines) do
        table.insert(lines, (fl:gsub("^  ", "")))
      end
@@ -1200,26 +1215,24 @@ function M.format_request_payload(r)
    end
  end
 
- -- JSON: pretty-print
- if ct:find("json") or req_body:sub(1, 1) == "{" or req_body:sub(1, 1) == "[" then
-    local ok, decoded = pcall(vim.json.decode, req_body)
+ if ct:find("json") or body_only:sub(1, 1) == "{" or body_only:sub(1, 1) == "[" then
+    local ok, decoded = pcall(vim.json.decode, body_only)
     if ok and decoded then
-      for l in pretty_body(req_body, "application/json"):gmatch("[^\r\n]+") do
+      for l in pretty_body(body_only, "application/json"):gmatch("[^\r\n]+") do
         table.insert(lines, l)
       end
       return lines
     end
   end
 
-  -- Fallback: raw body (truncated over 5KB)
-  if #req_body > 5120 then
-    for l in req_body:sub(1, 5120):gmatch("[^\r\n]+") do
+  if #body_only > 5120 then
+    for l in body_only:sub(1, 5120):gmatch("[^\r\n]+") do
       table.insert(lines, l)
     end
     table.insert(lines, "")
-    table.insert(lines, string.format("... [truncated, %d bytes total]", #req_body))
+    table.insert(lines, string.format("... [truncated, %d bytes total]", #body_only))
   else
-    for l in req_body:gmatch("[^\r\n]+") do
+    for l in body_only:gmatch("[^\r\n]+") do
       table.insert(lines, l)
     end
   end

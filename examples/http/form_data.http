@@ -25,7 +25,7 @@ admin@example.com
 Content-Disposition: form-data; name="avatar"; filename="test.txt"
 Content-Type: text/plain
 
-< ../README_form_data.md
+< ./upload_test.txt
 
 ------WebKitFormBoundary_upload
 

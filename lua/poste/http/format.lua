@@ -1408,4 +1408,94 @@ function M.clean_response_cache(max_age_minutes)
   return cleaned
 end
 
+--- Extract Content-Type from request headers metadata string.
+--- Returns "" if not found.
+function M.get_request_content_type(r)
+  local req_headers = r.metadata and r.metadata.request_headers
+  if not req_headers then return "" end
+  for l in req_headers:gmatch("[^\r\n]+") do
+    local k, v = l:match("^([^:]+):%s*(.+)$")
+    if k and k:lower() == "content-type" then return v end
+  end
+  return ""
+end
+
+--- Format response data for a given view.
+--- @param view string: "body", "verbose", "request", "assertions", "script_logs"
+--- @param r table|nil: response table (nil for pending verbose)
+--- @param opts table|nil: optional fields
+---   .pending_request: request info for verbose pending mode
+---   .assertion_results: assertion results (for assertions view)
+---   .script_logs: script log entries (for script_logs view)
+---   .jq_lines: pre-filtered jq lines (for body view in history)
+--- @return table lines, string filetype
+function M.format_view(view, r, opts)
+  opts = opts or {}
+  if view == "body" then
+    if opts.jq_lines then
+      return opts.jq_lines, "json"
+    elseif not r or not r.body or r.body == "" then
+      return { "(no response body)" }, "text"
+    else
+      return M.format_body(r), M.detect_filetype(r.content_type)
+    end
+  elseif view == "verbose" then
+    return M.format_verbose(r, opts.pending_request), "text"
+  elseif view == "assertions" then
+    local ass = require("poste.http.assertions")
+    return ass.format_assertions(opts.assertion_results), "poste_assertions"
+  elseif view == "script_logs" then
+    local scr = require("poste.http.scripts")
+    return scr.format_script_logs(opts.script_logs), "markdown"
+  elseif view == "request" then
+    local lines = M.format_request_payload(r)
+    local ct = M.get_request_content_type(r)
+    local ft = (ct == "" or ct:lower():find("multipart/form%-data")) and "text" or M.detect_filetype(ct)
+    return lines, ft
+  end
+  return { "Unknown view: " .. view }, "text"
+end
+
+--- Apply view-specific extmarks/highlights to a buffer.
+--- @param buf number: buffer number
+--- @param view string: "body", "verbose", "request", "assertions", "script_logs"
+--- @param lines table: rendered lines
+--- @param r table|nil: response table (nil for pending verbose)
+function M.apply_view_highlights(buf, view, lines, r)
+  -- Empty body hint
+  if view == "body" and (not r or not r.body or r.body == "") then
+    if lines[1] then
+      local ns = vim.api.nvim_create_namespace("poste_response_hint")
+      vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+      vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
+        end_col = #lines[1],
+        hl_group = "Comment",
+      })
+    end
+  end
+
+  -- File link highlight for binary/large responses
+  if (view == "body" or view == "verbose") and r and r.metadata and r.metadata.file_path then
+    M.apply_file_link_highlight(buf, lines)
+  end
+
+  -- Verbose highlights
+  if view == "verbose" then
+    pcall(vim.treesitter.stop, buf)
+    M.apply_verbose_highlights(buf, lines, r)
+  end
+
+  -- Request highlights
+  if view == "request" then
+    M.apply_request_highlights(buf, lines)
+  end
+
+  -- Assertions highlights
+  if view == "assertions" then
+    pcall(vim.treesitter.stop, buf)
+    local ass = require("poste.http.assertions")
+    ass.apply_highlights(buf, lines)
+  end
+end
+
 return M

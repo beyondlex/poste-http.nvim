@@ -119,24 +119,6 @@ end
 function M.prepare_multi_responses(responses)
 
   local views = { "body", "request", "verbose" }
-  local function request_vars_filetype(r)
-    local ct = ""
-    local req_headers = r.metadata and r.metadata.request_headers
-    if req_headers then
-      for l in req_headers:gmatch("[^\r\n]+") do
-        local k, v = l:match("^([^:]+):%s*(.+)$")
-        if k and k:lower() == "content-type" then ct = v; break end
-      end
-    end
-    if ct == "" or ct:lower():find("multipart/form%-data") then return "text" end
-    return format.detect_filetype(ct)
-  end
-
-  local format_fns = {
-    body    = function(r) return format.format_body(r), format.detect_filetype(r.content_type) end,
-    request = function(r) return format.format_request_payload(r), request_vars_filetype(r) end,
-    verbose = function(r) return format.format_verbose(r, nil), "text" end,
-  }
 
   for _, view in ipairs(views) do
     response_buffers[view] = {}
@@ -147,37 +129,22 @@ function M.prepare_multi_responses(responses)
     for _, view in ipairs(views) do
       local buf = vim.api.nvim_create_buf(false, true)
       vim.bo[buf].buftype = "nofile"
-      local ok, result1, result2 = pcall(format_fns[view], r)
-      local lines, ft
-      if ok then
-        lines = result1
-        ft = result2 or "text"
-      else
+      local ok, lines, ft = pcall(format.format_view, view, r, {})
+      if not ok then
         lines = { "(error formatting)" }
         ft = "text"
       end
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, M.sanitize_lines(lines))
-      vim.bo[buf].filetype = ft
-      pcall(vim.treesitter.start, buf, ft)
-
-      -- Apply view-specific extmarks (same as render_view does in view.lua)
-      if view == "verbose" then
-        pcall(vim.treesitter.stop, buf)
-        format.apply_verbose_highlights(buf, lines, r)
-      elseif view == "request" then
-        format.apply_request_highlights(buf, lines)
-      end
-
-      -- File link highlight for binary responses
-      if (view == "body" or view == "verbose") and r.metadata and r.metadata.file_path then
-        format.apply_file_link_highlight(buf, lines)
-      end
+      vim.bo[buf].filetype = ft or "text"
 
       -- JSON setup for body view
       if view == "body" and ft == "json" then
         local json = require("poste.http.json")
         json.setup_buffer(buf)
       end
+
+      -- Apply view-specific extmarks (same as render_view does in view.lua)
+      format.apply_view_highlights(buf, view, lines, r)
 
       setup_keymaps(buf)
       response_buffers[view][idx] = buf

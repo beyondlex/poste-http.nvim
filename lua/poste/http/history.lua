@@ -1,8 +1,6 @@
 local state = require("poste.state")
 local format = require("poste.http.format")
 local buffer = require("poste.http.buffer")
-local assertions = require("poste.http.assertions")
-local scripts = require("poste.http.scripts")
 
 local M = {}
 
@@ -106,44 +104,19 @@ local function render_detail()
     return
   end
 
-  local lines, filetype
   local r = entry.response
-
-  if detail_view == "body" then
-    if entry._jq and entry._jq.is_filtered then
-      lines = entry._jq.lines
-      filetype = "json"
-    elseif not r or not r.body or r.body == "" then
-      lines = { "(no response body)" }
-      filetype = "text"
-    else
-      lines = format.format_body(r)
-      filetype = format.detect_filetype(r.content_type)
-    end
-  elseif detail_view == "verbose" then
-    lines = format.format_verbose(r)
-    filetype = "text"
-  elseif detail_view == "assertions" then
-    lines = assertions.format_assertions(entry.assertion_results)
-    filetype = "markdown"
-  elseif detail_view == "script_logs" then
-    lines = scripts.format_script_logs(entry.script_logs)
-    filetype = "markdown"
-  elseif detail_view == "request" then
-    lines = format.format_request_payload(r)
-    local ct = ""
-    local req_headers = r.metadata and r.metadata.request_headers
-    if req_headers then
-      for l in req_headers:gmatch("[^\r\n]+") do
-        local k, v = l:match("^([^:]+):%s*(.+)$")
-        if k and k:lower() == "content-type" then ct = v end
-      end
-    end
-    filetype = (ct:lower():find("multipart/form%-data")) and "markdown" or format.detect_filetype(ct)
-  else
-    lines = { "Unknown view: " .. detail_view }
-    filetype = "text"
+  local jq_lines = nil
+  if detail_view == "body" and entry._jq and entry._jq.is_filtered then
+    jq_lines = entry._jq.lines
   end
+
+  local opts = {
+    pending_request = nil,
+    assertion_results = entry.assertion_results,
+    script_logs = entry.script_logs,
+    jq_lines = jq_lines,
+  }
+  local lines, filetype = format.format_view(detail_view, r, opts)
 
   lines = buffer.sanitize_lines(lines)
 
@@ -162,18 +135,7 @@ local function render_detail()
     end
   end
 
-  if detail_view == "body" and (not r or not r.body or r.body == "") then
-    local ns = vim.api.nvim_create_namespace("poste_history_hint")
-    vim.api.nvim_buf_clear_namespace(detail_buf, ns, 0, -1)
-    vim.api.nvim_buf_set_extmark(detail_buf, ns, 0, 0, {
-      end_col = #lines[1],
-      hl_group = "Comment",
-    })
-  end
-
-  if detail_view == "verbose" and r then
-    format.apply_verbose_highlights(detail_buf, lines, r)
-  end
+  format.apply_view_highlights(detail_buf, detail_view, lines, r)
 end
 
 local function history_jq_filter(query)

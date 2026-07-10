@@ -928,6 +928,9 @@ function M.format_verbose(r, pending)
   -- ▸ Request Body
   if request_body ~= "" then
     table.insert(lines, "▸ Request Body")
+    -- strip_request_preamble now finds the blank-line separator directly,
+    -- so it works for both full HTTP requests (with preamble) and body-only
+    -- content (e.g. pending requests).
     local verbose_body = strip_request_preamble(request_body, request_headers)
     local ct = ""
     for l in request_headers:gmatch("[^\r\n]+") do
@@ -947,7 +950,9 @@ function M.format_verbose(r, pending)
           table.insert(lines, fl)
         end
       else
-        table.insert(lines, "  " .. verbose_body)
+        for l in verbose_body:gmatch("[^\r\n]+") do
+          table.insert(lines, "  " .. l)
+        end
       end
     else
       for l in verbose_body:gmatch("[^\r\n]+") do
@@ -1138,21 +1143,27 @@ M.condense_multipart_body = condense_multipart_body
 
 --- Strip the HTTP request line and headers from a raw request body.
 --- Used by format_verbose and format_request_payload to extract body-only content.
-strip_request_preamble = function(raw_body, raw_headers)
+--- Detects the header/body boundary by finding the first blank line in the raw
+--- HTTP request text, rather than relying on raw_headers (which may be empty
+--- or inconsistent with the raw body).
+strip_request_preamble = function(raw_body, _raw_headers)
   if not raw_body or raw_body == "" then return raw_body end
   local all_lines = split_lines(raw_body)
-  local num_headers = 0
-  if raw_headers and raw_headers ~= "" then
-    for _ in raw_headers:gmatch("[^\r\n]+") do
-      num_headers = num_headers + 1
+
+  -- Find the first blank line — that's the separator between headers and body.
+  local body_start = nil
+  for i, line in ipairs(all_lines) do
+    if line == "" then
+      body_start = i + 1
+      -- Skip any additional leading blank lines.
+      while body_start <= #all_lines and all_lines[body_start] == "" do
+        body_start = body_start + 1
+      end
+      break
     end
   end
-  local body_start = 1 + 1 + num_headers
-  if body_start <= #all_lines then
-    -- Skip leading blank lines (from blank separator between headers and body in .http)
-    while body_start <= #all_lines and all_lines[body_start] == "" do
-      body_start = body_start + 1
-    end
+
+  if body_start and body_start <= #all_lines then
     return table.concat(all_lines, "\n", body_start)
   end
   return raw_body
@@ -1248,12 +1259,178 @@ function M.format_request_payload(r)
 end
 
 local verbose_ns = vim.api.nvim_create_namespace("poste_verbose")
+local json_ns = vim.api.nvim_create_namespace("poste_verbose_json")
 
+--- Compute the byte span within a (possibly continuation) line that contains the
+--- JSON fragment.  Returns (start_byte, end_byte) — 0-based byte offsets within
+--- `raw_line`.
+local function json_byte_span(raw_line)
+  local s, e = raw_line:find("^[%s]+") -- strip leading indent
+  s = (s and e) or 0
+  -- Remove trailing whitespace from the JSON fragment.
+  local e = #raw_line
+  while e > s and raw_line:sub(e, e) == " " do e = e - 1 end
+  return s, e
+end
+
+--- Find the JSON highlight group for a single-codepoint fragment.
+--- Returns a highlight group name or nil.
+local function json_token_hl(ch)
+  if ch == '"' then return "PosteJsonString"
+  elseif ch == '{' or ch == '}' then return "PosteJsonBraces"
+  elseif ch == '[' or ch == ']' then return "PosteJsonBrackets"
+  elseif ch == ':' then return "PosteJsonColon"
+  elseif ch == ',' then return "PosteJsonComma"
+  else return nil
+  end
+end
+
+--- Apply JSON extmark highlights inside the response body section of the
+--- verbose view.
+--- @param buf number Neovim buffer
+--- @param lines table all verbose view lines (1-indexed)
+--- @param body_start number 1-indexed line of the first body-content line
+--- @param body_end number   1-indexed line of the last body-content line
+local function apply_verbose_json_highlights(buf, lines, body_start, body_end)
+  for i = body_start, body_end do
+    local line = lines[i]
+    local row = i - 1
+    local s, e = json_byte_span(line)
+    if s >= e then goto continue end
+
+    -- Walk the JSON fragment byte by byte.
+    local in_string = false
+    local escape = false
+    local j = s + 1 -- 1-based cursor over the byte stream
+    local token_start = s + 1
+    local token_hl = nil
+
+    while j <= e do
+      local ch = line:sub(j, j)
+      -- Inside JSON strings, only quote toggles state; backslash escapes the next char.
+      if in_string then
+        if escape then
+          escape = false
+        elseif ch == "\\" then
+          escape = true
+        elseif ch == '"' then
+          in_string = false
+        end
+      else
+        if ch == '"' then
+          in_string = true
+        end
+      end
+
+      local new_hl = in_string and "PosteJsonString" or json_token_hl(ch)
+      -- If a word token starts (key, number, bool, null), record it until delimiter/end.
+      if not in_string and not new_hl and ch:match("%w") and not token_hl then
+        -- peek: is the whole trailing fragment (minus trailing punctuation) a value?
+        local rest = line:sub(j)
+        local hl
+        if rest:match("^true") or rest:match("^false") or rest:match("^null") then
+          hl = "PosteJsonBoolean"
+        else
+          hl = "PosteJsonNumber"
+        end
+        token_hl = hl
+        token_start = j
+      end
+
+      if token_hl and (in_string or new_hl) then
+        -- Close the prior word-token run.
+        local prev_e = j - 1
+        if prev_e >= token_start then
+          vim.api.nvim_buf_set_extmark(buf, json_ns, row, token_start - 1, {
+            end_row = row, end_col = prev_e,
+            hl_group = token_hl, priority = 200,
+          })
+        end
+        token_hl = nil
+      end
+
+      if new_hl then
+        -- Single-char tokens are emitted immediately.
+        vim.api.nvim_buf_set_extmark(buf, json_ns, row, j - 1, {
+          end_row = row, end_col = j,
+          hl_group = new_hl, priority = 200,
+        })
+      end
+
+      j = j + 1
+    end
+
+    -- Flush a trailing word token.
+    if token_hl and e >= token_start then
+      vim.api.nvim_buf_set_extmark(buf, json_ns, row, token_start - 1, {
+        end_row = row, end_col = e,
+        hl_group = token_hl, priority = 200,
+      })
+    end
+
+    ::continue::
+  end
+end
 function M.apply_verbose_highlights(buf, lines, r)
   vim.api.nvim_buf_clear_namespace(buf, verbose_ns, 0, -1)
+  vim.api.nvim_buf_clear_namespace(buf, json_ns, 0, -1)
+
+  -- Pre-scan: locate the Response Body and Request Body sections (1-indexed
+  -- start/end of the *content* lines), so we can skip them in the main loop
+  -- and apply JSON highlighting below.  Also extract the request content-type
+  -- from the Request Headers section.
+  local body_start = nil
+  local body_end = nil
+  local in_body = false
+  local req_body_start = nil
+  local req_body_end = nil
+  local in_req_body = false
+  local in_req_headers = false
+  local req_content_type = nil
+  for i, line in ipairs(lines) do
+    if line == "▸ Response Body" then
+      in_body = true
+      body_start = i + 1
+    elseif line == "▸ Request Body" then
+      in_req_body = true
+      req_body_start = i + 1
+    elseif line == "▸ Request Headers" then
+      in_req_headers = true
+    elseif line:match("^▸ ") or line:match("^[─—]+$") then
+      if in_body then
+        body_end = i - 1
+        in_body = false
+      end
+      if in_req_body then
+        req_body_end = i - 1
+        in_req_body = false
+      end
+      if in_req_headers then
+        in_req_headers = false
+      end
+    elseif in_req_headers and not req_content_type then
+      local k, v = line:match("^  ([^:]+):%s*(.+)$")
+      if k and k:lower() == "content-type" then
+        req_content_type = v
+      end
+    end
+  end
+  if in_body then
+    body_end = #lines
+  end
+  if in_req_body then
+    req_body_end = #lines
+  end
 
   for i, line in ipairs(lines) do
     local row = i - 1
+    local in_body_section = body_start and i >= body_start and i <= body_end
+    local in_req_body_section = req_body_start and i >= req_body_start and i <= req_body_end
+
+    -- Response/Request body content: let JSON highlighting handle it (or leave plain).
+    if in_body_section or in_req_body_section then
+      goto next
+    end
 
     -- Separator lines (─ repeated)
     if line:match("^[─—]+$") then
@@ -1286,7 +1463,8 @@ function M.apply_verbose_highlights(buf, lines, r)
         hl_group = "PosteVerboseValue", priority = 100,
       })
 
-    -- Label: value lines in General section or header/body sections
+    -- Label: value lines in General section or header sections
+    -- (Response/Request Body content is skipped above so JSON lines don't get mangled.)
     elseif line:match("^  [^:]+:%s") then
       local colon = line:find(":", 3)
       if colon then
@@ -1357,8 +1535,26 @@ function M.apply_verbose_highlights(buf, lines, r)
         end
       end
     end
+    ::next::
+  end
+
+  -- JSON highlighting for the response body section.
+  if body_start and body_end and r and r.content_type then
+    local mime = (r.content_type:match("^([^;]+)") or r.content_type):lower()
+    if content_type_map[mime] == "json" then
+      apply_verbose_json_highlights(buf, lines, body_start, body_end)
+    end
+  end
+
+  -- JSON highlighting for the request body section.
+  if req_body_start and req_body_end and req_content_type then
+    local mime = (req_content_type:match("^([^;]+)") or req_content_type):lower()
+    if content_type_map[mime] == "json" then
+      apply_verbose_json_highlights(buf, lines, req_body_start, req_body_end)
+    end
   end
 end
+
 
 M.pretty_body = pretty_body
 

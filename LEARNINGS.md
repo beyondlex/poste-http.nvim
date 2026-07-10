@@ -10,6 +10,7 @@ pitfall, log it here. Check this file before starting any task.
 - 2026-07-06: `run` directive bypassed pre/post script processing — raw content sent to Rust binary without Lua sandbox. Fix: `import.lua` now runs target block's pre-script before sending; injects both `request.variables.set()` AND `client.global.set()` vars as `@var` lines into the content sent to the Rust binary. Post-script runs after response to persist `client.global.set()` from target block. See `lua/poste/http/import.lua:374-424`.
 
 - 2026-07-08: http/rqst-verbose-body-preamble — `r.metadata.request_body` contained full HTTP request (method + headers + body), not just body. Both Rqst tab and Verbose tab's "Request Body" section displayed the preamble. Fix: extracted `strip_request_preamble()` helper to strip method line + header lines before formatting; applied in both `format_verbose` and `format_request_payload`. See `lua/poste/http/format.lua:1132-1146`.
+- 2026-07-08: http/pending-body-truncated — `strip_request_preamble` was called on pending body content that had no HTTP preamble, causing the first N body lines to be skipped. Fix: detect whether the body starts with an HTTP method line; skip stripping when it's already body-only. See `lua/poste/http/format.lua:931-939`.
 
 ## Format
 

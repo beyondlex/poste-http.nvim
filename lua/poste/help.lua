@@ -7,6 +7,7 @@ local M = {}
 local DESCRIPTIONS = {
   http_source = {
     run = "Execute request under cursor",
+    run_hsplit = "Execute request, horizontal split",
     jump_next = "Jump to next request block",
     jump_prev = "Jump to previous request block",
     goto_definition = "Go to variable definition",

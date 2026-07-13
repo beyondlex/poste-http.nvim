@@ -468,15 +468,19 @@ function M.render_buffer(lines, filetype)
   -- Open split window if not already open
   if not response_window or not vim.api.nvim_win_is_valid(response_window) then
     local saved_win = vim.api.nvim_get_current_win()
-    local cmd = state.config.split_direction == "vertical" and "vsplit" or "split"
+    local src_width = vim.api.nvim_win_get_width(saved_win)
+    local src_height = vim.api.nvim_win_get_height(saved_win)
+    local dir = state._split_override or state.config.split_direction
+    state._split_override = nil
+    local cmd = dir == "vertical" and "vsplit" or "split"
     vim.cmd(cmd)
     response_window = vim.api.nvim_get_current_win()
     response_keymaps_set = false
 
-    if state.config.split_direction == "vertical" then
-      vim.api.nvim_win_set_width(response_window, state.config.split_size)
+    if dir == "vertical" then
+      vim.api.nvim_win_set_width(response_window, src_width)
     else
-      vim.api.nvim_win_set_height(response_window, state.config.split_size)
+      vim.api.nvim_win_set_height(response_window, src_height)
     end
 
     vim.api.nvim_set_current_win(saved_win)

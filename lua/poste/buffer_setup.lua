@@ -17,6 +17,13 @@ function M.setup_buffer_keymaps(buf)
   if k then
     vim.keymap.set("n", k, run_request, keymap_opts)
   end
+  k = km("http_source", "run_hsplit", "<M-CR>")
+  if k then
+    vim.keymap.set("n", k, function()
+      state._split_override = "horizontal"
+      run_request()
+    end, keymap_opts)
+  end
   k = km("http_source", "jump_next", "]]")
   if k then vim.keymap.set("n", k, nav.jump_next, keymap_opts) end
   k = km("http_source", "jump_prev", "[[")

@@ -27,7 +27,7 @@ syn region PostePromptMapping start='{' end='}' contained
   \ contains=PostePromptMappingField,PostePromptMappingPath,PostePromptMappingColon
 syn match PostePromptMappingField '\<name\|key\|desc\|\%(description\)\>' contained
 syn match PostePromptMappingColon ':' contained
-syn match PostePromptMappingPath '\.[^,}]*' contained
+syn match PostePromptMappingPath '\.[^,}{\]]*' contained
 " Commented-out prompt: # <<varname [opts]
 syn match PosteCommentedPrompt '^\s*#\s*<<.\{-}\(\[.*\]\)\?\s*$'
   \ contains=PosteCommentedPromptMarker,PostePromptOpts

@@ -1,27 +1,15 @@
 --- Lua documentation provider for script blocks.
---- Tries lua-language-server (LSP) via a hidden Lua buffer first.
+--- Tries lua-language-server (LSP) via a per-request hidden Lua buffer first.
 --- Falls back to built-in Lua 5.1 standard library docs if LSP unavailable.
-local state = require("poste.state")
 
 local M = {}
 
--- Hidden Lua buffer used for LSP textDocument/hover requests
-local lsp_buf = nil
-
 ---------------------------------------------------------------------------
--- Setup
+-- LSP server lifecycle
 ---------------------------------------------------------------------------
 
 function M.setup()
-  if lsp_buf and vim.api.nvim_buf_is_valid(lsp_buf) then return end
-  lsp_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[lsp_buf].swapfile = false
-  local buf_name = vim.fn.getcwd() .. "/.poste_lua_docs_tmp.lua"
-  pcall(vim.api.nvim_buf_set_name, lsp_buf, buf_name)
-  vim.bo[lsp_buf].filetype = "lua"
-  state._lsp_doc_buf = lsp_buf
-  -- LSP client 不在启动时预热，只在首次 hover 时懒加载
-  -- 避免 any LSP start side-effect 干扰 snacks picker 的 buffer 状态
+  M._ensure_lua_ls_running()
 end
 
 --- Start lua-language-server in background (if not already running).
@@ -30,7 +18,6 @@ function M._ensure_lua_ls_running()
   if M._start_attempted then return end
   M._start_attempted = true
 
-  -- Reuse existing client
   for _, client in ipairs(vim.lsp.get_clients()) do
     if client.name == "lua_ls" then return end
   end
@@ -44,11 +31,16 @@ function M._ensure_lua_ls_running()
   })
 end
 
-function M.get_buf()
-  if not lsp_buf or not vim.api.nvim_buf_is_valid(lsp_buf) then
-    M.setup()
-  end
-  return lsp_buf
+--- Create a fresh temp buffer with lua filetype for LSP queries.
+--- Each call creates a new buffer so concurrent hover requests don't collide.
+--- @return number|nil buffer id, or nil on failure
+function M._create_lsp_buffer()
+  local ok, buf = pcall(vim.api.nvim_create_buf, false, true)
+  if not ok or not buf then return nil end
+  vim.bo[buf].swapfile = false
+  vim.bo[buf].filetype = "lua"
+  vim.bo[buf].bufhidden = "wipe"
+  return buf
 end
 
 ---------------------------------------------------------------------------
@@ -65,30 +57,32 @@ function M.extract_script_block(buf, cursor_line, cursor_col)
   local total = #all_lines
 
   -- Walk backwards to find opening marker
+  -- Uses same anchored patterns as scripts.lua for consistency
   local block_start = nil
   local lua_start_col = nil
   for i = math.min(cursor_line, total), 1, -1 do
-    local line = all_lines[i] or ""
-    local s1, e1 = line:find("<%s*{%%%s*")
-    if s1 then
+    local raw = all_lines[i] or ""
+    local trimmed = vim.trim(raw)
+    if trimmed:match("^<%s*{%%") then
       block_start = i
+      local _, e1 = raw:find("<%s*{%%")
       lua_start_col = e1 + 1
       break
     end
-    local s2, e2 = line:find(">%s*{%%%s*")
-    if s2 then
+    if trimmed:match("^>%s*{%%") then
       block_start = i
+      local _, e2 = raw:find(">%s*{%%")
       lua_start_col = e2 + 1
       break
     end
   end
   if not block_start then return nil end
 
-  -- Walk forwards to find closing marker
+  -- Walk forwards to find closing marker: exact match after trim (matches scripts.lua)
   local block_end = nil
   for i = block_start, total do
     local line = all_lines[i] or ""
-    if line:find("%%}") then
+    if vim.trim(line) == "%}" then
       block_end = i
       break
     end
@@ -136,20 +130,18 @@ end
 -- LSP hover via hidden Lua buffer
 ---------------------------------------------------------------------------
 
---- Attach a lua-language-server client to our hidden buffer.
+--- Attach a lua-language-server client to the given buffer.
 --- The client is pre-started during setup; if it didn't start, tries again.
 --- Returns true if a client is attached (or was already attached).
-function M.ensure_lsp_attached()
-  local buf = M.get_buf()
-  if not vim.api.nvim_buf_is_valid(buf) then return false end
+--- @param buf number  Buffer to attach to
+function M._ensure_lsp_attached(buf)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then return false end
 
   local bufc = vim.lsp.buf_get_clients(buf)
   if bufc and next(bufc) then return true end
 
-  -- Ensure server is (or was attempted to be) running
   M._ensure_lua_ls_running()
 
-  -- Attach existing lua_ls client to our buffer
   for _, client in ipairs(vim.lsp.get_clients()) do
     if client.name == "lua_ls" then
       local ok, _ = pcall(vim.lsp.buf_attach_client, buf, client.id)
@@ -161,13 +153,18 @@ function M.ensure_lsp_attached()
 end
 
 --- Try LSP hover and call callback with formatted lines or nil.
---- Does NOT rely on automatic LSP attach; explicitly finds + attaches
---- an existing lua-language-server client.
+--- Creates a fresh temp buffer per call to avoid stale state from concurrent
+--- hover requests (two .http files open, rapid K presses, etc.).
 function M.try_lsp_hover(script_lines, line, col, callback)
-  local buf = M.get_buf()
+  local buf = M._create_lsp_buffer()
+  if not buf then
+    callback(nil)
+    return
+  end
+
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, script_lines)
 
-  if not M.ensure_lsp_attached() then
+  if not M._ensure_lsp_attached(buf) then
     callback(nil)
     return
   end

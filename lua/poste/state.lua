@@ -158,7 +158,6 @@ M.last_script_logs = nil         -- { "log line 1", "log line 2", ... } from pre
 M.last_request = nil             -- { buf, line } for re-run from response buffer
 M.pending_request = nil          -- { method, url, headers_str, body, env, timestamp, start_hires } — set while request is in flight
 M.current_view = "body"          -- "body" | "headers" | "verbose" | "assertions" | "script_logs"
-M._lsp_doc_buf = nil             -- hidden Lua buffer for LSP doc lookup
 
 -- HTTP request history (session-scoped)
 M.http_history = {}              -- entry[] (newest first)

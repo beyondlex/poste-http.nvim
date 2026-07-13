@@ -464,6 +464,7 @@ M.post_script_keywords = {
   { name = "client.global.set",      desc = "Set persistent global variable" },
   { name = "client.global.get",      desc = "Get persistent global variable" },
   { name = "client.log",             desc = "Log message to script output" },
+  { name = "md5",                    desc = "Compute MD5 hash" },
 }
 
 ---------------------------------------------------------------------------

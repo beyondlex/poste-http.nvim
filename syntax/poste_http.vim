@@ -106,6 +106,8 @@ syn match PosteScriptAPI 'response\.\%(status\|body\|headers\|latency_ms\|conten
 syn match PosteScriptAPI 'request\.\%(variables\.\%(set\|get\)\|headers\|body\)' contained
 syn match PosteScriptAPI 'variables\.\w\+' contained
 syn match PosteScriptAPI 'env\.\w\+' contained
+syn match PosteScriptAPI '\<md5\>' contained
+syn match PosteScriptAPI '\<assert\>' contained
 
 " ─── HTTP request line ──────────────────────────────
 " Methods MUST be defined before PosteHeaderKey to take precedence

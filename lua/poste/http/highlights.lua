@@ -61,7 +61,7 @@ function M.setup()
     { "PosteRunVarDef",    "PosteVarDef" },
     { "PosteRunVarAssign", "Operator" },
     { "PosteRunVarValue",  "String" },
-    { "PostePromptMarker", "PreProc" },
+    { "PostePromptMarker", "PosteVarDef" },
     { "PostePromptVar",    "PosteVarDef" },
     { "PostePromptOpts",   "String" },
     { "PostePromptOptSep", "Delimiter" },

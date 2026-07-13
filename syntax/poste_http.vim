@@ -15,10 +15,10 @@ syn match PosteSeparator '^###' contained
 
 " ─── Comments & Directives ──────────────────────────
 " Prompt directive: <<varname [opts]
-syn match PostePrompt '^\s*<<.\{-}\(\[.\{-}\]\)\?\s*$'
+syn match PostePrompt '^\s*<<.\{-}\(\[.*\]\)\?\s*$'
   \ contains=PostePromptMarker,PostePromptOpts
 syn match PostePromptMarker '<<' contained
-syn match PostePromptOpts '\[.\{-}\]' contained
+syn match PostePromptOpts '\[.*\]' contained
   \ contains=PosteVarRef,PosteMagicVar,PostePromptOptSep,PostePromptMapping
 " | separator inside prompt options (name|key|description tuples)
 syn match PostePromptOptSep '|' contained
@@ -29,7 +29,7 @@ syn match PostePromptMappingField '\<name\|key\|desc\|\%(description\)\>' contai
 syn match PostePromptMappingColon ':' contained
 syn match PostePromptMappingPath '\.[^,}]*' contained
 " Commented-out prompt: # <<varname [opts]
-syn match PosteCommentedPrompt '^\s*#\s*<<.\{-}\(\[.\{-}\]\)\?\s*$'
+syn match PosteCommentedPrompt '^\s*#\s*<<.\{-}\(\[.*\]\)\?\s*$'
   \ contains=PosteCommentedPromptMarker,PostePromptOpts
 syn match PosteCommentedPromptMarker '#\s*<<' contained
 syn match PosteComment '^\s*#\%(\s*<<\)\@!\([^#].*\|$\)'
@@ -196,7 +196,7 @@ hi def link PosteRunTarget String
 hi def link PosteRunVarDef  PosteVarDef
 hi def link PosteRunVarAssign Operator
 hi def link PosteRunVarValue String
-hi def link PostePrompt           PreProc
+hi def link PostePrompt           PosteVarDef
 hi def link PostePromptMarker      Special
 hi def link PostePromptOpts        String
 hi def link PostePromptOptSep      Delimiter

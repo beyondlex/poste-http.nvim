@@ -3,6 +3,7 @@ local request_vars = require("poste.http.request_vars")
 local context_detector = require("poste.http.context_detector")
 local data = require("poste.http.data")
 local lua_docs = require("poste.http.lua_docs")
+local util = require("poste.util")
 
 local M = {}
 

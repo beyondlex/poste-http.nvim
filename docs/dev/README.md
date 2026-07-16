@@ -11,6 +11,7 @@
 | [Architecture Overview](./architecture-overview.md) | Layered architecture, protocol isolation, data flow |
 | [File Index](./file-index.md) | Key files quick reference |
 | [Testing Guide](./testing.md) | Rust + Lua + Docker SQL testing |
+| [Refactoring Plan](./refactoring-plan.md) | F1–F8 architecture debt, phased remediation plan |
 | [Archived Docs](./archived/README.md) | Outdated design documents |
 
 ## HTTP

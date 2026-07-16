@@ -4,6 +4,20 @@
 
 local M = {}
 
+-- Define highlight groups for SQL syntax (used by extmark highlighting).
+-- These link to standard Vim groups so they work with any colorscheme.
+-- Groups are defined here rather than in syntax/poste_sql.vim so that
+-- the log viewer (which also uses this module) does not depend on the
+-- poste_sql filetype syntax file being loaded.
+vim.api.nvim_set_hl(0, "sqlComment",   { link = "Comment" })
+vim.api.nvim_set_hl(0, "sqlString",    { link = "String" })
+vim.api.nvim_set_hl(0, "sqlNumber",    { link = "Number" })
+vim.api.nvim_set_hl(0, "sqlStatement", { link = "Keyword" })
+vim.api.nvim_set_hl(0, "sqlKeyword",   { link = "Keyword" })
+vim.api.nvim_set_hl(0, "sqlType",      { link = "Type" })
+vim.api.nvim_set_hl(0, "sqlFunction",  { link = "Function" })
+vim.api.nvim_set_hl(0, "sqlSpecial",   { link = "Special" })
+
 local patterns = {
   { "%-%-[^\n]-", "sqlComment" },
   { "'[^']-'", "sqlString" },

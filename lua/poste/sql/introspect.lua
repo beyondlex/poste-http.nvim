@@ -172,6 +172,60 @@ end
 -- Table DDL
 ---------------------------------------------------------------------------
 
+--- List all tables in a database and show them in a float window.
+--- @param binary string
+--- @param conn string
+--- @param db_name string
+--- @param file string
+local function list_tables_in_db(binary, conn, db_name, file)
+  local search_dir = vim.fn.fnamemodify(file, ":h")
+  local cmd = string.format("%s introspect %s --type tables --database %s --env %s --path %s",
+    vim.fn.shellescape(binary),
+    vim.fn.shellescape(conn),
+    vim.fn.shellescape(db_name),
+    vim.fn.shellescape(state.current_env),
+    vim.fn.shellescape(search_dir))
+  vim.fn.jobstart(cmd, {
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      data = util.ensure_job_data(data)
+      if #data == 0 then return end
+      local output = table.concat(data, "\n")
+      vim.schedule(function()
+        local ok, parsed = pcall(vim.json.decode, output)
+        if not ok or type(parsed) ~= "table" then
+          vim.notify("Failed to list tables", vim.log.levels.ERROR, { title = "Poste SQL" })
+          return
+        end
+        local items = parsed.items
+        if not items or #items == 0 then
+          vim.notify("No tables found in database '" .. db_name .. "'", vim.log.levels.WARN, { title = "Poste SQL" })
+          return
+        end
+        local lines = {}
+        for _, t in ipairs(items) do
+          table.insert(lines, "  " .. t.name .. "  (" .. t.type .. ")")
+        end
+        M.show_float(lines, "Tables: " .. db_name)
+      end)
+    end,
+    on_stderr = function(_, data)
+      if not data then return end
+      for _, l in ipairs(data) do
+        if l ~= "" then state.log("ERROR", "introspect stderr: " .. l) end
+      end
+    end,
+    on_exit = function(_, code)
+      if code ~= 0 then
+        vim.schedule(function()
+          vim.notify("Table listing failed with exit code " .. code, vim.log.levels.ERROR, { title = "Poste SQL" })
+        end)
+      end
+    end,
+  })
+end
+
 --- Show DDL for the table under the cursor in a floating window.
 function M.show_table_ddl()
   local binary = state.find_poste_binary()
@@ -356,6 +410,9 @@ function M.show_table_ddl()
       local xtra = end_col + 1 + #after_dot_col
       table.insert(before_parts, line_text:sub(1, xtra))
       local offset = #table.concat(before_parts, "\n")
+      if offset > 0 then
+        offset = offset - 1
+      end
       local block_parts = {}
       for i = block_start, block_end do table.insert(block_parts, all_lines[i] or "") end
       local sql_text = table.concat(block_parts, "\n")
@@ -403,6 +460,13 @@ function M.show_table_ddl()
     end
     table.insert(before_parts, line_text:sub(1, end_col))
     local offset = #table.concat(before_parts, "\n")
+    -- Adjust offset to point to the last character of the word, not the
+    -- character after it (e.g., for "authors;" the offset should be on
+    -- "s" not on ";"). This ensures the Rust binary detects the correct
+    -- context type (e.g., schema_table for schema-qualified table refs).
+    if offset > 0 then
+      offset = offset - 1
+    end
 
     local block_parts = {}
     for i = block_start, block_end do table.insert(block_parts, all_lines[i] or "") end
@@ -441,15 +505,59 @@ function M.show_table_ddl()
             end
           end
           is_column = parent_table ~= nil
-        elseif (ct == "column" or ct == "keyword") and tables and #tables > 0 then
-          -- Check if cword is NOT a table name → it's a column
-          local is_table = false
+        elseif ct == "schema_table" and parsed.ctx_data then
+          -- Schema-qualified table reference: schema.table (e.g., blog.authors)
+          -- ctx_data is the schema name (e.g., "blog").
+          -- The cursor is on the table name (e.g., "authors").
+          local schema = parsed.ctx_data or ""
+          if schema ~= "" then
+            db = schema
+          end
+          -- cword is already the table name; fall through to DDL below
+        elseif ct == "table" and tables and #tables > 0 then
+          -- Cursor is on a table reference: could be a table name, alias,
+          -- or schema/database qualifier (e.g., "blog" in "blog.authors").
+          local schema_match = nil
+          local alias_match = nil
           for _, t in ipairs(tables) do
             local tn = strip_q(t.name):lower()
             local ta = strip_q(t.alias):lower()
-            if tn == cword:lower() or ta == cword:lower() then is_table = true; break end
+            local ts = t.schema and t.schema:lower() or ""
+            if tn == cword:lower() then
+              alias_match = t
+              if ts ~= "" then
+                db = ts
+              end
+              break
+            end
+            if ta == cword:lower() then alias_match = t; break end
+            if ts == cword:lower() then schema_match = t end
           end
-          if not is_table then
+          if schema_match then
+            -- cword is a schema/database qualifier: list all tables in this database
+            db = cword
+            list_tables_in_db(binary, conn, db, file)
+            return
+          elseif alias_match then
+            cword = alias_match.name
+          end
+          -- fall through to DDL below
+        elseif (ct == "column" or ct == "keyword") and tables and #tables > 0 then
+          -- Check if cword is NOT a table name → it's a column
+          local is_table = false
+          local schema_match = nil
+          for _, t in ipairs(tables) do
+            local tn = strip_q(t.name):lower()
+            local ta = strip_q(t.alias):lower()
+            local ts = t.schema and t.schema:lower() or ""
+            if tn == cword:lower() or ta == cword:lower() then is_table = true; break end
+            if ts == cword:lower() then schema_match = t end
+          end
+          if schema_match then
+            -- cword is a schema/database qualifier (e.g., "blog" in "blog.authors")
+            db = cword
+            cword = schema_match.name
+          elseif not is_table then
             -- Not a table name: use first table as parent, cword is column
             parent_table = strip_q(tables[1].name or tables[1].alias)
             is_column = parent_table ~= nil

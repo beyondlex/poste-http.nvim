@@ -97,6 +97,13 @@ function M.goto_definition()
           end
           table.insert(before_parts, line_text:sub(1, end_col))
           local offset = #table.concat(before_parts, "\n")
+          -- Adjust offset to point to the last character of the word, not the
+          -- character after it (e.g., for "authors;" the offset should be on
+          -- "s" not on ";"). This ensures the Rust binary detects the correct
+          -- context type (e.g., schema_table for schema-qualified table refs).
+          if offset > 0 then
+            offset = offset - 1
+          end
 
           local block_parts = {}
           for i = block_start, block_end do table.insert(block_parts, all_lines[i] or "") end
@@ -147,6 +154,48 @@ function M.goto_definition()
                 local cm = ad:match("^([%w_]+)")
                 table_name = resolved or prefix
                 column_name = cm or vim.fn.expand("<cword>")
+              elseif ct == "schema_table" and parsed.ctx_data then
+                -- Schema-qualified table reference: schema.table (e.g., blog.authors)
+                -- ctx_data is the schema name (e.g., "blog").
+                -- The cursor is on the table name (e.g., "authors").
+                local schema = parsed.ctx_data or ""
+                if schema ~= "" then
+                  full_ctx.database = schema
+                end
+                table_name = vim.fn.expand("<cword>")
+                column_name = nil
+              elseif ct == "table" and parsed.tables and #parsed.tables > 0 then
+                -- Cursor is on a table reference: could be a table name, alias,
+                -- or schema/database qualifier (e.g., "blog" in "blog.authors").
+                local cword = vim.fn.expand("<cword>")
+                local cword_lower = cword:lower()
+                local schema_match = nil
+                local alias_match = nil
+                for _, t in ipairs(parsed.tables) do
+                  local tn = (t.name or ""):lower()
+                  local ta = (t.alias or ""):lower()
+                  local ts = (t.schema or ""):lower()
+                  if tn == cword_lower then
+                    alias_match = t
+                    if ts ~= "" then
+                      full_ctx.database = ts
+                    end
+                    break
+                  end
+                  if ta == cword_lower then alias_match = t; break end
+                  if ts == cword_lower then schema_match = t end
+                end
+                if schema_match then
+                  -- cword is a schema/database qualifier: navigate to the database
+                  vim.cmd("normal! m'")
+                  require("poste.sql.db_browser").navigate_to(full_ctx.connection, cword)
+                  return
+                elseif alias_match then
+                  table_name = alias_match.name
+                else
+                  table_name = cword
+                end
+                column_name = nil
               elseif (ct == "column" or ct == "keyword") and parsed.tables and #parsed.tables > 0 then
                 local cword = vim.fn.expand("<cword>")
                 local cword_lower = cword:lower()
@@ -160,25 +209,47 @@ function M.goto_definition()
 
                 if after_dot_col then
                   local matched = nil
+                  local schema_matched = nil
                   for _, t in ipairs(parsed.tables) do
                     local tn = (t.name or ""):lower()
                     local ta = (t.alias or ""):lower()
+                    local ts = (t.schema or ""):lower()
                     if tn == cword_lower or ta == cword_lower then matched = t; break end
-                  end
-                  local resolved = matched and (matched.name or matched.alias) or parsed.ctx_data
-                  if resolved then
-                    table_name = resolved
-                    column_name = after_dot_col
-                  end
-                else
-                  local matched = nil
-                  for _, t in ipairs(parsed.tables) do
-                    local tn = (t.name or ""):lower()
-                    local ta = (t.alias or ""):lower()
-                    if tn == cword_lower or ta == cword_lower then matched = t; break end
+                    if ts == cword_lower then schema_matched = t end
                   end
                   if matched then
                     table_name = matched.name or matched.alias
+                    column_name = after_dot_col
+                  elseif schema_matched then
+                    -- cword is a schema/database qualifier (e.g., "blog" in "blog.authors")
+                    full_ctx.database = cword
+                    table_name = schema_matched.name
+                    column_name = nil
+                  else
+                    local resolved = matched and (matched.name or matched.alias) or parsed.ctx_data
+                    if resolved then
+                      table_name = resolved
+                      column_name = after_dot_col
+                    end
+                  end
+                else
+                  local matched = nil
+                  local schema_matched = nil
+                  for _, t in ipairs(parsed.tables) do
+                    local tn = (t.name or ""):lower()
+                    local ta = (t.alias or ""):lower()
+                    local ts = (t.schema or ""):lower()
+                    if tn == cword_lower or ta == cword_lower then matched = t; break end
+                    if ts == cword_lower then schema_matched = t end
+                  end
+                  if matched then
+                    table_name = matched.name or matched.alias
+                    column_name = nil
+                  elseif schema_matched then
+                    -- cword is a schema/database qualifier; use the table name
+                    -- and override the database context.
+                    full_ctx.database = cword
+                    table_name = schema_matched.name
                     column_name = nil
                   else
                     local alias = nil

@@ -461,7 +461,7 @@ function M.render_buffer(lines, filetype)
   if state.last_response and state.last_response.protocol == "redis" and state.current_view == "body" then
     local ok, data = pcall(vim.json.decode, state.last_response.body)
     if ok and data and data.type then
-      format.apply_redis_highlights(buf, lines, data.type)
+      require("poste.redis").apply_highlights(buf, lines, data.type)
     end
   end
 

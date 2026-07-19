@@ -3,10 +3,7 @@
 
 SELECT * FROM items;
 
-SELECT * FROM posts WHERE  ;
-
-
-SELECT * FROM authors;
+SELECT * FROM blog.authors;
 
 select id, slug FROM posts;
 

@@ -223,11 +223,11 @@ The `run_request()` / `run_sql_request()` entry point:
 
 ### Acceptance
 
-- [ ] `cache.lua` no longer parses HTTP semantics (only UI indexing)
-- [ ] `run.lua` no longer re-parses request blocks from buffer text
-- [ ] Each `run_*` entry creates a fresh session
-- [ ] No `state.*` field written in one request survives into the next
-- [ ] `tests/relation-check.sh` (or CI equivalent) passes
+- [x] `cache.lua` no longer parses HTTP semantics (only UI indexing) — semantic method/path/headers via `get_semantic_blocks()` → `poste run --describe`
+- [x] `run.lua` no longer re-parses request blocks from buffer text — uses `poste.http.describe`
+- [x] Each `run_*` entry creates a fresh session (`http/session.lua`, `sql/session.lua`)
+- [x] No `state.*` field written in one request survives into the next — `session.begin()` clears all request-scoped fields
+- [x] `tools/relation-check.sh session` (or full run) verifies SET↔CLEAR / session lifecycle
 
 ---
 

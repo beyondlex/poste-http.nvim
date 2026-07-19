@@ -66,7 +66,9 @@
 | `request_vars.lua` | Request variable handling, prompt vars |
 | `var_collector.lua` | Variable collection/rollup |
 | `context_detector.lua` | Context detection for completion |
-| `cache.lua` | Response cache for cross-request refs |
+| `cache.lua` | UI-level buffer index (line types, block bounds); semantic blocks via describe |
+| `describe.lua` | Single parse authority — `poste run --describe` wrapper |
+| `session.lua` | Per-request HTTP session lifecycle (clears request-scoped state) |
 | `env.lua` | Environment switching UI |
 | `import.lua` | Import/run across files |
 | `import_openapi.lua` | OpenAPI import |
@@ -84,6 +86,7 @@
 | File | Description |
 |------|-------------|
 | `init.lua` | SQL execution entry |
+| `session.lua` | Per-request SQL session lifecycle |
 | `buffer.lua` | Bottom horizontal split Dataset panel |
 | `buffer_nav.lua` | Dataset cell navigation |
 | `buffer_page.lua` | Dataset pagination |

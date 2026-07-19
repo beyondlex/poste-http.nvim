@@ -180,3 +180,59 @@ describe("contract: context-stmt-ranges", function()
     assert.equal(3, #ranges)
   end)
 end)
+
+---------------------------------------------------------------------------
+-- Phase 2a: poste run --describe (single parse authority)
+---------------------------------------------------------------------------
+
+describe("contract: http-describe-blocks", function()
+  local blocks = load_fixture("http-describe-blocks.json")
+
+  it("is an array of block metadata", function()
+    assert.is_true(type(blocks) == "table")
+    assert.is_true(#blocks >= 1)
+  end)
+
+  it("each block has required fields", function()
+    for _, b in ipairs(blocks) do
+      assert.is_true(type(b.name) == "string", "name must be string")
+      assert.is_true(type(b.line) == "number", "line must be number")
+      assert.is_true(type(b.end_line) == "number", "end_line must be number")
+      assert.is_true(type(b.method) == "string", "method must be string")
+      assert.is_true(type(b.path) == "string", "path must be string")
+      assert.is_true(type(b.headers) == "table", "headers must be table")
+      assert.is_true(type(b.body) == "string", "body must be string")
+      assert.is_true(type(b.request_line) == "string", "request_line must be string")
+      assert.is_true(b.line <= b.end_line, "line <= end_line")
+    end
+  end)
+
+  it("first block is Get Users GET", function()
+    local b = blocks[1]
+    assert.equal("Get Users", b.name)
+    assert.equal("GET", b.method)
+    assert.equal("http://example.com/api/users", b.path)
+    assert.equal(3, b.line)
+    assert.is_true(#b.headers >= 1)
+    assert.equal("Accept", b.headers[1][1])
+    assert.equal("application/json", b.headers[1][2])
+  end)
+
+  it("second block is Create User POST with body", function()
+    local b = blocks[2]
+    assert.equal("Create User", b.name)
+    assert.equal("POST", b.method)
+    assert.is_true(b.body:find("Ada", 1, true) ~= nil)
+    assert.equal("Content-Type", b.headers[1][1])
+  end)
+
+  it("headers are arrays of [name, value] pairs", function()
+    for _, b in ipairs(blocks) do
+      for _, h in ipairs(b.headers) do
+        assert.is_true(type(h) == "table")
+        assert.is_true(type(h[1]) == "string")
+        assert.is_true(type(h[2]) == "string")
+      end
+    end
+  end)
+end)

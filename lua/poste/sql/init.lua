@@ -193,6 +193,13 @@ function M.run_sql_request()
     file = vim.fn.getcwd() .. "/untitled.sql"
   end
 
+  -- Fresh SQL session: clears request-scoped dataset/response state (Phase 2b)
+  require("poste.sql.session").begin({
+    buf = src_buf,
+    line = vim.fn.line("."),
+    file = file,
+  })
+
   local is_visual = _vis_active
   _vis_active = false
 

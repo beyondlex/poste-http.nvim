@@ -62,7 +62,9 @@ crosses protocols.
 | `context_detector.lua` | Detect context at cursor (within `###` block, inside `{%`, etc.) |
 | `data.lua` | Dynamic data definitions for the HTTP script API |
 | `highlights.lua` | Syntax highlighting for HTTP result buffers |
-| `cache.lua` | Response caching (ETag, Last-Modified) |
+| `cache.lua` | UI buffer index (line types, block bounds); semantic via describe |
+| `describe.lua` | Single parse authority — `poste run --describe` |
+| `session.lua` | Per-request session lifecycle (clears request-scoped state) |
 | `boundary_indicator.lua` | `###` block boundary indicator line |
 | `history.lua` | Request history: floating UI, persistence, navigation |
 

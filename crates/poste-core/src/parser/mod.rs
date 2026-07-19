@@ -1,11 +1,41 @@
 use crate::request::{Protocol, Request};
 use anyhow::Result;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 pub mod vars;
 pub use vars::VarResolver;
+
+/// Structured metadata for a single `###` request block.
+/// Emitted by `poste run --describe` so Lua does not re-parse HTTP semantics.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlockMeta {
+    /// Request name from the `### Name` line (empty string if unnamed).
+    pub name: String,
+    /// 1-indexed start line of the block (`###` line, or 1 if no separator).
+    pub line: usize,
+    /// 1-indexed inclusive end line of the block content.
+    pub end_line: usize,
+    /// HTTP method / Redis command / SCRIPT / first token of request line.
+    pub method: String,
+    /// URL path (HTTP) or remainder of the request line (other protocols).
+    pub path: String,
+    /// Request headers as `[name, value]` pairs (HTTP only; empty otherwise).
+    pub headers: Vec<(String, String)>,
+    /// Request body after headers (may be empty).
+    pub body: String,
+    /// Full first request line (e.g. `GET https://example.com/users`).
+    pub request_line: String,
+}
+
+/// A raw `###` block with absolute line numbers (1-indexed).
+struct RawBlock {
+    start_line: usize,
+    end_line: usize,
+    content: String,
+}
 
 pub struct Parser {
     env: HashMap<String, String>,
@@ -27,41 +57,185 @@ impl Parser {
         }
     }
 
+    /// Split content into raw blocks by `###` markers, tracking 1-indexed lines.
+    fn split_raw_blocks(content: &str) -> Vec<RawBlock> {
+        let mut blocks = Vec::new();
+        let mut current = String::new();
+        let mut start_line: usize = 1;
+        let mut line_no: usize = 0;
+
+        for line in content.lines() {
+            line_no += 1;
+            if line.trim().starts_with("###") && !current.is_empty() {
+                blocks.push(RawBlock {
+                    start_line,
+                    end_line: line_no - 1,
+                    content: std::mem::take(&mut current),
+                });
+                start_line = line_no;
+            }
+            current.push_str(line);
+            current.push('\n');
+        }
+        if !current.is_empty() {
+            blocks.push(RawBlock {
+                start_line,
+                end_line: line_no.max(1),
+                content: current,
+            });
+        }
+        blocks
+    }
+
     /// Parse a request file and extract the request at the given line.
     /// `file_ext` is the file extension (without dot), used for protocol detection.
     pub fn parse_at_line(&self, content: &str, line_num: usize, file_ext: &str) -> Result<Request> {
         let protocol = Self::detect_protocol(file_ext);
-
-        // Extract file-level variables (before first ###)
         let file_vars = self.extract_file_variables(content);
+        let blocks = Self::split_raw_blocks(content);
 
-        // Split content into request blocks by ### markers
-        let mut blocks = Vec::new();
-        let mut current_block = String::new();
-
-        for line in content.lines() {
-            if line.trim().starts_with("###") && !current_block.is_empty() {
-                blocks.push(current_block.clone());
-                current_block.clear();
-            }
-            current_block.push_str(line);
-            current_block.push('\n');
-        }
-        if !current_block.is_empty() {
-            blocks.push(current_block);
-        }
-
-        // Find the block containing the cursor line
-        let mut current_line = 0;
         for block in &blocks {
-            let block_lines = block.lines().count();
+            if line_num >= block.start_line && line_num <= block.end_line {
+                return self.parse_block(&block.content, protocol, &file_vars);
+            }
+            // Fallback: cursor on inter-block separator falls into the next block
+            // only when line_num matches start; otherwise use cumulative range like before.
+        }
+
+        // Preserve prior semantics: first block whose cumulative end >= line_num.
+        let mut current_line = 0usize;
+        for block in &blocks {
+            let block_lines = block.content.lines().count();
             if current_line + block_lines >= line_num {
-                return self.parse_block(block, protocol, &file_vars);
+                return self.parse_block(&block.content, protocol, &file_vars);
             }
             current_line += block_lines;
         }
 
         anyhow::bail!("No request found at line {}", line_num);
+    }
+
+    /// Describe all request blocks in `content` as structured metadata.
+    ///
+    /// This is the single parse authority for block name/line/method/path/headers.
+    /// Variable substitution uses the same rules as `parse_at_line`.
+    pub fn describe_blocks(&self, content: &str, file_ext: &str) -> Result<Vec<BlockMeta>> {
+        let protocol = Self::detect_protocol(file_ext);
+        let file_vars = self.extract_file_variables(content);
+        let raw_blocks = Self::split_raw_blocks(content);
+        let mut out = Vec::with_capacity(raw_blocks.len());
+
+        for raw in raw_blocks {
+            // Skip pure preamble (file-level vars only, no ### and no request line)
+            let has_separator = raw.content.lines().any(|l| l.trim().starts_with("###"));
+            let request = match self.parse_block(&raw.content, protocol.clone(), &file_vars) {
+                Ok(r) => r,
+                Err(_) if !has_separator => continue, // file preamble without a request
+                Err(e) => return Err(e),
+            };
+
+            let body_str = request.body_str();
+            let (method, path, headers, body, request_line) =
+                Self::extract_request_parts(body_str, &protocol);
+
+            // File-level preamble parses as empty Request — skip unless it has a real request
+            if request_line.is_empty() && !has_separator {
+                continue;
+            }
+
+            out.push(BlockMeta {
+                name: request.name.unwrap_or_default(),
+                line: raw.start_line,
+                end_line: raw.end_line,
+                method,
+                path,
+                headers,
+                body,
+                request_line,
+            });
+        }
+
+        Ok(out)
+    }
+
+    /// Split a resolved request body into method / path / headers / body parts.
+    fn extract_request_parts(
+        body: &str,
+        protocol: &Protocol,
+    ) -> (String, String, Vec<(String, String)>, String, String) {
+        let lines: Vec<&str> = body.lines().collect();
+        if lines.is_empty() {
+            return (
+                String::new(),
+                String::new(),
+                Vec::new(),
+                String::new(),
+                String::new(),
+            );
+        }
+
+        // Find first non-empty non-comment line as the request line
+        let mut idx = 0usize;
+        while idx < lines.len() {
+            let t = lines[idx].trim();
+            if t.is_empty() || t.starts_with('#') {
+                idx += 1;
+                continue;
+            }
+            break;
+        }
+        if idx >= lines.len() {
+            return (
+                String::new(),
+                String::new(),
+                Vec::new(),
+                String::new(),
+                String::new(),
+            );
+        }
+
+        let request_line = lines[idx].trim().to_string();
+        let (method, path) = match request_line.split_once(char::is_whitespace) {
+            Some((m, rest)) => (m.to_string(), rest.trim().to_string()),
+            None => (request_line.clone(), String::new()),
+        };
+
+        let mut headers = Vec::new();
+        let mut body_start = idx + 1;
+
+        if matches!(protocol, Protocol::Http) {
+            let mut i = idx + 1;
+            while i < lines.len() {
+                let t = lines[i].trim();
+                if t.is_empty() {
+                    body_start = i + 1;
+                    break;
+                }
+                if let Some((k, v)) = lines[i].split_once(':') {
+                    headers.push((k.trim().to_string(), v.trim().to_string()));
+                    body_start = i + 1;
+                } else {
+                    // Non-header line without blank separator — treat as body start
+                    body_start = i;
+                    break;
+                }
+                i += 1;
+                if i == lines.len() {
+                    body_start = i;
+                }
+            }
+        } else {
+            // Non-HTTP: everything after request line is body
+            body_start = idx + 1;
+        }
+
+        let body = if body_start < lines.len() {
+            lines[body_start..].join("\n")
+        } else {
+            String::new()
+        };
+
+        (method, path, headers, body, request_line)
     }
 
     fn parse_block(
@@ -876,5 +1050,71 @@ X-Val: {{a}}
         let req = parser.parse_at_line(content, 5, "http").unwrap();
         let body = req.body_str();
         assert!(body.contains("X-Val: {{b}}") || body.contains("X-Val: {{a}}"));
+    }
+
+    // ---- describe_blocks (Phase 2 single parse authority) ----
+
+    #[test]
+    fn test_describe_blocks_basic() {
+        let parser = Parser::new(HashMap::new());
+        let content = r#"@base = http://example.com
+
+### Get Users
+GET {{base}}/api/users
+Accept: application/json
+
+### Create User
+POST {{base}}/api/users
+Content-Type: application/json
+
+{"name": "Ada"}
+"#;
+        let blocks = parser.describe_blocks(content, "http").unwrap();
+        assert_eq!(blocks.len(), 2);
+
+        assert_eq!(blocks[0].name, "Get Users");
+        assert_eq!(blocks[0].line, 3);
+        assert_eq!(blocks[0].method, "GET");
+        assert_eq!(blocks[0].path, "http://example.com/api/users");
+        assert_eq!(blocks[0].headers.len(), 1);
+        assert_eq!(blocks[0].headers[0].0, "Accept");
+        assert_eq!(blocks[0].headers[0].1, "application/json");
+        assert_eq!(blocks[0].request_line, "GET http://example.com/api/users");
+
+        assert_eq!(blocks[1].name, "Create User");
+        assert_eq!(blocks[1].method, "POST");
+        assert!(blocks[1].body.contains(r#""name": "Ada""#));
+        assert_eq!(blocks[1].headers[0].0, "Content-Type");
+    }
+
+    #[test]
+    fn test_describe_blocks_line_numbers() {
+        let parser = Parser::new(HashMap::new());
+        let content = "### A\nGET /a\n\n### B\nGET /b\n";
+        let blocks = parser.describe_blocks(content, "http").unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].line, 1);
+        assert_eq!(blocks[0].end_line, 3); // includes blank line before next ###
+        assert_eq!(blocks[1].line, 4);
+        assert_eq!(blocks[1].method, "GET");
+        assert_eq!(blocks[1].path, "/b");
+    }
+
+    #[test]
+    fn test_describe_blocks_skips_preamble_only() {
+        let parser = Parser::new(HashMap::new());
+        // Content with only file-level vars and no ### — no blocks
+        let content = "@x = 1\n@y = 2\n";
+        let blocks = parser.describe_blocks(content, "http").unwrap();
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn test_describe_blocks_script() {
+        let parser = Parser::new(HashMap::new());
+        let content = "### Setup\nSCRIPT\n";
+        let blocks = parser.describe_blocks(content, "http").unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].method, "SCRIPT");
     }
 }

@@ -1,10 +1,14 @@
 --- Cache management for HTTP completion.
---- Provides buffer-level caching for file variables, request names, and import index.
+---
+--- UI-level indexing only (line types, block bounds, var names, imports).
+--- HTTP semantics (method / path / headers / body) come from the single parse
+--- authority: `poste run --describe` via `poste.http.describe` — see Phase 2a.
 
 local M = {}
 
 -- Buffer-level caches (invalidated on text change via changedtick)
 local buffer_caches = {}     -- bufnr → { changedtick, file_vars, req_names, import_index }
+local semantic_caches = {}   -- bufnr → { changedtick, blocks }  -- from CLI describe
 local env_cache = {}         -- path → { mtime, env_name, vars }
 local cache_autocmds = {}    -- bufnr → true
 
@@ -18,6 +22,7 @@ function M.ensure_cache_autocmd(buf)
     buffer = buf,
     callback = function()
       buffer_caches[buf] = nil
+      semantic_caches[buf] = nil
     end,
   })
   vim.api.nvim_create_autocmd("BufDelete", {
@@ -25,6 +30,7 @@ function M.ensure_cache_autocmd(buf)
     buffer = buf,
     callback = function()
       buffer_caches[buf] = nil
+      semantic_caches[buf] = nil
       cache_autocmds[buf] = nil
     end,
   })
@@ -399,6 +405,57 @@ function M.collect_import_index(buf)
 
   cache.import_index = index
   return index
+end
+
+---------------------------------------------------------------------------
+-- Semantic block metadata (Phase 2a — single parse authority)
+-- method / path / headers come from `poste run --describe`, not Lua scanning.
+---------------------------------------------------------------------------
+
+--- Get structured block metadata for a buffer via the CLI describe command.
+--- Cached by changedtick. Returns empty table if binary is unavailable.
+---
+--- @param buf number|nil
+--- @return table  array of BlockMeta { name, line, end_line, method, path, headers, body, request_line }
+function M.get_semantic_blocks(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  local ct = vim.api.nvim_buf_get_changedtick(buf)
+  local cached = semantic_caches[buf]
+  if cached and cached.changedtick == ct then
+    return cached.blocks
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local content = table.concat(lines, "\n")
+  local file = vim.api.nvim_buf_get_name(buf)
+  if file == "" then
+    file = vim.fn.getcwd() .. "/untitled.http"
+  end
+
+  local describe = require("poste.http.describe")
+  local blocks, err = describe.describe_content(content, file)
+  if not blocks then
+    -- Binary missing or parse error: empty semantic index (UI cache still works)
+    if err then
+      pcall(function()
+        require("poste.state").log("WARN", "describe failed: " .. tostring(err))
+      end)
+    end
+    blocks = {}
+  end
+
+  semantic_caches[buf] = { changedtick = ct, blocks = blocks }
+  M.ensure_cache_autocmd(buf)
+  return blocks
+end
+
+--- Get semantic metadata for the block containing `line`.
+--- @param buf number
+--- @param line number  1-indexed
+--- @return table|nil  BlockMeta
+function M.get_semantic_block_at_line(buf, line)
+  local describe = require("poste.http.describe")
+  return describe.block_at_line(M.get_semantic_blocks(buf), line)
 end
 
 return M

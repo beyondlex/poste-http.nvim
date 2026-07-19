@@ -9,8 +9,8 @@ pub struct RunArgs {
     /// File path (used for env.json discovery and extension detection;
     /// with --stdin the file does not need to exist on disk)
     pub file: String,
-    /// Line number
-    #[arg(short, long)]
+    /// Line number (required for execution; ignored with --describe unless filtering)
+    #[arg(short, long, default_value = "1")]
     pub line: usize,
     /// Environment name
     #[arg(short, long, default_value = "dev")]
@@ -18,6 +18,10 @@ pub struct RunArgs {
     /// Output as JSON (for Neovim plugin consumption)
     #[arg(long)]
     pub json: bool,
+    /// Describe all request blocks as JSON metadata (no execution).
+    /// Single source of truth for block name/line/method/path/headers.
+    #[arg(long)]
+    pub describe: bool,
     /// Read request content from stdin instead of from the file
     #[arg(long)]
     pub stdin: bool,
@@ -96,6 +100,15 @@ pub async fn execute(args: RunArgs) -> Result<()> {
         let canonical = std::fs::canonicalize(&file_path).unwrap_or(file_path.clone());
         std::fs::read_to_string(&canonical)?
     };
+
+    // --describe: emit block metadata JSON and exit (no network I/O).
+    // Always returns a JSON array of BlockMeta — single parse authority for Lua.
+    if args.describe {
+        let parser = poste_core::Parser::new(env_vars);
+        let blocks = parser.describe_blocks(&content, &file_ext)?;
+        println!("{}", serde_json::to_string(&blocks)?);
+        return Ok(());
+    }
 
     // Parse the request
     let parser = poste_core::Parser::new(env_vars.clone());

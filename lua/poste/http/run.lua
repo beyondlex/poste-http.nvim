@@ -10,6 +10,8 @@ local response_buf = require("poste.http.buffer")
 local import_mod = require("poste.http.import")
 local history = require("poste.http.history")
 local event = require("poste.state.event")
+local session = require("poste.http.session")
+local describe = require("poste.http.describe")
 
 local uv = vim.uv or vim.loop
 
@@ -18,14 +20,6 @@ local M = {}
 ---------------------------------------------------------------------------
 -- Pipeline helpers
 ---------------------------------------------------------------------------
-
---- Clear global mutable state before starting a request.
-local function clear_state()
-  state.last_response = nil
-  state.last_assertion_results = nil
-  state.last_script_logs = nil
-  state.pending_request = nil
-end
 
 --- Build a synthetic response for a script-only block.
 local function make_script_response(req_text, req_block)
@@ -224,17 +218,21 @@ local function handle_job_exit(code, stderr_buf, src_buf, req_line, req_block, r
   end)
 end
 
---- Build pending request info from buf_content for the Verb tab.
+--- Build pending request info for the Verbose tab.
+--- Variable resolution via `poste resolve`; method/path/headers via `poste run --describe`
+--- (single parse authority — no Lua re-parse of request blocks).
 local function build_pending_request(src_buf, buf_content, req_block, block_start, block_end, file)
-  local header_parts = {}
-  if req_block.headers then
+  -- Fallback headers from req_block (Lua indicators extract, used only if describe fails)
+  local fallback_headers_str = describe.headers_str(req_block and { headers = req_block.headers } or nil)
+  if fallback_headers_str == "" and req_block and req_block.headers then
+    local parts = {}
     for _, h in ipairs(req_block.headers) do
-      table.insert(header_parts, h[1] .. ": " .. h[2])
+      table.insert(parts, h[1] .. ": " .. h[2])
     end
+    fallback_headers_str = table.concat(parts, "\n")
   end
-  local headers_str = table.concat(header_parts, "\n")
 
-  -- Resolve via poste resolve CLI
+  -- 1. Resolve variables via poste resolve CLI
   local resolved_content = nil
   if file and file ~= "" then
     local args = {
@@ -255,77 +253,56 @@ local function build_pending_request(src_buf, buf_content, req_block, block_star
     table.insert(args, "--env")
     table.insert(args, state.current_env)
 
-    -- Pipe buffer content as stdin (handles unsaved changes)
-    local output, err = cli.run(args, { stdin = buf_content })
+    local output, _err = cli.run(args, { stdin = buf_content })
     if output and output ~= "" then
       resolved_content = output
     end
   end
 
-  -- Extract method, URL, headers, body from resolved (or raw) content
+  -- 2. Describe resolved (or raw) content via CLI — single parse authority
   local content = resolved_content or buf_content
   local req_method = ""
   local req_url = ""
   local body = ""
-  local resolved_headers = {}
-  local lines = vim.split(content, "\n", { plain = true })
-  local request_found = false
-  local in_headers = false
-  local body_start_idx = nil
+  local headers_str = fallback_headers_str
+  local name = req_block and req_block.name or ""
 
-  for i = 1, #lines do
-    local text = lines[i] or ""
-    local trimmed = vim.trim(text)
-
-    if trimmed:match("^###") then
-      -- skip ### header line
-    elseif trimmed:match("^@%S+") then
-      -- skip @var definitions
-    elseif not request_found then
-      if trimmed ~= "" and not trimmed:match("^#") then
-        req_method, req_url = text:match("^(%S+)%s+(.+)$")
-        if req_method then
-          request_found = true
-          in_headers = true
-        end
+  local blocks, desc_err = describe.describe_content(content, file)
+  if blocks and #blocks > 0 then
+    -- Resolved content is often a single-block slice; take first block, or
+    -- the block matching block_start when full file content was described.
+    local meta = blocks[1]
+    if block_start and #blocks > 1 then
+      meta = describe.block_at_line(blocks, block_start) or blocks[1]
+    end
+    if meta then
+      req_method = meta.method or ""
+      req_url = meta.path or ""
+      body = meta.body or ""
+      headers_str = describe.headers_str(meta)
+      if headers_str == "" then
+        headers_str = fallback_headers_str
       end
-    elseif in_headers then
-      if trimmed == "" then
-        in_headers = false
-        body_start_idx = i + 1
-      else
-        local key, value = text:match("^([^:]+):%s*(.+)$")
-        if key and value then
-          table.insert(resolved_headers, { vim.trim(key), vim.trim(value) })
-        end
+      if meta.name and meta.name ~= "" then
+        name = meta.name
       end
     end
-  end
-
-  if body_start_idx and body_start_idx <= #lines then
-    local body_lines = {}
-    for i = body_start_idx, #lines do
-      table.insert(body_lines, lines[i] or "")
+  elseif desc_err then
+    state.log("WARN", "describe for pending request failed: " .. tostring(desc_err))
+    -- Last-resort fallbacks from req_block only (no buffer re-parse)
+    if req_block and req_block.request_line then
+      req_method, req_url = req_block.request_line:match("^(%S+)%s+(.+)$")
+      req_method = req_method or ""
+      req_url = req_url or ""
     end
-    body = table.concat(body_lines, "\n"):gsub("[\r\n]+$", "")
-  end
-
-  -- Use resolved headers if CLI succeeded, else fall back to req_block headers
-  local resolved_headers_str = headers_str
-  if resolved_content and #resolved_headers > 0 then
-    local h_parts = {}
-    for _, h in ipairs(resolved_headers) do
-      table.insert(h_parts, h[1] .. ": " .. h[2])
-    end
-    resolved_headers_str = table.concat(h_parts, "\n")
   end
 
   state.pending_request = {
     method = req_method,
     url = req_url,
-    headers_str = resolved_headers_str,
+    headers_str = headers_str,
     body = body,
-    name = req_block and req_block.name or "",
+    name = name,
     env = state.current_env,
     timestamp = os.date("%Y-%m-%d %H:%M:%S"),
     start_hires = uv.hrtime(),
@@ -476,7 +453,19 @@ local function execute_request(src_buf, line, binary, file, modified_content, re
     buf_content, assertion_code = assertions.extract_assertion_blocks(buf_content, block_start, block_end)
 
     local current_req_name = resolve_current_req_name(src_buf, line)
-    local req_block = indicators.extract_request_block(src_buf, line)
+
+    -- Prefer CLI describe for request semantics; fall back to indicators extract
+    local req_block
+    local meta = nil
+    local blocks = describe.describe_content(buf_content, file)
+    if blocks then
+      meta = describe.block_at_line(blocks, block_start or line)
+    end
+    if meta then
+      req_block = describe.to_req_block(meta)
+    else
+      req_block = indicators.extract_request_block(src_buf, line)
+    end
     local req_text = req_block.request_line
 
     callback(buf_content, req_block, req_text, assertion_code, script_vars, current_req_name, block_start, block_end)
@@ -545,16 +534,16 @@ function M.run_request()
     return
   end
 
-  clear_state()
-
   local src_buf = vim.api.nvim_get_current_buf()
   local line = vim.fn.line(".")
-  state.last_request = { buf = src_buf, line = line }
-
   local file = vim.api.nvim_buf_get_name(src_buf)
   if file == "" then
     file = vim.fn.getcwd() .. "/untitled.http"
   end
+
+  -- Fresh session: clears all request-scoped state (Phase 2b)
+  session.begin({ buf = src_buf, line = line, file = file })
+  state.last_request = { buf = src_buf, line = line }
 
   local buf_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
   local buf_content = table.concat(buf_lines, "\n")

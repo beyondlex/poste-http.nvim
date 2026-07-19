@@ -153,32 +153,68 @@ M.config = {
 -- Cross-cutting mutable state
 ---------------------------------------------------------------------------
 M.current_env = M.config.default_env
-M.last_response = nil            -- parsed JSON table from --json output
-M.last_assertion_results = nil   -- { tests, logs, total, passed, failed }
-M.last_script_logs = nil         -- { "log line 1", "log line 2", ... } from pre/post scripts
+M.last_response = nil            -- parsed JSON table from --json output (request-scoped; cleared on session begin)
+M.last_responses = nil           -- multi-response chain (request-scoped)
+M.response_index = nil           -- index into last_responses (request-scoped)
+M.last_assertion_results = nil   -- { tests, logs, total, passed, failed } (request-scoped)
+M.last_script_logs = nil         -- { "log line 1", "log line 2", ... } (request-scoped)
 M.last_request = nil             -- { buf, line } for re-run from response buffer
-M.pending_request = nil          -- { method, url, headers_str, body, env, timestamp, start_hires } — set while request is in flight
+M.pending_request = nil          -- { method, url, headers_str, body, env, timestamp, start_hires } — in-flight (request-scoped)
 M.current_view = "body"          -- "body" | "headers" | "verbose" | "assertions" | "script_logs"
 M._split_override = nil          -- "vertical" | "horizontal" — override split direction for next render (cleared on use)
 
--- HTTP request history (session-scoped)
+-- Active protocol sessions (Phase 2b). Created at each run_* entry; discarded on next begin.
+-- Prefer reading/writing through session modules; these fields are the active references.
+M._http_session = nil
+M._sql_session = nil
+
+-- HTTP request history (session-scoped across requests — intentional persistence)
 M.http_history = {}              -- entry[] (newest first)
 M.http_history_max = C.HTTP_HISTORY_MAX         -- max entries to keep
 M.http_history_id_counter = 0    -- auto-increment ID
 
--- Script variable stores
-M.global_vars = {}               -- client.global.set/get persistence (session-scoped)
+-- Script variable stores (persist across requests by design)
+M.global_vars = {}               -- client.global.set/get persistence
 M.script_variables = {}          -- request.variables from post-scripts (available to next request)
 
 ---------------------------------------------------------------------------
--- JSON response UX state (isolated from SQL)
+-- JSON response UX state (isolated from SQL; filter fields cleared per request)
 ---------------------------------------------------------------------------
 M._json = {
   original_lines = nil,
   query = nil,
   is_filtered = false,
-  pretty_mode = true,
+  pretty_mode = true,  -- user preference; not cleared per request
 }
+
+---------------------------------------------------------------------------
+-- Deprecated write logging (Phase 2b)
+-- When true, writes to request-scoped fields outside a session log a warning.
+-- Enable via vim.g.poste_debug_state = true for lifecycle audits.
+---------------------------------------------------------------------------
+M._deprecated_write_log = false
+
+local REQUEST_SCOPED = {
+  last_response = true,
+  last_responses = true,
+  response_index = true,
+  last_assertion_results = true,
+  last_script_logs = true,
+  pending_request = true,
+}
+
+--- Log a deprecation notice when request-scoped state is written without a session.
+--- No-op unless vim.g.poste_debug_state or M._deprecated_write_log is set.
+function M.deprecated_write(field, _value)
+  if not (M._deprecated_write_log or vim.g.poste_debug_state) then return end
+  if not REQUEST_SCOPED[field] then return end
+  if M._http_session or M._sql_session then return end
+  vim.notify(
+    string.format("[poste] deprecated write to state.%s outside an active session", field),
+    vim.log.levels.DEBUG,
+    { title = "Poste" }
+  )
+end
 
 ---------------------------------------------------------------------------
 -- SQL-specific state (isolated from HTTP/Redis)

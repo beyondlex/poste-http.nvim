@@ -18,7 +18,8 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Fields that are intentionally persistent — always-current values, config, or caches.
 # These trigger ⚠ "NEVER cleared" but that's by design, not a bug.
-EXEMPT_FIELDS="current_view|current_env|config|http_history|http_history_id_counter|last_request|_lsp_doc_buf|log|find_poste_binary|format_keymap|format_key_string|get_keymap|apply_highlight_overrides|dirty"
+# Request-scoped fields must be cleared by session.begin(); persistent fields are exempt.
+EXEMPT_FIELDS="current_view|current_env|config|http_history|http_history_id_counter|http_history_max|last_request|_lsp_doc_buf|log|find_poste_binary|format_keymap|format_key_string|get_keymap|apply_highlight_overrides|dirty|global_vars|script_variables|_http_session|_sql_session|_deprecated_write_log|deprecated_write"
 
 check_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "require $1"; exit 1; }; }
 check_cmd rg
@@ -203,6 +204,60 @@ check_prerender() {
 }
 
 ###############################################################################
+# session lifecycle (Phase 2b)
+###############################################################################
+check_session() {
+  echo -e "${BOLD}${CYAN}═══ session lifecycle (run_* must begin a session)${NC}"
+
+  local ok=1
+  if rg -q 'session\.begin|poste\.http\.session' "lua/poste/http/run.lua" 2>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} http/run.lua creates HTTP session"
+  else
+    echo -e "  ${RED}✗${NC} http/run.lua missing session.begin"
+    ok=0
+  fi
+
+  if rg -q 'sql\.session|poste\.sql\.session' "lua/poste/sql/init.lua" 2>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} sql/init.lua creates SQL session"
+  else
+    echo -e "  ${RED}✗${NC} sql/init.lua missing session.begin"
+    ok=0
+  fi
+
+  # Request-scoped fields that session.begin must clear
+  local required_clears="last_response last_responses response_index last_assertion_results last_script_logs pending_request"
+  for f in $required_clears; do
+    if rg -q "state\.${f}\s*=\s*nil" "lua/poste/http/session.lua" 2>/dev/null; then
+      echo -e "  ${GREEN}✓${NC} session clears state.$f"
+    else
+      echo -e "  ${RED}✗${NC} session does not clear state.$f"
+      ok=0
+    fi
+  done
+
+  # run.lua must not re-parse method/headers from buffer lines
+  if rg -n "text:match\(\"\^\\(%S\\+\\)%s\\+\"\|request_found\s*=\s*true" "lua/poste/http/run.lua" 2>/dev/null | rg -q .; then
+    echo -e "  ${YELLOW}⚠${NC} run.lua still has Lua request-line re-parse patterns"
+  else
+    echo -e "  ${GREEN}✓${NC} run.lua has no Lua request-block re-parse loop"
+  fi
+
+  # describe module must exist
+  if [ -f "lua/poste/http/describe.lua" ]; then
+    echo -e "  ${GREEN}✓${NC} http/describe.lua present (single parse authority)"
+  else
+    echo -e "  ${RED}✗${NC} http/describe.lua missing"
+    ok=0
+  fi
+
+  if [ "$ok" -eq 0 ]; then
+    echo -e "  ${RED}session lifecycle check FAILED${NC}"
+    return 1
+  fi
+  echo -e "  ${GREEN}session lifecycle check OK${NC}"
+}
+
+###############################################################################
 # main
 ###############################################################################
 main() {
@@ -222,6 +277,9 @@ main() {
     pre-render|prerender)
       check_prerender
       ;;
+    session)
+      check_session
+      ;;
     all|"")
       echo -e "${BOLD}${CYAN}┌─────────────────────────────────────────────────────┐${NC}"
       echo -e "${BOLD}${CYAN}│  Poste Code Relation Check                         │${NC}"
@@ -235,9 +293,11 @@ main() {
       check_format
       echo
       check_prerender
+      echo
+      check_session
       ;;
     *)
-      echo "usage: $0 [set-lines|state [field]|format|pre-render|all]"
+      echo "usage: $0 [set-lines|state [field]|format|pre-render|session|all]"
       exit 1
       ;;
   esac

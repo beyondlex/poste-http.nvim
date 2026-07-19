@@ -243,7 +243,7 @@ The `run_request()` / `run_sql_request()` entry point:
 
 **All Lua-side consumers call the same resolve API.**
 
-Currently `run.lua`, `resolve.lua`, and `dep.lua` each assemble their own resolve pipeline. Centralise:
+Currently `run.lua` and `import.lua` each assemble their own resolve pipeline. Centralise:
 
 ```lua
 -- lua/poste/http/resolve.lua (cleaned up)
@@ -252,11 +252,9 @@ local M = {}
 -- Single entry point for request variable resolution
 function M.resolve(content, opts)
   -- 1. Handle prompt variables (<<var)
-  -- 2. Resolve magic variables
-  -- 3. Resolve file variables (< file)
-  -- 4. Resolve {{var}} / {{env:VAR}}
-  -- 5. Resolve imports (@import, COPY, RUN)
-  return resolved_content, resolved_vars
+  -- 2. Resolve dependency refs / imports
+  -- 3. Return resolved request content
+  return resolved_content
 end
 
 return M
@@ -287,10 +285,12 @@ This is a large change — only begin after Phases 0–2 are stable.
 5. Add tests for the unified resolve entry point
 6. Mark old per-function exports as deprecated
 
+- [x] Old `request_vars` resolve exports remain as compat shims only
+
 ### Acceptance
 
-- [ ] One function resolves all variable types for all callers
-- [ ] No caller independently assembles a resolve pipeline
+- [x] One function resolves the shared prompt/dependency pipeline for all callers
+- [x] No caller independently assembles a resolve pipeline
 - [ ] All existing tests pass
 
 ---

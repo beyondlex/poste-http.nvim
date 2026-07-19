@@ -684,7 +684,7 @@ end
 --- Always prompts for input (no caching) so users can use different values each time.
 --- Processes prompts asynchronously and calls on_complete with modified content.
 --- on_complete(modified_content) is called when all prompts are resolved.
-function M.handle_prompt_variables(buf, cursor_line, content, binary, file, env_name, on_complete)
+local function handle_prompt_variables_impl(buf, cursor_line, content, binary, file, env_name, on_complete)
   local indicators = require("poste.indicators")
   local start_line, end_line = indicators.find_request_block_bounds(buf, cursor_line)
   if not start_line then
@@ -888,7 +888,7 @@ end
 --- Resolve all request variables in the buffer content for the current request block.
 --- Fully async: executes dependent requests via callback chain, then substitutes variables.
 --- Calls on_complete(resolved_content) when all dependencies are resolved.
-function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, content, on_complete)
+local function resolve_request_variables_impl(binary, file, env_name, buf, cursor_line, content, on_complete)
   -- Initialize dependency chain tracking
   _chain_dep_set = {}
   _chain_dep_order = {}
@@ -1030,7 +1030,7 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
     local function after_subdep_resolve(subdep_resolved)
       if not subdep_resolved then subdep_resolved = content end
       if has_prompts then
-        M.handle_prompt_variables(buf, dep_req.start_line, subdep_resolved, binary, file, env_name, function(prompt_resolved)
+        handle_prompt_variables_impl(buf, dep_req.start_line, subdep_resolved, binary, file, env_name, function(prompt_resolved)
           if not prompt_resolved then
             state.log("WARN", string.format("Dependency '%s' prompt cancelled, skipping", dep_req.name))
             execute_next_dep()
@@ -1044,7 +1044,7 @@ function M.resolve_request_variables(binary, file, env_name, buf, cursor_line, c
     end
 
     -- Recursively resolve sub-dependencies of this dep before executing it
-    M.resolve_content_dependencies(binary, file, env_name, content, dep_req.start_line, after_subdep_resolve, 1)
+    resolve_content_dependencies_impl(binary, file, env_name, content, dep_req.start_line, after_subdep_resolve, 1)
   end
 
   execute_next_dep()
@@ -1097,7 +1097,7 @@ end
 --- @param content string  full file content
 --- @param block_line number  ### marker line (1-indexed)
 --- @param on_complete function(string|nil)
-function M.resolve_content_dependencies(binary, file_path, env_name, content, block_line, on_complete, _depth)
+local function resolve_content_dependencies_impl(binary, file_path, env_name, content, block_line, on_complete, _depth)
   _depth = _depth or 0
   if _depth > 10 then
     state.log("ERROR", string.format("Max dependency depth (10) reached at block line %d, aborting resolution", block_line))
@@ -1228,7 +1228,7 @@ function M.resolve_content_dependencies(binary, file_path, env_name, content, bl
       end)
     end
 
-    M.resolve_content_dependencies(binary, file_path, env_name, content, dep_req.start_line, do_execute, _depth + 1)
+    resolve_content_dependencies_impl(binary, file_path, env_name, content, dep_req.start_line, do_execute, _depth + 1)
   end
 
   execute_next_dep()
@@ -1243,5 +1243,21 @@ M._test = {
   parse_dynamic_mapping    = parse_dynamic_mapping,
   apply_jq_mapping         = apply_jq_mapping,
 }
+
+M._handle_prompt_variables_impl = handle_prompt_variables_impl
+M._resolve_request_variables_impl = resolve_request_variables_impl
+M._resolve_content_dependencies_impl = resolve_content_dependencies_impl
+
+function M.handle_prompt_variables(...)
+  return handle_prompt_variables_impl(...)
+end
+
+function M.resolve_request_variables(...)
+  return resolve_request_variables_impl(...)
+end
+
+function M.resolve_content_dependencies(...)
+  return resolve_content_dependencies_impl(...)
+end
 
 return M

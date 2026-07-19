@@ -64,6 +64,7 @@
 | `symbols.lua` | Document symbol outline |
 | `outline.lua` | Sidebar outline |
 | `request_vars.lua` | Request variable handling, prompt vars |
+| `resolve.lua` | Shared async resolution pipeline for prompts/deps |
 | `var_collector.lua` | Variable collection/rollup |
 | `context_detector.lua` | Context detection for completion |
 | `cache.lua` | UI-level buffer index (line types, block bounds); semantic blocks via describe |

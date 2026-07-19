@@ -55,7 +55,8 @@ crosses protocols.
 | `copy.lua` | `copy_to_clipboard()`: export request as curl command |
 | `scripts.lua` | Pre-request script: extraction, sandboxed execution, var injection, MD5 |
 | `assertions.lua` | Post-response assertions: extraction, sandbox, result formatting |
-| `request_vars.lua` | Cross-request chaining: `{{Name.res.body.X}}`, form data, magic vars |
+| `request_vars.lua` | Cross-request chaining: `{{Name.res.body.X}}`, form data, magic vars, deprecated compat exports |
+| `resolve.lua` | Shared async resolution pipeline for prompts/deps (new entrypoint) |
 | `import.lua` | Import resolution: cross-file request execution |
 | `var_collector.lua` | Collect `@var` definitions from source buffer |
 | `item_builder.lua` | Build completion items for HTTP source buffers |
@@ -231,7 +232,7 @@ tests/run.sh                          # Lua tests for HTTP + SQL
 | New script API method | `scripts.lua` + `data.lua` | sandbox env, `run_pre_script()` |
 | New response tab | `view.lua` + `format.lua` | `show_view()`, format function |
 | jq filter | `json.lua` | `apply_filter()`, `restore_original()` |
-| Cross-request chaining | `request_vars.lua` | `resolve_request_variables()`, `cache_response()` |
+| Cross-request chaining | `resolve.lua` + `request_vars.lua` compat exports | `resolve()`, `cache_response()`, legacy `resolve_request_variables()` |
 | Winbar / tab UI | `buffer.lua` | `update_winbar()`, `get_active_tabs()` |
 | History | `history.lua` | `show()`, `add_entry()`, `delete_entry()`, `load_from_disk()` |
 | Curl import | `curl.lua` | `paste_curl()` |

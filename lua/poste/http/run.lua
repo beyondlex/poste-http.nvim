@@ -3,6 +3,7 @@ local state = require("poste.state")
 local util = require("poste.util")
 local indicators = require("poste.indicators")
 local request_vars = require("poste.http.request_vars")
+local resolve = require("poste.http.resolve")
 local scripts = require("poste.http.scripts")
 local assertions = require("poste.http.assertions")
 local view = require("poste.http.view")
@@ -383,93 +384,100 @@ local function resolve_current_req_name(src_buf, line)
   return nil
 end
 
---- Prepare request: resolve prompt variables → modified content.
+--- Prepare request: resolve prompt variables and request deps → modified content.
 --- Returns (modified_content, req_line, block_start, block_end) via callback.
 local function prepare_request(src_buf, line, buf_content, binary, file, callback)
-  request_vars.handle_prompt_variables(src_buf, line, buf_content, binary, file, state.current_env, function(modified_content)
+  local req_line = indicators.find_request_line(src_buf, line)
+  if not req_line then
+    indicators.clear_all(src_buf)
+    return
+  end
+  indicators.clear_other_requests(src_buf, req_line)
+  indicators.set_indicator(src_buf, req_line, "running")
+
+  local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
+  resolve.resolve(buf_content, {
+    mode = "request",
+    buf = src_buf,
+    cursor_line = line,
+    block_line = block_start,
+    binary = binary,
+    file = file,
+    env_name = state.current_env,
+  }, function(modified_content)
     if not modified_content then
       indicators.clear_all(src_buf)
       state.pending_request = nil
       return
     end
-    local req_line = indicators.find_request_line(src_buf, line)
-    if not req_line then
-      indicators.clear_all(src_buf)
-      return
-    end
-    indicators.clear_other_requests(src_buf, req_line)
-    indicators.set_indicator(src_buf, req_line, "running")
-
-    local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
     callback(modified_content, req_line, block_start, block_end)
   end)
 end
 
---- Execute request: resolve vars, extract/run scripts, build curl cmd, start job.
+--- Execute request: run scripts, inject vars, build curl cmd, start job.
 local function execute_request(src_buf, line, binary, file, modified_content, req_line, block_start, block_end, callback)
-  request_vars.resolve_request_variables(binary, file, state.current_env, src_buf, line, modified_content, function(buf_content)
-    local pre_script_code
-    local script_vars = nil
-    if block_start then
-      buf_content, pre_script_code = scripts.extract_pre_script_blocks(buf_content, block_start, block_end)
-      script_vars = scripts.collect_script_variables(buf_content, block_start, block_end)
-    end
+  local buf_content = modified_content
+  local pre_script_code
+  local script_vars = nil
+  if block_start then
+    buf_content, pre_script_code = scripts.extract_pre_script_blocks(buf_content, block_start, block_end)
+    script_vars = scripts.collect_script_variables(buf_content, block_start, block_end)
+  end
 
-    -- Run pre-request script if present
-    if pre_script_code then
-      local pre_result = scripts.run_pre_script(pre_script_code, script_vars)
-      if pre_result.error then
-        state.log("ERROR", pre_result.error)
-        indicators.set_indicator(src_buf, req_line, "error")
-        local err_resp = make_error_response("", nil, pre_result.error, "Pre-script error", 1)
-        state.last_response = err_resp
-        emit_response(err_resp, nil, file, nil, nil)
-        view.show_view("verbose")
-        return
+  -- Run pre-request script if present
+  if pre_script_code then
+    local pre_result = scripts.run_pre_script(pre_script_code, script_vars)
+    if pre_result.error then
+      state.log("ERROR", pre_result.error)
+      indicators.set_indicator(src_buf, req_line, "error")
+      local err_resp = make_error_response("", nil, pre_result.error, "Pre-script error", 1)
+      state.last_response = err_resp
+      emit_response(err_resp, nil, file, nil, nil)
+      view.show_view("verbose")
+      return
+    end
+    if #pre_result.logs > 0 then
+      state.last_script_logs = pre_result.logs
+    end
+    if next(pre_result.variables) then
+      local injected_count = 0
+      for _ in pairs(pre_result.variables) do injected_count = injected_count + 1 end
+      buf_content = scripts.inject_pre_script_vars(buf_content, block_start, pre_result.variables)
+      block_end = block_end + injected_count
+      line = line + injected_count
+      for name, value in pairs(pre_result.variables) do
+        state.script_variables[name] = value
       end
-      if #pre_result.logs > 0 then
-        state.last_script_logs = pre_result.logs
-      end
-      if next(pre_result.variables) then
-        local injected_count = 0
-        for _ in pairs(pre_result.variables) do injected_count = injected_count + 1 end
-        buf_content = scripts.inject_pre_script_vars(buf_content, block_start, pre_result.variables)
-        block_end = block_end + injected_count
-        line = line + injected_count
-        for name, value in pairs(pre_result.variables) do
-          state.script_variables[name] = value
-        end
-      end
     end
+  end
 
-    -- Inject global vars
-    local global_count
-    buf_content, global_count = inject_global_vars(buf_content, block_start, state.global_vars)
-    block_end = block_end + global_count
+  -- Inject global vars
+  local global_count
+  buf_content, global_count = inject_global_vars(buf_content, block_start, state.global_vars)
+  block_end = block_end + global_count
 
-    -- Process form data and extract assertion blocks
-    buf_content = request_vars.process_form_data(src_buf, line, buf_content)
-    local assertion_code
-    buf_content, assertion_code = assertions.extract_assertion_blocks(buf_content, block_start, block_end)
+  -- Process form data and extract assertion blocks
+  buf_content = request_vars.process_form_data(src_buf, line, buf_content)
+  local assertion_code
+  buf_content, assertion_code = assertions.extract_assertion_blocks(buf_content, block_start, block_end)
 
-    local current_req_name = resolve_current_req_name(src_buf, line)
+  local current_req_name = resolve_current_req_name(src_buf, line)
 
-    -- Prefer CLI describe for request semantics; fall back to indicators extract
-    local req_block
-    local meta = nil
-    local blocks = describe.describe_content(buf_content, file)
-    if blocks then
-      meta = describe.block_at_line(blocks, block_start or line)
-    end
-    if meta then
-      req_block = describe.to_req_block(meta)
-    else
-      req_block = indicators.extract_request_block(src_buf, line)
-    end
-    local req_text = req_block.request_line
+  -- Prefer CLI describe for request semantics; fall back to indicators extract
+  local req_block
+  local meta = nil
+  local blocks = describe.describe_content(buf_content, file)
+  if blocks then
+    meta = describe.block_at_line(blocks, block_start or line)
+  end
+  if meta then
+    req_block = describe.to_req_block(meta)
+  else
+    req_block = indicators.extract_request_block(src_buf, line)
+  end
+  local req_text = req_block.request_line
 
-    callback(buf_content, req_block, req_text, assertion_code, script_vars, current_req_name, block_start, block_end)
-  end)
+  callback(buf_content, req_block, req_text, assertion_code, script_vars, current_req_name, block_start, block_end)
 end
 
 --- Start curl job via vim.fn.jobstart with stdin piped.

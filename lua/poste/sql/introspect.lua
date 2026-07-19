@@ -4,6 +4,7 @@
 --- Provides show_table_ddl() and supporting functions.
 -- luacheck: ignore 411
 
+local cli = require("poste.cli")
 local state = require("poste.state")
 local util = require("poste.util")
 
@@ -251,16 +252,9 @@ function M.show_table_ddl()
     local file = vim.api.nvim_buf_get_name(buf)
     if file == "" then file = vim.fn.getcwd() .. "/query.sql" end
     local search_dir = vim.fn.fnamemodify(file, ":h")
-    local cmd = string.format("%s introspect %s --type tables --database %s --env %s --path %s",
-      vim.fn.shellescape(binary),
-      vim.fn.shellescape(conn),
-      vim.fn.shellescape(db_name),
-      vim.fn.shellescape(state.current_env),
-      vim.fn.shellescape(search_dir))
-    vim.fn.jobstart(cmd, {
-      stdout_buffered = true,
-      stderr_buffered = true,
-      on_stdout = function(_, data)
+    local cmd = { "introspect", conn, "--type", "tables", "--database", db_name, "--env", state.current_env, "--path", search_dir }
+    cli.run_async(cmd, {
+      on_stdout = function(data)
         data = util.ensure_job_data(data)
         if #data == 0 then return end
         local output = table.concat(data, "\n")
@@ -282,13 +276,13 @@ function M.show_table_ddl()
           M.show_float(lines, "Tables: " .. db_name)
         end)
       end,
-      on_stderr = function(_, data)
+      on_stderr = function(data)
         if not data then return end
         for _, l in ipairs(data) do
           if l ~= "" then state.log("ERROR", "introspect stderr: " .. l) end
         end
       end,
-      on_exit = function(_, code)
+      on_exit = function(code)
         if code ~= 0 then
           vim.schedule(function()
             vim.notify("Table listing failed with exit code " .. code, vim.log.levels.ERROR, { title = "Poste SQL" })

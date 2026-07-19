@@ -1,0 +1,32 @@
+{
+  "protocol": "http",
+  "status": 200,
+  "status_text": "200 OK",
+  "latency_ms": 342,
+  "url": "https://jsonplaceholder.typicode.com/posts/1",
+  "content_type": "application/json; charset=utf-8",
+  "headers": [
+    ["Content-Type", "application/json; charset=utf-8"],
+    ["Content-Length", "292"],
+    ["Date", "Mon, 01 Jan 2024 00:00:00 GMT"],
+    ["Server", "cloudflare"],
+    ["Set-Cookie", "__cf_bm=abc; path=/; expires=Mon, 01-Jan-24 00:00:00 GMT"],
+    ["Set-Cookie", "session=xyz; path=/"]
+  ],
+  "body": "{\n  \"userId\": 1,\n  \"id\": 1,\n  \"title\": \"sunt aut facere repellat provident occaecati excepturi optio reprehenderit\",\n  \"body\": \"quia et suscipit\\nsuscipit recusandae consequuntur expedita et cum\\nreprehenderit molestiae ut ut quas totam\\nnostrum rerum est autem sunt rem eveniet architecto\"\n}",
+  "cookies": [
+    {
+      "name": "__cf_bm",
+      "value": "abc",
+      "domain": ".typicode.com",
+      "path": "/",
+      "expires": "Mon, 01 Jan 2024 00:00:00 GMT",
+      "http_only": true,
+      "secure": true
+    }
+  ],
+  "metadata": {
+    "method": "GET",
+    "redirect_count": "0"
+  }
+}

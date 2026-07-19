@@ -1,36 +1,23 @@
+local cli = require("poste.cli")
 local state = require("poste.state")
 local tree = require("poste.sql.db_browser.tree")
 
 local M = {}
 
 function M.run_introspect(conn_name, introspect_type, schema, table_name, database, callback, search_dir)
-  local binary = state.find_poste_binary()
-  if not binary then
-    vim.notify("Poste binary not found", vim.log.levels.ERROR)
-    callback(nil)
-    return
-  end
-
-  local cmd = string.format(
-    "%s introspect %s --type %s --path %s --env %s",
-    vim.fn.shellescape(binary),
-    vim.fn.shellescape(conn_name),
-    vim.fn.shellescape(introspect_type),
-    vim.fn.shellescape(search_dir),
-    vim.fn.shellescape(state.current_env)
-  )
+  local cmd = { "introspect", conn_name, "--type", introspect_type, "--path", search_dir, "--env", state.current_env }
 
   if schema then
-    cmd = cmd .. " --schema " .. vim.fn.shellescape(schema)
+    table.insert(cmd, "--schema"); table.insert(cmd, schema)
   end
   if table_name then
-    cmd = cmd .. " --table " .. vim.fn.shellescape(table_name)
+    table.insert(cmd, "--table"); table.insert(cmd, table_name)
   end
   if database then
-    cmd = cmd .. " --database " .. vim.fn.shellescape(database)
+    table.insert(cmd, "--database"); table.insert(cmd, database)
   end
 
-  state.log("INFO", "DB Browser introspect: " .. cmd)
+  state.log("INFO", "DB Browser introspect: " .. table.concat(cmd, " "))
 
   local stderr_buf = {}
   local stdout_done = false
@@ -44,10 +31,8 @@ function M.run_introspect(conn_name, introspect_type, schema, table_name, databa
     end)
   end
 
-  vim.fn.jobstart(cmd, {
-    stdout_buffered = true,
-    stderr_buffered = true,
-    on_stdout = function(_, data)
+  cli.run_async(cmd, {
+    on_stdout = function(data)
       stdout_done = true
       if not data then try_finish(); return end
       while #data > 0 and data[#data] == "" do data[#data] = nil end
@@ -62,13 +47,13 @@ function M.run_introspect(conn_name, introspect_type, schema, table_name, databa
       end
       try_finish()
     end,
-    on_stderr = function(_, data)
+    on_stderr = function(data)
       if not data then return end
       for _, l in ipairs(data) do
         if l ~= "" then table.insert(stderr_buf, l) end
       end
     end,
-    on_exit = function(_, code)
+    on_exit = function(code)
       exit_done = true
       if code ~= 0 then
         vim.schedule(function()
@@ -324,20 +309,9 @@ function M.fetch_children(node, callback, search_dir)
 end
 
 function M.load_connections(callback, search_dir)
-  local binary = state.find_poste_binary()
-  if not binary then
-    state.log("ERROR", "DB Browser: poste binary not found")
-    vim.notify("Poste binary not found", vim.log.levels.ERROR)
-    callback({})
-    return
-  end
+  local cmd = { "connection", "list", "--path", search_dir, "--json" }
 
-  local cmd = string.format("%s connection list --path %s --json",
-    vim.fn.shellescape(binary),
-    vim.fn.shellescape(search_dir)
-  )
-
-  state.log("INFO", "DB Browser load_connections: search_dir=" .. search_dir .. " cmd=" .. cmd)
+  state.log("INFO", "DB Browser load_connections: search_dir=" .. search_dir)
 
   local stdout_done = false
   local exit_done = false
@@ -355,10 +329,8 @@ function M.load_connections(callback, search_dir)
     end)
   end
 
-  vim.fn.jobstart(cmd, {
-    stdout_buffered = true,
-    stderr_buffered = true,
-    on_stdout = function(_, data)
+  cli.run_async(cmd, {
+    on_stdout = function(data)
       stdout_done = true
       if data then
         while #data > 0 and data[#data] == "" do data[#data] = nil end
@@ -374,14 +346,14 @@ function M.load_connections(callback, search_dir)
       end
       try_finish()
     end,
-    on_stderr = function(_, data)
+    on_stderr = function(data)
       if data then
         for _, l in ipairs(data) do
           if l ~= "" then state.log("WARN", "DB Browser stderr: " .. l) end
         end
       end
     end,
-    on_exit = function(_, code)
+    on_exit = function(code)
       exit_done = true
       if code ~= 0 then
         state.log("ERROR", "DB Browser: connection list exited with code " .. code)

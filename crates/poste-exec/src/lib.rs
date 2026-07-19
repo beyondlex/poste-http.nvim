@@ -2,6 +2,8 @@
 
 pub mod cookie_jar;
 pub mod executor;
+pub mod mime;
+pub mod redis;
 pub mod response;
 pub mod sql_connection;
 pub mod sql_ddl;

@@ -1,5 +1,6 @@
 --- SQL connection management UI.
 --- Provides :PosteConnection command to list, select, and test connections.
+local cli = require("poste.cli")
 local state = require("poste.state")
 local util = require("poste.util")
 local select_mod = require("poste.select")
@@ -74,22 +75,11 @@ end
 --- Fetch connections from CLI and parse JSON.
 --- @param callback function(connections: table[]) Called with parsed connection list
 function M.list_connections(callback)
-  local binary = state.find_poste_binary()
-  if not binary then
-    vim.notify("Poste binary not found", vim.log.levels.ERROR)
-    callback({})
-    return
-  end
-
   local search_dir = get_search_dir()
-  local cmd = string.format("%s connection list --path %s --json",
-    vim.fn.shellescape(binary),
-    vim.fn.shellescape(search_dir)
-  )
+  local cmd = { "connection", "list", "--path", search_dir, "--json" }
 
-  vim.fn.jobstart(cmd, {
-    stdout_buffered = true,
-    on_stdout = function(_, data)
+  cli.run_async(cmd, {
+    on_stdout = function(data)
       if not data then return end
       while #data > 0 and data[#data] == "" do data[#data] = nil end
       if #data == 0 then
@@ -248,23 +238,13 @@ end
 
 --- Run the test for a specific connection.
 function M.run_test(conn)
-  local binary = state.find_poste_binary()
-  if not binary then
-    vim.notify("Poste binary not found", vim.log.levels.ERROR)
-    return
-  end
-
   local search_dir = get_search_dir()
-  local cmd = string.format("%s connection test %s --path %s",
-    vim.fn.shellescape(binary),
-    vim.fn.shellescape(conn.name),
-    vim.fn.shellescape(search_dir)
-  )
+  local cmd = { "connection", "test", conn.name, "--path", search_dir }
 
   vim.notify(string.format("Testing '%s'...", conn.name), vim.log.levels.INFO)
 
-  vim.fn.jobstart(cmd, {
-    on_exit = function(_, code)
+  cli.run_async(cmd, {
+    on_exit = function(code)
       vim.schedule(function()
         if code == 0 then
           vim.notify(string.format("✓ Connection '%s' OK", conn.name), vim.log.levels.INFO)

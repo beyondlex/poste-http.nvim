@@ -129,39 +129,23 @@ function M.show_ddl(node, context)
     return
   end
 
-  local binary = state.find_poste_binary()
-  if not binary then
-    vim.notify("Poste binary not found", vim.log.levels.ERROR)
-    return
-  end
-
   local conn = get_connection_name(table_node, context)
   local search_dir = get_search_dir(context)
   local schema = table_node.meta and table_node.meta.schema
   local database = table_node.meta and table_node.meta.database
 
-  local cmd_parts = {
-    vim.fn.shellescape(binary), "introspect",
-    vim.fn.shellescape(conn),
-    "--type", "ddl",
-    "--table", vim.fn.shellescape(table_node.name),
-    "--path", vim.fn.shellescape(search_dir),
-    "--env", vim.fn.shellescape(state.current_env),
-  }
+  local cmd = { "introspect", conn, "--type", "ddl", "--table", table_node.name, "--path", search_dir, "--env", state.current_env }
   if schema then
-    table.insert(cmd_parts, "--schema"); table.insert(cmd_parts, vim.fn.shellescape(schema))
+    table.insert(cmd, "--schema"); table.insert(cmd, schema)
   end
   if database then
-    table.insert(cmd_parts, "--database"); table.insert(cmd_parts, vim.fn.shellescape(database))
+    table.insert(cmd, "--database"); table.insert(cmd, database)
   end
 
-  local cmd = table.concat(cmd_parts, " ")
-  state.log("INFO", "DB Browser DDL: " .. cmd)
+  state.log("INFO", "DB Browser DDL: " .. table.concat(cmd, " "))
 
-  vim.fn.jobstart(cmd, {
-    stdout_buffered = true,
-    stderr_buffered = true,
-    on_stdout = function(_, data)
+  cli.run_async(cmd, {
+    on_stdout = function(data)
       if not data then return end
       while #data > 0 and data[#data] == "" do data[#data] = nil end
       if #data == 0 then return end
@@ -193,10 +177,10 @@ function M.show_ddl(node, context)
         require("poste.sql.introspect").show_float(lines, title, "sql")
       end)
     end,
-    on_stderr = function(_, data)
+    on_stderr = function(data)
       if not data then return end
     end,
-    on_exit = function(_, code)
+    on_exit = function(code)
       if code ~= 0 then
         vim.schedule(function()
           vim.notify("DDL fetch failed (exit " .. tostring(code) .. ")", vim.log.levels.ERROR)

@@ -1,4 +1,5 @@
 --- Copy HTTP request as curl command.
+local cli = require("poste.cli")
 local state = require("poste.state")
 
 local M = {}
@@ -255,44 +256,40 @@ function M.copy_as_curl()
   end
 
   -- Try to resolve via poste resolve CLI first
-  local poste_bin = state.find_poste_binary()
-  if poste_bin then
-    local buf_path = vim.api.nvim_buf_get_name(buf)
-    local args = {
-      poste_bin, "resolve",
-      "--stdin",
-      "--file", buf_path,
-      "--block", tostring(start_line),
-      "--format", "curl",
-    }
+  local buf_path = vim.api.nvim_buf_get_name(buf)
+  local args = {
+    "resolve",
+    "--stdin",
+    "--file", buf_path,
+    "--block", tostring(start_line),
+    "--format", "curl",
+  }
 
-    -- Pass session vars if available
-    if state.global_vars and next(state.global_vars) then
-      table.insert(args, "--session-vars")
-      table.insert(args, vim.json.encode(state.global_vars))
+  -- Pass session vars if available
+  if state.global_vars and next(state.global_vars) then
+    table.insert(args, "--session-vars")
+    table.insert(args, vim.json.encode(state.global_vars))
+  end
+
+  -- Pass script vars if available
+  if state.script_variables and next(state.script_variables) then
+    table.insert(args, "--script-vars")
+    table.insert(args, vim.json.encode(state.script_variables))
+  end
+
+  table.insert(args, "--env")
+  table.insert(args, state.current_env)
+
+  -- Pipe buffer content as stdin (handles unsaved buffers)
+  local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local stdin_data = table.concat(buf_lines, "\n")
+
+  local output, err = cli.run(args, { stdin = stdin_data })
+  if output then
+    local trimmed = vim.trim(output)
+    if trimmed ~= "" then
+      return trimmed
     end
-
-    -- Pass script vars if available
-    if state.script_variables and next(state.script_variables) then
-      table.insert(args, "--script-vars")
-      table.insert(args, vim.json.encode(state.script_variables))
-    end
-
-    table.insert(args, "--env")
-    table.insert(args, state.current_env)
-
-    -- Pipe buffer content as stdin (handles unsaved buffers)
-    local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local stdin_data = table.concat(buf_lines, "\n")
-
-    local ok, sys_obj = pcall(vim.system, args, { stdin = stdin_data, text = true })
-    if ok then
-      local ok2, result = pcall(sys_obj.wait, sys_obj)
-      if ok2 and result.code == 0 then
-        local stdout = result.stdout or ""
-        if stdout ~= "" then
-          return vim.trim(stdout)
-        end
       end
     end
   end

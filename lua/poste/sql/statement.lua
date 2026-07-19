@@ -3,6 +3,7 @@
 --- Pure functions for finding and extracting SQL statements from a buffer.
 --- Extracted from sql/init.lua to reduce module size and improve testability.
 
+local cli = require("poste.cli")
 local state = require("poste.state")
 
 local M = {}
@@ -38,9 +39,6 @@ end
 --- Try to find statement boundaries using the Rust binary.
 --- Returns {start_line, end_line} as 1-based buffer line numbers, or nil.
 function M.try_rust_stmt_span(buf_lines, cursor_line)
-  local binary = state.find_poste_binary()
-  if not binary then return nil end
-
   -- Find the current ### block to limit the scope
   local block_start, block_end = M.find_block_for_line(buf_lines, cursor_line)
 
@@ -52,13 +50,9 @@ function M.try_rust_stmt_span(buf_lines, cursor_line)
   local rel_cursor = cursor_line - block_start  -- 0-based within block
 
   -- Call Rust binary
-  local cmd = string.format("%s context stmt %d", vim.fn.shellescape(binary), rel_cursor)
   local input = table.concat(block_lines, "\n")
-  local output = vim.fn.system(cmd, input)
-  if vim.v.shell_error ~= 0 then return nil end
-
-  local ok, parsed = pcall(vim.json.decode, output)
-  if not ok or not parsed or type(parsed) ~= "table" then return nil end
+  local parsed, err = cli.run_json({ "context", "stmt", tostring(rel_cursor) }, { stdin = input })
+  if not parsed then return nil end
 
   -- Convert Rust 0-based lines to absolute Lua 1-based lines
   local rust_start = parsed.start_line
@@ -80,19 +74,15 @@ end
 --- without relying on ';'.
 --- Returns number[] of 1-based buffer statement start lines, or nil.
 function M.try_rust_stmt_ranges(buf_lines, start_line, end_line)
-  local binary = state.find_poste_binary()
-  if not binary then return nil end
-
   -- Extract the range of lines
   local range_lines = {}
   for i = start_line, end_line do
     range_lines[#range_lines + 1] = buf_lines[i] or ""
   end
 
-  local cmd = string.format("%s context stmt-ranges", vim.fn.shellescape(binary))
   local input = table.concat(range_lines, "\n")
-  local output = vim.fn.system(cmd, input)
-  if vim.v.shell_error ~= 0 then return nil end
+  local parsed, err = cli.run_json({ "context", "stmt-ranges" }, { stdin = input })
+  if not parsed then return nil end
 
   local ok, parsed = pcall(vim.json.decode, output)
   if not ok or type(parsed) ~= "table" or #parsed == 0 then return nil end

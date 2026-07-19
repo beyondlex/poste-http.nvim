@@ -1,3 +1,4 @@
+local cli = require("poste.cli")
 local state = require("poste.state")
 local edit_commit = require("poste.sql.edit_commit")
 local mapping = require("poste.sql.import.mapping")
@@ -89,13 +90,6 @@ function M.execute_import(table_info, valid_rows, col_map, table_cols, callback)
     return
   end
 
-  local binary = state.find_poste_binary()
-  if not binary then
-    vim.notify("Poste binary not found", vim.log.levels.ERROR)
-    if callback then callback(nil) end
-    return
-  end
-
   local norm_cols = mapping.normalize_columns(table_cols)
   local chunk_size = state.config.import_chunk_size or 100
   local total_imported = 0
@@ -144,12 +138,11 @@ function M.execute_import(table_info, valid_rows, col_map, table_cols, callback)
       start_idx, end_idx, end_idx - start_idx + 1,
       table_info.schema or "(default)", table_info.name))
 
-    local cmd = { binary, "run", "--stdin", "--line", "2", "--json", src_file }
+    local cmd = { "run", "--stdin", "--line", "2", "--json", src_file }
     local stderr_buf = {}; local chunk_start = vim.fn.reltime(); local logged = false
-    local job_id = vim.fn.jobstart(cmd, {
-      stdout_buffered = true,
-      stderr_buffered = true,
-      on_stdout = function(_, data)
+    cli.run_async(cmd, {
+      stdin = sql_content,
+      on_stdout = function(data)
         if not data or #data == 0 then
           send_chunk(end_idx + 1)
           return
@@ -232,13 +225,13 @@ function M.execute_import(table_info, valid_rows, col_map, table_cols, callback)
 
         send_chunk(end_idx + 1)
       end,
-      on_stderr = function(_, data)
+      on_stderr = function(data)
         if not data then return end
         for _, l in ipairs(data) do
           if l ~= "" then table.insert(stderr_buf, l) end
         end
       end,
-      on_exit = function(_, code)
+      on_exit = function(code)
         if code ~= 0 then
           local s = table.concat(stderr_buf, "\n")
           if s ~= "" then
@@ -265,14 +258,7 @@ function M.execute_import(table_info, valid_rows, col_map, table_cols, callback)
         end
       end,
     })
-
-    if job_id > 0 then
-      vim.fn.chansend(job_id, sql_content)
-      vim.fn.chanclose(job_id, "stdin")
-    else
-      vim.schedule(function()
-        vim.notify("Failed to start poste job for import chunk", vim.log.levels.ERROR)
-      end)
+  end
     end
   end
 

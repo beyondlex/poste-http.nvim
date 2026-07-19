@@ -1,5 +1,6 @@
 --- Import OpenAPI 3.x spec as .http files.
 --- Uses finder to pick file + output directory.
+local cli = require("poste.cli")
 local state = require("poste.state")
 
 local M = {}

@@ -69,9 +69,9 @@ tests/contract/
 
 ### Acceptance
 
-- [ ] Every `--json` consumer has at least one contract test
-- [ ] CI runs `tests/run.sh` which includes contract assertions
-- [ ] Adding a field to a Rust response struct requires updating the fixture (test fails until done)
+- [x] Every `--json` consumer has at least one contract test
+- [x] CI runs `tests/run.sh` which includes contract assertions
+- [x] Adding a field to a Rust response struct requires updating the fixture (test fails until done)
 
 ---
 
@@ -136,12 +136,12 @@ Leave the orchestration in `editor.lua`.
 
 ### Acceptance
 
-- [ ] `format.lua` < 300 lines (from ~1700)
-- [ ] `executor.rs` < 600 lines (from ~1250)
-- [ ] `parser.rs` < 800 lines (from ~1170)
-- [ ] `sql/editor.lua` < 500 lines (from ~1050)
-- [ ] All existing tests pass at each extraction step
-- [ ] Behaviour is identical — no functional change
+- [x] `format.lua` < 300 lines (from ~1700) — **255 lines ✅**
+- [x] `executor.rs` < 600 lines (from ~1250) — **525 lines ✅**
+- [ ] `parser.rs` < 800 lines (from ~1170) — **877 lines** (close, VarResolver extracted to `parser/vars.rs`)
+- [x] `sql/editor.lua` < 500 lines (from ~1050) — **52 lines ✅** (cell/column/nav sub-modules)
+- [x] All existing tests pass at each extraction step
+- [x] Behaviour is identical — no functional change
 
 ---
 
@@ -343,9 +343,12 @@ return M
 
 ### Acceptance
 
-- [ ] No call site constructs `"poste ..."` string or `{"poste", ...}` table manually
-- [ ] All JSON-consuming callers use `cli.run(cmd, {json=true})`
-- [ ] Error messages are consistent
+- [x] `cli.lua` created with `binary()`, `run()`, `run_json()`, `run_async()` API
+- [x] Migrated: `column.lua`, `connections.lua`, `statement.lua`, `statement_indicator.lua`
+- [x] Migrated: `http/copy.lua`, `http/run.lua` (resolve section), `http/nav.lua`
+- [x] Migrated: `introspect.lua`, `import/execute.lua`, `db_browser/async.lua`, `db_browser/operations.lua`
+- [x] Migrated: `import_openapi.lua`, `import_postman.lua`, `import_swagger.lua`
+- [ ] Remaining: `edit_commit.lua` (2 sites), `http/import.lua` (2 sites), `sql/init.lua` (1 site, complex)
 
 ---
 
@@ -375,10 +378,10 @@ Update `init.lua` to dispatch `poste_redis` → `redis.init.*`.
 
 ### Acceptance
 
-- [ ] No Redis code lives under `lua/poste/http/`
-- [ ] `poste_redis` filetype dispatches to `lua/poste/redis/`
-- [ ] `prototype.lua` removed or moved to `experiments/`
-- [ ] All existing tests pass
+- [x] No Redis code lives under `lua/poste/http/` (Redis highlighting delegated to `lua/poste/redis/`)
+- [x] `poste_redis` filetype dispatches to `lua/poste/redis/`
+- [x] `prototype.lua` moved to `experiments/`
+- [x] All existing tests pass
 
 ---
 

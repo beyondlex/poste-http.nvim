@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "ctx_type": "table",
+  "ctx_data": "users",
+  "ctx_schema": null,
+  "prefix": "SELECT * FROM ",
+  "tables": [
+    { "name": "users", "alias": null, "schema": null },
+    { "name": "posts", "alias": "p", "schema": null },
+    { "name": "comments", "alias": null, "schema": "public" }
+  ],
+  "functions": ["COUNT", "SUM", "AVG", "MIN", "MAX"],
+  "in_string": false,
+  "in_comment": false
+}

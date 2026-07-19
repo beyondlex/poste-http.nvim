@@ -1,5 +1,6 @@
 --- Import Swagger 2.0 spec as .http files.
 --- Delegates to the same CLI command; the Rust side handles conversion.
+local cli = require("poste.cli")
 local state = require("poste.state")
 
 local M = {}
@@ -38,21 +39,10 @@ local function pick_output_dir(default, callback)
 end
 
 local function do_import(spec_path, out_dir)
-  local binary = state.find_poste_binary()
-  if not binary then
-    vim.notify("Poste binary not found. Run :PosteUpdate or set vim.g.poste_binary", vim.log.levels.ERROR)
-    return
-  end
+  local cmd = { "import", "swagger", spec_path, "--out", out_dir }
 
-  local cmd = string.format("%s import swagger %s --out %s",
-    vim.fn.shellescape(binary),
-    vim.fn.shellescape(spec_path),
-    vim.fn.shellescape(out_dir))
-
-  vim.fn.jobstart(cmd, {
-    stdout_buffered = true,
-    stderr_buffered = true,
-    on_stdout = function(_, data)
+  cli.run_async(cmd, {
+    on_stdout = function(data)
       if not data then return end
       for _, line in ipairs(data) do
         if line ~= "" then
@@ -60,7 +50,7 @@ local function do_import(spec_path, out_dir)
         end
       end
     end,
-    on_stderr = function(_, data)
+    on_stderr = function(data)
       if not data then return end
       for _, line in ipairs(data) do
         if line ~= "" then
@@ -68,7 +58,7 @@ local function do_import(spec_path, out_dir)
         end
       end
     end,
-    on_exit = function(_, code)
+    on_exit = function(code)
       if code == 0 then
         vim.notify(string.format("Swagger import complete → %s", out_dir),
           vim.log.levels.INFO, { title = "Import Swagger" })

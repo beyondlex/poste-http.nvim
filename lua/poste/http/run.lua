@@ -1,3 +1,4 @@
+local cli = require("poste.cli")
 local state = require("poste.state")
 local util = require("poste.util")
 local indicators = require("poste.indicators")
@@ -235,10 +236,9 @@ local function build_pending_request(src_buf, buf_content, req_block, block_star
 
   -- Resolve via poste resolve CLI
   local resolved_content = nil
-  local poste_bin = state.find_poste_binary()
-  if poste_bin and file and file ~= "" then
+  if file and file ~= "" then
     local args = {
-      poste_bin, "resolve",
+      "resolve",
       "--stdin",
       "--file", file,
       "--block", tostring(block_start or 1),
@@ -256,15 +256,9 @@ local function build_pending_request(src_buf, buf_content, req_block, block_star
     table.insert(args, state.current_env)
 
     -- Pipe buffer content as stdin (handles unsaved changes)
-    local ok, sys_obj = pcall(vim.system, args, { stdin = buf_content, text = true })
-    if ok then
-      local ok2, result = pcall(sys_obj.wait, sys_obj)
-      if ok2 and result.code == 0 then
-        local stdout = result.stdout or ""
-        if stdout ~= "" then
-          resolved_content = stdout
-        end
-      end
+    local output, err = cli.run(args, { stdin = buf_content })
+    if output and output ~= "" then
+      resolved_content = output
     end
   end
 

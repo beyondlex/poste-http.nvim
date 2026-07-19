@@ -1,3 +1,4 @@
+local cli = require("poste.cli")
 local state = require("poste.state")
 
 local M = {}
@@ -58,9 +59,6 @@ local function find_block(lines, cursor_line)
 end
 
 local function try_rust_span(lines, cursor_line, callback)
-  local binary = state.find_poste_binary()
-  if not binary then callback(nil); return end
-
   local block_start, block_end = find_block(lines, cursor_line)
 
   -- If cursor is on a separator line between blocks, bail out
@@ -82,17 +80,17 @@ local function try_rust_span(lines, cursor_line, callback)
   end
   local rel_cursor = cursor_line - block_start
 
-  local cmd = string.format("%s context stmt %d", vim.fn.shellescape(binary), rel_cursor)
   local input = table.concat(block_lines, "\n")
-
   local stdout = {}
-  local job_id = vim.fn.jobstart(cmd, {
-    on_stdout = function(_, data)
+
+  cli.run_async({ "context", "stmt", tostring(rel_cursor) }, {
+    stdin = input,
+    on_stdout = function(data)
       if data then
         for _, line in ipairs(data) do stdout[#stdout + 1] = line end
       end
     end,
-    on_exit = function(_, exit_code)
+    on_exit = function(exit_code)
       _job_id = nil
       if exit_code ~= 0 then callback(nil); return end
       local output = table.concat(stdout, "\n")
@@ -104,14 +102,6 @@ local function try_rust_span(lines, cursor_line, callback)
       callback(block_start + rs, block_start + re)
     end,
   })
-
-  if job_id > 0 then
-    _job_id = job_id
-    vim.fn.chansend(job_id, input)
-    vim.fn.chanclose(job_id, "stdin")
-  else
-    callback(nil)
-  end
 end
 
 local function fetch_and_highlight(buf, cursor_line)

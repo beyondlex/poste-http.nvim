@@ -4,6 +4,7 @@ local context_detector = require("poste.http.context_detector")
 local data = require("poste.http.data")
 local lua_docs = require("poste.http.lua_docs")
 local util = require("poste.util")
+local cli = require("poste.cli")
 
 local M = {}
 

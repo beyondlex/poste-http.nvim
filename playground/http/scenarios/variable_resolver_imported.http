@@ -46,8 +46,8 @@ Content-Type: application/json
 # Uses global vars set by Login's post-script (via import params)
 # {{user_id}} comes from import param, {{auth_token}} from import param
 # Both are P1 level — highest priority
-GET {{host}}/anything/user/{{user_id}}
-Authorization: Bearer {{auth_token}}
+GET {{host}}/anything/user/{{imported_user_id}}
+Authorization: Bearer {{imported_token}}
 X-Source: imported-file
 X-Test-User: {{default_user}}
 

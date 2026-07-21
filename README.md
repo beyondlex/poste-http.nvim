@@ -1,25 +1,20 @@
-# Poste
+# Poste HTTP
 
-**Send requests from files. Keyboard-first. Multi-protocol.**
+**HTTP + Redis request execution for Neovim.** Part of the [Poste](https://github.com/beyondlex/poste.nvim) family.
 
-A Neovim plugin and Rust CLI for executing HTTP, Redis, SQL (PostgreSQL / MySQL / SQLite) requests from plain text files. Inspired by JetBrains HTTP Client, with focus on keyboard-driven workflows and dataset manipulation.
-
-> 📚 **Full documentation** at [docs/](docs/README.md) — user guides, developer docs, architecture overview, and more.
+**Requires**: [poste.nvim](https://github.com/beyondlex/poste.nvim) (shared infra + Rust binary)
 
 ## Features
 
-- **File-based requests** — Define requests in `.http`/`.rest`, `.sql`, `.sqlite`, `.redis`, `.mongo` files
+- **File-based requests** — Define requests in `.http`/`.rest` and `.redis` files
 - **Environment variables** — JetBrains-style `env.json` with `{{var}}` substitution
-- **Named connections** — `connections.json` for database credentials; supports env var references
-- **Keyboard-first** — Execute at cursor, navigate results with Vim keys, never leave home row
-- **Multi-protocol** — HTTP, Redis, PostgreSQL, MySQL, SQLite (MongoDB/AMQP stubs)
-- **SQL dataset buffer** — Paginated results, cell navigation (hjkl), vim-style search/filter, sorting, inline editing
-- **Dataset manipulation** — Edit cells inline, generate DML (INSERT/UPDATE/DELETE) from changes, commit with transaction support
-- **Data import/export** — CSV, JSON, SQL INSERT statements
-- **DB browser** — Tree-view of schemas, tables, columns; generate SELECT/DESCRIBE queries; DDL table operations
-- **Completion** — HTTP methods/headers/values (nvim-cmp or blink.cmp); SQL keywords/identifiers/columns (blink.cmp)
 - **Assertions & scripts** — Inline `> {% ... %}` assertions, pre/post-request scripts
 - **Request chaining** — `{{RequestName.res.body.X}}` to extract values from prior responses
+- **Prompt variables** — Interactive `<<var` prompts with picker/text input
+- **Completion** — HTTP methods, headers, values, env vars (blink.cmp / nvim-cmp)
+- **jq filtering** — `:PosteJqFilter` for interactive JSON exploration
+- **Multi-tab response** — Body, verbose, request, assertions, script logs
+- **History** — Request history with quick re-runs
 
 ## Quick Start
 
@@ -41,11 +36,6 @@ A Neovim plugin and Rust CLI for executing HTTP, Redis, SQL (PostgreSQL / MySQL 
 }
 ```
 
-```bash
-# Rust CLI (optional — for standalone execution or to enable context-aware features)
-cargo install --path ../poste.nvim/crates/poste-cli
-```
-
 ### Create a request file
 
 `requests/api.http`:
@@ -62,27 +52,6 @@ Content-Type: application/json
 {"name": "John", "email": "john@test.com"}
 ```
 
-`requests/queries.sql`:
-
-```sql
--- @connection pg-dev
-
-SELECT * FROM users WHERE active = true;
-```
-
-`requests/cache.redis`:
-
-```redis
-# @connection redis://localhost:6379
-
-### Get user session
-GET session:user:42
-
-### Set cache
-SET post:latest "active"
-EXPIRE post:latest 3600
-```
-
 ### Define environments
 
 `env.json` (walk-up discovery from file directory):
@@ -91,11 +60,7 @@ EXPIRE post:latest 3600
 {
   "dev": {
     "api_base": "http://localhost:8080",
-    "api_token": "dev-token-xxx",
-    "db_host": "127.0.0.1",
-    "db_port": "5432",
-    "db_user": "app_user",
-    "db_pass": "local-pass"
+    "api_token": "dev-token-xxx"
   },
   "prod": {
     "api_base": "https://api.example.com",
@@ -104,39 +69,13 @@ EXPIRE post:latest 3600
 }
 ```
 
-### Define connections
-
-`connections.json` (walk-up discovery; supports `{{var}}`):
-
-```json
-{
-  "pg-dev": {
-    "dialect": "postgres",
-    "host": "{{db_host}}",
-    "port": "{{db_port}}",
-    "database": "myapp",
-    "user": "{{db_user}}",
-    "password": "{{db_pass}}"
-  },
-  "my-blog": {
-    "dialect": "mysql",
-    "host": "localhost",
-    "port": 3306,
-    "database": "blog",
-    "user": "root",
-    "password": ""
-  }
-}
-```
-
 ### Execute
 
-In Neovim, open any supported file. With cursor on a request block, press `<CR>` to execute. Results open in a side panel.
+Open a `.http` file. With cursor on a request block, press `<CR>` to execute. Results open in a side panel.
 
-<details>
-<summary><b>Default keymaps →</b></summary>
+## Keymaps
 
-### Source buffer (`.http`, `.sql`, `.redis`)
+### Source buffer (`.http`, `.redis`)
 
 | Key | Action |
 |-----|--------|
@@ -144,425 +83,101 @@ In Neovim, open any supported file. With cursor on a request block, press `<CR>`
 | `]]` / `[[` | Jump next/previous block |
 | `gd` | Go to definition |
 | `grr` | Go to references |
-| `gs` | Symbol outline (Telescope fallback to `vim.ui.select`) |
+| `gs` | Symbol outline |
 | `<leader>rp` | Paste curl from clipboard |
 | `<leader>rc` | Copy request as curl |
+| `K` | Show variable value / response chain |
+| `<leader>vv` | Pick environment |
+| `<leader>l` | Open request history |
+| `g?` | Open help window |
 
 ### HTTP response buffer
 
 | Key | Action |
 |-----|--------|
 | `q` | Close |
-| `B` / `I` | View Body / Verbose |
+| `B` / `E` | View Body / Verbose |
 | `A` / `S` | View Assertions / Script logs |
 | `<Tab>` / `<S-Tab>` | Next/previous tab |
-
-### SQL source buffer (additional)
-
-| Key | Action |
-|-----|--------|
-| `K` | Show DDL for table under cursor |
-| `<leader>db` | Toggle DB browser |
-| `<leader>cr` | Clear filter/search in dataset |
-| `<C-Space>` | Trigger completion (i mode) |
-
-### SQL dataset buffer
-
-| Key | Action |
-|-----|--------|
-| `q` | Close |
-| `h`/`j`/`k`/`l` | Move cell left/down/up/right |
-| `0`/`$` | First/last column |
-| `gg`/`G` | First/last row |
-| `H`/`L` | Previous/next page |
-| `K` | Preview cell content in float |
-| `yy` / `yc` | Yank cell / yank column |
-| `s` | Sort by current column (toggle asc/desc) |
-| `zh` | Toggle cell highlight |
-| `zH` | Toggle header float |
-| `zN` | Toggle row numbers |
-| `R` | Re-run query |
-| `<Tab>`/`<S-Tab>` | Next/previous result tab |
-| `n`/`N` | Next/previous search match |
-| `<leader>/` | Search |
-| `<leader>cr` | Clear search/filter |
-| `<leader>fc` | Find column |
-| `<leader>ce` | Filter by current cell |
-| `<leader>hh`/`<leader>ll` | First/last page |
-| `<leader>pa` | Toggle pagination |
-| `<leader>gp` | Toggle raw mode |
-| `i` / `a` | Enter edit mode (insert/append) |
-| `dd` | Delete row |
-| `o` / `O` | Insert row below/above |
-| `u` | Undo edit |
-| `<leader>w` / `:W` | Commit changes (generate & execute DML) |
-| `<leader>ec` | Export as CSV |
-| `<leader>ej` | Export as JSON |
-| `<leader>es` | Export as SQL INSERT |
-
-### DB browser
-
-| Key | Action |
-|-----|--------|
-| `<CR>` | Toggle node expand/collapse |
-| `x` | Open context menu (node-specific actions) |
-| `r` | Refresh node |
-| `/` | Search filter |
-| `s` | Generate SELECT * query |
-| `d` | Generate DESCRIBE query |
-| `q` | Close |
-| `ma`/`mr`/`md`/`mt` | Table ops: add/rename/drop/alter column |
-
-</details>
-
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `:PosteRun` | Execute request at cursor |
-| `:PosteEnv [name]` | Switch or show current environment |
-| `:PostePasteCurl` | Paste curl from clipboard |
-| `:PosteCopyAsCurl` | Copy request as curl |
-| `:PosteCmpStatus` | Show HTTP completion status |
-| `:PosteSQLCmpStatus` | Show SQL completion status |
-| `:PosteImport <file>` | Import data from CSV/JSON file into dataset |
-| `:PosteExport {csv\|json\|sql}` | Export current dataset |
+| `r` | Re-run request |
+| `K` | Image preview |
+| `<leader>j` | Interactive jq filter |
+| `<leader>jc` | Restore original JSON |
+| `<leader>jr` | Toggle raw/pretty |
+| `<leader>jo` | JSON outline |
 
 ## Configuration
 
 ```lua
 require("poste").setup({
-  -- Binary path (default: stdpath("data")/poste/bin/poste)
+  -- Binary path
   poste_binary = vim.fn.stdpath("data") .. "/poste/bin/poste",
-
-  -- Default environment
   default_env = "dev",
-
-  -- Response window
-  split_direction = "vertical",  -- "vertical" | "horizontal"
-  split_size = 80,               -- columns (vertical) or rows (horizontal)
-
-  -- Log file (set to "" to disable)
+  split_direction = "vertical",
+  split_size = 80,
   log_file = vim.fn.stdpath("cache") .. "/poste.log",
 
-  -- Customize keymaps — set to false to disable
   keymaps = {
-    source_buffer = {
+    http_source = {
       run = "<CR>",
       jump_next = "]]",
       jump_prev = "[[",
       goto_definition = "gd",
       goto_references = "grr",
-      quickfix_next = "]q",
-      quickfix_prev = "[q",
       paste_curl = "<leader>rp",
       copy_as_curl = "<leader>rc",
-      show_symbols = "gs",
+      toggle_outline = "gs",
+      help = "g?",
     },
     http_response = {
       close = "q",
       view_body = "B",
-      view_verbose = "I",
+      view_verbose = "E",
       view_assertions = "A",
       view_script_logs = "S",
       next_tab = "<Tab>",
       prev_tab = "<S-Tab>",
+      rerun = "r",
+      json_filter = "<leader>j",
+      json_restore = "<leader>jc",
+      json_toggle_raw = "<leader>jr",
+      json_outline = "<leader>jo",
     },
-    sql_source = {
-      run = "<CR>",
-      show_ddl = "K",
-      clear_filter = "<leader>cr",
-      toggle_db_browser = "<leader>db",
-      trigger_completion = "<C-Space>",
-    },
-    sql_dataset = {
+    http_history = {
       close = "q",
-      move_left = "h",  move_down = "j",  move_up = "k",  move_right = "l",
-      prev_page = "H",  next_page = "L",
-      first_col = "0",  last_col = "$",
-      first_row = "gg", last_row = "G",
-      preview_cell = "K",
-      yank_cell = "yy", yank_column = "yc",
-      sort_column = "s",
-      toggle_cell_highlight = "zh",
-      toggle_header_float = "zH",
-      toggle_row_numbers = "zN",
-      toggle_raw_mode = "<leader>gp",
-      next_tab = "<Tab>", prev_tab = "<S-Tab>",
-      rerun = "R",
-      goto_first_page = "<leader>hh", goto_last_page = "<leader>ll",
-      toggle_pagination = "<leader>pa",
-      find_column = "<leader>fc", filter_by_cell = "<leader>ce",
-      show_search = "<leader>/", clear_filter_search = "<leader>cr",
-      next_search = "n", prev_search = "N",
-      -- Editing
-      edit_insert = "i",
-      edit_append = "a",
-      edit_delete_row = "dd",
-      edit_insert_row_above = "O",
-      edit_insert_row_below = "o",
-      edit_undo = "u",
-      edit_commit = "<leader>w",
-      -- Export
-      export_csv = "<leader>ec",
-      export_json = "<leader>ej",
-      export_sql = "<leader>es",
+      delete_entry = "dd",
+      focus_detail = "<CR>",
     },
-    sql_table_ops = {
-      select_all = "ma",
-      refresh_all = "mr",
-      describe_all = "md",
-      toggle_menu = "mt",
-    },
-    db_browser = {
-      toggle_node = "<CR>",
-      context_menu = "x",
-      refresh_node = "r",
-      search_filter = "/",
-      select_query = "s",
-      describe_query = "d",
-      close = "q",
-    },
-    introspect_float = {
-      close = "q",
-      close_alt = "<Esc>",
-    },
-  },
-
-  -- Override highlight group colors
-  highlights = {
-    -- Example: change HTTP method colors
-    -- PosteMethodGET    = { fg = "#00ff00", bold = true },
-    -- PosteMethodPOST   = { fg = "#ffff00", bold = true },
-    -- PosteMethodDELETE = { fg = "#ff0000", bold = true },
-    --
-    -- Example: customize SQL dataset look
-    -- PosteSqlHeader    = { fg = "#ff8800", bold = true },
-    -- PosteSqlCellSelected = { bg = "#334455", fg = "#ffffff", bold = true },
   },
 })
 ```
 
-Full list of highlight groups you can override: `PosteLatency`, `PosteSpinner`, `PosteSuccess`, `PosteError`, `PosteSeparator`, `PosteRequestName`, `PosteVarRef`, `PosteMagicVar`, `PosteMethodGET[...]`
-
 ## Completion
 
-Poste provides context-aware completions.
-
-### HTTP (`.http`/`.rest`)
+Poste provides context-aware completions for HTTP files.
 
 - **HTTP methods** — `GET`, `POST`, `PUT`, `DELETE`, etc.
 - **Header names** — `Content-Type`, `Authorization`, `Accept-Encoding`, etc.
 - **Header values** — `application/json`, `Bearer `, `gzip`, etc.
 - **Variables / env vars** — `{{...}}` references from env.json
 
-Works with both **nvim-cmp** and **blink.cmp**. Registration is automatic.
-
-### SQL (`.sql`/`.sqlite`)
-
-- **SQL keywords** — `SELECT`, `FROM`, `WHERE`, `JOIN`, etc.
-- **Tables, columns, schemas** — introspected from your database
-- **Functions** — aggregate and scalar functions per dialect
-- **Connection-aware** — completions reflect the actual schema
-
-Requires **blink.cmp**. Auto-registers as `poste_sql` source provider.
-
-```vim
-:PosteCmpStatus     " HTTP completion status
-:PosteSQLCmpStatus  " SQL completion status
-```
+Works with both **nvim-cmp** and **blink.cmp**. Auto-registers as `poste_http` source.
 
 ## Prompt Variables
 
-Prompt variables allow interactive input when running a request. When you execute a request with `<<` directives, Poste will prompt you for values before sending.
-
-### Text Input
+Prompt variables allow interactive input when running a request.
 
 ```
-<<username
-```
-
-Shows a text input prompt for `username`. Press `<Enter>` to confirm or `<Esc>` to cancel.
-
-### Selection from List (Simple Strings)
-
-```
-<<method [GET, POST, PUT, DELETE]
-```
-
-Shows a picker with the listed options. Selecting one substitutes `@method = <selected>`.
-
-### Selection with Display Name, Key, and Description
-
-```
-<<method [GET|get|Send a GET request, POST|post|Send a POST request, PUT|put|Send a PUT request]
-```
-
-Each option is formatted as `name|key|description`:
-- **name** — shown in the picker
-- **key** — the actual value substituted into the request
-- **description** — secondary text displayed alongside the name
-
-Picker shows:
-```
-  GET    Send a GET request
-  POST   Send a POST request
-  PUT    Send a PUT request
-```
-
-Selecting `GET` writes `@method = get` (the key, not the display name) into the request.
-
-Two-field form (name|key, no description):
-```
-<<method [GET|get, POST|post]
-```
-
-### Dynamic Options from Another Request
-
-```http
-### Get commits
-GET https://api.github.com/repos/folke/snacks.nvim/commits
-
-### Send email
-<<email [{{1.response.body | {name: .[].commit.author.name, key: .[].commit.author.email, desc: .[].commit.author.name} }}]
-
-POST https://httpbin.org/post
-Content-Type: application/json
-
-{"email": "{{email}}"}
-```
-
-The pipe `|` separates the response reference from a **jq-style mapping expression**:
-
-```
-{{<request_ref> | {name: <path>, key: <path>, desc: <path>} }}
-```
-
-- `<request_ref>` — standard cross-request reference (e.g., `1.response.body`)
-- `<path>` — dot-separated path into the response, using `[]` for array iteration (jq-compatible)
-
-If the response body is already in `{name, key, description}` format, the mapping can be omitted:
-```
-<<email [{{1.response.body}}]
-```
-
-## SQL Features
-
-### Connection management
-
-Connections are defined in `connections.json` (walked up from the SQL file). Reference them in your `.sql` files:
-
-```sql
--- @connection pg-dev
--- @connection my-blog
-```
-
-The `USE database;` statement switches the active database for parsing/completion context.
-
-### Dataset buffer
-
-Query results render in a rich dataset buffer with:
-- **Cell navigation** — hjkl to move between cells
-- **Sorting** — press `s` on any column
-- **Search & filter** — `<leader>/` for search, `<leader>ce` to filter by cell value
-- **Pagination** — configurable page size, `<leader>pa` to toggle
-- **Multi-result tabs** — each statement gets its own tab, `<Tab>`/`<S-Tab>` to switch
-- **Raw mode** — `<leader>gp` to toggle compact view
-
-### Dataset editing
-
-Inline editing directly in the dataset buffer:
-- **Enter edit mode** — `i` to insert before cursor, `a` to append after
-- **Edit cells** — Type to modify, `<Esc>` to exit edit, `<CR>` to confirm
-- **Manage rows** — `dd` to delete, `o`/`O` to insert below/above
-- **Undo changes** — `u` to undo edits (before commit)
-- **Generate & commit DML** — `<leader>w` or `:W` to auto-generate UPDATE/INSERT/DELETE statements and execute with transaction
-
-### DB Browser
-
-Press `<leader>db` in a SQL file to open the database tree browser. Navigate schemas, tables, and columns. Press `s` to generate a `SELECT *` query or `d` for `DESCRIBE`.
-
-### Data import/export
-
-**Export current dataset:**
-- `<leader>ec` — CSV (RFC 4180 compliant)
-- `<leader>ej` — JSON (array of objects)
-- `<leader>es` — SQL INSERT statements (dialect-aware)
-
-**Import data:**
-- `:PosteImport <file>` — Load CSV/JSON data into a new result tab
-
-### SQL Integration Tests
-
-```bash
-# Start test databases (PG 16 on 15432, MySQL 8.0 on 13306)
-cd tests/sql && docker compose up -d
-
-# Run queries
-cargo run -- run tests/sql/queries/postgres.sql --line 4 --env dev
-
-# Run Lua tests
-tests/run.sh
+<<username                                    -- Text input
+<<method [GET, POST, PUT, DELETE]             -- Picker from list
+<<email [{{1.response.body | {name: ..., key: ..., desc: ...} }}]  -- Dynamic from prior response
 ```
 
 ## CLI
 
 ```bash
-# Execute a specific request by line number
 poste run requests/api.http --line 4 --env dev
-
-# Introspect database schema
-poste introspect --connection pg-dev --env dev
-
-# List available connections
-poste connection list --env dev
 ```
-
-## Architecture
-
-```
-poste.nvim/
-├── crates/
-│   ├── poste-core/    # Request parsing, SQL parsing, env management (no I/O)
-│   ├── poste-exec/    # Protocol execution, SQL connection/dialect, response
-│   └── poste-cli/     # CLI binary (poste run / connection / introspect)
-├── lua/
-│   └── poste/         # Shared Lua infra (state, install, select, constants)
-├── plugin/
-│   └── poste-core.lua
-└── tests/
-
-poste-http.nvim/               ← this repo
-├── lua/poste/
-│   ├── init.lua               # HTTP entry point
-│   ├── http/                  # HTTP protocol modules
-│   └── redis/                 # Redis support
-├── plugin/poste.lua           # Plugin loader
-└── tests/                     # HTTP tests
-
-poste-sql.nvim/                # Optional SQL plugin
-├── lua/poste/sql/             # SQL protocol modules
-├── plugin/poste-sql.lua
-└── tests/sql/                 # SQL tests
-    └── sql/           # Docker Compose + SQL integration tests
-```
-
-## Development Status
-
-**Progress: 34/38 steps completed** (~90%)
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| **1A** | Rust infrastructure | ✅ Complete |
-| **1B** | Lua dataset panel | ✅ Complete |
-| **1C** | MySQL/SQLite executors | ✅ Complete |
-| **2** | Connection & context management | ✅ Complete |
-| **3** | DB structure browser | ✅ Complete |
-| **4** | Table operations + DDL + completion | ✅ Complete |
-| **5** | Import/export + pagination | ✅ Complete |
-| **6** | Advanced features (editor, transactions) | ✅ Complete |
-
-**Tests:** 300+ passing (230 Rust + 70 Lua)
 
 ## License
 

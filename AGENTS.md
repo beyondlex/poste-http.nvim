@@ -27,6 +27,8 @@ File-driven HTTP request executor (Rust CLI + Neovim). `.http` → execute → r
 
 | Want | Go to |
 |------|-------|
+| **Shared infra (state, cli, select, install, indicators, buffer_setup, help, etc.)** | `../poste.nvim/lua/poste/` — edit there |
+| **Rust CLI (crates, build system)** | `../poste.nvim/crates/` — edit there |
 | File index | `docs/dev/file-index.md` |
 | Architecture | `docs/dev/architecture-overview.md` |
 | Build & test | `docs/dev/testing.md` |

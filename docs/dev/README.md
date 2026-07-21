@@ -12,6 +12,7 @@
 | [File Index](./file-index.md) | Key files quick reference |
 | [Testing Guide](./testing.md) | Rust + Lua + Docker SQL testing |
 | [Refactoring Plan](./refactoring-plan.md) | F1–F8 architecture debt, phased remediation plan |
+| [Protocol Split Design](./protocol-split-design.md) | HTTP ↔ SQL repo split proposal |
 | [Archived Docs](./archived/README.md) | Outdated design documents |
 
 ## HTTP

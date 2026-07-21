@@ -477,7 +477,7 @@ describe("M.register() and M.status()", function()
     package.loaded["poste.http.completion"] = nil
     local fresh_completion = require("poste.http.completion")
     local status = fresh_completion.status()
-    assert.equals("no completion engine registered", status)
+    assert.equals("not registered", status)
   end)
 end)
 

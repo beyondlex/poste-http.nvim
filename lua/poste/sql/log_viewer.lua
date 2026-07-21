@@ -95,8 +95,8 @@ M._clean_sql = clean_sql
 local function guess_table(sql)
   if not sql then return nil end
   local patterns = {
-    "[Ff][Rr][Oo][Mm]%s+([%w_]+)",
     "[Jj][Oo][Ii][Nn]%s+([%w_]+)",
+    "[Ff][Rr][Oo][Mm]%s+([%w_]+%.?([%w_]+))",
     "[Uu][Pp][Dd][Aa][Tt][Ee]%s+([%w_]+)",
     "[Ii][Nn][Tt][Oo]%s+([%w_]+)",
     "[Dd][Ee][Ll][Ee][Tt][Ee]%s+[Ff][Rr][Oo][Mm]%s+([%w_]+)",
@@ -104,7 +104,10 @@ local function guess_table(sql)
   }
   for _, pat in ipairs(patterns) do
     local t = sql:match(pat)
-    if t then return t end
+    if t then
+      local _, after_dot = t:match("([%w_]+)%.([%w_]+)")
+      return after_dot or t
+    end
   end
   return nil
 end

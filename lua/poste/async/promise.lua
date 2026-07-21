@@ -27,9 +27,10 @@ local Promise = {}
 Promise.__index = Promise
 
 --- Create a new Promise.
---- @param fn function(resolve, reject)  Executor function
+--- @param resolve_fn function(resolve, reject)  Executor for resolve path (or nil)
+--- @param reject_fn function(reject)            Executor for reject path (optional)
 --- @return Promise
-function M.new(fn)
+function M.new(resolve_fn, reject_fn)
   local self = setmetatable({
     _state = "pending",  -- "pending" | "fulfilled" | "rejected"
     _value = nil,
@@ -50,9 +51,17 @@ function M.new(fn)
     self:_call_handlers()
   end
 
-  local ok, err = pcall(fn, resolve, reject)
-  if not ok then
-    reject(err)
+  if reject_fn then
+    -- Two-argument form: resolve_fn is called with resolve, reject_fn is called with reject
+    if resolve_fn then
+      pcall(resolve_fn, resolve, reject)
+    end
+    pcall(reject_fn, reject)
+  elseif resolve_fn then
+    local ok, err = pcall(resolve_fn, resolve, reject)
+    if not ok then
+      reject(err)
+    end
   end
 
   return self
@@ -115,12 +124,14 @@ end
 --- @param fn function()
 --- @return Promise
 function Promise:finally_(fn)
-  return self:then_(function(value)
-    fn()
-    return value
-  end):catch_(function(err)
-    fn()
-    return M.reject(err)
+  return M.new(function(resolve, reject)
+    self:then_(function(value)
+      fn()
+      resolve(value)
+    end):catch_(function(err)
+      fn()
+      reject(err)
+    end)
   end)
 end
 
@@ -135,7 +146,7 @@ end
 --- @param err any
 --- @return Promise
 function M.reject(err)
-  return M.new(_, function() end, function(reject) reject(err) end)
+  return M.new(nil, function(reject) reject(err) end)
 end
 
 --- Wait for all promises to settle.

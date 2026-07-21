@@ -14,6 +14,9 @@ local M = {}
 -- Store originals for teardown
 local _originals = {}
 
+-- Buffer option cache for mocked vim.bo
+local _bo_cache = {}
+
 -- Track calls for assertions
 M.calls = {}
 
@@ -78,11 +81,21 @@ end
     table.insert(M.calls, { buf = buf, opts = opts2 })
   end
 
-  -- Mock nvim_create_buf
+  -- Mock nvim_create_buf — return a fixed id; mock vim.bo to match
   vim.api.nvim_create_buf = function(listed, scratch)
     table.insert(M.calls, "nvim_create_buf")
     return 1001
   end
+  -- Mock vim.bo so vim.bo[buf].filetype works for common buffer ids
+  _originals.vim_bo = vim.bo
+  vim.bo = setmetatable({}, {
+    __index = function(_, buf)
+      if not _bo_cache[buf] then
+        _bo_cache[buf] = { filetype = "" }
+      end
+      return _bo_cache[buf]
+    end,
+  })
 
   -- Mock nvim_open_win
   vim.api.nvim_open_win = function(buf, enter, config)
@@ -335,6 +348,8 @@ function M.teardown()
   if _originals.vim_schedule then vim.schedule = _originals.vim_schedule end
   if _originals.vim_keymap_set and vim.keymap then vim.keymap.set = _originals.vim_keymap_set end
   if _originals.vim_base64 then vim.base64 = _originals.vim_base64 end
+  if _originals.vim_bo then vim.bo = _originals.vim_bo end
+  _bo_cache = {}
   M.reset_calls()
 end
 

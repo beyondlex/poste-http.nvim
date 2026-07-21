@@ -12,7 +12,7 @@ describe("indicators", function()
     -- Re-require to pick up fresh module state
     package.loaded["poste.indicators"] = nil
     indicators = require("poste.indicators")
-  end
+  end)
 
   after_each(function()
     mock.teardown()

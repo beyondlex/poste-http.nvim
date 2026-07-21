@@ -50,11 +50,14 @@ function M.is_datetime_column(col_meta)
 end
 
 function M.is_enum_column(col_meta)
-  return col_meta and col_meta.enum_values and #col_meta.enum_values > 0
+  return col_meta and col_meta.enum_values and #col_meta.enum_values > 0 or false
 end
 
 function M.is_editable_field(col_meta)
   if not col_meta then return false end
+  if col_meta.user_defined then
+    return false
+  end
   if col_meta.primary_key and col_meta.default then
     return true
   end
@@ -74,8 +77,12 @@ end
 --- Parse a user input string into a typed value suitable for SQL.
 --- Handles: JSON, UUID, datetime, numbers, booleans, NULL.
 function M.parse_value(input, old_val)
-  if input == "" or input == "(NULL)" then return vim.NIL end
-  if input == "null" then return vim.NIL end
+  if input == "(NULL)" then return vim.NIL end
+  if input == "null" or input == "NULL" then return vim.NIL end
+  if input == "" then
+    return old_val ~= nil and vim.NIL or nil
+  end
+  if input == "''" then return "" end
 
   -- Expressions (computed in SQL)
   if input:match("^__expr:") then return input end
@@ -123,6 +130,10 @@ function M.validate_value(value, col_meta)
   end
 
   if type(value) == "number" then
+    if is_type(ctype, "boolean") then
+      if value == 1 or value == 0 then return true end
+      return false, "Only 0 and 1 allowed for boolean column"
+    end
     if not is_type(ctype, "numeric") then
       return false, "Cannot assign number to " .. (col_meta.ctype or "unknown") .. " column"
     end
@@ -136,8 +147,21 @@ function M.validate_value(value, col_meta)
   if type(value) == "string" then
     if value:match("^__expr:") then return true end
     if is_type(ctype, "uuid") then
-      if not value:match("^[0-9a-fA-F%-]+$") then
+      local parts = { value:match("^(%x%x%x%x%x%x%x%x)-(%x%x%x%x)-(%x%x%x%x)-(%x%x%x%x)-(%x%x%x%x%x%x%x%x%x%x%x%x)$") }
+      if not parts or #parts ~= 5 then
         return false, "Invalid UUID format"
+      end
+      return true
+    end
+    if is_type(ctype, "integer") or is_type(ctype, "numeric") then
+      return false, "Cannot assign string to " .. (col_meta.ctype or "unknown") .. " column"
+    end
+    if is_type(ctype, "boolean") then
+      return false, "Cannot assign string to boolean column"
+    end
+    if is_type(ctype, "date") then
+      if not value:match("^%d") then
+        return false, "Invalid date format"
       end
     end
     return true
@@ -158,7 +182,7 @@ function M.create_edit_state()
     deleted_rows = {},
     added_rows = {},
     dirty = false,
-    errors = {},
+    cell_errors = {},
   }
 end
 
@@ -169,6 +193,17 @@ end
 --- @param old_val any Previous value
 --- @param new_val any New value
 function M.track_cell_edit(es, row_key, col, old_val, new_val)
+  if new_val == old_val then
+    es.modified_cells[row_key] = nil
+    if not next(es.modified_cells) then
+      es.dirty = false
+    end
+    return
+  end
+  local row_idx = tonumber(row_key:match("^(%d+):"))
+  if row_idx and es.deleted_rows[row_idx] then
+    return
+  end
   es.modified_cells[row_key] = { col = col, old_val = old_val, new_val = new_val }
   es.dirty = true
 end
@@ -179,6 +214,12 @@ end
 function M.track_row_delete(es, row_idx)
   es.deleted_rows[row_idx] = true
   es.dirty = true
+  for k, _ in pairs(es.modified_cells) do
+    local r = tonumber(k:match("^(%d+):"))
+    if r == row_idx then
+      es.modified_cells[k] = nil
+    end
+  end
 end
 
 --- Track a row addition.
@@ -186,7 +227,7 @@ end
 --- @param row_data table Row data
 --- @param row_idx number Row index
 function M.track_row_add(es, row_data, row_idx)
-  table.insert(es.added_rows, { row_data = row_data, row_idx = row_idx })
+  table.insert(es.added_rows, { data = row_data, row_idx = row_idx })
   es.dirty = true
 end
 
@@ -200,33 +241,33 @@ end
 
 --- Get a summary of pending changes for display.
 function M.get_edit_summary(es)
-  if not es then return "" end
-  local parts = {}
-  local cell_count = 0
-  for _ in pairs(es.modified_cells) do cell_count = cell_count + 1 end
-  if cell_count > 0 then table.insert(parts, cell_count .. " cells") end
-  local del_count = 0
-  for _ in pairs(es.deleted_rows) do del_count = del_count + 1 end
-  if del_count > 0 then table.insert(parts, del_count .. " deleted") end
-  if #es.added_rows > 0 then table.insert(parts, #es.added_rows .. " added") end
-  return table.concat(parts, ", ")
+  if not es then return { updates = 0, inserts = 0, deletes = 0 } end
+  local ups = 0
+  for _ in pairs(es.modified_cells) do ups = ups + 1 end
+  local dels = 0
+  for _ in pairs(es.deleted_rows) do dels = dels + 1 end
+  return { updates = ups, inserts = #es.added_rows, deletes = dels }
 end
 
 --- Count pending changes (for display).
 function M.count_pending_changes(es)
-  if not es or not es.dirty then return 0 end
-  local count = 0
-  for _ in pairs(es.modified_cells) do count = count + 1 end
-  for _ in pairs(es.deleted_rows) do count = count + 1 end
-  count = count + #es.added_rows
-  return count
+  if not es or not es.dirty then return { modified = 0, deleted = 0, added = 0 } end
+  local mod = 0
+  for _ in pairs(es.modified_cells) do mod = mod + 1 end
+  local del = 0
+  for _ in pairs(es.deleted_rows) do del = del + 1 end
+  return { modified = mod, deleted = del, added = #es.added_rows }
 end
 
 --- Return a short text representation of pending changes.
 function M.pending_changes_text(es)
-  if not es or not es.dirty or not M.has_pending_changes(es) then return "" end
-  local count = M.count_pending_changes(es)
-  return " (" .. count .. " change" .. (count ~= 1 and "s" or "") .. ")"
+  if not es or not es.dirty or not M.has_pending_changes(es) then return nil end
+  local counts = M.count_pending_changes(es)
+  local parts = {}
+  if counts.modified > 0 then table.insert(parts, "~" .. counts.modified) end
+  if counts.added > 0 then table.insert(parts, "+" .. counts.added) end
+  if counts.deleted > 0 then table.insert(parts, "-" .. counts.deleted) end
+  return table.concat(parts, " ")
 end
 
 --- Reset edit state, clearing all pending changes.
@@ -236,21 +277,21 @@ function M.reset_edit_state(es)
   es.deleted_rows = {}
   es.added_rows = {}
   es.dirty = false
-  es.errors = {}
+  es.cell_errors = {}
 end
 
 --- Clear a cell error.
 function M.clear_cell_error(es, row_key)
-  if es and es.errors then
-    es.errors[row_key] = nil
+  if es and es.cell_errors then
+    es.cell_errors[row_key] = nil
   end
 end
 
 --- Set a cell error.
 function M.set_cell_error(es, row_key, msg)
   if not es then return end
-  if not es.errors then es.errors = {} end
-  es.errors[row_key] = msg
+  if not es.cell_errors then es.cell_errors = {} end
+  es.cell_errors[row_key] = msg
 end
 
 ---------------------------------------------------------------------------
@@ -261,6 +302,7 @@ end
 --- @param val table JSON value
 --- @return string
 function M.format_json_input(val)
+  if type(val) == "string" then return val end
   local ok, str = pcall(vim.json.encode, val)
   if ok then
     local no_esc = str:gsub('\\"', '"')

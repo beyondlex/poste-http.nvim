@@ -148,6 +148,9 @@ function M.flatten_tree(nodes, depth)
     local suffix = ""
     if node.node_type == "column" and node.meta then
       suffix = " " .. (node.meta.col_type or "?")
+      if node.meta.is_pk then
+        suffix = suffix .. " PK"
+      end
       if node.meta.extra and node.meta.extra:lower():find("auto_increment") then
         suffix = suffix .. " auto_increment"
       end

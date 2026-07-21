@@ -1,12 +1,12 @@
 # Poste HTTP
 
-**HTTP + Redis request execution for Neovim.** Part of the [Poste](https://github.com/beyondlex/poste.nvim) family.
+**HTTP request execution for Neovim.** Part of the [Poste](https://github.com/beyondlex/poste.nvim) family.
 
 **Requires**: [poste.nvim](https://github.com/beyondlex/poste.nvim) (shared infra + Rust binary)
 
 ## Features
 
-- **File-based requests** — Define requests in `.http`/`.rest` and `.redis` files
+- **File-based requests** — Define requests in `.http`/`.rest` files
 - **Environment variables** — JetBrains-style `env.json` with `{{var}}` substitution
 - **Assertions & scripts** — Inline `> {% ... %}` assertions, pre/post-request scripts
 - **Request chaining** — `{{RequestName.res.body.X}}` to extract values from prior responses
@@ -75,7 +75,7 @@ Open a `.http` file. With cursor on a request block, press `<CR>` to execute. Re
 
 ## Keymaps
 
-### Source buffer (`.http`, `.redis`)
+### Source buffer (`.http`)
 
 | Key | Action |
 |-----|--------|

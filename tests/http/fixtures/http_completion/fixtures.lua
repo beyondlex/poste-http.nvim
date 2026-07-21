@@ -60,9 +60,9 @@ return {
     lines = { "### Test", "{{█" },
     env_json = {
       path = "/tmp/poste_test_env",
-      content = { dev = { redis_host = "127.0.0.1", redis_port = "6379" } },
+      content = { dev = { host = "127.0.0.1", port = "8080" } },
     },
-    expect = { "$timestamp", "redis_host", "redis_port" },
+    expect = { "$timestamp", "host", "port" },
   },
 
   -- ── Prompt directive lines (<<var_name ...) ──

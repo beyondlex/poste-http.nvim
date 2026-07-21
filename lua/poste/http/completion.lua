@@ -31,7 +31,7 @@ end
 
 --- blink.cmp: whether this source is enabled for the current buffer.
 function M:enabled()
-  return vim.bo.filetype == "poste_http" or vim.bo.filetype == "poste_redis"
+  return vim.bo.filetype == "poste_http"
 end
 
 --- blink.cmp: trigger characters that activate this source.
@@ -100,7 +100,7 @@ function source:get_debug_name()
 end
 
 function source:is_available()
-  return vim.bo.filetype == "poste_http" or vim.bo.filetype == "poste_redis"
+  return vim.bo.filetype == "poste_http"
 end
 
 function source:complete(request, callback)
@@ -140,7 +140,6 @@ local function register_blink()
     score_offset = 100,
   })
   blink.add_filetype_source("poste_http", "poste")
-  blink.add_filetype_source("poste_redis", "poste")
   registered = "blink"
 end
 
@@ -172,7 +171,7 @@ function M.register()
           return
         end
         if pcall(register_cmp) then
-          if vim.bo.filetype == "poste_http" or vim.bo.filetype == "poste_redis" then
+          if vim.bo.filetype == "poste_http" then
             local cmp = require("cmp")
             cmp.setup.buffer({
               sources = cmp.config.sources({ { name = "poste" } }, { { name = "buffer" } }),

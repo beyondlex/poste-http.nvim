@@ -8,7 +8,6 @@ if !exists("g:loaded_poste")
 endif
 
 autocmd BufRead,BufNewFile *.http,*.rest setlocal filetype=poste_http
-autocmd BufRead,BufNewFile *.redis setlocal filetype=poste_redis
 
 " Fix current buffer if it was already loaded with wrong filetype
 if &filetype == 'http'

@@ -7,7 +7,7 @@
 ## Core Design Principles
 
 1. **Protocol isolation** — HTTP and SQL are fully isolated at the implementation layer, sharing only infrastructure
-2. **File-driven** — All requests originate from `.http` / `.sql` / `.redis` files
+2. **File-driven** — All requests originate from `.http` / `.sql` files
 3. **Keyboard-first** — Neovim plugin uses keyboard as primary interaction mode
 4. **Rust + Lua** — Rust handles core logic (parsing, execution), Lua handles UI (completion, rendering)
 
@@ -54,7 +54,7 @@
 │  ┌─────────────────┐  ┌─────────────────────────────────┐   │
 │  │ crates/poste-   │  │ crates/poste-exec/              │   │
 │  │ core/           │  │                                 │   │
-│  │ parser.rs       │  │ executor.rs (HTTP/Redis)        │   │
+│  │ parser.rs       │  │ executor.rs (HTTP)                 │   │
 │  │ sql_parser.rs   │  │ sql_executor.rs(PG/MySQL/SQLite)│   │
 │  │ sql_context/    │  │ sql_connection.rs               │   │
 │  │ request.rs      │  │ sql_dialect.rs                  │   │
@@ -134,7 +134,7 @@ SQL-specific files moved to [poste-sql.nvim](https://github.com/beyondlex/poste-
 
 ```lua
 function M.run_request()
-  -- HTTP/Redis only — SQL handled by poste-sql.nvim plugin
+  -- HTTP only — SQL handled by poste-sql.nvim plugin
 end
 ```
 
@@ -144,7 +144,7 @@ end
 
 ```rust
 match request.protocol {
-    Protocol::Http | Protocol::Redis => executor::execute_http(request).await,
+    Protocol::Http => executor::execute_http(request).await,
     Protocol::Postgres => sql_executor::execute_postgres(request).await,
     Protocol::Mysql => sql_executor::execute_mysql(request).await,
     Protocol::Sqlite => sql_executor::execute_sqlite(request).await,
@@ -184,7 +184,7 @@ poste-cli ──→ poste-exec ──→ poste-core
                 │
                 ├── sqlx (PG/MySQL/SQLite)
                 ├── curl-rust (HTTP)
-                └── redis-rs (Redis)
+                └── curl (HTTP)
 
 lua/poste ──→ Rust CLI (via system/jobstart)
 ```

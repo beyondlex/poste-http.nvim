@@ -457,14 +457,6 @@ function M.render_buffer(lines, filetype)
     response_keymaps_set = true
   end
 
-  -- Apply Redis-specific extmark highlights if this is a Redis response
-  if state.last_response and state.last_response.protocol == "redis" and state.current_view == "body" then
-    local ok, data = pcall(vim.json.decode, state.last_response.body)
-    if ok and data and data.type then
-      require("poste.redis").apply_highlights(buf, lines, data.type)
-    end
-  end
-
   -- Open split window if not already open
   if not response_window or not vim.api.nvim_win_is_valid(response_window) then
     local saved_win = vim.api.nvim_get_current_win()

@@ -2,7 +2,7 @@
 
 File-driven, keyboard-first multi-protocol request executor (Rust CLI + Neovim).
 
-`.http`/`.sql`/`.redis` → execute → results in editable Vim buffer.
+`.http`/`.sql` → execute → results in editable Vim buffer.
 
 ## Protocol First
 
@@ -12,7 +12,7 @@ File-driven, keyboard-first multi-protocol request executor (Rust CLI + Neovim).
 |---------------|------|------|
 | `.http`, `curl`, `jq`, pre-script, assertion, `{{var}}`, import, env vars | HTTP skill + shared files | `lua/poste/sql/`, `sql_executor`, `sql_parser`, `sql_context` |
 | `.sql`, `pg`, `mysql`, `sqlite`, completion, table/column/schema, dataset, db_browser | SQL skill + shared files | `lua/poste/http/`, `executor.rs` (curl) |
-| Redis, Mongo, AMQP | `executor.rs` + shared | sql + http Lua modules |
+| MongoDB, AMQP | `executor.rs` + shared | sql + http Lua modules |
 | Rust CLI (`poste run/conn/introspect/fmt/context`) | `main.rs` + both skills | — |
 
 Use `.opencode/skills/` skills for detailed file indexes. For SQL completion
@@ -31,7 +31,7 @@ A simple solution that works is better than a generic one that's unfinished.
 
 **Vim ergonomics first.** Every interaction should feel natural to a Vim user:
 - Keyboard-driven, no modal dialogs or mouse requirements
-- Consistent keymap patterns across HTTP, SQL, and Redis
+- Consistent keymap patterns across HTTP and SQL
 - Minimal keystrokes for common operations
 - Visual feedback (indicators, winbar, syntax highlights) for every action
 

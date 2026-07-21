@@ -2,7 +2,7 @@
 
 > **Poste** — File-driven, keyboard-first HTTP request executor (Rust CLI + Neovim plugin)
 >
-> `.http` / `.redis` → execute → results in editable Vim buffers
+> `.http` → execute → results in editable Vim buffers
 
 See the [project README](../README.md) for features, installation, quick start, and configuration.
 
@@ -32,7 +32,6 @@ See the [project README](../README.md) for features, installation, quick start, 
 | Protocol | Extension | Status |
 |----------|-----------|--------|
 | HTTP | `.http` / `.rest` | ✅ Complete |
-| Redis | `.redis` | ✅ Complete |
 
 ---
 

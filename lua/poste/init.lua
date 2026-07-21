@@ -169,24 +169,18 @@ function M.setup(opts)
   end, { desc = "Remove old cached response files from stdpath(cache)/poste_res/" })
 
   vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
-    pattern = { "*.http", "*.rest", "*.redis" },
+    pattern = { "*.http", "*.rest" },
     callback = function()
-      local name = vim.api.nvim_buf_get_name(0)
-      if name:match("%.redis$") then
-        vim.bo.filetype = "poste_redis"
-        buffer_setup.setup_buffer_keymaps(0)
-      else
-        vim.bo.filetype = "poste_http"
-        buffer_setup.setup_buffer_keymaps(0)
-        local bg = vim.api.nvim_create_augroup("PosteHttpBoundary_" .. vim.api.nvim_get_current_buf(), { clear = true })
-        vim.api.nvim_create_autocmd("CursorMoved", {
-          group = bg,
-          buffer = 0,
-          callback = function()
-            require("poste.http.boundary_indicator").refresh(0, vim.fn.line("."))
-          end,
-        })
-      end
+      vim.bo.filetype = "poste_http"
+      buffer_setup.setup_buffer_keymaps(0)
+      local bg = vim.api.nvim_create_augroup("PosteHttpBoundary_" .. vim.api.nvim_get_current_buf(), { clear = true })
+      vim.api.nvim_create_autocmd("CursorMoved", {
+        group = bg,
+        buffer = 0,
+        callback = function()
+          require("poste.http.boundary_indicator").refresh(0, vim.fn.line("."))
+        end,
+      })
     end,
   })
 
@@ -214,9 +208,6 @@ function M.setup(opts)
           require("poste.http.boundary_indicator").refresh(buf, vim.fn.line("."))
         end,
       })
-    elseif name:match("%.redis$") then
-      vim.api.nvim_buf_set_option(buf, "filetype", "poste_redis")
-      buffer_setup.setup_buffer_keymaps(buf)
     end
   end
 

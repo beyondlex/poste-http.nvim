@@ -1,7 +1,7 @@
 --- Response formatters: body, headers, verbose views + filetype detection.
 ---
 --- This module is now a thin facade that dispatches to sub-modules:
----   - format/body.lua       — HTTP response body formatting, JSON pretty-print, Redis body
+---   - format/body.lua       — HTTP response body formatting, JSON pretty-print
 ---   - format/verbose.lua    — Verbose response rendering + highlights
 ---   - format/image.lua      — Image preview (image.nvim, snacks, Kitty, external)
 ---   - format/multipart.lua  — Multipart body parsing & display
@@ -14,7 +14,6 @@ local body_mod = require("poste.http.format.body")
 local verbose_mod = require("poste.http.format.verbose")
 local image_mod = require("poste.http.format.image")
 local multipart_mod = require("poste.http.format.multipart")
-local redis_mod = require("poste.redis")
 
 local M = {}
 
@@ -169,15 +168,7 @@ function M.apply_file_link_highlight(buf, lines)
   end
 end
 
----------------------------------------------------------------------------
--- Redis highlights
----------------------------------------------------------------------------
--- Redis highlights (delegated to poste.redis module)
-function M.apply_redis_highlights(buf, lines, rtype)
-  return redis_mod.apply_highlights(buf, lines, rtype)
-end
-
----------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 -- Content-Type helpers
 ---------------------------------------------------------------------------
 function M.get_request_content_type(r)

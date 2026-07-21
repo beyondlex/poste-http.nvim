@@ -12,7 +12,7 @@ See the [plugin installation guide](./plugin-install.md).
 
 | Document | Description |
 |----------|-------------|
-| [Keymaps Reference](./keymaps.md) | All keybindings: HTTP source/response, SQL source/dataset, DB browser, etc. |
+| [Keymaps Reference](./keymaps.md) | All keybindings: HTTP source/response, history |
 | [Plugin Installation](./plugin-install.md) | Setup with lazy.nvim, packer, or vim-plug |
 
 ## HTTP
@@ -24,17 +24,11 @@ See the [plugin installation guide](./plugin-install.md).
 | [Quick Reference](./http/quick-reference.md) | Syntax cheatsheet |
 | [Form Data](./http/form-data.md) | URL-encoded and multipart form data |
 
-## SQL
-
-| Document | Description |
-|----------|-------------|
-| [Quick Reference](./sql/quick-reference.md) | `.sql` / `.mysql` / `.sqlite` syntax cheatsheet |
-
 ## Quick Start
 
 ### In Neovim
 
-Open a `.http` or `.sql` file and press `<Enter>` to execute the request under the cursor.
+Open a `.http` file and press `<Enter>` to execute the request under the cursor.
 
 ---
 

@@ -18,29 +18,28 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                   Neovim Plugin Layer (Lua)                   │
-│  ┌────────────────────┐  ┌──────────────┐  ┌─────────────┐  │
-│  │  lua/poste/http/   │  │  lua/poste/  │  │lua/poste/sql│  │
-│  │  (HTTP-specific)   │  │  (shared)    │  │(SQL-specific)│  │
-│  │                    │  │              │  │             │  │
-│  │ init.lua           │  │ state.lua    │  │ init.lua    │  │
-│  │ buffer.lua         │  │ select.lua   │  │ buffer.lua  │  │
-│  │ completion.lua     │  │ indicators   │  │ completion  │  │
-│  │ format.lua         │  │ constants    │  │ connections │  │
-│  │ highlights.lua     │  │ error.lua    │  │ db_browser  │  │
-│  │ assertions.lua     │  │ help.lua     │  │ editor.lua  │  │
-│  │ scripts.lua        │  │              │  │ export.lua  │  │
-│  │ curl.lua           │  │              │  │ import.lua  │  │
-│  │ copy.lua           │  │              │  │ context.lua │  │
-│  │ nav.lua            │  │              │  │ pagination  │  │
-│  │ history.lua        │  │              │  │ format.lua  │  │
-│  │ run.lua            │  │              │  │              │  │
-│  │ view.lua           │  │              │  │              │  │
-│  │ json.lua           │  │              │  │              │  │
-│  │ import*.lua        │  │              │  │              │  │
-│  └────────────────────┘  └──────────────┘  └─────────────┘  │
+│  ┌────────────────────┐  ┌──────────────┐                    │
+│  │  lua/poste/http/   │  │  lua/poste/  │                    │
+│  │  (HTTP-specific)   │  │  (shared)    │                    │
+│  │                    │  │              │                    │
+│  │ init.lua           │  │ state.lua    │                    │
+│  │ buffer.lua         │  │ select.lua   │                    │
+│  │ completion.lua     │  │ indicators   │                    │
+│  │ format.lua         │  │ constants    │                    │
+│  │ highlights.lua     │  │ error.lua    │                    │
+│  │ assertions.lua     │  │ help.lua     │                    │
+│  │ scripts.lua        │  │              │                    │
+│  │ curl.lua           │  │              │                    │
+│  │ copy.lua           │  │              │                    │
+│  │ nav.lua            │  │              │                    │
+│  │ history.lua        │  │              │                    │
+│  │ run.lua            │  │              │                    │
+│  │ view.lua           │  │              │                    │
+│  │ json.lua           │  │              │                    │
+│  │ import*.lua        │  │              │                    │
+│  └────────────────────┘  └──────────────┘                    │
 │                          ↓                                  │
 │              init.lua: filetype dispatch                    │
-│              poste_sql → sql.init.run_sql_request()         │
 │              poste_http → http.init.run_request()           │
 └─────────────────────────────────────────────────────────────┘
                           ↓
@@ -108,22 +107,22 @@
 
 ### Isolated Files (Protocol-Specific)
 
-| HTTP-specific | SQL-specific |
-|---------------|-------------|
-| `lua/poste/http/init.lua` | `lua/poste/sql/init.lua` |
-| `lua/poste/http/buffer.lua` | `lua/poste/sql/buffer.lua` |
-| `lua/poste/http/format.lua` | `lua/poste/sql/format.lua` |
-| `lua/poste/http/completion.lua` | `lua/poste/sql/completion.lua` |
-| `lua/poste/http/highlights.lua` | `lua/poste/sql/highlights.lua` |
-| `lua/poste/http/assertions.lua` | `lua/poste/sql/context.lua` |
-| `lua/poste/http/scripts.lua` | `lua/poste/sql/connections.lua` |
-| `lua/poste/http/curl.lua` | `lua/poste/sql/db_browser/` |
-| `lua/poste/http/copy.lua` | `lua/poste/sql/editor.lua` |
-| `lua/poste/http/nav.lua` | `lua/poste/sql/export.lua` |
-| `lua/poste/http/view.lua` | `lua/poste/sql/import.lua` |
-| `lua/poste/http/run.lua` | `lua/poste/sql/table_ops.lua` |
-| `syntax/poste_http.vim` | `syntax/poste_sql.vim` |
-| | `syntax/poste_dataset.vim` |
+SQL-specific files moved to [poste-sql.nvim](https://github.com/beyondlex/poste-sql.nvim) (separate repo).
+
+| HTTP-specific |
+|---------------|
+| `lua/poste/http/init.lua` |
+| `lua/poste/http/buffer.lua` |
+| `lua/poste/http/format.lua` |
+| `lua/poste/http/completion.lua` |
+| `lua/poste/http/highlights.lua` |
+| `lua/poste/http/assertions.lua` |
+| `lua/poste/http/scripts.lua` |
+| `lua/poste/http/curl.lua` |
+| `lua/poste/http/copy.lua` |
+| `lua/poste/http/nav.lua` |
+| `lua/poste/http/view.lua` |
+| `lua/poste/http/run.lua` |
 
 ---
 
@@ -135,12 +134,7 @@
 
 ```lua
 function M.run_request()
-  local ft = vim.bo.filetype
-  if ft == "poste_sql" or ft == "poste_sqlite" then
-    require("poste.sql.init").run_sql_request()
-    return
-  end
-  -- Existing HTTP/Redis flow unchanged
+  -- HTTP/Redis only — SQL handled by poste-sql.nvim plugin
 end
 ```
 

@@ -18,6 +18,7 @@ echo "Running tests..."
 nvim --headless \
   -c "set rtp+=$PLENARY_PATH" \
   -c "set rtp+=." \
+  -c "set rtp+=../poste.nvim" \
   -c "runtime plugin/poste.lua" \
   -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua'}" \
   -c "qa"

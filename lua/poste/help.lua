@@ -33,77 +33,6 @@ local DESCRIPTIONS = {
     prev_tab = "Previous response tab",
     image_preview = "Render image inline or open externally",
   },
-  sql_source = {
-    run = "Execute SQL statement(s)",
-    show_ddl = "Show DDL / column info",
-    clear_filter = "Clear filter / search",
-    toggle_db_browser = "Toggle DB Browser panel",
-    trigger_completion = "Trigger SQL completion",
-    toggle_log = "Toggle execution log",
-    help = "Show this help window",
-  },
-  sql_dataset = {
-    close = "Close dataset window",
-    move_left = "Move cell left",
-    move_down = "Move cell down",
-    move_up = "Move cell up",
-    move_right = "Move cell right",
-    prev_page = "Previous page",
-    next_page = "Next page",
-    first_col = "Jump to first column",
-    last_col = "Jump to last column",
-    first_row = "Jump to first row",
-    last_row = "Jump to last row",
-    preview_cell = "Preview cell content",
-    yank_cell = "Yank current cell",
-    yank_column = "Yank current column",
-    sort_column = "Sort by column",
-    toggle_cell_highlight = "Toggle cell highlight",
-    toggle_header_float = "Toggle floating header",
-    toggle_row_numbers = "Toggle row numbers",
-    toggle_raw_mode = "Toggle raw table mode",
-    next_tab = "Next result tab",
-    prev_tab = "Previous result tab",
-    rerun = "Re-run query",
-    goto_first_page = "Go to first page",
-    goto_last_page = "Go to last page",
-    toggle_pagination = "Toggle pagination",
-    find_column = "Find column",
-    filter_by_cell = "Filter by cell value",
-    show_search = "Search in results",
-    clear_filter_search = "Clear filter / search",
-    next_search = "Next search match",
-    prev_search = "Previous search match",
-    commit_edits = "Commit pending edits",
-    edit_cell = "Edit cell value",
-    edit_cell_replace = "Replace cell value",
-    delete_row = "Delete row",
-    insert_row = "Insert row",
-    export = "Export dataset (format → destination)",
-  },
-  sql_table_ops = {
-    select_all = "SELECT * from table",
-    refresh_all = "Refresh table list",
-    describe_all = "DESCRIBE table",
-    toggle_menu = "Toggle action menu",
-  },
-  sql_db_browser = {
-    toggle_node = "Toggle expand/collapse node",
-    move_left = "Collapse node / go to parent",
-    move_right = "Expand node / go to first child",
-    context_menu = "Open context menu",
-    refresh_node = "Refresh node children",
-    search_filter = "Fuzzy search tree",
-    select_query = "Generate SELECT query",
-    describe_query = "Generate DESCRIBE query",
-    close = "Close DB Browser",
-    search_next = "Next search match",
-    search_prev = "Previous search match",
-  },
-  sql_introspect = {
-    close = "Close introspect window",
-    close_alt = "Close introspect window",
-  },
   http_history = {
     close = "Close history window",
     delete_entry = "Delete current history entry",
@@ -114,11 +43,6 @@ local DESCRIPTIONS = {
 local SECTION_TITLES = {
   http_source = "HTTP Request Buffer",
   http_response = "HTTP Response Buffer",
-  sql_source = "SQL Source Buffer",
-  sql_dataset = "SQL Dataset Buffer",
-  sql_table_ops = "SQL Table Ops",
-  sql_db_browser = "DB Browser",
-  sql_introspect = "Introspect Float",
   http_history = "HTTP Request History",
 }
 
@@ -126,7 +50,7 @@ function M.open()
   local lines = {}
   local width = 50
 
-  for _, section in ipairs({ "http_source", "http_response", "sql_source", "sql_dataset", "sql_table_ops", "sql_db_browser", "sql_introspect", "http_history" }) do
+  for _, section in ipairs({ "http_source", "http_response", "http_history" }) do
     local title = SECTION_TITLES[section] or section
     local km = state.config.keymaps[section] or {}
     local desc = DESCRIPTIONS[section] or {}
@@ -160,11 +84,7 @@ function M.open()
     if k then close_keys[state.format_key_string(k)] = true end
   end
   collect_close("http_response", "close")
-  collect_close("sql_dataset", "close")
-  collect_close("sql_db_browser", "close")
   collect_close("http_history", "close")
-  collect_close("sql_introspect", "close")
-  collect_close("sql_introspect", "close_alt")
   local close_parts = {}
   for k in pairs(close_keys) do
     table.insert(close_parts, k)

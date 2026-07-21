@@ -82,49 +82,9 @@
 | `md5.lua` | MD5 helper |
 | `script_snippet.lua` | Script snippet insertion |
 
-### SQL Module (`lua/poste/sql/`)
+### SQL Module
 
-| File | Description |
-|------|-------------|
-| `init.lua` | SQL execution entry |
-| `session.lua` | Per-request SQL session lifecycle |
-| `buffer.lua` | Bottom horizontal split Dataset panel |
-| `buffer_nav.lua` | Dataset cell navigation |
-| `buffer_page.lua` | Dataset pagination |
-| `buffer_search.lua` | Dataset search/filter |
-| `format.lua` | Table rendering (conceal, Virtual Text) |
-| `highlights.lua` | Dataset extmark highlighting |
-| `context.lua` | Execution context management (connection → database) |
-| `connections.lua` | Connection management UI |
-| `db_browser/init.lua` | Database tree browser |
-| `db_browser/tree.lua` | Browser tree rendering |
-| `db_browser/context_menu.lua` | Right-click context menu |
-| `db_browser/operations.lua` | DDL operations |
-| `db_browser/forms.lua` | Input forms |
-| `db_browser/icons.lua` | Tree icons |
-| `db_browser/async.lua` | Async tree loading |
-| `db_browser/completion.lua` | Browser-aware completion |
-| `completion.lua` | SQL smart completion |
-| `completion_ctx.lua` | Lua fallback context detection |
-| `completion_data.lua` | Keywords, functions, metadata cache |
-| `completion_adapter.lua` | blink.cmp adapter |
-| `completion_debug.lua` | Completion debugging |
-| `editor.lua` | Dataset cell editing |
-| `edit_commit.lua` | DML generation and commit |
-| `export.lua` | Export (CSV/JSON/SQL) |
-| `import.lua` | Import orchestration |
-| `import/execute.lua` | Import execution |
-| `import/format.lua` | Import formatting |
-| `import/mapping.lua` | Field mapping UI |
-| `import/preview.lua` | Import preview |
-| `table_ops.lua` | Table operations menu |
-| `nav.lua` | SQL block navigation |
-| `statement.lua` | Statement extraction |
-| `statement_indicator.lua` | Statement boundary indicators |
-| `syntax.lua` | SQL syntax extmarks |
-| `source_format.lua` | Source format utilities |
-| `introspect.lua` | Schema introspection UI |
-| `log_viewer.lua` | SQL log viewer |
+SQL Lua code moved to [poste-sql.nvim](https://github.com/beyondlex/poste-sql.nvim) (separate repo).
 | `dataset.lua` | Dataset data model |
 | `insert_hint.lua` | INSERT template helpers |
 | `prototype.lua` | SQL prototype utilities |

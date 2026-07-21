@@ -151,32 +151,21 @@ Remove all cross-coupling between HTTP and SQL code without changing the repo st
 
 After D1–D8, `poste.nvim` loads **zero** SQL modules. SQL modules only load when user opens a `.sql` file and SQL plugin is installed.
 
+**Status: ✅ Complete (2026-07-21)** — All 8 decoupling steps implemented. All 519 Rust tests pass; all Lua tests pass (1 pre-existing image preview failure unrelated).
+
 ### Phase 2: Extract SQL Repo
 
-1. Create `poste-sql.nvim` repo with `lua/poste/sql/` subtree
-2. Add `plugin/poste-sql.lua`:
+**Status: ✅ Complete (2026-07-21)** — SQL files extracted to `poste-sql.nvim` at `/Users/lex/code/github/poste-sql.nvim/`.
 
-```lua
--- plugin/poste-sql.lua
--- Only activates if poste.nvim (core) is installed
-local ok, _ = pcall(require, "poste.state")
-if not ok then
-  vim.notify("poste-sql.nvim requires poste.nvim", vim.log.levels.WARN)
-  return
-end
-require("poste.sql.init").setup()
-```
-
-3. Add `ftdetect/poste_sql.vim`:
-
-```vim
-au BufRead,BufNewFile *.sql setfiletype poste_sql
-au BufRead,BufNewFile *.sqlite setfiletype poste_sqlite
-```
-
-4. Add `syntax/poste_sql.vim` and `syntax/poste_dataset.vim` (already separate files)
-5. Remove `lua/poste/sql/` from `poste.nvim` repo
-6. Remove `.sql`/`.sqlite` from `poste.nvim`'s `ftdetect/poste.vim`
+1. Created `poste-sql.nvim` repo with `lua/poste/sql/` subtree
+2. Added `plugin/poste-sql.lua` — checks for poste.nvim, then calls `require("poste.sql.init").setup()`
+3. Added `ftdetect/poste_sql.vim` — sets filetype for `.sql` and `.sqlite`
+4. Copied `syntax/poste_sql.vim`, `syntax/poste_dataset.vim`, `ftplugin/poste_sql.vim`
+5. Removed `lua/poste/sql/` from `poste.nvim` repo
+6. Removed `syntax/poste_sql.vim`, `syntax/poste_dataset.vim`, `ftplugin/poste_sql.vim` from `poste.nvim`
+7. Removed `tests/sql/`, `docs/dev/sql/`, `docs/user/sql/` from `poste.nvim`
+8. Cleaned up `poste.nvim` init.lua — removed `poste_sql` from `poste_status()`
+9. Updated `architecture-overview.md` and `file-index.md` to reflect split
 
 ### Phase 3: Shared Infra Cleanup
 

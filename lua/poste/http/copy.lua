@@ -244,13 +244,13 @@ end
 --- Extract current request block and convert to curl command.
 --- Returns curl command string or nil, error_msg.
 function M.copy_as_curl()
-  local indicators = require("poste.indicators")
+  local cache = require("poste.http.cache")
 
   local buf = vim.api.nvim_get_current_buf()
   local cursor_line = vim.fn.line(".")
 
   -- Find request block boundaries
-  local start_line, end_line = indicators.find_request_block_bounds(buf, cursor_line)
+  local start_line, end_line = cache.find_request_block_bounds(buf, cursor_line)
   if not start_line then
     return nil, "No request block found at cursor"
   end

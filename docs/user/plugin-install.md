@@ -1,6 +1,8 @@
-# Poste Neovim Plugin
+# Poste HTTP Neovim Plugin
 
 A Neovim plugin for executing HTTP requests from `.http` files.
+
+**Requires**: [poste.nvim](https://github.com/beyondlex/poste.nvim) (shared infra + Rust binary)
 
 ## Installation
 
@@ -8,8 +10,11 @@ A Neovim plugin for executing HTTP requests from `.http` files.
 
 ```lua
 {
-  "beyondlex/poste",
-  dependencies = { "folke/snacks.nvim" },
+  "beyondlex/poste-http.nvim",
+  dependencies = {
+    "beyondlex/poste.nvim",
+    "folke/snacks.nvim",
+  },
   config = function()
     require("poste").setup()
   end,
@@ -20,7 +25,8 @@ A Neovim plugin for executing HTTP requests from `.http` files.
 
 ```lua
 use {
-  "beyondlex/poste",
+  "beyondlex/poste-http.nvim",
+  requires = { "beyondlex/poste.nvim" },
   config = function()
     require("poste").setup()
   end,
@@ -30,7 +36,8 @@ use {
 ### Using [vim-plug](https://github.com/junegunn/vim-plug)
 
 ```vim
-Plug 'beyondlex/poste'
+Plug 'beyondlex/poste.nvim'
+Plug 'beyondlex/poste-http.nvim'
 ```
 
 Then add to your init.vim:

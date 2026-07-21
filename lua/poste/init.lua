@@ -1,7 +1,5 @@
 local state = require("poste.state")
-require("poste.util")
 require("poste.http.highlights")
-require("poste.indicators")
 require("poste.http.format")
 require("poste.http.buffer")
 require("poste.http.assertions")
@@ -51,8 +49,6 @@ function M.setup(opts)
   completion.register()
   require("poste.http.lua_docs").setup()
   require("poste.http.script_snippet").setup()
-
-  require("poste.sql.init").setup(opts)
 
   vim.api.nvim_create_user_command("PosteRun", function()
     M.run_request()
@@ -225,18 +221,7 @@ function M.setup(opts)
   end
 
   _G.poste_status = function()
-    local parts = { string.format("[env: %s]", state.current_env) }
-    local ft = vim.bo.filetype
-    if ft == "poste_sql" or ft == "poste_sqlite" then
-      local ok, ctx_mod = pcall(require, "poste.sql.context")
-      if ok and ctx_mod.get_status_text then
-        local text = ctx_mod.get_status_text()
-        if text ~= "" then
-          parts[#parts + 1] = text
-        end
-      end
-    end
-    return table.concat(parts, " ")
+    return string.format("[env: %s]", state.current_env)
   end
 end
 

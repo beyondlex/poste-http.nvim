@@ -121,36 +121,6 @@ describe("state.http_history", function()
 end)
 
 ---------------------------------------------------------------------------
--- SQL-specific state
----------------------------------------------------------------------------
-
-describe("state.sql state", function()
-  before_each(function()
-    state.sql.context.connection = nil
-    state.sql.context.database = nil
-    state.sql.last_dataset = nil
-    state.sql.cell = { row = 1, col = 1 }
-  end)
-
-  it("sql.context defaults are nil", function()
-    assert.is_nil(state.sql.context.connection)
-    assert.is_nil(state.sql.context.database)
-  end)
-
-  it("sql.cell defaults to row=1, col=1", function()
-    assert.equals(1, state.sql.cell.row)
-    assert.equals(1, state.sql.cell.col)
-  end)
-
-  it("sql.cell can be updated", function()
-    state.sql.cell.row = 5
-    state.sql.cell.col = 3
-    assert.equals(5, state.sql.cell.row)
-    assert.equals(3, state.sql.cell.col)
-  end)
-end)
-
----------------------------------------------------------------------------
 -- Keymap helpers
 ---------------------------------------------------------------------------
 

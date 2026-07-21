@@ -2,6 +2,7 @@ local cli = require("poste.cli")
 local state = require("poste.state")
 local util = require("poste.util")
 local indicators = require("poste.indicators")
+local cache = require("poste.http.cache")
 local request_vars = require("poste.http.request_vars")
 local resolve = require("poste.http.resolve")
 local scripts = require("poste.http.scripts")
@@ -387,7 +388,7 @@ end
 --- Prepare request: resolve prompt variables and request deps → modified content.
 --- Returns (modified_content, req_line, block_start, block_end) via callback.
 local function prepare_request(src_buf, line, buf_content, binary, file, callback)
-  local req_line = indicators.find_request_line(src_buf, line)
+  local req_line = cache.find_request_line(src_buf, line)
   if not req_line then
     indicators.clear_all(src_buf)
     return
@@ -395,7 +396,7 @@ local function prepare_request(src_buf, line, buf_content, binary, file, callbac
   indicators.clear_other_requests(src_buf, req_line)
   indicators.set_indicator(src_buf, req_line, "running")
 
-  local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
+  local block_start, block_end = cache.find_request_block_bounds(src_buf, line)
   resolve.resolve(buf_content, {
     mode = "request",
     buf = src_buf,
@@ -473,7 +474,7 @@ local function execute_request(src_buf, line, binary, file, modified_content, re
   if meta then
     req_block = describe.to_req_block(meta)
   else
-    req_block = indicators.extract_request_block(src_buf, line)
+    req_block = cache.extract_request_block(src_buf, line)
   end
   local req_text = req_block.request_line
 
@@ -530,12 +531,6 @@ end
 
 --- Run the HTTP request at the current cursor position.
 function M.run_request()
-  local ft = vim.bo.filetype
-  if ft == "poste_sql" or ft == "poste_sqlite" then
-    require("poste.sql.init").run_sql_request()
-    return
-  end
-
   local binary = state.find_poste_binary()
   if not binary then
     vim.notify("Poste binary not found. Make sure it's in PATH or built locally.", vim.log.levels.ERROR)
@@ -575,7 +570,7 @@ function M.run_request()
       resolved.action, resolved.path or "", resolved.line or 0))
 
     -- Extract assertion blocks from the run directive's block in the source buffer
-    local block_start, block_end = indicators.find_request_block_bounds(src_buf, line)
+    local block_start, block_end = cache.find_request_block_bounds(src_buf, line)
     local script_vars
     local assertion_code
     if block_start then

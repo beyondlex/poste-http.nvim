@@ -5,18 +5,18 @@
 ## Quick Start
 
 ```bash
-# Build the CLI
-cargo build
+# Build the CLI (from poste.nvim)
+cargo build --manifest-path ../poste.nvim/Cargo.toml
 
 # Run all Rust tests
-cargo test
+cargo test --manifest-path ../poste.nvim/Cargo.toml
 
 # Run Lua tests (requires Neovim)
 tests/run.sh
 
 # SQL integration tests (requires Docker)
 cd tests/sql && docker compose up -d
-cargo run -- run tests/sql/queries/postgres.sql --line 4 --env dev
+cargo run --manifest-path ../../poste.nvim/Cargo.toml -- run tests/sql/queries/postgres.sql --line 4 --env dev
 ```
 
 ## Test Layers
@@ -32,16 +32,16 @@ cargo run -- run tests/sql/queries/postgres.sql --line 4 --env dev
 
 ```bash
 # Core (parser, resolver, formatter, importer)
-cargo test -p poste-core
+cargo test --manifest-path ../poste.nvim/Cargo.toml -p poste-core
 
 # Executor (HTTP, SQL, connections)
-cargo test -p poste-exec
+cargo test --manifest-path ../poste.nvim/Cargo.toml -p poste-exec
 
 # CLI (subcommands, integrations)
-cargo test -p poste-cli
+cargo test --manifest-path ../poste.nvim/Cargo.toml -p poste-cli
 
 # All + clippy
-cargo test && cargo clippy -- -D warnings
+cargo test --manifest-path ../poste.nvim/Cargo.toml && cargo clippy --manifest-path ../poste.nvim/Cargo.toml -- -D warnings
 ```
 
 ## Lua Tests
@@ -52,9 +52,6 @@ tests/run.sh
 
 # Run specific test file
 busted tests/http_completion_spec.lua
-
-# Run SQL completion tests
-busted tests/sql_completion_spec.lua
 ```
 
 ## Manual Testing
@@ -75,10 +72,10 @@ poste introspect --connection pg-dev --env dev
 
 ## Troubleshooting
 
-- **"Poste binary not found"** — Run `cargo build` first. The plugin looks for `poste` in PATH or `stdpath("data")/poste/bin/poste`.
+- **"Poste binary not found"** — Run `cargo build --manifest-path ../poste.nvim/Cargo.toml` first. The plugin looks for `poste` in PATH or `stdpath("data")/poste/bin/poste`.
 - **Request doesn't execute** — Make sure cursor is on a request line (not on `###` separator) and `env.json` exists.
 - **Response doesn't appear** — Check `:messages` for errors. Verify the binary works: `poste run <file> --line 2 --env dev`.
 
 ---
 
-*Testing guide — Last updated: 2026-07-07*`
+*Testing guide — Last updated: 2026-07-21*

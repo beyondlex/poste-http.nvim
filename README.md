@@ -28,8 +28,9 @@ A Neovim plugin and Rust CLI for executing HTTP, Redis, SQL (PostgreSQL / MySQL 
 ```lua
 -- lazy.nvim
 {
-  "beyondlex/poste",
+  "beyondlex/poste-http.nvim",
   dependencies = {
+    "beyondlex/poste.nvim",
     "saghen/blink.cmp",
     "stevearc/dressing.nvim",
     "beyondlex/finder",
@@ -42,7 +43,7 @@ A Neovim plugin and Rust CLI for executing HTTP, Redis, SQL (PostgreSQL / MySQL 
 
 ```bash
 # Rust CLI (optional — for standalone execution or to enable context-aware features)
-cargo install --path crates/poste-cli
+cargo install --path ../poste.nvim/crates/poste-cli
 ```
 
 ### Create a request file
@@ -520,17 +521,29 @@ poste connection list --env dev
 ## Architecture
 
 ```
-poste/
+poste.nvim/
 ├── crates/
 │   ├── poste-core/    # Request parsing, SQL parsing, env management (no I/O)
 │   ├── poste-exec/    # Protocol execution, SQL connection/dialect, response
 │   └── poste-cli/     # CLI binary (poste run / connection / introspect)
 ├── lua/
-│   └── poste/         
-│       ├── http/      # HTTP protocol handling
-│       └── sql/       # SQL protocol handling (buffer, editor, export, import, etc.)
+│   └── poste/         # Shared Lua infra (state, install, select, constants)
+├── plugin/
+│   └── poste-core.lua
 └── tests/
-    ├── run.sh         # Lua tests
+
+poste-http.nvim/               ← this repo
+├── lua/poste/
+│   ├── init.lua               # HTTP entry point
+│   ├── http/                  # HTTP protocol modules
+│   └── redis/                 # Redis support
+├── plugin/poste.lua           # Plugin loader
+└── tests/                     # HTTP tests
+
+poste-sql.nvim/                # Optional SQL plugin
+├── lua/poste/sql/             # SQL protocol modules
+├── plugin/poste-sql.lua
+└── tests/sql/                 # SQL tests
     └── sql/           # Docker Compose + SQL integration tests
 ```
 

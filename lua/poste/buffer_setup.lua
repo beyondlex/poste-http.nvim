@@ -31,12 +31,7 @@ function M.setup_buffer_keymaps(buf)
   k = km("http_source", "goto_definition", "gd")
   if k then
     vim.keymap.set("n", k, function()
-      local ft = vim.bo.filetype
-      if ft == "poste_sql" or ft == "poste_sqlite" then
-        require("poste.sql.nav").goto_definition()
-      else
-        nav.goto_definition()
-      end
+      nav.goto_definition()
     end, keymap_opts)
   end
   k = km("http_source", "goto_references", "grr")

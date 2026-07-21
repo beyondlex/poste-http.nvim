@@ -1,5 +1,12 @@
--- Poste plugin loader
--- This file is automatically loaded by Neovim when the plugin is installed
+-- Poste plugin loader — HTTP request executor.
+-- Requires poste-core.nvim for shared infrastructure.
+
+-- Check poste-core is installed
+local core_ok, _ = pcall(require, "poste.core")
+if not core_ok then
+  vim.notify("poste.nvim requires poste-core.nvim. Install it first.", vim.log.levels.ERROR)
+  return
+end
 
 -- Ensure the plugin's lua directory is in package.path
 local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h")

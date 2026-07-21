@@ -28,11 +28,7 @@
 
 ## SQL
 
-| Document | Description |
-|----------|-------------|
-| [Completion System](./sql/completion/INDEX.md) | P0-P4 implementation guide (✅ complete) |
-| [Context Architecture](./sql/context-architecture.md) | Context detection architecture |
-| [DB Browser Context Menu](./sql/db-browser-context-menu.md) | Browser context menu design |
+SQL docs moved to [poste-sql.nvim](https://github.com/beyondlex/poste-sql.nvim) (separate repo).
 
 ## Build
 

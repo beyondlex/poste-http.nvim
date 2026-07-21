@@ -40,7 +40,7 @@ local magic_vars = {
 --- after block parsing (to avoid ### in file content corrupting block boundaries).
 --- Operates on the current request block only.
 function M.process_form_data(src_buf, cursor_line, content)
-  local start_line, end_line = require("poste.indicators").find_request_block_bounds(src_buf, cursor_line)
+  local start_line, end_line = require("poste.http.cache").find_request_block_bounds(src_buf, cursor_line)
   if not start_line then return content end
 
   -- Generate magic variable values once per request
@@ -685,8 +685,8 @@ end
 --- Processes prompts asynchronously and calls on_complete with modified content.
 --- on_complete(modified_content) is called when all prompts are resolved.
 local function handle_prompt_variables_impl(buf, cursor_line, content, binary, file, env_name, on_complete)
-  local indicators = require("poste.indicators")
-  local start_line, end_line = indicators.find_request_block_bounds(buf, cursor_line)
+  local cache = require("poste.http.cache")
+  local start_line, end_line = cache.find_request_block_bounds(buf, cursor_line)
   if not start_line then
     on_complete(content)
     return

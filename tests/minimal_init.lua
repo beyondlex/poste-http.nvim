@@ -3,6 +3,7 @@
 
 -- Add the plugin to runtime path
 vim.opt.runtimepath:append(".")
+vim.opt.runtimepath:append("../poste.nvim")
 
 -- Make test helper modules loadable via require("helpers.*")
 package.path = package.path

@@ -12,7 +12,7 @@ end
 
 describe("block boundary delegation", function()
   ----------------------------------------------------------------------------
-  -- indicators.lua:find_request_block_bounds
+  -- cache.lua:find_request_block_bounds
   ----------------------------------------------------------------------------
   describe("find_request_block_bounds", function()
     it("cursor in middle of block", function()
@@ -23,8 +23,7 @@ describe("block boundary delegation", function()
         "",
         '{"page":1}',
       })
-      local indicators = require("poste.indicators")
-      local s, e = indicators.find_request_block_bounds(buf, 3)
+      local s, e = cache.find_request_block_bounds(buf, 3)
       assert.equals(1, s)
       assert.equals(5, e)
     end)
@@ -35,8 +34,7 @@ describe("block boundary delegation", function()
         "GET /users",
         "",
       })
-      local indicators = require("poste.indicators")
-      local s, e = indicators.find_request_block_bounds(buf, 1)
+      local s, e = cache.find_request_block_bounds(buf, 1)
       assert.equals(1, s)
       -- end_line = line before next ### (or EOF = 3)
       assert.equals(3, e)
@@ -50,8 +48,8 @@ describe("block boundary delegation", function()
         "### Block B",
         "POST /b",
       })
-      local indicators = require("poste.indicators")
-      local s, e = indicators.find_request_block_bounds(buf, 3)
+      
+      local s, e = cache.find_request_block_bounds(buf, 3)
       assert.is_nil(s)
       assert.is_nil(e)
     end)
@@ -62,8 +60,8 @@ describe("block boundary delegation", function()
         "### Get",
         "GET /users",
       })
-      local indicators = require("poste.indicators")
-      local s, e = indicators.find_request_block_bounds(buf, 2)
+      
+      local s, e = cache.find_request_block_bounds(buf, 2)
       -- line 2 is the ### line, so it should return (2, 3)
       assert.is_not_nil(s)
       assert.equals(2, s)
@@ -75,8 +73,8 @@ describe("block boundary delegation", function()
         "GET /api",
         "Accept: application/json",
       })
-      local indicators = require("poste.indicators")
-      local s, e = indicators.find_request_block_bounds(buf, 2)
+      
+      local s, e = cache.find_request_block_bounds(buf, 2)
       assert.equals(1, s)
       assert.equals(3, e)
     end)
@@ -91,15 +89,15 @@ describe("block boundary delegation", function()
         "",
         "body content",
       })
-      local indicators = require("poste.indicators")
-      local s, e = indicators.find_request_block_bounds(buf, 5)
+      
+      local s, e = cache.find_request_block_bounds(buf, 5)
       assert.equals(4, s)
       assert.equals(7, e)
     end)
   end)
 
   ----------------------------------------------------------------------------
-  -- indicators.lua:find_request_line
+  -- cache.lua:find_request_line
   ----------------------------------------------------------------------------
   describe("find_request_line", function()
     it("simple block with GET line returns 0-indexed line", function()
@@ -108,8 +106,8 @@ describe("block boundary delegation", function()
         "GET /users",
         "",
       })
-      local indicators = require("poste.indicators")
-      local line = indicators.find_request_line(buf, 1)
+      
+      local line = cache.find_request_line(buf, 1)
       assert.equals(1, line)  -- 0-indexed: line 2 is index 1
     end)
 
@@ -121,8 +119,8 @@ describe("block boundary delegation", function()
         "%}",
         "GET /users",
       })
-      local indicators = require("poste.indicators")
-      local line = indicators.find_request_line(buf, 1)
+      
+      local line = cache.find_request_line(buf, 1)
       assert.equals(4, line)  -- 0-indexed: line 5 is index 4
     end)
 
@@ -132,8 +130,8 @@ describe("block boundary delegation", function()
         "@page = 1",
         "GET /users",
       })
-      local indicators = require("poste.indicators")
-      local line = indicators.find_request_line(buf, 1)
+      
+      local line = cache.find_request_line(buf, 1)
       assert.equals(2, line)  -- 0-indexed: line 3 is index 2
     end)
 
@@ -145,8 +143,8 @@ describe("block boundary delegation", function()
         "### Block B",
         "POST /b",
       })
-      local indicators = require("poste.indicators")
-      local line = indicators.find_request_line(buf, 3)
+      
+      local line = cache.find_request_line(buf, 3)
       assert.is_nil(line)
     end)
 
@@ -157,8 +155,8 @@ describe("block boundary delegation", function()
         "< {% local x = 1 %}",
         "> {% client.test('pass', function() end) %}",
       })
-      local indicators = require("poste.indicators")
-      local line = indicators.find_request_line(buf, 1)
+      
+      local line = cache.find_request_line(buf, 1)
       assert.equals(1, line)
     end)
 
@@ -168,14 +166,14 @@ describe("block boundary delegation", function()
         "script",
         "< {% local x = 1 %}",
       })
-      local indicators = require("poste.indicators")
-      local line = indicators.find_request_line(buf, 1)
+      
+      local line = cache.find_request_line(buf, 1)
       assert.equals(1, line)
     end)
   end)
 
   ----------------------------------------------------------------------------
-  -- indicators.lua:extract_request_block (regression only, not delegated)
+  -- cache.lua:extract_request_block (regression only, not delegated)
   ----------------------------------------------------------------------------
   describe("extract_request_block", function()
     it("block with headers", function()
@@ -187,8 +185,8 @@ describe("block boundary delegation", function()
         "",
         '{"page":1}',
       })
-      local indicators = require("poste.indicators")
-      local result = indicators.extract_request_block(buf, 2)
+      
+      local result = cache.extract_request_block(buf, 2)
       assert.equals("GET /users", result.request_line)
       assert.equals(2, #result.headers)
       assert.equals("Content-Type", result.headers[1][1])
@@ -204,8 +202,8 @@ describe("block boundary delegation", function()
         "",
         '{"page":1}',
       })
-      local indicators = require("poste.indicators")
-      local result = indicators.extract_request_block(buf, 2)
+      
+      local result = cache.extract_request_block(buf, 2)
       assert.equals("GET /users", result.request_line)
       assert.equals(0, #result.headers)
     end)

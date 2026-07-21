@@ -458,4 +458,95 @@ function M.get_semantic_block_at_line(buf, line)
   return describe.block_at_line(M.get_semantic_blocks(buf), line)
 end
 
+-------------------------------------------------------------------------------
+-- Request block extraction (moved from indicators.lua during protocol split)
+-------------------------------------------------------------------------------
+
+--- Extract the full request block from the buffer at the given line.
+--- Returns { request_line = "GET ...", headers = { { "Key", "Value" }, ... } }.
+function M.extract_request_block(buf, start_line)
+  local header_line = nil
+  for i = start_line, 1, -1 do
+    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+    if text:match("^%s*###") then
+      header_line = i
+      break
+    end
+  end
+  if not header_line then return { request_line = "", headers = {}, name = "" } end
+
+  local total = vim.api.nvim_buf_line_count(buf)
+  local request_line = nil
+  local headers = {}
+  local name = ""
+
+  for i = header_line, total do
+    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+    if text:match("^%s*###") then
+      if i == header_line then
+        name = text:match("^%s*###%s+(.*)$") or ""
+      else
+        break
+      end
+    end
+
+    if text:match("^%s*#") or text:match("^%s*%-%-") or text:match("^%s*<<") then
+    elseif not request_line and text:match("%S") then
+      request_line = text
+    elseif request_line then
+      if text:match("^%s*$") then
+        break
+      end
+      local key, val = text:match("^([^:]+):%s*(.*)")
+      if key then
+        table.insert(headers, { vim.trim(key), vim.trim(val) })
+      end
+    end
+  end
+
+  return { request_line = request_line or "", headers = headers, name = name }
+end
+
+--- Find the request definition line using the block index.
+--- Skips pre-request script blocks and variable definitions.
+--- Returns (line_number_0indexed, nil) or (nil, nil) if not found.
+function M.find_request_line(buf, start_line)
+  local block = M.get_block_at_line(buf, start_line)
+  if not block then return nil end
+
+  local in_prescript = false
+
+  for i = block.start_line + 1, block.end_line do
+    local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+    local trimmed = vim.trim(text)
+
+    if text:match("^%s*###") then break end
+
+    if in_prescript then
+      if trimmed == "%}" then
+        in_prescript = false
+      end
+    elseif trimmed:match("^<%s*{%%") and not trimmed:match("%%}$") then
+      in_prescript = true
+    elseif trimmed:match("^<%s*{%%.*%%}$") then
+    elseif trimmed:match("^<%s*%.?%.") and trimmed:match("%.lua%s*$") then
+    elseif trimmed:match("^@%S+%s*[= ]") then
+    elseif trimmed:match("^<<") then
+    elseif trimmed == "" or trimmed:match("^#") or trimmed:match("^%-%-") then
+    else
+      return i - 1
+    end
+  end
+
+  return nil
+end
+
+--- Find the request block boundaries for a given cursor line.
+--- Returns (start_line, end_line) as 1-indexed inclusive ranges.
+function M.find_request_block_bounds(buf, cursor_line)
+  local block = M.get_block_at_line(buf, cursor_line)
+  if not block then return nil, nil end
+  return block.start_line, block.end_line
+end
+
 return M

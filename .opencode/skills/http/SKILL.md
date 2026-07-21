@@ -3,7 +3,7 @@ name: http
 description: >
   HTTP request execution in Poste — parser, executor, curl integration, Lua UI,
   pre/post scripts, assertions, variable chaining, jq filtering.
-  Use when working on HTTP features only (not SQL/Redis). Loads ZERO SQL files.
+  Use when working on HTTP features only (not SQL). Loads ZERO SQL files.
 allowed-tools:
   - Read
   - Write

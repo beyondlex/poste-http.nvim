@@ -22,6 +22,9 @@ File-driven HTTP request executor (Rust CLI + Neovim). `.http` → execute → r
 - Lua: `local M = {} ... return M`, `vim.api.*` conventions
 - HTTP code in `lua/poste/http/`, shared infra in `poste.nvim`
 - No `require("poste.sql.*")` — SQL is a separate repo
+- **Module name ownership**: `poste-http.nvim` comes before `poste-sql.nvim` in rtp.
+  Never create files under `lua/poste/sql/` — they would shadow `poste-sql.nvim`'s
+  modules silently.
 
 ## References
 

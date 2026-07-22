@@ -2,7 +2,8 @@
 -- Tests the full completion flow through get_completions() and get_items_for_context()
 
 local completion = require("poste.http.completion")
-local get_items_for_context = completion._test.get_items_for_context
+local test = completion._test
+local get_items_for_context = test.get_items_for_context
 
 local function block_buf(lines)
   local buf = vim.api.nvim_create_buf(false, true)
@@ -149,6 +150,102 @@ describe("get_items_for_context", function()
       for _, item in ipairs(items) do
         assert.equals(12, item.kind) -- KIND_VALUE
       end
+    end)
+  end)
+
+  describe("namespace-aware variable completion", function()
+    it("get_namespace_items returns namespace items for top-level prefix", function()
+      local items = test.get_namespace_items("GetUser", "", { "GetUser", "CreateUser" })
+
+      assert.is_true(#items > 0)
+      local labels = {}
+      for _, item in ipairs(items) do
+        labels[item.label] = true
+      end
+      assert.is_true(labels["response."], "should show response namespace")
+      assert.is_true(labels["request."], "should show request namespace")
+    end)
+
+    it("get_namespace_items returns leaf items for nested prefix", function()
+      local items = test.get_namespace_items("GetUser.response", "", { "GetUser" })
+
+      local labels = {}
+      for _, item in ipairs(items) do
+        labels[item.label] = true
+      end
+      assert.is_true(labels["body"], "should show body leaf")
+      assert.is_true(labels["headers"], "should show headers leaf")
+      assert.is_true(labels["status"], "should show status leaf")
+    end)
+
+    it("get_namespace_items filters children by partial match", function()
+      local items = test.get_namespace_items("GetUser.response", "bo", { "GetUser" })
+
+      assert.equals(1, #items)
+      assert.equals("body", items[1].label)
+    end)
+
+    it("get_namespace_items returns nil for unknown prefix", function()
+      local items = test.get_namespace_items("Unknown", "", { "GetUser" })
+      assert.is_nil(items)
+    end)
+
+    it("namespace items have correct kind and sortText", function()
+      local items = test.get_namespace_items("GetUser", "", { "GetUser" })
+
+      for _, item in ipairs(items) do
+        if item.label == "response." then
+          assert.equals(9, item.kind) -- Module
+          assert.is_true(item.sortText:sub(1, 2) == "00", "namespace sortText should start with 00")
+        end
+      end
+    end)
+
+    it("leaf items have correct kind and sortText", function()
+      local items = test.get_namespace_items("GetUser.response", "", { "GetUser" })
+
+      for _, item in ipairs(items) do
+        assert.equals(6, item.kind) -- Variable
+        assert.is_true(item.sortText:sub(1, 2) == "01", "leaf sortText should start with 01")
+        assert.is_not_nil(item.detail)
+      end
+    end)
+
+    it("variable completion falls back to normal vars for unknown namespace prefix", function()
+      local buf = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "### Test", "{{Unknown." })
+      vim.api.nvim_set_current_buf(buf)
+
+      local items = get_items_for_context("{{Unknown.", buf, 2, 10)
+
+      -- Should fall back to normal variable completion (magic vars at minimum)
+      assert.is_true(#items >= 4, "should fall back to normal variable completion")
+      local labels = {}
+      for _, item in ipairs(items) do
+        labels[item.label] = true
+      end
+      assert.is_true(labels["$timestamp"] or labels["$uuid"])
+
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it("variable completion uses namespace-aware items for valid prefix", function()
+      local buf = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "### GetUser", "GET /users", "### CreateUser", "{{GetUser." })
+      vim.api.nvim_set_current_buf(buf)
+
+      local items = get_items_for_context("{{GetUser.", buf, 4, 10)
+
+      local labels = {}
+      for _, item in ipairs(items) do
+        labels[item.label] = true
+      end
+      assert.is_true(labels["response."], "should show response namespace")
+      assert.is_true(labels["request."], "should show request namespace")
+      -- Should NOT show flat request references or magic vars
+      assert.is_nil(labels["$timestamp"], "should not show magic vars in namespace mode")
+
+      vim.api.nvim_buf_delete(buf, { force = true })
     end)
   end)
 end)

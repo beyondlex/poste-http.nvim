@@ -120,6 +120,14 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     if after_open:match("|%s*{%s*$") or after_open:match("|%s*{%s*%w*$") then
       return "prompt_mapping", after_open
     end
+    local last_dot_start, last_dot_end = after_open:find("%.[^.]*$")
+    if last_dot_start then
+      local prefix = after_open:sub(1, last_dot_start - 1)
+      if prefix:match("^[%w_%.]+$") then
+        local partial = after_open:sub(last_dot_start + 1)
+        return "variable_namespace", { prefix = prefix, partial = partial or "" }
+      end
+    end
     return "variable", after_open
   end
 

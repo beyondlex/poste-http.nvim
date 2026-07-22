@@ -76,7 +76,7 @@ end
 local function strip_prompt_lines(content)
   local result = {}
   for _, l in ipairs(vim.split(content, "\n", { plain = true })) do
-    if not l:match("^%s*<<%S+") then
+    if not l:match("^%s*<<[%a_][%w_]*") then
       table.insert(result, l)
     end
   end
@@ -286,7 +286,7 @@ end
 local function find_dynamic_prompt_refs(block_text)
   local refs = {}
   for line in block_text:gmatch("[^\n]+") do
-    local options_str = line:match("^%s*<<%S+%s*%[(.+)%]")
+    local options_str = line:match("^%s*<<[%a_][%w_]*%s*%[(.+)%]")
     if options_str then
       local full_ref = options_str:match("{{(.+%.response%..+)}}")
       if full_ref then
@@ -719,7 +719,7 @@ local function handle_prompt_variables_impl(buf, cursor_line, content, binary, f
     -- Only process prompt directives within the current request block (1-indexed)
     if line_num >= start_line and line_num <= end_line then
       -- Match: <<varname [opt1, opt2, ...]  (selection mode)
-      local varname_sel, options_str = line:match("^%s*<<(%S+)%s*%[(.+)%]")
+      local varname_sel, options_str = line:match("^%s*<<([%a_][%w_]*)%s*%[(.+)%]")
 
       if varname_sel and options_str then
         -- Check if options contain a request variable reference
@@ -851,7 +851,7 @@ local function handle_prompt_variables_impl(buf, cursor_line, content, binary, f
         return
       else
         -- Match: <<varname  (text input mode)
-        local varname = line:match("^%s*<<(%S+)")
+        local varname = line:match("^%s*<<([%a_][%w_]*)")
 
         if varname then
           -- vim.fn.input is blocking but handles its own event loop
@@ -1006,7 +1006,7 @@ local function resolve_request_variables_impl(binary, file, env_name, buf, curso
       table.insert(dep_raw_lines, all_lines[i] or "")
     end
     local dep_raw_text = table.concat(dep_raw_lines, "\n")
-    local has_prompts = dep_raw_text:match("<<%S")
+    local has_prompts = dep_raw_text:match("<<[%a_][%w_]")
 
     local function do_execute(resolved_content)
       if not resolved_content then resolved_content = content end

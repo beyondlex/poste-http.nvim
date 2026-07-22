@@ -141,7 +141,7 @@ function M.strip_request_preamble(raw_body, _raw_headers)
   if body_start and body_start <= #all_lines then
     return table.concat(all_lines, "\n", body_start)
   end
-  return raw_body
+return ""
 end
 
 return M

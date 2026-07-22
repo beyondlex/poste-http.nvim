@@ -320,35 +320,57 @@ function M.format_verbose(r, pending)
     end
   end
 
+  -- Query Parameters section
+  if url ~= "" then
+    local qmark = url:find("?")
+    if qmark then
+      local query_string = url:sub(qmark + 1)
+      table.insert(lines, "▸ Query Parameters")
+      for pair in query_string:gmatch("[^&]+") do
+        local key, val = pair:match("^([^=]+)=(.*)$")
+        if key then
+          val = val:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
+          val = val:gsub("+", " ")
+          table.insert(lines, string.format("  %s: %s", key, val))
+        else
+          table.insert(lines, "  " .. pair)
+        end
+      end
+    end
+  end
+
+  -- Request Body section (only when there's actual body content)
   if request_body ~= "" then
-    table.insert(lines, "▸ Request Body")
     local multipart = require("poste.http.format.multipart")
     local verbose_body = multipart.strip_request_preamble(request_body, request_headers)
-    local ct = ""
-    for l in request_headers:gmatch("[^\r\n]+") do
-      local k, v = l:match("^([^:]+):%s*(.+)$")
-      if k and k:lower() == "content-type" then ct = v end
-    end
-    local ct_lower = ct:lower()
-    if ct_lower:find("multipart/form%-data") then
-      local display_body = multipart.condense_multipart_body(verbose_body, ct)
-      for l in display_body:gmatch("[^\r\n]+") do
-        table.insert(lines, "  " .. l)
+    if verbose_body ~= "" then
+      table.insert(lines, "▸ Request Body")
+      local ct = ""
+      for l in request_headers:gmatch("[^\r\n]+") do
+        local k, v = l:match("^([^:]+):%s*(.+)$")
+        if k and k:lower() == "content-type" then ct = v end
       end
-    elseif ct_lower:find("application/x%-www%-form%-urlencoded") then
-      local form_lines = format_urlencoded_body(verbose_body)
-      if form_lines then
-        for _, fl in ipairs(form_lines) do
-          table.insert(lines, fl)
+      local ct_lower = ct:lower()
+      if ct_lower:find("multipart/form%-data") then
+        local display_body = multipart.condense_multipart_body(verbose_body, ct)
+        for l in display_body:gmatch("[^\r\n]+") do
+          table.insert(lines, "  " .. l)
+        end
+      elseif ct_lower:find("application/x%-www%-form%-urlencoded") then
+        local form_lines = format_urlencoded_body(verbose_body)
+        if form_lines then
+          for _, fl in ipairs(form_lines) do
+            table.insert(lines, fl)
+          end
+        else
+          for l in verbose_body:gmatch("[^\r\n]+") do
+            table.insert(lines, "  " .. l)
+          end
         end
       else
         for l in verbose_body:gmatch("[^\r\n]+") do
           table.insert(lines, "  " .. l)
         end
-      end
-    else
-      for l in verbose_body:gmatch("[^\r\n]+") do
-        table.insert(lines, "  " .. l)
       end
     end
   end
@@ -430,6 +452,9 @@ function M.format_request_payload(r)
 
   local multipart = require("poste.http.format.multipart")
   local body_only = multipart.strip_request_preamble(req_body, req_headers)
+  if not body_only or body_only == "" then
+    return { "(no request body)" }
+  end
   local lines = {}
   local ct = ""
   if req_headers then

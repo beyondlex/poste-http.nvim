@@ -448,6 +448,36 @@ function M.goto_definition()
   end
 
   if not req_name then
+    -- Check if cursor is inside a script block and cword is a Lua local variable
+    local sc = context_detector.detect_script_context(buf, line_num, col + 1)
+    if sc then
+      local cword = vim.fn.expand("<cword>")
+      if cword and cword ~= "" then
+        local requests = request_vars.collect_requests(buf)
+        local current_req = nil
+        for _, req in ipairs(requests) do
+          if line_num >= req.start_line and line_num <= req.end_line then
+            current_req = req
+            break
+          end
+        end
+        if current_req then
+          local local_pat = "^%s*local%s+" .. vim.pesc(cword) .. "%s*[=%n]"
+          local assign_pat = "^%s*" .. vim.pesc(cword) .. "%s*="
+          for i = current_req.start_line, current_req.end_line do
+            local t = cache.get_line_type(buf, i)
+            if t == "pre_script" or t == "post_script" then
+              local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+              if text:match(local_pat) or text:match(assign_pat) then
+                vim.cmd("normal! m'")
+                vim.api.nvim_win_set_cursor(0, { i, 0 })
+                return
+              end
+            end
+          end
+        end
+      end
+    end
     vim.notify("No named request reference under cursor", vim.log.levels.INFO)
     return
   end
@@ -704,6 +734,17 @@ function M.goto_references()
   end
 
   if not symbol_name then
+    -- Check if cursor is inside a script block and cword is a Lua local variable
+    local sc = context_detector.detect_script_context(buf, line_num, col + 1)
+    if sc then
+      local cword = vim.fn.expand("<cword>")
+      if cword and cword ~= "" then
+        symbol_name = cword
+      end
+    end
+  end
+
+  if not symbol_name then
     vim.notify("No variable or request reference under cursor", vim.log.levels.INFO)
     return
   end
@@ -771,6 +812,29 @@ function M.goto_references()
           if script_col then
             add(i, vim.trim(text), script_col)
           end
+        end
+      end
+    end
+
+    -- Script block local variable definitions and references
+    local local_def_pat = "^%s*local%s+" .. esc .. "%s*[=%n]"
+    local assign_def_pat = "^%s*" .. esc .. "%s*="
+    for i = 1, total do
+      local text = all_lines[i] or ""
+      if text:match(local_def_pat) or text:match(assign_def_pat) then
+        add(i, vim.trim(text), 0)
+      else
+        local s = 1
+        while s <= #text do
+          local pos = text:find(symbol_name, s, true)
+          if not pos then break end
+          local before = pos > 1 and text:sub(pos - 1, pos - 1) or ""
+          local after = text:sub(pos + #symbol_name, pos + #symbol_name)
+          if not before:match("[%w_]") and not after:match("[%w_]") then
+            add(i, vim.trim(text), pos - 1)
+            break
+          end
+          s = pos + 1
         end
       end
     end

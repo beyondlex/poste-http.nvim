@@ -1,3 +1,4 @@
+local cache = require("poste.http.cache")
 local state = require("poste.state")
 local request_vars = require("poste.http.request_vars")
 local context_detector = require("poste.http.context_detector")
@@ -474,6 +475,7 @@ function M.goto_definition()
   local prompt_pattern = "^%s*<<" .. vim.pesc(req_name) .. "%s"
   local prompt_comment_pattern = "^%s*#%s*<<" .. vim.pesc(req_name) .. "%s"
   local found_line = nil
+  local found_col = nil
 
   if current_req then
     for i = current_req.start_line, current_req.end_line do
@@ -496,9 +498,33 @@ function M.goto_definition()
     end
   end
 
+  -- Search pre-script blocks for request.variables.set("var_name", ...)
+  if not found_line and current_req then
+    local esc_name = vim.pesc(req_name)
+    local set_pattern = 'request%.variables%.set%("' .. esc_name .. '%"'
+    local set_pattern_single = "request%.variables%.set%('" .. esc_name .. "%'"
+    for i = current_req.start_line, current_req.end_line do
+      local t = cache.get_line_type(buf, i)
+      if t == "pre_script" then
+        local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
+        if text:match(set_pattern) then
+          found_line = i
+          local q = text:find('"' .. esc_name .. '"', 1, true)
+          found_col = q and q or 0
+          break
+        elseif text:match(set_pattern_single) then
+          found_line = i
+          local q = text:find("'" .. esc_name .. "'", 1, true)
+          found_col = q and q or 0
+          break
+        end
+      end
+    end
+  end
+
   if found_line then
     vim.cmd("normal! m'")
-    vim.api.nvim_win_set_cursor(0, { found_line, 0 })
+    vim.api.nvim_win_set_cursor(0, { found_line, found_col or 0 })
     return
   end
 

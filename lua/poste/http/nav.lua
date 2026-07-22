@@ -469,8 +469,9 @@ function M.goto_definition()
             if t == "pre_script" or t == "post_script" then
               local text = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""
               if text:match(local_pat) or text:match(assign_pat) then
+                local pos = text:find(cword, 1, true)
                 vim.cmd("normal! m'")
-                vim.api.nvim_win_set_cursor(0, { i, 0 })
+                vim.api.nvim_win_set_cursor(0, { i, pos and (pos - 1) or 0 })
                 return
               end
             end

@@ -130,6 +130,7 @@ function M.setup()
   define_hl_custom("PosteMethodDELETE", { fg = 0xe06c75, bold = true }) -- red
   define_hl_custom("PosteMethodPATCH",  { fg = 0xc678dd, bold = true }) -- magenta
   define_hl_custom("PosteMethodHEAD",   { fg = 0x56b6c2, bold = true }) -- cyan
+  define_hl_custom("PosteMethodOPTIONS", { fg = 0x56b6c2, bold = true }) -- cyan (same as HEAD)
   define_hl_custom("PosteMethodScript", { fg = 0x8a5cf5, bold = true }) -- purple-blue
   define_hl_custom("PosteMethodOther",  { fg = 0x5c6370, bold = true }) -- gray
 

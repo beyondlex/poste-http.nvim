@@ -12,8 +12,18 @@
 ; Multi-line variable body
 (multiline_variable) @PosteVarValue
 
-; Request line
-(method) @PosteMethodOther
+; Request line - per-method colors (grammar-level named nodes)
+(method_get) @PosteMethodGET
+(method_post) @PosteMethodPOST
+(method_put) @PosteMethodPUT
+(method_delete) @PosteMethodDELETE
+(method_patch) @PosteMethodPATCH
+(method_head) @PosteMethodHEAD
+(method_options) @PosteMethodOPTIONS
+(method_script) @PosteMethodScript
+; TRACE, CONNECT -> gray
+(method_trace) @PosteMethodOther
+(method_connect) @PosteMethodOther
 (url) @PosteUrl
 (http_version) @PosteHttpVersion
 

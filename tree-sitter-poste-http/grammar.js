@@ -41,7 +41,29 @@ module.exports = grammar({
       optional($.http_version),
     ),
 
-    method: $ => /GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT|SCRIPT/i,
+    method: $ => choice(
+      $.method_get,
+      $.method_post,
+      $.method_put,
+      $.method_delete,
+      $.method_patch,
+      $.method_head,
+      $.method_options,
+      $.method_trace,
+      $.method_connect,
+      $.method_script,
+    ),
+
+    method_get: $ => /GET/i,
+    method_post: $ => /POST/i,
+    method_put: $ => /PUT/i,
+    method_delete: $ => /DELETE/i,
+    method_patch: $ => /PATCH/i,
+    method_head: $ => /HEAD/i,
+    method_options: $ => /OPTIONS/i,
+    method_trace: $ => /TRACE/i,
+    method_connect: $ => /CONNECT/i,
+    method_script: $ => /SCRIPT/i,
 
     url: $ => /[^ \t\n]+/,
 

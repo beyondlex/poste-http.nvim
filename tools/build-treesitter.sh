@@ -15,4 +15,4 @@ gcc -c -I"src" -fPIC -O2 -o "$OUT" "$SRC"
 gcc -shared -o "$SHARED" "$OUT"
 
 echo "Done: $SHARED"
-echo "Install: cp $SHARED \$HOME/.local/share/nvim/site/parser/poste_http.so"
+echo "Install: cp $SHARED \$HOME/.local/share/kickstart/site/parser/poste_http.so"

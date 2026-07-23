@@ -1,0 +1,12 @@
+{
+  "name": "tree-sitter-poste-http",
+  "abi": "14",
+  "schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/grammar.schema.json",
+  "metadata": {
+    "name": "poste_http",
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Tree-sitter grammar for Poste HTTP request files (.http, .rest)",
+    "authors": [{"name": "Poste contributors"}]
+  }
+}

@@ -37,9 +37,23 @@ function M.setup()
   -- These provide sensible defaults for any colorscheme. Users can
   -- override individual groups with :highlight PosteMethod guifg=#ff0000
   -- and the override persists across colorscheme switches.
+  --
+  -- Each group is defined in three forms:
+  --   "PosteXxx"              — used by Vim syntax (syntax/poste_http.vim)
+  --   "@PosteXxx"             — used by tree-sitter (generic)
+  --   "@PosteXxx.poste_http"  — used by tree-sitter (language-specific)
+  local function define_hl(name, link)
+    vim.api.nvim_set_hl(0, name, { link = link })
+    vim.api.nvim_set_hl(0, "@" .. name, { link = link })
+    vim.api.nvim_set_hl(0, "@" .. name .. ".poste_http", { link = link })
+  end
+
   local syntax_links = {
     { "PosteSeparator",    "Delimiter" },
     { "PosteRequestName",  "Title" },
+    { "PosteVarDef",       "Identifier" },
+    { "PosteVarAssign",    "Operator" },
+    { "PosteVarValue",     "String" },
     { "PosteVarRef",       "Identifier" },
     { "PosteMagicVar",     "Special" },
     { "PosteMethodGET",    "Keyword" },
@@ -54,6 +68,8 @@ function M.setup()
     { "PosteUrl",          "Normal" },
     { "PosteHttpVersion",  "Constant" },
     { "PosteHeaderKey",    "Type" },
+    { "PosteHeaderSep",    "Delimiter" },
+    { "PosteComment",      "Comment" },
     { "PosteImport",       "Include" },
     { "PosteImportPath",   "String" },
     { "PosteImportAliasOpt", "Operator" },
@@ -87,13 +103,19 @@ function M.setup()
   for _, pair in ipairs(syntax_links) do
     local existing = vim.api.nvim_get_hl(0, { name = pair[1] })
     if vim.tbl_isempty(existing) then
-      vim.api.nvim_set_hl(0, pair[1], { link = pair[2] })
+      define_hl(pair[1], pair[2])
     end
   end
 
   -- File references (< ./path / > ./path): underline like Include
   local include_hl = resolve_hl("Include")
-  vim.api.nvim_set_hl(0, "PosteFileRef", {
+  local function define_hl_custom(name, opts)
+    vim.api.nvim_set_hl(0, name, opts)
+    vim.api.nvim_set_hl(0, "@" .. name, opts)
+    vim.api.nvim_set_hl(0, "@" .. name .. ".poste_http", opts)
+  end
+
+  define_hl_custom("PosteFileRef", {
     fg = include_hl.fg or 0x5c6370,
     sp = include_hl.fg or 0x5c6370,
     underline = true,
@@ -102,21 +124,21 @@ function M.setup()
   })
 
   -- HTTP method colors: GET=green, POST=yellow, PUT=orange, DELETE=red
-  vim.api.nvim_set_hl(0, "PosteMethodGET",    { fg = 0x98c379, bold = true }) -- green
-  vim.api.nvim_set_hl(0, "PosteMethodPOST",   { fg = 0xe5c07b, bold = true }) -- yellow
-  vim.api.nvim_set_hl(0, "PosteMethodPUT",    { fg = 0xd19a66, bold = true }) -- orange
-  vim.api.nvim_set_hl(0, "PosteMethodDELETE", { fg = 0xe06c75, bold = true }) -- red
-  vim.api.nvim_set_hl(0, "PosteMethodPATCH",  { fg = 0xc678dd, bold = true }) -- magenta
-  vim.api.nvim_set_hl(0, "PosteMethodHEAD",   { fg = 0x56b6c2, bold = true }) -- cyan
-  vim.api.nvim_set_hl(0, "PosteMethodScript", { fg = 0x8a5cf5, bold = true }) -- purple-blue
-  vim.api.nvim_set_hl(0, "PosteMethodOther",  { fg = 0x5c6370, bold = true }) -- gray
+  define_hl_custom("PosteMethodGET",    { fg = 0x98c379, bold = true }) -- green
+  define_hl_custom("PosteMethodPOST",   { fg = 0xe5c07b, bold = true }) -- yellow
+  define_hl_custom("PosteMethodPUT",    { fg = 0xd19a66, bold = true }) -- orange
+  define_hl_custom("PosteMethodDELETE", { fg = 0xe06c75, bold = true }) -- red
+  define_hl_custom("PosteMethodPATCH",  { fg = 0xc678dd, bold = true }) -- magenta
+  define_hl_custom("PosteMethodHEAD",   { fg = 0x56b6c2, bold = true }) -- cyan
+  define_hl_custom("PosteMethodScript", { fg = 0x8a5cf5, bold = true }) -- purple-blue
+  define_hl_custom("PosteMethodOther",  { fg = 0x5c6370, bold = true }) -- gray
 
   -- Run directive: bold purple for "run", green for target
-  vim.api.nvim_set_hl(0, "PosteRun", { fg = 0xAA66FF, bold = true })
-  vim.api.nvim_set_hl(0, "PosteRunTarget", { fg = 0x44CC88 })
+  define_hl_custom("PosteRun", { fg = 0xAA66FF, bold = true })
+  define_hl_custom("PosteRunTarget", { fg = 0x44CC88 })
 
   -- Request name: bold with a distinct color
-  vim.api.nvim_set_hl(0, "PosteRequestName", { fg = 0x61afef, bold = true }) -- blue bold
+  define_hl_custom("PosteRequestName", { fg = 0x61afef, bold = true }) -- blue bold
 
   -- Symbol outline highlights
   vim.api.nvim_set_hl(0, "PosteSymbolCurrent", { bg = 0x3e4452, bold = true }) -- highlighted bg
@@ -176,10 +198,10 @@ function M.setup()
 
   state.apply_highlight_overrides({
     "PosteLatency", "PosteSpinner", "PosteSuccess", "PosteError",
-    "PosteSeparator", "PosteRequestName", "PosteVarRef", "PosteMagicVar",
+    "PosteSeparator", "PosteRequestName", "PosteVarDef", "PosteVarAssign", "PosteVarValue", "PosteVarRef", "PosteMagicVar",
     "PosteMethodGET", "PosteMethodPOST",     "PosteMethodPUT", "PosteMethodDELETE",
     "PosteMethodPATCH", "PosteMethodHEAD", "PosteMethodOPTIONS", "PosteMethodScript", "PosteMethodOther",
-    "PosteUrl", "PosteHttpVersion", "PosteHeaderKey",
+    "PosteUrl", "PosteHttpVersion", "PosteHeaderKey", "PosteHeaderSep", "PosteComment",
     "PosteImport", "PosteImportPath", "PosteImportAliasOpt", "PosteImportAlias",
     "PosteRun", "PosteRunTarget", "PosteRunVarDef", "PosteRunVarAssign", "PosteRunVarValue",
     "PostePromptMarker", "PostePromptVar", "PostePromptOpts",

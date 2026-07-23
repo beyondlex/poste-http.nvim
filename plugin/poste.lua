@@ -29,6 +29,62 @@ end
 
 require("poste").setup()
 
+-- Ensure all Poste* highlight groups are defined (for tree-sitter).
+-- This must be in plugin/poste.lua because poste-http.nvim's
+-- lua/poste/init.lua is shadowed by poste.nvim in the runtimepath.
+pcall(require, "poste.http.highlights")
+
+-- Register filetype autocmd and treesitter for .http/.rest files.
+-- This must be in plugin/poste.lua (not lua/poste/init.lua) because
+-- poste.nvim's lua/poste/init.lua shadows this module in the runtimepath.
+local buffer_setup = require("poste.buffer_setup")
+vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
+  pattern = { "*.http", "*.rest" },
+  callback = function()
+    vim.bo.filetype = "poste_http"
+    buffer_setup.setup_buffer_keymaps(0)
+    local bg = vim.api.nvim_create_augroup("PosteHttpBoundary_" .. vim.api.nvim_get_current_buf(), { clear = true })
+    vim.api.nvim_create_autocmd("CursorMoved", {
+      group = bg,
+      buffer = 0,
+      callback = function()
+        require("poste.http.boundary_indicator").refresh(0, vim.fn.line("."))
+      end,
+    })
+    pcall(function()
+      require("poste.http.treesitter").enable(0)
+    end)
+  end,
+})
+
+vim.api.nvim_create_autocmd("BufEnter", {
+  pattern = { "*.http", "*.rest" },
+  callback = function()
+    local buf = vim.api.nvim_get_current_buf()
+    local env_mod = require("poste.http.env")
+    vim.wo.winbar = env_mod.build_http_winbar()
+    if vim.bo.filetype == "poste_http" then
+      require("poste.http.boundary_indicator").refresh(buf, vim.fn.line("."))
+    end
+  end,
+})
+
+for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+  local name = vim.api.nvim_buf_get_name(buf)
+  if name:match("%.http$") or name:match("%.rest$") then
+    vim.api.nvim_buf_set_option(buf, "filetype", "poste_http")
+    buffer_setup.setup_buffer_keymaps(buf)
+    local bg = vim.api.nvim_create_augroup("PosteHttpBoundary_" .. buf, { clear = true })
+    vim.api.nvim_create_autocmd("CursorMoved", {
+      group = bg,
+      buffer = buf,
+      callback = function()
+        require("poste.http.boundary_indicator").refresh(buf, vim.fn.line("."))
+      end,
+    })
+  end
+end
+
 -- PosteInfo: show binary, version, and completion engine status.
 -- Defined here rather than in setup() so the latest plugin/poste.lua
 -- on rtp always wins, even when lazy.nvim cached an older init.lua.

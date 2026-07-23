@@ -13,7 +13,6 @@ local view = require("poste.http.view")
 local env_mod = require("poste.http.env")
 local nav = require("poste.http.nav")
 local run = require("poste.http.run")
-local buffer_setup = require("poste.buffer_setup")
 
 local M = {}
 
@@ -167,49 +166,6 @@ function M.setup(opts)
     local cleaned = format.clean_response_cache()
     vim.notify(string.format("[Poste] Cleared %d old response file(s)", cleaned), vim.log.levels.INFO)
   end, { desc = "Remove old cached response files from stdpath(cache)/poste_res/" })
-
-  vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
-    pattern = { "*.http", "*.rest" },
-    callback = function()
-      vim.bo.filetype = "poste_http"
-      buffer_setup.setup_buffer_keymaps(0)
-      local bg = vim.api.nvim_create_augroup("PosteHttpBoundary_" .. vim.api.nvim_get_current_buf(), { clear = true })
-      vim.api.nvim_create_autocmd("CursorMoved", {
-        group = bg,
-        buffer = 0,
-        callback = function()
-          require("poste.http.boundary_indicator").refresh(0, vim.fn.line("."))
-        end,
-      })
-    end,
-  })
-
-  vim.api.nvim_create_autocmd("BufEnter", {
-    pattern = { "*.http", "*.rest" },
-    callback = function()
-      local buf = vim.api.nvim_get_current_buf()
-      vim.wo.winbar = env_mod.build_http_winbar()
-      if vim.bo.filetype == "poste_http" then
-        require("poste.http.boundary_indicator").refresh(buf, vim.fn.line("."))
-      end
-    end,
-  })
-
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    local name = vim.api.nvim_buf_get_name(buf)
-    if name:match("%.http$") or name:match("%.rest$") then
-      vim.api.nvim_buf_set_option(buf, "filetype", "poste_http")
-      buffer_setup.setup_buffer_keymaps(buf)
-      local bg = vim.api.nvim_create_augroup("PosteHttpBoundary_" .. buf, { clear = true })
-      vim.api.nvim_create_autocmd("CursorMoved", {
-        group = bg,
-        buffer = buf,
-        callback = function()
-          require("poste.http.boundary_indicator").refresh(buf, vim.fn.line("."))
-        end,
-      })
-    end
-  end
 
   _G.poste_status = function()
     return string.format("[env: %s]", state.current_env)

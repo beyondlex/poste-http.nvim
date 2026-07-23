@@ -24,8 +24,7 @@
 ; TRACE, CONNECT -> gray
 (method_trace) @PosteMethodOther
 (method_connect) @PosteMethodOther
-; URL — let Vim syntax handle {{var}} references inside URLs
-(url) @none
+(url) @PosteUrl
 (http_version) @PosteHttpVersion
 
 ; Header

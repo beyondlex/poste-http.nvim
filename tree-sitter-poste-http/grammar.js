@@ -214,9 +214,14 @@ module.exports = grammar({
     run_vars: $ => /[^)]+/,
 
     // ─── Request Body ────────────────────────────────
-    request_body: $ => seq(
-      /[\[{].*/,
-      repeat(/[^#\n].*/),
-    ),
+    request_body: $ => token(seq(
+      /[\[{]/,
+      repeat(choice(
+        /[^#\n]+/,
+        /\n/,
+        /#[^#]/,
+        /##[^#]/,
+      )),
+    )),
   },
 })

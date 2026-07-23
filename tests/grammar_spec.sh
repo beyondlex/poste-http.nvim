@@ -87,5 +87,9 @@ check "pre_script and post_script are separate" \
   $'< {% print("hello") %}\n> {% assert(status == 200) %}' \
   "post_script"
 
+check "JSON body does not consume post-script" \
+  $'POST /test\nContent-Type: application/json\n\n{\n  "key": "value"\n}\n\n> {% assert(status == 200) %}' \
+  "post_script"
+
 echo "=== Results: $pass passed, $fail failed ==="
 exit $fail

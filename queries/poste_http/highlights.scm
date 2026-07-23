@@ -32,10 +32,6 @@
 ":" @PosteHeaderSep
 (header_value) @PosteVarValue
 
-; Variable references (inline {{var}} and {{$var}})
-(variable_reference) @PosteVarRef
-(magic_variable) @PosteMagicVar
-
 ; Prompt variable
 (prompt_variable
   "<<" @PostePromptMarker

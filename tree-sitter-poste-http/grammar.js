@@ -134,30 +134,24 @@ module.exports = grammar({
     // ─── Scripts ────────────────────────────────────
     pre_script: $ => seq(
       '<',
-      choice(
-        $.inline_script,
-        $.multi_line_script,
-      ),
+      /\s*/,
+      $.script_block,
     ),
 
     post_script: $ => seq(
       '>',
-      choice(
-        $.inline_script,
-        $.multi_line_script,
-      ),
+      /\s*/,
+      $.script_block,
     ),
 
-    inline_script: $ => /\s*\{%.*%\}/,
-
-    multi_line_script: $ => seq(
-      /\s*\{%/,
+    script_block: $ => token(seq(
+      /\{%/,
       repeat(choice(
         /[^%]+/,
         /%[^}]/,
       )),
       /%\}/,
-    ),
+    )),
 
     external_script: $ => seq(
       '<',

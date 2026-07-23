@@ -71,5 +71,21 @@ check "multiple headers" \
   "GET /test\nContent-Type: app/json\nAccept: */*" \
   "header"
 
+check "pre_script inline" \
+  "< {% print('hello') %}" \
+  "pre_script"
+
+check "post_script inline" \
+  "> {% assert(status == 200) %}" \
+  "post_script"
+
+check "pre_script multi-line" \
+  $'< {%\n  print("hello")\n%}' \
+  "pre_script"
+
+check "pre_script and post_script are separate" \
+  $'< {% print("hello") %}\n> {% assert(status == 200) %}' \
+  "post_script"
+
 echo "=== Results: $pass passed, $fail failed ==="
 exit $fail

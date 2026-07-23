@@ -36,7 +36,9 @@ function M.detect_filetype(content_type)
   end
   local mime = content_type:match("^([^;]+)") or content_type
   mime = vim.trim(mime):lower()
-  return content_type_map[mime] or "text"
+  if content_type_map[mime] then return content_type_map[mime] end
+  if mime:match("%+json$") then return "json" end
+  return "text"
 end
 
 ---------------------------------------------------------------------------

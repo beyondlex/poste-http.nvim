@@ -23,6 +23,7 @@ cargo run --manifest-path ../../poste.nvim/Cargo.toml -- run tests/sql/queries/p
 
 | Layer | Tool | Command | Location |
 |-------|------|---------|----------|
+| Tree-sitter grammar | `tree-sitter parse` | `tests/grammar_spec.sh` | `tests/` |
 | Rust unit | `#[cfg(test)]` | `cargo test -p <crate>` | `crates/*/src/` |
 | Rust integration | `#[test]` | `cargo test` | `crates/*/tests/` |
 | Lua unit | busted | `tests/run.sh` | `tests/*.lua` |

@@ -50,12 +50,12 @@ This is a test upload with multiple files
 Content-Disposition: form-data; name="file1"; filename="variables.http"
 Content-Type: text/plain
 
-< ../variables.http
+< ./variables.http
 ------Boundary_multipart
 Content-Disposition: form-data; name="file2"; filename="prompt.http"
 Content-Type: text/plain
 
-< ../prompt_variables.http
+< ./prompt_variables.http
 ------Boundary_multipart
 
 

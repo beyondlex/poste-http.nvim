@@ -37,8 +37,12 @@ module.exports = grammar({
     // ─── Request Line ───────────────────────────────
     request_line: $ => seq(
       $.method,
+      token.immediate(/[ \t]+/),
       $.url,
-      optional($.http_version),
+      optional(seq(
+        token.immediate(/[ \t]+/),
+        $.http_version,
+      )),
     ),
 
     method: $ => choice(
@@ -65,11 +69,11 @@ module.exports = grammar({
     method_connect: $ => /CONNECT/i,
     method_script: $ => /SCRIPT/i,
 
-    url: $ => token(repeat1(choice(
-      /\{\{[^$][^}]*\}\}/,
-      /\{\{\$\w+\}\}/,
-      /[^ \t\n{}]+/,
-    ))),
+    url: $ => repeat1(choice(
+      token.immediate(/[^ \t\n{}]+/),
+      token.immediate(/\{\{[^$][^}]*\}\}/),
+      token.immediate(/\{\{\$\w+\}\}/),
+    )),
 
     http_version: $ => /HTTP\/\d+(?:\.\d+)?/i,
 

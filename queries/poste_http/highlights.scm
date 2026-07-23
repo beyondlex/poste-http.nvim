@@ -63,3 +63,6 @@
 ; File operations
 (file_upload) @PosteFileUpload
 (file_ref) @PosteFileRef
+
+; Request body (JSON, form data, etc.)
+(request_body) @PosteVarValue

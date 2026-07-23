@@ -17,6 +17,7 @@ module.exports = grammar({
       $.post_script,
       $.external_script,
       $.external_assertion,
+      $.request_body,
       $.header,
       $.request_line,
       $.comment,
@@ -211,5 +212,8 @@ module.exports = grammar({
     run_target: $ => /\S+/,
 
     run_vars: $ => /[^)]+/,
+
+    // ─── Request Body ────────────────────────────────
+    request_body: $ => /[\[{].*/,
   },
 })

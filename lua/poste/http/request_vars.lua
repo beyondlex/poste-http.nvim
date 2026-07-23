@@ -849,20 +849,53 @@ local function handle_prompt_variables_impl(buf, cursor_line, content, binary, f
           process_next()
         end)
         return
-      else
-        -- Match: <<varname  (text input mode)
-        local varname = line:match("^%s*<<([%a_][%w_]*)")
+      end
 
-        if varname then
-          -- vim.fn.input is blocking but handles its own event loop
+      -- Match: <<varname {{ref_var}}  (ref_var from @var definition, value used as prompt options)
+      local varname_ref, ref_var_name = line:match("^%s*<<([%a_][%w_]*)%s*{{([%a_][%w_]*)}}%s*$")
+      if varname_ref and ref_var_name then
+        local ref_value = nil
+        for i = start_line, end_line do
+          local val = lines[i]:match("^%s*@" .. ref_var_name .. "%s*=%s*(.+)$")
+          if val then
+            ref_value = vim.trim(val)
+            break
+          end
+        end
+        if ref_value == nil then
+          for i = 1, start_line - 1 do
+            local val = lines[i]:match("^%s*@" .. ref_var_name .. "%s*=%s*(.+)$")
+            if val then
+              ref_value = vim.trim(val)
+              break
+            end
+          end
+        end
+
+        if ref_value then
+          local options_content = ref_value:match("^%[(.+)%]$")
+          if options_content then
+            local options = parse_structured_options(options_content)
+            if #options > 0 then
+              local prompt = string.format("[%s] Select value for '%s'", request_name, varname_ref)
+              poste_select.select(options, prompt, function(selected)
+                if selected then
+                  table.insert(result, string.format("@%s = %s", varname_ref, selected))
+                else
+                  cancelled = true
+                end
+                process_next()
+              end)
+              return
+            end
+          end
           vim.schedule(function()
             local ok, value = pcall(vim.fn.input, {
-              prompt = string.format("[%s] Enter value for '%s': ", request_name, varname),
-              default = "",
+              prompt = string.format("[%s] Enter value for '%s': ", request_name, varname_ref),
+              default = ref_value,
             })
-
             if ok and value and value ~= "" then
-              table.insert(result, string.format("@%s = %s", varname, value))
+              table.insert(result, string.format("@%s = %s", varname_ref, value))
             else
               cancelled = true
             end
@@ -870,6 +903,26 @@ local function handle_prompt_variables_impl(buf, cursor_line, content, binary, f
           end)
           return
         end
+      end
+
+      -- Match: <<varname  (text input mode)
+      local varname = line:match("^%s*<<([%a_][%w_]*)")
+
+      if varname then
+        vim.schedule(function()
+          local ok, value = pcall(vim.fn.input, {
+            prompt = string.format("[%s] Enter value for '%s': ", request_name, varname),
+            default = "",
+          })
+
+          if ok and value and value ~= "" then
+            table.insert(result, string.format("@%s = %s", varname, value))
+          else
+            cancelled = true
+          end
+          process_next()
+        end)
+        return
       end
     end
 

@@ -15,8 +15,8 @@ syn match PosteSeparator '^###' contained
 
 " ─── Comments & Directives ──────────────────────────
 " Prompt directive: <<varname [opts]
-syn match PostePrompt '^\s*<<.\{-}\(\[.*\]\)\?\s*$'
-  \ contains=PostePromptMarker,PostePromptOpts
+syn match PostePrompt '^\s*<<.\{-}\(\[.*\]\|{{.\{-}}}\)\?\s*$'
+  \ contains=PostePromptMarker,PostePromptOpts,PosteVarRef,PosteMagicVar
 syn match PostePromptMarker '<<' contained
 syn match PostePromptOpts '\[.*\]' contained
   \ contains=PosteVarRef,PosteMagicVar,PostePromptOptSep,PostePromptMapping
@@ -29,7 +29,7 @@ syn match PostePromptMappingField '\<name\|key\|desc\|\%(description\)\>' contai
 syn match PostePromptMappingColon ':' contained
 syn match PostePromptMappingPath '\.[^,}{\]]*' contained
 " Commented-out prompt: # <<varname [opts]
-syn match PosteCommentedPrompt '^\s*#\s*<<.\{-}\(\[.*\]\)\?\s*$'
+syn match PosteCommentedPrompt '^\s*#\s*<<.\{-}\(\[.*\]\|{{.\{-}}}\)\?\s*$'
   \ contains=PosteCommentedPromptMarker,PostePromptOpts
 syn match PosteCommentedPromptMarker '#\s*<<' contained
 syn match PosteComment '^\s*#\%(\s*<<\)\@!\([^#].*\|$\)'

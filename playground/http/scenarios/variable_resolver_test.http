@@ -475,6 +475,15 @@ Content-Type: application/json
 GET {{host}}/anything/prompt-greeting?msg={{greeting}}
 X-Greeting: {{greeting}}
 
+### 47 — Prompt variable: ref_var from @var definition
+# Tests: <<var_name {{ref_var}} resolves @ref_var's value as prompt options
+# File-level: @http_methods = [GET, POST, PUT, DELETE]
+# <<method {{http_methods}} → equivalent to <<method [GET, POST, PUT, DELETE]
+@http_methods = [GET, POST, PUT, DELETE]
+<<method {{http_methods}}
+GET {{host}}/anything/prompt-ref-var?method={{method}}
+X-Method: {{method}}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Category 10: Post-script → Global var → Next request
 # ═════════════════════════════════════════════════════════════════════════════

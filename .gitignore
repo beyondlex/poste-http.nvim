@@ -15,4 +15,7 @@ tree-sitter-poste-http/src/
 tree-sitter-poste-http/*.wasm
 tree-sitter-poste-http/*.so
 tree-sitter-poste-http/*.o
+tree-sitter-poste-http/*.dylib
+tree-sitter-poste-http/parser/
 tree-sitter-poste-http/Cargo.lock
+parser/node-types.json

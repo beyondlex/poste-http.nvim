@@ -30,6 +30,7 @@ local function pick_output_dir(default, callback)
   finder.open({
     mode = "dir",
     initial_path = default,
+    title = " Select output directory ",
     on_confirm = function(path)
       if path then callback(path) end
     end,
@@ -72,9 +73,11 @@ function M.run()
   pick_collection_file(function(spec_path)
     if not spec_path then return end
     local default_dir = vim.fn.fnamemodify(spec_path, ":h")
-    pick_output_dir(default_dir, function(out_dir)
-      if not out_dir then return end
-      do_import(spec_path, out_dir)
+    vim.schedule(function()
+      pick_output_dir(default_dir, function(out_dir)
+        if not out_dir then return end
+        do_import(spec_path, out_dir)
+      end)
     end)
   end)
 end

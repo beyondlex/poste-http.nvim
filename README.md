@@ -15,6 +15,27 @@
 - **jq filtering** — `:PosteJqFilter` for interactive JSON exploration
 - **Multi-tab response** — Body, verbose, request, assertions, script logs
 - **History** — Request history with quick re-runs
+- **Import** — Convert OpenAPI 3.x, Swagger 2.0, and Postman collections to `.http` files
+
+## Import
+
+Convert API specs to `.http` files. Supports OpenAPI 3.x, Swagger 2.0, and Postman collections.
+
+### Neovim
+
+```vim
+:PosteImportOpenAPI      " Browse for spec → choose output directory
+:PosteImportSwagger
+:PosteImportPostman
+```
+
+### CLI
+
+```bash
+poste import openapi spec.json --out ./http-requests
+poste import swagger petstore.yaml --out ./http-requests
+poste import postman collection.json --out ./http-requests
+```
 
 ## Quick Start
 
@@ -176,7 +197,13 @@ Prompt variables allow interactive input when running a request.
 ## CLI
 
 ```bash
+# Run a request
 poste run requests/api.http --line 4 --env dev
+
+# Import API specs
+poste import openapi spec.json --out ./http-requests
+poste import swagger spec.yaml --out ./http-requests
+poste import postman collection.json --out ./http-requests
 ```
 
 ## License

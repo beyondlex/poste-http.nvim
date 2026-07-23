@@ -216,10 +216,7 @@ module.exports = grammar({
     // ─── Request Body ────────────────────────────────
     request_body: $ => seq(
       /[\[{].*/,
-      repeat(choice(
-        /[^#\n].*/,
-        /\n/,
-      )),
+      repeat(/[^#\n].*/),
     ),
   },
 })

@@ -91,6 +91,8 @@ function M.setup()
     { "PosteFileUpload",  "Include" },
     { "PosteFileRef",     "Include" },
     { "PosteRequestBody",  "Normal" },
+    { "PosteMultipartBoundary", "Comment" },
+    { "PosteMultipartBody", "Normal" },
     { "PosteJsonString",   "String" },
     { "PosteJsonNumber",   "Number" },
     { "PosteJsonBoolean",  "Boolean" },
@@ -137,6 +139,9 @@ function M.setup()
 
   -- Prompt variables: orange same as PUT
   define_hl_custom("PostePromptVar", { fg = 0xd19a66, bold = true })
+
+  -- Multipart boundary: dark gray
+  define_hl_custom("PosteMultipartBoundary", { fg = 0x5c6370 })
 
   -- Run directive: bold purple for "run", green for target, operator for vars
   define_hl_custom("PosteRun", { fg = 0xAA66FF, bold = true })
@@ -209,7 +214,9 @@ function M.setup()
     "PosteMethodPATCH", "PosteMethodHEAD", "PosteMethodOPTIONS", "PosteMethodScript", "PosteMethodOther",
     "PosteUrl", "PosteHttpVersion", "PosteHeaderKey", "PosteHeaderSep", "PosteComment",
     "PosteImport", "PosteImportPath", "PosteImportAliasOpt", "PosteImportAlias",
-    "PosteRequestBody",
+"PosteRequestBody",
+"PosteMultipartBoundary",
+    "PosteMultipartBody",
     "PosteRun", "PosteRunTarget", "PosteRunVars", "PosteRunVarDef", "PosteRunVarAssign", "PosteRunVarValue",
     "PostePromptMarker", "PostePromptVar", "PostePromptOpts",
     "PostePromptOptSep", "PostePromptMappingField", "PostePromptMappingColon", "PostePromptMappingPath",

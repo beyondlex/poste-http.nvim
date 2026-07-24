@@ -1,10 +1,21 @@
+/// <reference types="tree-sitter-cli/dsl" />
+// @ts-check
+
+const WS = /[ \t]+/;
+const NL = token(choice('\n', '\r', '\r\n'));
+
 module.exports = grammar({
   name: 'poste_http',
 
-  extras: $ => [/\s/],
+  extras: $ => [],
 
   rules: {
-    document: $ => repeat($._statement),
+    document: $ => repeat(choice(
+      $._blank_line,
+      $._statement,
+    )),
+
+    _blank_line: $ => seq(optional(WS), token(prec(-1, NL))),
 
     _statement: $ => choice(
       $.request_block,
@@ -17,7 +28,9 @@ module.exports = grammar({
       $.post_script,
       $.external_script,
       $.external_assertion,
-      $.request_body,
+      $.json_body,
+      $.multipart_boundary,
+      $.multipart_form_data,
       $.header,
       $.request_line,
       $.comment,
@@ -29,60 +42,63 @@ module.exports = grammar({
     request_block: $ => seq(
       $.separator,
       optional($.request_name),
+      NL,
     ),
 
-    separator: $ => '###',
+    separator: $ => token('###'),
 
-    request_name: $ => /.*/,
+    request_name: $ => /[^\n]*/,
 
     // ─── Request Line ───────────────────────────────
     request_line: $ => seq(
       $.method,
-      token.immediate(/[ \t]+/),
+      WS,
       $.url,
-      optional(seq(
-        token.immediate(/[ \t]+/),
-        $.http_version,
-      )),
+      optional(seq(WS, $.http_version)),
+      NL,
     ),
 
     method: $ => choice(
-      $.method_get,
-      $.method_post,
-      $.method_put,
-      $.method_delete,
-      $.method_patch,
-      $.method_head,
-      $.method_options,
-      $.method_trace,
-      $.method_connect,
-      $.method_script,
+      $.method_get, $.method_post, $.method_put, $.method_delete,
+      $.method_patch, $.method_head, $.method_options,
+      $.method_trace, $.method_connect, $.method_script,
     ),
 
-    method_get: $ => /GET/i,
-    method_post: $ => /POST/i,
-    method_put: $ => /PUT/i,
-    method_delete: $ => /DELETE/i,
-    method_patch: $ => /PATCH/i,
-    method_head: $ => /HEAD/i,
-    method_options: $ => /OPTIONS/i,
-    method_trace: $ => /TRACE/i,
-    method_connect: $ => /CONNECT/i,
-    method_script: $ => /SCRIPT/i,
+    method_get: $ => 'GET',
+    method_post: $ => 'POST',
+    method_put: $ => 'PUT',
+    method_delete: $ => 'DELETE',
+    method_patch: $ => 'PATCH',
+    method_head: $ => 'HEAD',
+    method_options: $ => 'OPTIONS',
+    method_trace: $ => 'TRACE',
+    method_connect: $ => 'CONNECT',
+    method_script: $ => 'SCRIPT',
 
-    url: $ => token(repeat1(choice(
+    url: $ => repeat1(choice(
       /[^ \t\n{}]+/,
-      /\{\{[^$][^}]*\}\}/,
-      /\{\{\$\w+\}\}/,
-    ))),
+      $.variable,
+    )),
+
+    variable: $ => seq(
+      '{{',
+      optional(WS),
+      field('name', $.identifier),
+      optional(WS),
+      '}}',
+    ),
+
+    identifier: $ => /[A-Za-z_.$\d\u00A1-\uFFFF-]+/,
 
     http_version: $ => /HTTP\/\d+(?:\.\d+)?/i,
 
     // ─── Header ─────────────────────────────────────
     header: $ => seq(
       $.header_key,
+      optional(WS),
       ':',
       optional($.header_value),
+      NL,
     ),
 
     header_key: $ => /[A-Za-z][A-Za-z0-9-]*/,
@@ -97,6 +113,7 @@ module.exports = grammar({
         optional($.var_assign),
         field('value', $.var_value),
       )),
+      NL,
     ),
 
     var_name: $ => /\w+/,
@@ -112,62 +129,72 @@ module.exports = grammar({
       /\n[ \t]*<<<[ \t]*/
     )),
 
-    // ─── Variable Reference ─────────────────────────
-    // (reserved for future use — inline interpolation inside URLs/values)
-
     // ─── Prompt Variable ────────────────────────────
-    prompt_variable: $ => token(seq(
+    prompt_variable: $ => seq(
       '<<',
-      /\w+/,
-      optional(/[ \t]*\[.*\]/),
-    )),
+      $.prompt_name,
+      optional(seq(WS, $.prompt_options)),
+      NL,
+    ),
 
-    prompt_options: $ => /[^\]]+/,
+    prompt_name: $ => /\w+/,
+
+    prompt_options: $ => /\[[^\]]*\]/,
 
     // ─── Comments ───────────────────────────────────
-    comment: $ => token(seq('#', /[^#\n]*/)),
+    comment: $ => token(seq('#', /[^#\n]*/, NL)),
 
     // ─── Scripts ────────────────────────────────────
     pre_script: $ => seq(
       '<',
-      /\s*/,
+      optional(WS),
       $.script_block,
+      optional(NL),
     ),
 
     post_script: $ => seq(
       '>',
-      /\s*/,
+      optional(WS),
       $.script_block,
+      optional(NL),
     ),
 
     script_block: $ => token(seq(
-      /\{%/,
+      '{%',
       repeat(choice(
         /[^%]+/,
         /%[^}]/,
       )),
-      /%\}/,
+      '%}',
     )),
 
     external_script: $ => seq(
       '<',
-      /\s+\.\/\S*/,
+      /[ \t]+/,
+      /\.\/\S*/,
+      optional(NL),
     ),
 
     external_assertion: $ => seq(
       '>',
-      /\s+\.\/\S*/,
+      /[ \t]+/,
+      /\.\/\S*/,
+      optional(NL),
     ),
 
     // ─── File Operations ────────────────────────────
     file_upload: $ => seq(
       '<',
-      /\s+\S+/,
+      /[ \t]+/,
+      /[^\{][^\n]*/,
+      optional(NL),
     ),
 
     file_ref: $ => seq(
       '>',
-      /\s+\S+/,
+      /[ \t]+/,
+      /[^\{][^\n]*/,
+      optional(NL),
     ),
 
     // ─── Import / Run ───────────────────────────────
@@ -176,6 +203,7 @@ module.exports = grammar({
       /\s+/,
       field('path', $.import_path),
       optional($.import_alias_clause),
+      NL,
     ),
 
     import_path: $ => /\S+/,
@@ -192,6 +220,7 @@ module.exports = grammar({
       /\s+/,
       field('target', $.run_target),
       optional($.run_vars_clause),
+      NL,
     ),
 
     run_target: $ => /\S+/,
@@ -203,10 +232,50 @@ module.exports = grammar({
       ')',
     )),
 
-    // ─── Request Body ────────────────────────────────
-    request_body: $ => token(seq(
+    // ─── JSON Body ──────────────────────────────────
+    json_body: $ => token(seq(
       /[\[{][^\n]*/,
       /(?:\n[^#\n][^\n]*)*/,
     )),
+
+    // ─── Multipart Boundary ─────────────────────────
+    multipart_boundary: $ => /---[^\n]*/,
+
+    // ─── Multipart Form Data ─────────────────────────
+    multipart_form_data: $ => seq(
+      $.multipart_disposition,
+      optional($.multipart_content_type),
+      /[ \t]*\n/,
+      choice(
+        $.file_upload,
+        $.multipart_value,
+      ),
+    ),
+
+    multipart_disposition: $ => seq(
+      $.multipart_disposition_key,
+      optional(WS),
+      ':',
+      optional($.multipart_disposition_value),
+      NL,
+    ),
+
+    multipart_disposition_key: $ => token(prec(1, /Content-Disposition/)),
+
+    multipart_disposition_value: $ => /[^\n]*/,
+
+    multipart_content_type: $ => seq(
+      $.multipart_content_type_key,
+      optional(WS),
+      ':',
+      optional($.multipart_content_type_value),
+      NL,
+    ),
+
+    multipart_content_type_key: $ => /Content-Type/,
+
+    multipart_content_type_value: $ => /[^\n]*/,
+
+    multipart_value: $ => /[^\n]+/,
   },
-})
+});

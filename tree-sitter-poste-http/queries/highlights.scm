@@ -27,6 +27,9 @@
 (url) @PosteUrl
 (http_version) @PosteHttpVersion
 
+; Variable reference ({{var}} / {{$var}})
+(variable) @PosteVarRef
+
 ; Header
 (header_key) @PosteHeaderKey
 ":" @PosteHeaderSep
@@ -34,6 +37,8 @@
 
 ; Prompt variable
 (prompt_variable) @PostePromptVar
+(prompt_name) @PostePromptVar
+(prompt_options) @PostePromptOpts
 
 ; Comment
 (comment) @PosteComment
@@ -57,8 +62,18 @@
   (run_target) @PosteRunTarget)
 (run_vars_clause) @PosteRunVars
 
-; Request body
-(request_body) @PosteRequestBody
+; JSON body
+(json_body) @PosteRequestBody
+
+; Multipart boundary
+(multipart_boundary) @PosteMultipartBoundary
+
+; Multipart form data
+(multipart_disposition_key) @PosteHeaderKey
+(multipart_disposition_value) @PosteVarValue
+(multipart_content_type_key) @PosteHeaderKey
+(multipart_content_type_value) @PosteVarValue
+(multipart_value) @PosteMultipartBody
 
 ; File operations
 (file_upload) @PosteFileUpload

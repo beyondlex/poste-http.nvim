@@ -2,7 +2,6 @@
 (pre_script) @lua
 (post_script) @lua
 
-; Inject JSON into request body
-((request_body) @injection.content
+; Inject JSON into json_body
+((json_body) @injection.content
  (#set! injection.language "json"))
-

@@ -1,9 +1,10 @@
 {
   "name": "tree-sitter-poste-http",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Tree-sitter grammar for Poste HTTP request files (.http, .rest)",
   "main": "grammar.js",
   "scripts": {
+    "generate": "tree-sitter generate",
     "build": "tree-sitter build --wasm",
     "test": "tree-sitter test",
     "parse": "tree-sitter parse"

@@ -116,15 +116,11 @@ module.exports = grammar({
     // (reserved for future use — inline interpolation inside URLs/values)
 
     // ─── Prompt Variable ────────────────────────────
-    prompt_variable: $ => seq(
+    prompt_variable: $ => token(seq(
       '<<',
-      field('name', $.var_name),
-      optional(seq(
-        '[',
-        field('options', $.prompt_options),
-        ']',
-      )),
-    ),
+      /\w+/,
+      optional(/[ \t]*\[[^\]]*\]/),
+    )),
 
     prompt_options: $ => /[^\]]+/,
 
@@ -179,33 +175,33 @@ module.exports = grammar({
       'import',
       /\s+/,
       field('path', $.import_path),
-      optional(seq(
-        /\s+/,
-        'as',
-        /\s+/,
-        field('alias', $.import_alias),
-      )),
+      optional($.import_alias_clause),
     ),
 
     import_path: $ => /\S+/,
 
-    import_alias: $ => /\w+/,
+    import_alias_clause: $ => token(seq(
+      /[ \t]+/,
+      'as',
+      /[ \t]+/,
+      /\w+/,
+    )),
 
     run_directive: $ => seq(
       'run',
       /\s+/,
       field('target', $.run_target),
-      optional(seq(
-        /\s*/,
-        '(',
-        field('vars', $.run_vars),
-        ')',
-      )),
+      optional($.run_vars_clause),
     ),
 
     run_target: $ => /\S+/,
 
-    run_vars: $ => /[^)]+/,
+    run_vars_clause: $ => token(seq(
+      /[ \t]*/,
+      '(',
+      /[^)]*/,
+      ')',
+    )),
 
     // ─── Request Body ────────────────────────────────
     request_body: $ => token(seq(

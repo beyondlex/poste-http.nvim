@@ -33,10 +33,7 @@
 (header_value) @PosteVarValue
 
 ; Prompt variable
-(prompt_variable
-  "<<" @PostePromptMarker
-  (var_name) @PostePromptVar)
-(prompt_options) @PostePromptOpts
+(prompt_variable) @PostePromptVar
 
 ; Comment
 (comment) @PosteComment
@@ -57,13 +54,13 @@
 ; Import / Run
 (import_directive
   "import" @PosteImport
-  (import_path) @PosteImportPath
-  "as" @PosteImportAliasOpt
-  (import_alias) @PosteImportAlias)
+  (import_path) @PosteImportPath)
+(import_alias_clause) @PosteImportAlias
 
 (run_directive
   "run" @PosteRun
   (run_target) @PosteRunTarget)
+(run_vars_clause) @PosteRunVars
 
 ; File operations
 (file_upload) @PosteFileUpload

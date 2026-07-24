@@ -134,9 +134,10 @@ function M.setup()
   define_hl_custom("PosteMethodScript", { fg = 0x8a5cf5, bold = true }) -- purple-blue
   define_hl_custom("PosteMethodOther",  { fg = 0x5c6370, bold = true }) -- gray
 
-  -- Run directive: bold purple for "run", green for target
+  -- Run directive: bold purple for "run", green for target, operator for vars
   define_hl_custom("PosteRun", { fg = 0xAA66FF, bold = true })
   define_hl_custom("PosteRunTarget", { fg = 0x44CC88 })
+  define_hl_custom("PosteRunVars", { fg = 0xE5C07B })
 
   -- Request name: bold with a distinct color
   define_hl_custom("PosteRequestName", { fg = 0x61afef, bold = true }) -- blue bold
@@ -204,7 +205,7 @@ function M.setup()
     "PosteMethodPATCH", "PosteMethodHEAD", "PosteMethodOPTIONS", "PosteMethodScript", "PosteMethodOther",
     "PosteUrl", "PosteHttpVersion", "PosteHeaderKey", "PosteHeaderSep", "PosteComment",
     "PosteImport", "PosteImportPath", "PosteImportAliasOpt", "PosteImportAlias",
-    "PosteRun", "PosteRunTarget", "PosteRunVarDef", "PosteRunVarAssign", "PosteRunVarValue",
+    "PosteRun", "PosteRunTarget", "PosteRunVars", "PosteRunVarDef", "PosteRunVarAssign", "PosteRunVarValue",
     "PostePromptMarker", "PostePromptVar", "PostePromptOpts",
     "PostePromptOptSep", "PostePromptMappingField", "PostePromptMappingColon", "PostePromptMappingPath",
     "PostePreScript", "PosteAssertion", "PosteScriptMarker", "PosteExternalScript",

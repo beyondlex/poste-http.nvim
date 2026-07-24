@@ -12,7 +12,8 @@ GET https://api.example.com/users
     (separator)
     (request_name))
   (request_line
-    (method)
+    (method
+      (method_get))
     (url)))
 
 ================================================================================
@@ -29,7 +30,8 @@ GET https://api.example.com/users
     (separator)
     (request_name))
   (request_line
-    (method)
+    (method
+      (method_get))
     (url)))
 
 ================================================================================
@@ -44,11 +46,9 @@ Variable definition
 (document
   (variable_definition
     (var_name)
-    (var_assign)
     (var_value))
   (variable_definition
     (var_name)
-    (var_assign)
     (var_value)))
 
 ================================================================================
@@ -65,7 +65,8 @@ GET {{base_url}}/users/{{user_id}}
     (separator)
     (request_name))
   (request_line
-    (method)
+    (method
+      (method_get))
     (url)))
 
 ================================================================================
@@ -80,7 +81,8 @@ Content-Type: application/json
 
 (document
   (request_line
-    (method)
+    (method
+      (method_get))
     (url))
   (header
     (header_key)
@@ -109,12 +111,13 @@ Content-Type: application/json
     (separator)
     (request_name))
   (request_line
-    (method)
+    (method
+      (method_post))
     (url))
   (header
     (header_key)
     (header_value))
-  (body_text))
+  (request_body))
 
 ================================================================================
 Comments
@@ -132,7 +135,8 @@ GET /api/data
     (separator)
     (request_name))
   (request_line
-    (method)
+    (method
+      (method_get))
     (url)))
 
 ================================================================================
@@ -145,11 +149,8 @@ Prompt variable
 --------------------------------------------------------------------------------
 
 (document
-  (prompt_variable
-    (var_name))
-  (prompt_variable
-    (var_name)
-    (prompt_options)))
+  (prompt_variable)
+  (prompt_variable))
 
 ================================================================================
 Pre-script block
@@ -168,9 +169,11 @@ GET /api/data
     (separator)
     (request_name))
   (request_line
-    (method)
+    (method
+      (method_get))
     (url))
-  (pre_script))
+  (pre_script
+    (script_block)))
 
 ================================================================================
 Post-script assertion
@@ -189,9 +192,11 @@ GET /api/data
     (separator)
     (request_name))
   (request_line
-    (method)
+    (method
+      (method_get))
     (url))
-  (post_script))
+  (post_script
+    (script_block)))
 
 ================================================================================
 Import directive
@@ -207,7 +212,7 @@ import ./orders.http as orders
     (import_path))
   (import_directive
     (import_path)
-    (import_alias)))
+    (import_alias_clause)))
 
 ================================================================================
 Run directive
@@ -223,7 +228,7 @@ run #orders.ListOrders (@status=pending)
     (run_target))
   (run_directive
     (run_target)
-    (run_vars)))
+    (run_vars_clause)))
 
 ================================================================================
 File upload
@@ -238,7 +243,8 @@ Content-Type: multipart/form-data
 
 (document
   (request_line
-    (method)
+    (method
+      (method_post))
     (url))
   (header
     (header_key)

@@ -135,6 +135,9 @@ function M.setup()
   define_hl_custom("PosteMethodScript", { fg = 0x8a5cf5, bold = true }) -- purple-blue
   define_hl_custom("PosteMethodOther",  { fg = 0x5c6370, bold = true }) -- gray
 
+  -- Prompt variables: orange same as PUT
+  define_hl_custom("PostePromptVar", { fg = 0xd19a66, bold = true })
+
   -- Run directive: bold purple for "run", green for target, operator for vars
   define_hl_custom("PosteRun", { fg = 0xAA66FF, bold = true })
   define_hl_custom("PosteRunTarget", { fg = 0x44CC88 })

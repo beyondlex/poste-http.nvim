@@ -140,7 +140,14 @@ module.exports = grammar({
 
     prompt_name: $ => /\w+/,
 
-    prompt_options: $ => /\[[^\]]*\]/,
+    prompt_options: $ => seq(
+      '[',
+      repeat(choice(
+        /[^\[\]]+/,
+        $.prompt_options,
+      )),
+      ']',
+    ),
 
     // ─── Comments ───────────────────────────────────
     comment: $ => token(seq('#', optional(/[^#\n][^\n]*/), NL)),

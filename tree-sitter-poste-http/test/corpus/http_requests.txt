@@ -416,3 +416,18 @@ Comment with embedded # hash
   (comment)
   (comment)
   (comment))
+
+===============================================================================
+Prompt variable with nested brackets (jq syntax)
+===============================================================================
+
+<<item [{{jq.response.body.[].parents[].sha}}]
+
+-------------------------------------------------------------------------------
+
+(document
+  (prompt_variable
+    (prompt_name)
+    (prompt_options
+      (prompt_options)
+      (prompt_options))))

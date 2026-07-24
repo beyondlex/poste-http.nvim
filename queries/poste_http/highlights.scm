@@ -68,7 +68,9 @@
 
 (run_directive
   "run" @PosteRun
-  (run_target) @PosteRunTarget)
+  (run_target
+    (run_target_prefix) @PosteRunTarget
+    (run_target_name) @PosteRequestName))
 (run_vars_clause) @PosteRunVars
 
 ; JSON body

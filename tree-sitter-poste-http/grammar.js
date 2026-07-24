@@ -258,7 +258,14 @@ module.exports = grammar({
       NL,
     ),
 
-    run_target: $ => /\S+/,
+    run_target: $ => seq(
+      optional($.run_target_prefix),
+      $.run_target_name,
+    ),
+
+    run_target_prefix: $ => /[^\s.]+(?:\.[^\s.]+)*\./,
+
+    run_target_name: $ => /[^\s.]+/,
 
     run_vars_clause: $ => token(seq(
       /[ \t]*/,

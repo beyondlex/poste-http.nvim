@@ -239,9 +239,12 @@ run #orders.ListOrders (@status=pending)
 
 (document
   (run_directive
-    (run_target))
+    (run_target
+      (run_target_name)))
   (run_directive
-    (run_target)
+    (run_target
+      (run_target_prefix)
+      (run_target_name))
     (run_vars_clause)))
 
 ================================================================================

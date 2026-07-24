@@ -80,6 +80,9 @@
 (multipart_content_type_value) @PosteVarValue
 (multipart_value) @PosteMultipartBody
 
+; URL-encoded form body
+(form_body) @PosteRequestBody
+
 ; File operations
 (file_upload) @PosteFileUpload
 (file_ref) @PosteFileRef

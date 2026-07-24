@@ -31,6 +31,7 @@ module.exports = grammar({
       $.json_body,
       $.multipart_boundary,
       $.multipart_form_data,
+      $.form_body,
       $.header,
       $.request_line,
       $.comment,
@@ -277,5 +278,19 @@ module.exports = grammar({
     multipart_content_type_value: $ => /[^\n]*/,
 
     multipart_value: $ => /[^\n]+/,
+
+    // ─── URL-Encoded Form Body ───────────────────────
+    form_body: $ => token(seq(
+      /[a-zA-Z_][a-zA-Z0-9_]*/,
+      '=',
+      /[^&\n]*/,
+      repeat(seq(
+        '&',
+        /[a-zA-Z_][a-zA-Z0-9_]*/,
+        '=',
+        /[^&\n]*/,
+      )),
+      optional(NL),
+    )),
   },
 });

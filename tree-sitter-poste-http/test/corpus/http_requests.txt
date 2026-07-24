@@ -346,3 +346,58 @@ Content-Type: text/plain
       (multipart_content_type_value))
     (multipart_value))
   (multipart_boundary))
+===============================================================================
+POST with URL-encoded form body
+===============================================================================
+
+### URL Encoded Form
+POST https://httpbin.org/post
+Content-Type: application/x-www-form-urlencoded
+Accept: application/json
+
+name=John&age=30&city=NewYork
+
+-------------------------------------------------------------------------------
+
+(document
+  (request_block
+    (separator)
+    (request_name))
+  (request_line
+    (method
+      (method_post))
+    (url))
+  (header
+    (header_key)
+    (header_value))
+  (header
+    (header_key)
+    (header_value))
+  (form_body))
+
+===============================================================================
+POST with URL-encoded form body and {{var}} references
+===============================================================================
+
+### URL Encoded Form
+POST {{base_url}}/post
+Content-Type: application/x-www-form-urlencoded
+
+name={{name}}&age={{age}}&city=NewYork
+
+-------------------------------------------------------------------------------
+
+(document
+  (request_block
+    (separator)
+    (request_name))
+  (request_line
+    (method
+      (method_post))
+    (url
+      (variable
+        (identifier))))
+  (header
+    (header_key)
+    (header_value))
+  (form_body))

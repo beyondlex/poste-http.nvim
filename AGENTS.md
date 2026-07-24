@@ -26,6 +26,9 @@ File-driven HTTP request executor (Rust CLI + Neovim). `.http` → execute → r
 - **Module name ownership**: `poste-http.nvim` comes before `poste-sql.nvim` in rtp.
   Never create files under `lua/poste/sql/` — they would shadow `poste-sql.nvim`'s
   modules silently.
+- **HTTP grammar ↔ tree-sitter sync**: Any change to HTTP grammar (parser, syntax)
+  must be mirrored in the tree-sitter grammar (`tree-sitter-http/grammar.js`) and
+  its query files (`highlights.scm`, `injections.scm`, `locals.scm`).
 
 ## References
 

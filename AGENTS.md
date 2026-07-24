@@ -16,6 +16,7 @@ File-driven HTTP request executor (Rust CLI + Neovim). `.http` → execute → r
 - **Extensibility over speed** — no shortcuts for quick wins
 - **Vim ergonomics first** — keyboard-driven, no modal dialogs
 - **TDD first** — write test before implementation
+- **Bug fix → test** — every bug fix must include a test that would have caught it, to prevent regressions
 
 ## Code Conventions
 

@@ -269,3 +269,80 @@ External script
 (document
   (external_script)
   (external_assertion))
+
+================================================================================
+Multipart form data - text field
+================================================================================
+
+------WebKitFormBoundary
+Content-Disposition: form-data; name="username"
+
+admin
+------WebKitFormBoundary--
+
+--------------------------------------------------------------------------------
+
+(document
+  (multipart_boundary)
+  (multipart_form_data
+    (multipart_disposition
+      (multipart_disposition_key)
+      (multipart_disposition_value))
+    (multipart_value))
+  (multipart_boundary))
+
+================================================================================
+Multipart form data - multiple fields
+================================================================================
+
+------WebKitFormBoundary
+Content-Disposition: form-data; name="username"
+
+admin
+------WebKitFormBoundary
+Content-Disposition: form-data; name="email"
+
+admin@example.com
+------WebKitFormBoundary--
+
+--------------------------------------------------------------------------------
+
+(document
+  (multipart_boundary)
+  (multipart_form_data
+    (multipart_disposition
+      (multipart_disposition_key)
+      (multipart_disposition_value))
+    (multipart_value))
+  (multipart_boundary)
+  (multipart_form_data
+    (multipart_disposition
+      (multipart_disposition_key)
+      (multipart_disposition_value))
+    (multipart_value))
+  (multipart_boundary))
+
+================================================================================
+Multipart form data - with Content-Type and file upload
+================================================================================
+
+------WebKitFormBoundary
+Content-Disposition: form-data; name="avatar"; filename="test.txt"
+Content-Type: text/plain
+
+< ./upload_test.txt
+------WebKitFormBoundary--
+
+--------------------------------------------------------------------------------
+
+(document
+  (multipart_boundary)
+  (multipart_form_data
+    (multipart_disposition
+      (multipart_disposition_key)
+      (multipart_disposition_value))
+    (multipart_content_type
+      (multipart_content_type_key)
+      (multipart_content_type_value))
+    (multipart_value))
+  (multipart_boundary))

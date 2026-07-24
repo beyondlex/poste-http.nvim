@@ -2,9 +2,11 @@ local M = {}
 local cache = require("poste.http.cache")
 
 local ns = vim.api.nvim_create_namespace("poste_http_var_refs")
+local mapping_ns = vim.api.nvim_create_namespace("poste_http_prompt_mapping")
 
 local function highlight_var_refs(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+  vim.api.nvim_buf_clear_namespace(bufnr, mapping_ns, 0, -1)
   local request_names = cache.collect_request_names(bufnr)
   local lookup = {}
   if request_names then
@@ -63,6 +65,28 @@ local function highlight_var_refs(bufnr)
       end
       s = b + 1
     end
+    -- Highlight prompt mapping keys (name:/key:/desc:) inside << [ ... ] lines
+    if line:find("^%s*<<") then
+      local bracket_start = line:find("%[")
+      local bracket_end = bracket_start and line:find("][^]]*$")
+      if bracket_start and bracket_end then
+        local inner = line:sub(bracket_start + 1, bracket_end - 1)
+        local pos = 1
+        while pos <= #inner do
+          local ma, mb = inner:find("[nkd][a-z]+:", pos)
+          if not ma then break end
+          local word = inner:sub(ma, mb - 1)
+          if word == "name" or word == "key" or word == "desc" then
+            vim.api.nvim_buf_set_extmark(bufnr, mapping_ns, row, bracket_start + ma - 1, {
+              end_row = row, end_col = bracket_start + mb,
+              hl_group = "PostePromptMappingField",
+              priority = 160,
+            })
+          end
+          pos = mb + 1
+        end
+      end
+    end
   end
 end
 
@@ -77,7 +101,9 @@ function M.enable(bufnr)
   end
   highlight_var_refs(bufnr)
   vim.api.nvim_buf_attach(bufnr, false, {
-    on_lines = function() highlight_var_refs(bufnr) end,
+    on_lines = function()
+      highlight_var_refs(bufnr)
+    end,
   })
 end
 
@@ -85,6 +111,7 @@ function M.disable(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   pcall(vim.treesitter.stop, bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+  vim.api.nvim_buf_clear_namespace(bufnr, mapping_ns, 0, -1)
 end
 
 --- Inspect the treesitter parse tree for the current buffer.

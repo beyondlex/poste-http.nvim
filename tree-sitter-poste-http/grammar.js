@@ -76,8 +76,35 @@ module.exports = grammar({
     method_connect: $ => 'CONNECT',
     method_script: $ => 'SCRIPT',
 
-    url: $ => repeat1(choice(
-      /[^ \t\n{}]+/,
+    url: $ => seq(
+      $.url_path,
+      optional($.query_string),
+    ),
+
+    url_path: $ => repeat1(choice(
+      /[^ \t\n{}?]+/,
+      $.variable,
+    )),
+
+    query_string: $ => seq(
+      '?',
+      $.query_params,
+    ),
+
+    query_params: $ => seq(
+      $.query_param,
+      repeat(seq('&', $.query_param)),
+    ),
+
+    query_param: $ => seq(
+      $.query_key,
+      optional(seq('=', optional($.query_value))),
+    ),
+
+    query_key: $ => /[a-zA-Z_][a-zA-Z0-9_.-]*/,
+
+    query_value: $ => repeat1(choice(
+      /[^ \t\n{}&]+/,
       $.variable,
     )),
 

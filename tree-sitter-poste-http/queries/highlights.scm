@@ -27,6 +27,10 @@
 (url) @PosteUrl
 (http_version) @PosteHttpVersion
 
+; Query string parameters
+(query_key) @PosteQueryKey
+(query_value) @PosteQueryValue
+
 ; Variable reference ({{var}} / {{$var}})
 (variable) @PosteVarRef
 

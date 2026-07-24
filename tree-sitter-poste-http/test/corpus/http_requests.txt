@@ -13,7 +13,8 @@ GET https://api.example.com/users
   (request_line
     (method
       (method_get))
-    (url)))
+    (url
+      (url_path))))
 
 ================================================================================
 Request block with name
@@ -31,7 +32,8 @@ GET https://api.example.com/users
   (request_line
     (method
       (method_get))
-    (url)))
+    (url
+      (url_path))))
 
 ================================================================================
 Variable definition
@@ -67,10 +69,11 @@ GET {{base_url}}/users/{{user_id}}
     (method
       (method_get))
     (url
-      (variable
-        (identifier))
-      (variable
-        (identifier)))))
+      (url_path
+        (variable
+          (identifier))
+        (variable
+          (identifier))))))
 
 ================================================================================
 Headers
@@ -86,7 +89,8 @@ Content-Type: application/json
   (request_line
     (method
       (method_get))
-    (url))
+    (url
+      (url_path)))
   (header
     (header_key)
     (header_value))
@@ -116,7 +120,8 @@ Content-Type: application/json
   (request_line
     (method
       (method_post))
-    (url))
+    (url
+      (url_path)))
   (header
     (header_key)
     (header_value))
@@ -140,7 +145,8 @@ GET /api/data
   (request_line
     (method
       (method_get))
-    (url)))
+    (url
+      (url_path))))
 
 ================================================================================
 Prompt variable
@@ -177,7 +183,8 @@ GET /api/data
   (request_line
     (method
       (method_get))
-    (url))
+    (url
+      (url_path)))
   (pre_script
     (script_block)))
 
@@ -200,7 +207,8 @@ GET /api/data
   (request_line
     (method
       (method_get))
-    (url))
+    (url
+      (url_path)))
   (post_script
     (script_block)))
 
@@ -251,7 +259,8 @@ Content-Type: multipart/form-data
   (request_line
     (method
       (method_post))
-    (url))
+    (url
+      (url_path)))
   (header
     (header_key)
     (header_value))
@@ -366,7 +375,8 @@ name=John&age=30&city=NewYork
   (request_line
     (method
       (method_post))
-    (url))
+    (url
+      (url_path)))
   (header
     (header_key)
     (header_value))
@@ -395,8 +405,9 @@ name={{name}}&age={{age}}&city=NewYork
     (method
       (method_post))
     (url
-      (variable
-        (identifier))))
+      (url_path
+        (variable
+          (identifier)))))
   (header
     (header_key)
     (header_value))
@@ -431,3 +442,60 @@ Prompt variable with nested brackets (jq syntax)
     (prompt_options
       (prompt_options)
       (prompt_options))))
+
+================================================================================
+URL with query parameters
+================================================================================
+
+### Search
+GET https://api.example.com/search?q=hello&page=1&limit={{limit}}
+
+--------------------------------------------------------------------------------
+
+(document
+  (request_block
+    (separator)
+    (request_name))
+  (request_line
+    (method
+      (method_get))
+    (url
+      (url_path)
+      (query_string
+        (query_params
+          (query_param
+            (query_key)
+            (query_value))
+          (query_param
+            (query_key)
+            (query_value))
+          (query_param
+            (query_key)
+            (query_value
+              (variable
+                (identifier)))))))))
+
+================================================================================
+URL with query parameter - empty value
+================================================================================
+
+### Search
+GET https://api.example.com/search?q=&debug
+
+--------------------------------------------------------------------------------
+
+(document
+  (request_block
+    (separator)
+    (request_name))
+  (request_line
+    (method
+      (method_get))
+    (url
+      (url_path)
+      (query_string
+        (query_params
+          (query_param
+            (query_key))
+          (query_param
+            (query_key)))))))

@@ -401,3 +401,18 @@ name={{name}}&age={{age}}&city=NewYork
     (header_key)
     (header_value))
   (form_body))
+
+===============================================================================
+Comment with embedded # hash
+===============================================================================
+
+#   run #auth.Login                     # single request via alias
+#   run #auth.Login (@token=abc123)     # with inline variable override
+#   run ./helper_batch.http             # all requests from file
+
+-------------------------------------------------------------------------------
+
+(document
+  (comment)
+  (comment)
+  (comment))

@@ -143,7 +143,7 @@ module.exports = grammar({
     prompt_options: $ => /\[[^\]]*\]/,
 
     // ─── Comments ───────────────────────────────────
-    comment: $ => token(seq('#', /[^#\n]*/, NL)),
+    comment: $ => token(seq('#', optional(/[^#\n][^\n]*/), NL)),
 
     // ─── Scripts ────────────────────────────────────
     pre_script: $ => seq(

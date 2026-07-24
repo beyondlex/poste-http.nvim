@@ -158,13 +158,13 @@ function M.show_var_value()
   local line_text = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
 
   local var_name = nil
-  local s, e = line_text:find("{{[^}]+}}")
+  local s, e = line_text:find("{{(.-)}}")
   while s do
     if col >= s and col <= e then
       var_name = line_text:sub(s + 2, e - 2):gsub("^%s+", ""):gsub("%s+$", "")
       break
     end
-    s, e = line_text:find("{{[^}]+}}", e + 1)
+    s, e = line_text:find("{{(.-)}}", e + 1)
   end
 
   if not var_name then
@@ -421,7 +421,7 @@ function M.goto_definition()
   local req_name = nil
   local start_pos = 1
   while true do
-    local s, e = line_text:find("{{[^}]+}}", start_pos)
+    local s, e = line_text:find("{{(.-)}}", start_pos)
     if not s then break end
     if col + 1 >= s and col + 1 <= e then
       local ref_text = line_text:sub(s + 2, e - 2)
@@ -658,7 +658,7 @@ function M.goto_references()
 
   local start_pos = 1
   while true do
-    local s, e = line_text:find("{{[^}]+}}", start_pos)
+    local s, e = line_text:find("{{(.-)}}", start_pos)
     if not s then break end
     if col + 1 >= s and col + 1 <= e then
       local ref_text = line_text:sub(s + 2, e - 2)

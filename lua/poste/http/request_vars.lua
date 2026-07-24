@@ -269,7 +269,7 @@ end
 --- Returns list of { full = "{{...}}", request_name = "RequestName" }
 local function find_request_variable_refs(block_text)
   local refs = {}
-  for full_ref in block_text:gmatch("{{([^}]+)}}") do
+  for full_ref in block_text:gmatch("{{(.-)}}") do
     -- Request variables contain .response. or .request.
     if full_ref:match("%.response%.") or full_ref:match("%.request%.") then
       local req_name = full_ref:match("^([^%.]+)%.")
@@ -1295,6 +1295,7 @@ M._test = {
   parse_structured_options = parse_structured_options,
   parse_dynamic_mapping    = parse_dynamic_mapping,
   apply_jq_mapping         = apply_jq_mapping,
+  find_request_variable_refs = find_request_variable_refs,
 }
 
 M._handle_prompt_variables_impl = handle_prompt_variables_impl

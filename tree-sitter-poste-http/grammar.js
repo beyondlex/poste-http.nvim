@@ -119,7 +119,7 @@ module.exports = grammar({
     prompt_variable: $ => token(seq(
       '<<',
       /\w+/,
-      optional(/[ \t]*\[[^\]]*\]/),
+      optional(/[ \t]*\[.*\]/),
     )),
 
     prompt_options: $ => /[^\]]+/,

@@ -70,11 +70,11 @@ module.exports = grammar({
     method_connect: $ => /CONNECT/i,
     method_script: $ => /SCRIPT/i,
 
-    url: $ => repeat1(choice(
-      token.immediate(/[^ \t\n{}]+/),
-      token.immediate(/\{\{[^$][^}]*\}\}/),
-      token.immediate(/\{\{\$\w+\}\}/),
-    )),
+    url: $ => token(repeat1(choice(
+      /[^ \t\n{}]+/,
+      /\{\{[^$][^}]*\}\}/,
+      /\{\{\$\w+\}\}/,
+    ))),
 
     http_version: $ => /HTTP\/\d+(?:\.\d+)?/i,
 

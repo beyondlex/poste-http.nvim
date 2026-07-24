@@ -7,6 +7,9 @@ if exists("b:current_syntax")
   finish
 endif
 
+" Sync from start of file for robust multi-line region handling (PosteBody)
+syn sync fromstart
+
 " ─── Request separator + name (MUST be before comments) ─────
 syn region PosteRequestName
   \ start='^###' end='$'

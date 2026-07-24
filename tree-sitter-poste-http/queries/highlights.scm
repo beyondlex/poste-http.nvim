@@ -57,6 +57,9 @@
   (run_target) @PosteRunTarget)
 (run_vars_clause) @PosteRunVars
 
+; Request body
+(request_body) @PosteRequestBody
+
 ; File operations
 (file_upload) @PosteFileUpload
 (file_ref) @PosteFileRef

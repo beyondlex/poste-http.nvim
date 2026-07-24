@@ -89,6 +89,13 @@ end
 -- Defined here rather than in setup() so the latest plugin/poste.lua
 -- on rtp always wins, even when lazy.nvim cached an older init.lua.
 pcall(vim.api.nvim_del_user_command, "PosteInfo")
+-- PosteTree: show treesitter parse tree for debugging highlight issues.
+pcall(vim.api.nvim_del_user_command, "PosteTree")
+vim.api.nvim_create_user_command("PosteTree", function()
+  local ok, mod = pcall(require, "poste.http.treesitter")
+  if ok then mod.inspect() end
+end, { desc = "Show tree-sitter parse tree for current buffer" })
+
 vim.api.nvim_create_user_command("PosteInfo", function()
   local state = require("poste.state")
   local binary = state.find_poste_binary()

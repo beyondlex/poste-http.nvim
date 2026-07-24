@@ -44,4 +44,34 @@ function M.disable(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
 end
 
+--- Inspect the treesitter parse tree for the current buffer.
+--- Displays as a notification for debugging highlight issues.
+function M.inspect(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local ok, parser = pcall(vim.treesitter.get_parser, bufnr, "poste_http")
+  if not ok or not parser then
+    vim.notify("[Poste] No tree-sitter parser active", vim.log.levels.WARN)
+    return
+  end
+  local ok, trees = pcall(parser.parse, parser)
+  if not ok or not trees or #trees == 0 then
+    vim.notify("[Poste] No parse tree available", vim.log.levels.WARN)
+    return
+  end
+  local root = trees[1]:root()
+  local lines = {}
+  local function dump(node, depth)
+    depth = depth or 0
+    local indent = string.rep("  ", depth)
+    local name = node:type()
+    local start_row, start_col, end_row, end_col = node:range()
+    table.insert(lines, string.format("%s%s [%d:%d - %d:%d]", indent, name, start_row, start_col, end_row, end_col))
+    for child in node:iter_children() do
+      dump(child, depth + 1)
+    end
+  end
+  dump(root)
+  vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
+end
+
 return M

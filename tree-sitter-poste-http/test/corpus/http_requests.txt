@@ -751,3 +751,23 @@ query User($id: ID!) {
     (header_value))
   (graphql_body)
   (json_body))
+
+================================================================================
+GraphQL mutation body
+================================================================================
+
+GRAPHQL https://api.example.com/graphql
+
+mutation {
+  add(a: 19, b: 23)
+}
+
+--------------------------------------------------------------------------------
+
+(document
+  (request_line
+    (method
+      (method_graphql))
+    (url
+      (url_path)))
+  (graphql_body))

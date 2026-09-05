@@ -59,4 +59,22 @@ GRAPHQL http://localhost:8890
     assert.is_truthy(body:find("hello"), "the anonymous query segment must be in the body")
     assert.is_truthy(body:find('"name": "poste"'), "the variables segment must be in the body")
   end)
+
+  it("keeps a mutation as the whole body, with no headers leaked from it", function()
+    local blocks = describe_mod.describe_content([[
+### GraphQL: mutation
+GRAPHQL http://localhost:8890
+
+mutation {
+  add(a: 19, b: 23)
+}
+]], "t.http")
+    assert.equals("GRAPHQL", blocks[1].method)
+    local body = blocks[1].body
+    assert.is_truthy(body:find("mutation"), "mutation keyword must stay in the body")
+    assert.is_truthy(body:find("add%(a: 19, b: 23%)"),
+      "mutation field must stay in the body")
+    assert.equals(0, #blocks[1].headers,
+      "mutation text must not be misparsed as request headers")
+  end)
 end)

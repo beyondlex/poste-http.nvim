@@ -630,21 +630,8 @@ local function start_curl_exec(ctx)
     block_start or 1, block_end)
 
   -- Interactive WebSocket sessions stream frames through this hook; other
-  -- protocols never call it. The identity check stops a live session from
-  -- stomping a newer response's view, and the busy flag is released so a
-  -- long-lived session cannot block other requests.
-  local ws_switched = false
-  local on_progress = function(resp)
-    if state.last_response ~= nil and state.last_response ~= resp then
-      return
-    end
-    state.set_response(resp)
-    state._busy = false
-    if not ws_switched or state.current_view == "messages" then
-      ws_switched = true
-      view.show_view("messages")
-    end
-  end
+  -- protocols never call it (see make_ws_progress_handler for the guard).
+  local on_progress = M.make_ws_progress_handler()
 
   executors.run({
     method = method,
@@ -674,6 +661,29 @@ local function start_curl_exec(ctx)
     start_hires = start_hires,
   })
   view.show_view("verbose")
+end
+
+--- Build the progress handler for an interactive WebSocket session.
+--- Every progress response is a freshly built table, so the guard compares
+--- against the response this handler last published: streaming responses
+--- keep replacing each other (Msgs tab refreshes on each frame), but once
+--- a different request's response replaced ours in state, the live
+--- session's late frames must not stomp the newer view.
+function M.make_ws_progress_handler()
+  local published = nil
+  local switched = false
+  return function(resp)
+    if published ~= nil and state.last_response ~= published then
+      return
+    end
+    published = resp
+    state.set_response(resp)
+    state._busy = false
+    if not switched or state.current_view == "messages" then
+      switched = true
+      view.show_view("messages")
+    end
+  end
 end
 
 ---------------------------------------------------------------------------

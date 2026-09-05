@@ -165,6 +165,81 @@ describe("run.render_orchestration_result", function()
   end)
 end)
 
+describe("run.make_ws_progress_handler", function()
+  local run, show_calls
+
+  before_each(function()
+    package.loaded["poste-http.http.run"] = nil
+    run = require("poste-http.http.run")
+    show_calls = {}
+    -- Stub the module table (not a local) so the handler's call-site
+    -- lookup sees the stub; mimic show_view's current_view bookkeeping.
+    require("poste-http.http.view").show_view = function(v)
+      table.insert(show_calls, v)
+      state.current_view = v
+    end
+    state.last_response = nil
+    state._busy = true
+  end)
+
+  after_each(function()
+    package.loaded["poste-http.http.run"] = nil
+    state.last_response = nil
+    state.current_view = "body"
+  end)
+
+  it("publishes the first progress response and switches to the Msgs tab", function()
+    local handler = run.make_ws_progress_handler()
+    local resp1 = { protocol = "websocket" }
+
+    handler(resp1)
+
+    assert.equal(resp1, state.last_response)
+    assert.is_false(state._busy)
+    assert.same({ "messages" }, show_calls)
+  end)
+
+  it("republishes every streamed response so Msgs refreshes after a send", function()
+    local handler = run.make_ws_progress_handler()
+    local resp1 = { protocol = "websocket" }
+    local resp2 = { protocol = "websocket" }
+
+    handler(resp1)
+    handler(resp2)
+
+    -- Each streaming response is a new table; the second must not be
+    -- mistaken for "a newer response replaced ours".
+    assert.equal(resp2, state.last_response)
+    assert.equals(2, #show_calls)
+  end)
+
+  it("updates state without re-rendering once another tab is current", function()
+    local handler = run.make_ws_progress_handler()
+    handler({ protocol = "websocket" })
+    state.set_current_view("body")
+
+    local resp2 = { protocol = "websocket" }
+    handler(resp2)
+
+    assert.equal(resp2, state.last_response)
+    assert.equals(1, #show_calls, "must not stomp a tab the user switched to")
+  end)
+
+  it("goes quiet once a newer response replaces the session's response", function()
+    local handler = run.make_ws_progress_handler()
+    handler({ protocol = "websocket" })
+
+    -- Another request finished while the session was live.
+    local newer = { protocol = "http" }
+    state.set_response(newer)
+
+    handler({ protocol = "websocket" })
+
+    assert.equal(newer, state.last_response)
+    assert.equals(1, #show_calls)
+  end)
+end)
+
 describe("run.choose_view_tab", function()
   local run
 

@@ -467,11 +467,8 @@ function M.format_request_payload(r)
     if #raw_lines > 10 then
       table.insert(lines, string.format("  ... (%d more lines)", #raw_lines - 10))
     end
-if r then
-    r._cached_verbose = lines
+    return lines
   end
-  return lines
-end
 
   if ct:lower():find("application/x%-www%-form%-urlencoded") then
     local form_lines = fmt_util.format_urlencoded_body(body_only)

@@ -122,4 +122,30 @@ describe("verbose.lua", function()
         string.format("expected at least 4 real section titles, got %d", section_hl_count))
     end)
   end)
+
+  describe("format_request_payload cache hygiene", function()
+    it("does not poison format_verbose's r._cached_verbose on multipart parse failure", function()
+      local r = make_r { method = "POST", body = "irrelevant" }
+      -- Multipart content-type whose body carries no boundary marker, so the
+      -- payload formatter takes its parse-failed fallback path.
+      r.metadata.request_headers = "Content-Type: multipart/form-data; boundary=missing"
+      r.metadata.request_body = "no boundary marker in here"
+
+      local payload_lines = verbose.format_request_payload(r)
+      assert.equals("(multipart form data — parse failed)", payload_lines[1])
+
+      local view_lines = verbose.format_verbose(r)
+      assert.is_nil(r._cached_verbose,
+        "format_request_payload must not write the verbose-view cache")
+      local has_verbose_sections = false
+      for _, l in ipairs(view_lines) do
+        if l == "  Request Headers" or l == "  Request Body" then
+          has_verbose_sections = true
+          break
+        end
+      end
+      assert.is_true(has_verbose_sections,
+        "format_verbose must render the verbose view, not the request payload lines")
+    end)
+  end)
 end)

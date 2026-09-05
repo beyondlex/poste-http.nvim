@@ -74,7 +74,13 @@ function M.check()
     end
 
     if vim.fn.filereadable(so_path) == 1 then
-      vim.health.ok(grammar.name .. " parser compiled: " .. grammar.so)
+      -- A .so older than its source serves an outdated grammar silently
+      -- (missing highlights, misparsed bodies), so surface the staleness.
+      if vim.fn.getftime(parser_c) > vim.fn.getftime(so_path) then
+        vim.health.warn(grammar.name .. " parser is stale (compiled before the current source). Run :PosteHttpBuildParsers, then restart Neovim so the new parser is loaded.")
+      else
+        vim.health.ok(grammar.name .. " parser compiled: " .. grammar.so)
+      end
     else
       vim.health.warn(grammar.name .. " parser not compiled. Run :PosteHttpBuildParsers to compile.")
     end

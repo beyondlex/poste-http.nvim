@@ -43,6 +43,9 @@ describe("poste-http healthcheck", function()
       return 0
     end
 
+    -- Default: .so is as fresh as the source (not stale).
+    vim.fn.getftime = function() return 100 end
+
     vim.fn.isdirectory = function(path)
       if path:match("tree%-sitter%-poste") then return 1 end
       return 0
@@ -224,6 +227,46 @@ describe("poste-http healthcheck", function()
       end
     end
     assert.is_true(has_not_compiled)
+  end)
+
+  it("warns when the compiled parser is older than the parser source", function()
+    -- Regression: a stale parser silently serves an outdated grammar
+    -- (GRAPHQL highlights and bodies vanished until the parser was rebuilt).
+    vim.fn.getftime = function(path)
+      if path:match("parser%.c$") then return 200 end
+      return 100
+    end
+    package.loaded["poste-http.health"] = nil
+    health = require("poste-http.health")
+    health.check()
+    local has_stale = false
+    for _, r in ipairs(mock_health._reports) do
+      if r.type == "warn" and r.msg:match("stale") then
+        has_stale = true
+      end
+    end
+    assert.is_true(has_stale)
+  end)
+
+  it("reports parser compiled when .so is at least as new as the source", function()
+    vim.fn.getftime = function(path)
+      if path:match("parser%.c$") then return 100 end
+      return 200
+    end
+    package.loaded["poste-http.health"] = nil
+    health = require("poste-http.health")
+    health.check()
+    local has_compiled, has_stale = false, false
+    for _, r in ipairs(mock_health._reports) do
+      if r.type == "ok" and r.msg:match("parser compiled") then
+        has_compiled = true
+      end
+      if r.msg and r.msg:match("stale") then
+        has_stale = true
+      end
+    end
+    assert.is_true(has_compiled)
+    assert.is_false(has_stale)
   end)
 
   it("reports parser active in Neovim for both grammars", function()

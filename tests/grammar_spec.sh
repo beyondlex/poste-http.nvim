@@ -3,6 +3,7 @@
 set -euo pipefail
 
 PARSER_DIR="$(cd "$(dirname "$0")/.." && pwd)/tree-sitter-poste-http"
+REPO_ROOT="$(dirname "$PARSER_DIR")"
 TEST_DIR="$(mktemp -d)"
 
 cleanup() { rm -rf "$TEST_DIR"; }
@@ -34,6 +35,22 @@ check() {
     echo "    expected: $expected"
     echo "    got: $(echo "$result" | head -5)"
     fail=$((fail+1))
+  fi
+}
+
+check_not() {
+  local name="$1"; shift
+  local input="$1"; shift
+  local unexpected="$1"; shift
+  local result=$(parse "$input" 2>&1)
+  if echo "$result" | grep -q "$unexpected"; then
+    echo "  FAIL: $name"
+    echo "    must NOT contain: $unexpected"
+    echo "    got: $(echo "$result" | head -5)"
+    fail=$((fail+1))
+  else
+    echo "  PASS: $name"
+    pass=$((pass+1))
   fi
 }
 
@@ -114,6 +131,42 @@ check "WEBSOCKET request line" \
 check "GRAPHQL query body" \
 $'GRAPHQL https://api.example.com/graphql\n\nquery User($id: ID!) {\n  user(id: $id) { id name email }\n}' \
   "graphql_body"
+
+check "GRAPHQL mutation body" \
+$'GRAPHQL https://api.example.com/graphql\n\nmutation {\n  add(a: 19, b: 23)\n}' \
+  "graphql_body"
+
+# Regression: without graphql_body the query text was error-recovered into
+# header nodes (Request Headers got "mutation: 19, b: 23)").
+check_not "GRAPHQL mutation text is not parsed as a header" \
+$'GRAPHQL https://api.example.com/graphql\n\nmutation {\n  add(a: 19, b: 23)\n}' \
+  "(header"
+
+check_not "GRAPHQL query text is not parsed as a header" \
+$'GRAPHQL https://api.example.com/graphql\n\nquery User($id: ID!) {\n  user(id: $id) { id name email }\n}' \
+  "(header"
+
+# ─── Query file sync ─────────────────────────────
+# The grammar package (queries/ here) is authoritative; the nvim-facing
+# copies (../queries/poste_http/) must stay identical. When they drifted,
+# Neovim silently lost captures for new nodes (GRAPHQL/GRPC/WEBSOCKET
+# methods never highlighted despite a correct parse tree).
+echo "=== Query file sync (grammar package <-> nvim rtp) ==="
+for f in "$PARSER_DIR"/queries/*.scm; do
+  name="$(basename "$f")"
+  nvim_copy="$REPO_ROOT/queries/poste_http/$name"
+  if [ ! -f "$nvim_copy" ]; then
+    echo "  FAIL: $name missing from queries/poste_http/"
+    fail=$((fail+1))
+  elif diff -q "$f" "$nvim_copy" >/dev/null; then
+    echo "  PASS: $name in sync"
+    pass=$((pass+1))
+  else
+    echo "  FAIL: $name drifted from the grammar package (authoritative copy: tree-sitter-poste-http/queries/)"
+    diff "$f" "$nvim_copy" | head -10
+    fail=$((fail+1))
+  fi
+done
 
 echo "=== Results: $pass passed, $fail failed ==="
 exit $fail

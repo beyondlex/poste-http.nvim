@@ -108,3 +108,48 @@ describe("parse_error", function()
     assert.equals("Connection refused", r.metadata.error)
   end)
 end)
+
+describe("parse_response effective URL", function()
+  it("uses the last Location header as the final URL across a redirect chain", function()
+    -- curl -v logs one "< Location:" line per followed hop; the final URL is
+    -- the target of the LAST redirect, not the first.
+    local r = parser.parse_response(nil, {}, {
+      "< HTTP/1.1 301 Moved Permanently",
+      "< Location: https://example.com/first-hop",
+      "< HTTP/1.1 302 Found",
+      "< Location: https://example.com/final",
+      "< HTTP/1.1 200 OK",
+    }, nil, "GET", "https://example.com/start", nil)
+    assert.equals("https://example.com/final", r.url)
+  end)
+
+  it("falls back to the request URL when verbose has no Location header", function()
+    local r = parser.parse_response(nil, {}, {
+      "< HTTP/1.1 200 OK",
+      "< Content-Type: text/plain",
+    }, nil, "GET", "https://example.com/start", nil)
+    assert.equals("https://example.com/start", r.url)
+  end)
+end)
+
+describe("parse_response cookies", function()
+  local function write_headers_file(text)
+    local path = vim.fn.tempname() .. "_headers"
+    local fd = io.open(path, "w")
+    fd:write(text)
+    fd:close()
+    return path
+  end
+
+  it("keeps a Set-Cookie header with an empty value (cookie clearing)", function()
+    local f = write_headers_file("HTTP/1.1 200 OK\nSet-Cookie: sid=; Path=/\nSet-Cookie: theme=dark\n\n")
+    local r = parser.parse_response(f, {}, {}, nil, "GET", "https://x", nil)
+    os.remove(f)
+    assert.equals(2, #r.cookies)
+    assert.equals("sid", r.cookies[1].name)
+    assert.equals("", r.cookies[1].value)
+    assert.equals("/", r.cookies[1].path)
+    assert.equals("theme", r.cookies[2].name)
+    assert.equals("dark", r.cookies[2].value)
+  end)
+end)

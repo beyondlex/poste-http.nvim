@@ -32,7 +32,8 @@ end
 
 local function parse_set_cookie(header_value)
   local cookie = { name = "", value = "", domain = "", path = "/", expires = nil, http_only = false, secure = false }
-  local name, value = header_value:match("^%s*([^=]+)=([^;]+)")
+  -- Value may be empty ("sid=; Max-Age=0" clears a cookie), so match [^;]* not [^;]+.
+  local name, value = header_value:match("^%s*([^=]+)=([^;]*)")
   if not name then return nil end
   cookie.name = vim.trim(name)
   cookie.value = vim.trim(value)
@@ -172,16 +173,14 @@ function M.parse_response(headers_file, stdout_data, stderr_data, start_hires, m
   end
 
   local final_url = request_url or ""
-  local loc = verbose:match("Location: ([^\r\n]+)")
-  if loc then
-    final_url = vim.trim(loc)
+  -- With -L the verbose log carries one Location line per hop; the last one
+  -- is the request that produced the final response, i.e. the effective URL.
+  local last_loc
+  for loc in verbose:gmatch("Location:%s*([^\r\n]+)") do
+    last_loc = loc
   end
-  local from = verbose:match("}%s+(%S+)%s*$")
-  if not from then
-    from = verbose:match("\\*\\s+(%S+)%s*$")
-  end
-  if not from then
-    from = verbose:match("Trying%s+%S+.*connected.*to%s+(%S+)")
+  if last_loc then
+    final_url = vim.trim(last_loc)
   end
 
   local response = {

@@ -113,6 +113,41 @@ describe("content-disposition download handling", function()
   end)
 
   ---------------------------------------------------------------------------
+  -- save_body_to_file
+  ---------------------------------------------------------------------------
+
+  describe("save_body_to_file", function()
+    it("writes the body, stamps metadata, and previews the first lines", function()
+      local r = { metadata = {} }
+      local lines = fmt_util.save_body_to_file("line1\nline2\nline3", "text/plain", r)
+      assert.is_not_nil(lines)
+      assert.equals("line1", lines[1])
+      assert.equals("line2", lines[2])
+      assert.is_not_nil(r.metadata.file_path)
+      assert.equals(17, r.metadata.file_size)
+      assert.equals("text/plain", r.metadata.file_content_type)
+      local fd = io.open(r.metadata.file_path, "rb")
+      local content = fd and fd:read("*a")
+      if fd then fd:close() end
+      assert.equals("line1\nline2\nline3", content)
+      os.remove(r.metadata.file_path)
+    end)
+
+    it("builds collision-safe filenames even where strftime %N is unsupported", function()
+      -- macOS strftime has no %6N and renders a literal "6N", collapsing the
+      -- timestamp to second precision: two dumps in one second overwrote
+      -- each other. The millisecond suffix must come from hrtime instead.
+      local r = { metadata = {} }
+      local lines = fmt_util.save_body_to_file("x", "text/plain", r)
+      local name = r.metadata.file_path:match("([^/]+)$")
+      assert.is_not_nil(name:match("^res_%d%d%d%d%d%d%d%d_%d%d%d%d%d%d_%d%d%d%.txt$"),
+        "filename should carry a 3-digit millisecond suffix, got: " .. name)
+      assert.is_nil(name:find("6N", 1, true), "literal strftime fallback must not leak into the name")
+      os.remove(r.metadata.file_path)
+    end)
+  end)
+
+  ---------------------------------------------------------------------------
   -- has_attachment_disposition
   ---------------------------------------------------------------------------
 

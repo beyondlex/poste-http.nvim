@@ -43,9 +43,18 @@ function M.save_body_to_file(body, content_type, r)
   local preview_lines = tonumber(cfg.body_preview_lines) or 20
   local cache_dir = cfg.response_cache_dir or vim.fn.stdpath("cache") .. "/poste_res"
   vim.fn.mkdir(cache_dir, "p")
-  local tmp_file = string.format("%s/res_%s.txt", cache_dir, vim.fn.strftime("%Y%m%d_%H%M%S_%6N"))
+  -- Millisecond suffix from hrtime: strftime %6N is a glibc extension and
+  -- yields a literal "6N" on macOS, collapsing the name to second precision
+  -- so two responses in the same second would overwrite each other.
+  local uv = vim.uv or vim.loop
+  local ms = math.floor((uv.hrtime() / 1e6) % 1000)
+  local tmp_file = string.format("%s/res_%s_%03d.txt", cache_dir, vim.fn.strftime("%Y%m%d_%H%M%S"), ms)
   local f = io.open(tmp_file, "wb")
-  if not f then return nil end
+  -- Keep the caller's contract (list of lines) even when the dump fails;
+  -- returning nil would crash the render pipeline on ipairs().
+  if not f then
+    return { string.format("(failed to write body dump: %s)", tmp_file) }
+  end
   f:write(body)
   f:close()
   if not r.metadata then r.metadata = {} end

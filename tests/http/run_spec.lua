@@ -431,3 +431,132 @@ describe("scripts.scan_script_set_calls", function()
     assert.equal(1, result.Authorization)
   end)
 end)
+
+describe("run.start_curl_exec", function()
+  local run, state, executors, view
+  local orig_exec_run, orig_show_view
+
+  before_each(function()
+    package.loaded["poste-http.http.run"] = nil
+    run = require("poste-http.http.run")
+    state = require("poste-http.state")
+    executors = require("poste-http.http.executors")
+    view = require("poste-http.http.view")
+    orig_exec_run = executors.run
+    orig_show_view = view.show_view
+  end)
+
+  after_each(function()
+    package.loaded["poste-http.http.run"] = nil
+    state.set_pending_request(nil)
+    executors.run = orig_exec_run
+    view.show_view = orig_show_view
+  end)
+
+  it("falls back to ctx.req_block when describe finds no block meta", function()
+    -- Regression: start_curl_exec read an undefined global `req_block`
+    -- instead of ctx.req_block, so when tree-sitter describe produced no
+    -- meta the method/url fallback stayed dead ("Could not determine
+    -- request URL" for a valid request line).
+    local captured
+    executors.run = function(req, _cb) captured = req end
+    view.show_view = function() end
+
+    run.start_curl_exec({
+      file = "",
+      buf_content = "", -- nothing to describe -> describe_content returns {}
+      req_line = 1,
+      src_buf = vim.api.nvim_get_current_buf(),
+      block_start = nil,
+      block_end = nil,
+      req_block = {
+        request_line = "GET https://fallback.example.com/ping",
+        headers = { { "X-Fallback", "1" } },
+        name = "Fallback",
+        method = "GET",
+        path = "https://fallback.example.com/ping",
+        body = "",
+      },
+    })
+
+    assert.is_not_nil(captured, "executor should receive the req_block-derived request")
+    assert.equal("GET", captured.method)
+    assert.equal("https://fallback.example.com/ping", captured.url)
+    assert.not_nil(state.pending_request)
+    assert.equal("Fallback", state.pending_request.name)
+  end)
+end)
+
+describe("run.run_request run-directive assertions", function()
+  local state, run, import, cache, assertions, view
+
+  local originals
+
+  before_each(function()
+    package.loaded["poste-http.http.run"] = nil
+    run = require("poste-http.http.run")
+    state = require("poste-http.state")
+    import = require("poste-http.http.import")
+    cache = require("poste-http.http.cache")
+    assertions = require("poste-http.http.assertions")
+    view = require("poste-http.http.view")
+
+    originals = {
+      resolve = import.resolve_run_at_cursor,
+      execute = import.execute_run_directive,
+      bounds = cache.find_request_block_bounds,
+      extract = assertions.extract_assertion_blocks,
+      run_assertions = assertions.run_assertions,
+      show_view = view.show_view,
+    }
+    state._busy = false
+  end)
+
+  after_each(function()
+    package.loaded["poste-http.http.run"] = nil
+    import.resolve_run_at_cursor = originals.resolve
+    import.execute_run_directive = originals.execute
+    cache.find_request_block_bounds = originals.bounds
+    assertions.extract_assertion_blocks = originals.extract
+    assertions.run_assertions = originals.run_assertions
+    view.show_view = originals.show_view
+    state._busy = false
+  end)
+
+  it("passes extracted assertion code to handle_directive_response", function()
+    -- Regression: `local _, assertion_code = extract_assertion_blocks(...)`
+    -- shadowed the outer variable, so run directives always passed nil and
+    -- their `> {% %}` blocks silently never ran.
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "### R", "run ./other.http#Named" })
+    vim.api.nvim_win_set_buf(0, buf)
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+    import.resolve_run_at_cursor = function()
+      return { action = "run", path = "./other.http", line = 1 }
+    end
+    cache.find_request_block_bounds = function() return 1, 2 end
+    assertions.extract_assertion_blocks = function(_, _s, _e, _dir)
+      return "STRIPPED", "ASSERT_SENTINEL"
+    end
+    local captured_code, captured_vars
+    assertions.run_assertions = function(_parsed, code, vars)
+      captured_code = code
+      captured_vars = vars
+      return { tests = {}, passed = 0, failed = 0, total = 0 }
+    end
+    view.show_view = function() end
+    local directive_cb
+    import.execute_run_directive = function(_resolved, cb)
+      directive_cb = cb
+      cb(true, { protocol = "http", status = 200, ok = true, headers = {}, body = "", metadata = {} })
+    end
+
+    run.run_request()
+    vim.wait(100, function() return captured_code ~= nil end)
+
+    assert.equal("ASSERT_SENTINEL", captured_code,
+      "the run directive's assertion block must reach run_assertions")
+    assert.is_table(captured_vars, "script_vars flow through alongside the assertion code")
+  end)
+end)

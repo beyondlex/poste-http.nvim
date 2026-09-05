@@ -547,6 +547,7 @@ local function start_curl_exec(ctx)
   local src_buf = ctx.src_buf
   local block_start = ctx.block_start
   local block_end = ctx.block_end
+  local req_block = ctx.req_block
 
   local buf_dir = file ~= "" and vim.fn.fnamemodify(file, ":h") or vim.fn.getcwd()
 
@@ -736,7 +737,9 @@ function M.run_request()
     local assertion_code
     if block_start then
       script_vars = scripts.collect_script_variables(buf_content, block_start, block_end, vim.fn.fnamemodify(file, ":h"))
-      local _, assertion_code = assertions.extract_assertion_blocks(buf_content, block_start, block_end)
+      -- Assign to the outer assertion_code: a `local` here would shadow it
+      -- and silently drop the block's assertions from `run` directives.
+      assertion_code = select(2, assertions.extract_assertion_blocks(buf_content, block_start, block_end, vim.fn.fnamemodify(file, ":h")))
     end
 
     -- Place indicator on the run directive line itself
@@ -807,5 +810,6 @@ M.make_script_response = make_script_response
 M.make_error_response = make_error_response
 M.choose_view_tab = choose_view_tab
 M.render_orchestration_result = render_orchestration_result
+M.start_curl_exec = start_curl_exec -- exposed for tests
 
 return M

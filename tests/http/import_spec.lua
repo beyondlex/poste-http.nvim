@@ -795,3 +795,57 @@ GET /login
     assert.is_true(found, "assertion block was skipped after pre-script injection")
   end)
 end)
+
+describe("resolve_reference with Lua import entries", function()
+  -- Bare/aliased Lua imports are indexed without a `requests` field;
+  -- resolving any name past such an entry must skip it, not crash.
+  local index = {
+    bare = {
+      { path = "/dir/helpers.lua", exports = { sig = function() end }, is_lua = true },
+      { path = "/dir/auth.http", requests = { { name = "Login", line = 1 } } },
+    },
+    aliased = {
+      m = { path = "/dir/vars.lua", exports = { key = "value" }, is_lua = true },
+    },
+    errors = {},
+    warnings = {},
+  }
+
+  it("skips bare Lua entries instead of erroring on nil requests", function()
+    assert.is_nil(imp.resolve_reference("Missing", index))
+  end)
+
+  it("still resolves past a bare Lua entry", function()
+    local r = imp.resolve_reference("Login", index)
+    assert.are_equal("/dir/auth.http", r.path)
+  end)
+
+  it("returns nil for aliased Lua entry instead of erroring", function()
+    assert.is_nil(imp.resolve_reference("m.Anything", index))
+  end)
+end)
+
+describe("import status with Lua imports", function()
+  it("renders bare Lua imports as Lua modules without erroring", function()
+    local tmpfile = os.tmpname() .. ".lua"
+    local f = io.open(tmpfile, "w")
+    f:write("return { key = 'value' }")
+    f:close()
+
+    local buf = vim.api.nvim_create_buf(true, true)
+    vim.api.nvim_buf_set_name(buf, "/tmp/status_demo.http")
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "import " .. tmpfile,
+      "run #Later",
+    })
+    vim.api.nvim_set_current_buf(buf)
+
+    local ok, out = pcall(require("poste-http.http.import").status)
+    os.remove(tmpfile)
+    vim.api.nvim_buf_delete(buf, { force = true })
+
+    assert.is_true(ok, "status() must not error on bare Lua imports")
+    local joined = table.concat(out or {}, "\n")
+    assert.matches("Lua module", joined)
+  end)
+end)

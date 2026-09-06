@@ -126,6 +126,8 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
   if status == "running" then
     stop_timer(buf, line_0)
     place_sign(buf, line_0, "PosteSpin1")
+    -- A re-run must not keep showing the previous run's latency/verdict.
+    set_payload_extmark(buf, line_0, nil)
     local frame = 1
     local timer = uv.new_timer()
     if not spinners[buf] then spinners[buf] = {} end

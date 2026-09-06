@@ -104,6 +104,14 @@ describe("websocket.build_response", function()
     assert.equals(1000, r.status)
   end)
 
+  it("lets opts.close_reason override the status text", function()
+    local r = ws.build_response({
+      url = "wss://x", body = "",
+    }, {}, {}, 0, { deadline_reached = true, close_reason = "Session closed" })
+    assert.is_true(r.ok)
+    assert.equals("Session closed", r.status_text)
+  end)
+
   it("maps a non-zero exit to an abnormal-closure error", function()
     local r = ws.build_response({
       url = "wss://stream.example.com/feed",
@@ -199,6 +207,24 @@ describe("websocket.run", function()
     ws.run({ url = "wss://x", headers = {}, body = "", wait_ms = 10 }, function(r) response = r end)
     assert.is_false(response.ok)
     assert.matches("Failed to start websocat", response.body)
+  end)
+
+  it("reassembles a frame delivered across multiple stdout chunks", function()
+    local responses = {}
+    ws.run({ url = "wss://x", headers = {}, body = "", wait_ms = 10 },
+      function(r) table.insert(responses, r) end)
+    -- One logical line split across three read callbacks.
+    captured_opts.on_stdout(777, { 'hel' }, nil)
+    captured_opts.on_stdout(777, { 'lo', '' }, nil)
+    captured_opts.on_stdout(777, { 'next', '' }, nil)
+    captured_opts.on_exit(777, 0)
+    vim.wait(200, function() return #responses > 0 end)
+
+    assert.equals(1, #responses)
+    local frames = responses[1].metadata.frames.received
+    local data = vim.tbl_map(function(f) return f.data end, frames)
+    assert.same({ 'hello', 'next' }, data,
+      "a line split across chunks must not become multiple frames")
   end)
 
   it("routes # @ws-interactive to the interactive session", function()

@@ -31,7 +31,11 @@ local function latency_ms(session)
   return 0
 end
 
-local function finalize(session, exit_code)
+--- Finalize the session and invoke the callback exactly once.
+--- close_reason labels why the session ended ("Session closed" for user
+--- close); without it, exit 0 means the server closed the connection.
+--- deadline_reached stays false: interactive sessions have no wait window.
+local function finalize(session, exit_code, close_reason)
   if session.finished then return end
   session.finished = true
   if active == session then active = nil end
@@ -39,10 +43,18 @@ local function finalize(session, exit_code)
   if session.job_id and session.job_id > 0 then
     pcall(vim.fn.jobstop, session.job_id)
   end
+  if session.splitter then
+    session.splitter.flush(function(line)
+      if vim.trim(line) ~= "" then
+        table.insert(session.frames.received, { direction = "recv", data = vim.trim(line) })
+      end
+    end)
+  end
   session.callback(executor.build_response(session.req, session.stdout_buf, session.stderr_buf,
     exit_code, {
       frames = session.frames,
-      deadline_reached = exit_code == 0,
+      deadline_reached = false,
+      close_reason = close_reason,
       latency_ms = latency_ms(session),
     }))
 end
@@ -112,6 +124,11 @@ function M.start(req, callback)
     start_hires = uv.hrtime(),
     finished = false,
   }
+  -- websocat frames arrive as stdin-style lines; a frame can be split
+  -- across multiple unbuffered stdout chunks, so reassemble before
+  -- recording (see util.line_splitter). finalize() flushes any trailing
+  -- partial line when the session ends.
+  session.splitter = util.line_splitter()
 
   session.job_id = vim.fn.jobstart(args, {
     -- Unbuffered so inbound frames stream as they arrive.
@@ -119,12 +136,11 @@ function M.start(req, callback)
     stderr_buffered = false,
     on_stdout = function(_, data)
       if session.finished then return end
-      data = util.ensure_job_data(data)
-      for _, l in ipairs(data) do
-        if vim.trim(l) ~= "" then
-          table.insert(session.frames.received, { direction = "recv", data = vim.trim(l) })
+      session.splitter.feed(data, function(line)
+        if vim.trim(line) ~= "" then
+          table.insert(session.frames.received, { direction = "recv", data = vim.trim(line) })
         end
-      end
+      end)
       if not session.opened and #session.frames.received > 0 then
         session.opened = true
         open_ui(session)
@@ -147,8 +163,12 @@ function M.start(req, callback)
   })
 
   if not session.job_id or session.job_id <= 0 then
+    -- Mark finished first: finalize would otherwise publish a fabricated
+    -- success AND the error callback below would fire a second time.
     session.job_id = nil
-    finalize(session, 0)
+    session.finished = true
+    if active == session then active = nil end
+    if state.live_session == session then state.live_session = nil end
     callback(executor.error_response(req, "Failed to start websocat process"))
     return
   end
@@ -197,7 +217,7 @@ end
 function M.close(session)
   session = session or active
   if not session then return false end
-  finalize(session, 0)
+  finalize(session, 0, "Session closed")
   return true
 end
 

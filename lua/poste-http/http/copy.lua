@@ -81,15 +81,20 @@ end
 
 --- Collect variables from file-level @var defs, env.json, and session vars (client.global + script_variables)
 local function collect_vars(buf, block_start_line)
+  -- File-level region: every line above the block's separator (the
+  -- request's start_line). start_line - 1 is the 0-based exclusive end,
+  -- so the line directly above the separator is included.
   local file_lines = block_start_line > 1
-    and vim.api.nvim_buf_get_lines(buf, 0, block_start_line - 2, false) or {}
-  local vars = collect_var_defs(file_lines)
+    and vim.api.nvim_buf_get_lines(buf, 0, block_start_line - 1, false) or {}
   local file_path = vim.api.nvim_buf_get_name(buf)
   local env_vars = load_env_vars(file_path, state.current_env)
+  local vars = collect_var_defs(file_lines)
+  -- Env vars must be present BEFORE substituting, so file-level @vars can
+  -- reference {{env_keys}} (the earlier code recomputed vars here, wiping
+  -- the merge and leaving {{env_refs}} literal in the copied command).
   for k, v in pairs(env_vars) do
     vars[k] = v
   end
-  vars = collect_var_defs(file_lines)
   for name, value in pairs(vars) do
     vars[name] = substitute_vars(value, vars)
   end
@@ -400,5 +405,8 @@ function M.copy_to_clipboard(register)
     { title = "Poste" }
   )
 end
+
+-- Test hook: collect_vars is internal; exposed for specs only.
+M._collect_vars = collect_vars
 
 return M

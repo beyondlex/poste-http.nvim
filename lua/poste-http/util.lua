@@ -55,6 +55,35 @@ function M.ensure_job_data(data)
   return data
 end
 
+--- Stateful re-assembler for unbuffered job stdout (`stdout_buffered = false`).
+--- nvim delivers each callback's `data` as a list whose last element is a
+--- fragment when the chunk ended without a newline; treating every element
+--- as a line splits any frame that arrives across multiple reads. Feed each
+--- callback's data to `feed` and call `flush` once the job exits.
+function M.line_splitter()
+  local carry = ""
+  local self = {}
+  function self.feed(data, on_line)
+    if not data or type(data) ~= "table" then return end
+    for i = 1, #data do
+      local piece = data[i]
+      if i < #data then
+        on_line(carry .. piece)
+        carry = ""
+      elseif piece ~= "" then
+        carry = carry .. piece
+      end
+    end
+  end
+  function self.flush(on_line)
+    if carry ~= "" then
+      on_line(carry)
+      carry = ""
+    end
+  end
+  return self
+end
+
 --- Current wall-clock timestamp with milliseconds: "YYYY-MM-DD HH:MM:SS.mmm".
 --- Falls back to second precision when gettimeofday is unavailable.
 function M.timestamp()

@@ -73,6 +73,17 @@ function M.save_body_to_file(body, content_type, r)
   return truncated
 end
 
+--- Escape a string as a JSON string body: backslash, quote, explicit
+--- escapes for the common whitespace controls, and \u00XX for the rest.
+local function json_escape(s)
+  return s:gsub('\\', '\\\\')
+    :gsub('"', '\\"')
+    :gsub('\n', '\\n')
+    :gsub('\r', '\\r')
+    :gsub('\t', '\\t')
+    :gsub('%c', function(c) return string.format("\\u%04x", c:byte()) end)
+end
+
 function M.json_pretty(value, indent)
   indent = indent or 0
   local indent_str = string.rep("  ", indent)
@@ -103,12 +114,14 @@ function M.json_pretty(value, indent)
       local items = {}
       for _, k in ipairs(keys) do
         local v = value[k]
-        table.insert(items, indent_str_inner .. '"' .. k .. '": ' .. M.json_pretty(v, indent + 1))
+        -- Keys are strings too: an unescaped quote/backslash in a key
+        -- emitted invalid JSON that broke the json treesitter parse.
+        table.insert(items, indent_str_inner .. '"' .. json_escape(tostring(k)) .. '": ' .. M.json_pretty(v, indent + 1))
       end
       return "{\n" .. table.concat(items, ",\n") .. "\n" .. indent_str .. "}"
     end
   elseif type(value) == "string" then
-    return '"' .. value:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '\\r'):gsub('\t', '\\t') .. '"'
+    return '"' .. json_escape(value) .. '"'
   elseif type(value) == "number" then
     return tostring(value)
   elseif type(value) == "boolean" then
@@ -120,14 +133,21 @@ function M.json_pretty(value, indent)
   end
 end
 
+--- Decode %XX escapes and '+' (space) in a urlencoded component.
+--- '+' → space runs first so %2B decodes to a literal plus.
+local function url_decode(s)
+  s = s:gsub("+", " ")
+  return s:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
+end
+
 function M.format_urlencoded_body(body)
   if not body or body == "" then return nil end
   local lines = {}
   for pair in body:gmatch("[^&]+") do
     local key, val = pair:match("^([^=]+)=(.*)$")
     if key and val ~= nil then
-      val = val:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
-      val = val:gsub("+", " ")
+      key = url_decode(key)
+      val = url_decode(val)
       table.insert(lines, string.format("  %s: %s", key, val))
     end
   end

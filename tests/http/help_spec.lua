@@ -35,3 +35,23 @@ describe("help", function()
     assert.is_true(has_set_lines, "should set buffer lines")
   end)
 end)
+describe("help._classify_line", function()
+  local help = require("poste-http.help")
+
+  it("classifies section titles exactly", function()
+    assert.equals("title", help._classify_line("  HTTP Request Buffer"))
+    assert.equals("title", help._classify_line("  HTTP Response Buffer"))
+  end)
+
+  it("classifies rules", function()
+    assert.equals("rule", help._classify_line("  " .. string.rep("─", 46)))
+  end)
+
+  it("classifies key lines whose key display starts uppercase", function()
+    -- Regression: 'Enter'/'Esc'/'Space' key lines matched the old ^%u
+    -- title pattern and were highlighted as titles.
+    assert.equals("key", help._classify_line("  Enter  Show this help window"))
+    assert.equals("key", help._classify_line("  Esc    Close response window"))
+    assert.equals("key", help._classify_line("  gs     Toggle outline window"))
+  end)
+end)

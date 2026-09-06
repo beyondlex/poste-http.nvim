@@ -61,6 +61,13 @@ local function parse_curl(cmd)
   end
 
   -- Process arguments
+  local function header_from_text(text)
+    local key, value = text:match("^([^:]+):%s*(.+)$")
+    if key and value then
+      table.insert(headers, { key, value })
+    end
+  end
+
   local idx = 1
   while idx <= #args do
     local arg = args[idx]
@@ -68,19 +75,36 @@ local function parse_curl(cmd)
     if arg == "-X" or arg == "--request" then
       idx = idx + 1
       method = (args[idx] or "GET"):upper()
-    elseif arg:match("^-H") or arg:match("^--header") then
+    elseif arg:match("^%-X.") then
+      -- Attached form: -XPOST
+      method = arg:sub(3):upper()
+    elseif arg:match("^%-%-request=") then
+      method = arg:sub(#"--request=" + 1):upper()
+    elseif arg == "-H" or arg == "--header" then
       idx = idx + 1
       local header = args[idx]
       if header then
-        local key, value = header:match("^([^:]+):%s*(.+)$")
-        if key and value then
-          table.insert(headers, { key, value })
-        end
+        header_from_text(header)
       end
+    elseif arg:match("^%-H.") then
+      -- Attached form: -H'Content-Type: ...'
+      header_from_text(arg:sub(3))
+    elseif arg:match("^%-%-header=") then
+      header_from_text(arg:sub(#"--header=" + 1))
     elseif arg == "-d" or arg == "--data" or arg == "--data-raw" or arg == "--data-binary" then
       idx = idx + 1
       body = args[idx]
       -- Default to POST if body is provided
+      if method == "GET" then
+        method = "POST"
+      end
+    elseif arg:match("^%-d.") or arg:match("^%-%-data%-?%w*=") then
+      -- Attached forms: -d'{}', --data-raw='{}'
+      local attached = arg:match("^%-d(.+)")
+      if not attached then
+        attached = arg:match("=(.+)$")
+      end
+      body = attached
       if method == "GET" then
         method = "POST"
       end
@@ -122,11 +146,17 @@ local function curl_to_http(parsed)
     table.insert(lines, string.format("%s: %s", h[1], h[2]))
   end
 
-  -- Body (if present): split multi-line body into separate lines
+  -- Body (if present): split multi-line body into separate lines, keeping
+  -- interior blank lines (they are part of the body); only trailing
+  -- newlines are dropped.
   if parsed.body then
     table.insert(lines, "")  -- Empty line before body
     local normalized = parsed.body:gsub("\r\n", "\n"):gsub("\r", "\n")
-    for body_line in normalized:gmatch("([^\n]+)") do
+    local body_lines = vim.split(normalized, "\n", { plain = true })
+    while #body_lines > 0 and vim.trim(body_lines[#body_lines]) == "" do
+      table.remove(body_lines)
+    end
+    for _, body_line in ipairs(body_lines) do
       table.insert(lines, body_line)
     end
   end

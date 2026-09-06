@@ -105,7 +105,11 @@ function M.build_response(req, stdout, stderr, exit_code, opts)
   end
 
   local status_text
-  if opts.deadline_reached then
+  if opts.close_reason then
+    -- Interactive sessions label why they ended ("Session closed"); keep
+    -- the exit-code-derived status otherwise.
+    status_text = opts.close_reason
+  elseif opts.deadline_reached then
     status_text = "Collection window elapsed"
   elseif exit_code == 0 then
     status_text = "Server closed connection"
@@ -174,10 +178,19 @@ function M.run(req, callback)
     .. string.format(" (wait %dms, %d outgoing frames)", wait_ms, #outgoing))
 
   local stdout_buf, stderr_buf = {}, {}
+  -- A frame can be split across multiple unbuffered stdout chunks; only
+  -- complete lines go into stdout_buf (see util.line_splitter).
+  local splitter = util.line_splitter()
   local start_hires = uv.hrtime()
   local timer
   local job_id
   local finished = false
+
+  local function collect_line(line)
+    if vim.trim(line) ~= "" then
+      table.insert(stdout_buf, line)
+    end
+  end
 
   local function finish(response, stop_job)
     if finished then return end
@@ -198,10 +211,7 @@ function M.run(req, callback)
     stdout_buffered = false,
     stderr_buffered = false,
     on_stdout = function(_, data)
-      data = util.ensure_job_data(data)
-      for _, l in ipairs(data) do
-        table.insert(stdout_buf, l)
-      end
+      splitter.feed(data, collect_line)
     end,
     on_stderr = function(_, data)
       data = util.ensure_job_data(data)
@@ -214,6 +224,7 @@ function M.run(req, callback)
         if exit_code ~= 0 then
           state.log("ERROR", string.format("websocat exit code %d", exit_code))
         end
+        splitter.flush(collect_line)
         finish(M.build_response(req, stdout_buf, stderr_buf, exit_code, {
           deadline_reached = false,
           latency_ms = math.floor((uv.hrtime() - start_hires) / 1e6),
@@ -236,6 +247,7 @@ function M.run(req, callback)
 
   timer = uv.new_timer()
   timer:start(wait_ms, 0, vim.schedule_wrap(function()
+    splitter.flush(collect_line)
     finish(M.build_response(req, stdout_buf, stderr_buf, 0, {
       deadline_reached = true,
       latency_ms = math.floor((uv.hrtime() - start_hires) / 1e6),

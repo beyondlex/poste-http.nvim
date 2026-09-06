@@ -44,6 +44,22 @@ describe("collect_script_variables", function()
     assert.equals("https://api.example.com/users", result.variables.url)
   end)
 
+  it("resolves {{_underscore}} var names in collected variables", function()
+    buf = with_buf("/tmp/underscore_vars.http")
+    local content = table.concat({
+      "@_base = https://api.example.com",
+      "@_url = {{_base}}/users",
+      "",
+      "### Get",
+      "GET {{_url}}",
+    }, "\n")
+
+    local result = scripts.collect_script_variables(content, 4, 5)
+    -- The canonical {{var}} grammar accepts names that start with `_`
+    -- (vars.lua matches {{([^}]+)}}); the script sandbox must agree.
+    assert.equals("https://api.example.com/users", result.variables._url)
+  end)
+
   it("collects block-level vars overriding file-level", function()
     buf = with_buf("/tmp/collect_vars2.http")
     local content = table.concat({

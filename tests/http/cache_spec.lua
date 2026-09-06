@@ -537,3 +537,22 @@ describe("get_semantic_blocks with no tree-sitter fallback", function()
     end
   end)
 end)
+
+describe("buffer cache var names", function()
+  it("collects underscore-prefixed @var names for completion", function()
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "@_base = https://api.example.com",
+      "@_url = {{_base}}/users",
+      "",
+      "### Get",
+      "@_token = abc",
+      "GET {{_url}}",
+    })
+    local entry = require("poste-http.http.cache").get_buffer_cache(buf)
+    assert.is_truthy(entry.file_vars._base, "file-level @_base must be indexed")
+    assert.is_truthy(entry.blocks[1].block_vars._token,
+      "block-level @_token must be indexed")
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+end)

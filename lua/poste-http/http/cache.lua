@@ -94,8 +94,8 @@ function M.get_buffer_cache(buf)
         in_post_block = false
         start_block(line, i)
         t = "head"
-      elseif line:match("^%s*@(%w[%w_]*)%s*[= ]") then
-        local var_name = line:match("^%s*@(%w[%w_]*)%s*[= ]")
+      elseif line:match("^%s*@([^%s=]+)%s*[= ]") then
+        local var_name = line:match("^%s*@([^%s=]+)%s*[= ]")
         file_vars[var_name] = true
         t = "var"
       elseif line:match("^%s*<<(%w[%w_]*)") then
@@ -183,8 +183,8 @@ function M.get_buffer_cache(buf)
         in_post_block = false
         start_block(line, i)
         t = "head"
-      elseif line:match("^%s*@(%w[%w_]*)%s*[= ]") then
-        local var_name = line:match("^%s*@(%w[%w_]*)%s*[= ]")
+      elseif line:match("^%s*@([^%s=]+)%s*[= ]") then
+        local var_name = line:match("^%s*@([^%s=]+)%s*[= ]")
         if current_block then
           current_block.block_vars[var_name] = true
         end

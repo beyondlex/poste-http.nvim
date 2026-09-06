@@ -55,7 +55,7 @@ describe("ws_session.start", function()
     assert.is_false(captured_opts.stdout_buffered)
     assert.is_not_nil(state.live_session)
 
-    captured_opts.on_stdout(900, { '{"hello": 1}' }, nil)
+    captured_opts.on_stdout(900, { '{"hello": 1}', '' }, nil)
     vim.wait(200, function() return #progress > 0 end)
 
     assert.equals(1, #progress)
@@ -75,7 +75,7 @@ describe("ws_session.start", function()
     assert.equals("ping\n", sent)
     assert.equals(1, #state.live_session.frames.sent)
 
-    captured_opts.on_stdout(900, { 'pong' }, nil)
+    captured_opts.on_stdout(900, { 'pong', '' }, nil)
     vim.wait(200, function() return #progress > 0 end)
     assert.equals(1, #state.live_session.frames.received)
   end)
@@ -88,7 +88,7 @@ describe("ws_session.start", function()
       on_progress = function(r) table.insert(progress, r) end,
     }, function(r) table.insert(responses, r) end)
 
-    captured_opts.on_stdout(900, { 'a' }, nil)
+    captured_opts.on_stdout(900, { 'a', '' }, nil)
     vim.wait(200, function() return #progress > 0 end)
     ws_session.close()
 
@@ -100,7 +100,7 @@ describe("ws_session.start", function()
     assert.is_nil(state.live_session)
 
     -- A late frame after close must not resurrect anything.
-    captured_opts.on_stdout(900, { 'late' }, nil)
+    captured_opts.on_stdout(900, { 'late', '' }, nil)
     assert.equals(1, #responses)
   end)
 
@@ -118,6 +118,44 @@ describe("ws_session.start", function()
     assert.is_false(responses[1].ok)
     assert.equals(1006, responses[1].status)
     assert.is_nil(state.live_session)
+  end)
+
+  it("fires the callback exactly once when websocat fails to spawn", function()
+    local responses = {}
+    vim.fn.jobstart = function() return -1 end
+    ws_session.start({ url = "wss://x", headers = {}, body = "" }, function(r) table.insert(responses, r) end)
+    assert.equals(1, #responses, "spawn failure must not double-fire the callback")
+    assert.is_false(responses[1].ok)
+    assert.matches("Failed to start", responses[1].body)
+    assert.is_nil(state.live_session)
+  end)
+
+  it("labels a user-closed session as Session closed", function()
+    local responses = {}
+    ws_session.start({
+      url = "wss://x", headers = {}, body = "",
+      on_progress = function() end,
+    }, function(r) table.insert(responses, r) end)
+    captured_opts.on_stdout(900, { 'hi', '' }, nil)
+    vim.wait(200, function() return ws_session.is_active() == false or true end)
+    ws_session.close()
+    vim.wait(200, function() return #responses > 0 end)
+    assert.equals(1, #responses)
+    assert.matches("Session closed", responses[1].status_text,
+      1, true)
+  end)
+
+  it("labels a server-closed session as Server closed connection", function()
+    local responses = {}
+    ws_session.start({
+      url = "wss://x", headers = {}, body = "",
+      on_progress = function() end,
+    }, function(r) table.insert(responses, r) end)
+    captured_opts.on_stdout(900, { 'hi', '' }, nil)
+    captured_opts.on_exit(900, 0)
+    vim.wait(200, function() return #responses > 0 end)
+    assert.equals(1, #responses)
+    assert.matches("Server closed connection", responses[1].status_text, 1, true)
   end)
 
   it("closing twice is safe", function()

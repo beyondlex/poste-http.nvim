@@ -59,6 +59,40 @@ curl -X POST 'https://api.example.com/login' \
     assert.equals("https://api.example.com/q?a=b c", parsed.url)
     assert.equals('{"k": "v w"}', parsed.body)
   end)
+
+  it("supports attached short forms: -XPOST, -H'...', -dvalue", function()
+    local parsed = curl.parse_curl(
+      [[curl -XPOST https://api.example.com -H'Content-Type: application/json' -d'{ "a": 1 }']])
+    assert.equals("POST", parsed.method)
+    assert.same({ { "Content-Type", "application/json" } }, parsed.headers)
+    assert.equals("{ \"a\": 1 }", parsed.body)
+    assert.equals("https://api.example.com", parsed.url)
+  end)
+
+  it("supports attached long forms: --request=METHOD and --header=VALUE", function()
+    local parsed = curl.parse_curl(
+      "curl --request=DELETE https://api.example.com --header='X-A: b'")
+    assert.equals("DELETE", parsed.method)
+    assert.same({ { "X-A", "b" } }, parsed.headers)
+  end)
+
+  it("keeps interior blank lines when converting a multi-line body", function()
+    local orig_getreg = vim.fn.getreg
+    vim.fn.getreg = function() return "curl https://api.example.com --data-raw 'a\n\nb\n'" end
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_set_current_buf(buf)
+    vim.fn.cursor(1, 1)
+    local orig_notify = vim.notify
+    vim.notify = function() end
+    curl.paste_curl("+")
+    vim.notify = orig_notify
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    vim.fn.getreg = orig_getreg
+    vim.api.nvim_buf_delete(buf, { force = true })
+    -- The blank line between "a" and "b" is part of the body and must survive.
+    -- --data-raw also promotes GET to POST by design.
+    assert.same({ "", "###", "POST https://api.example.com", "", "a", "", "b" }, lines)
+  end)
 end)
 
 describe("curl.paste_curl (conversion shape)", function()

@@ -271,7 +271,7 @@ local function resolve_reference(reference, index)
   local alias, name = reference:match("^([^%.]+)%.(.+)$")
   if alias and name then
     local entry = index.aliased[alias]
-    if entry then
+    if entry and not entry.is_lua then
       for _, req in ipairs(entry.requests) do
         if req.name == name then
           return { path = entry.path, line = req.line, request = req }
@@ -283,9 +283,12 @@ local function resolve_reference(reference, index)
 
   -- Try bare name lookup
   for _, entry in ipairs(index.bare) do
-    for _, req in ipairs(entry.requests) do
-      if req.name == reference then
-        return { path = entry.path, line = req.line, request = req }
+    -- Lua imports index exports, not requests — nothing to resolve here.
+    if not entry.is_lua then
+      for _, req in ipairs(entry.requests) do
+        if req.name == reference then
+          return { path = entry.path, line = req.line, request = req }
+        end
       end
     end
   end
@@ -875,9 +878,16 @@ function M.status()
   -- Bare imports
   table.insert(out, string.format("Bare imports (%d):", #index.bare))
   for _, entry in ipairs(index.bare) do
-    table.insert(out, string.format("  %s (%d requests)", entry.path, #entry.requests))
-    for _, req in ipairs(entry.requests) do
-      table.insert(out, string.format("    #%s  (line %d)", req.name, req.line))
+    if entry.is_lua then
+      table.insert(out, string.format("  %s (Lua module)", entry.path))
+      for k, _ in pairs(entry.exports or {}) do
+        table.insert(out, string.format("    %s", k))
+      end
+    else
+      table.insert(out, string.format("  %s (%d requests)", entry.path, #entry.requests))
+      for _, req in ipairs(entry.requests) do
+        table.insert(out, string.format("    #%s  (line %d)", req.name, req.line))
+      end
     end
   end
   table.insert(out, "")

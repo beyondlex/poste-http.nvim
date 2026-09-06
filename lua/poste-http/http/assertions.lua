@@ -34,6 +34,9 @@ function M.run_assertions(response_data, code, script_vars)
   local tests = {}
   local logs = {}
   local current_test = nil
+  -- Set when client.assert records a failure and raises, so client.test's
+  -- pcall doesn't record the same failure twice.
+  local assertion_raised = false
   script_vars = script_vars or { variables = {}, env = {} }
 
   -- Build case-insensitive headers table
@@ -134,8 +137,11 @@ function M.run_assertions(response_data, code, script_vars)
     test = function(name, fn)
       current_test = { name = name, passed = 0, failed = 0, errors = {} }
       table.insert(tests, current_test)
+      assertion_raised = false
       local ok, err = pcall(fn)
-      if not ok then
+      if not ok and not assertion_raised then
+        -- client.assert already recorded its own failure before raising;
+        -- only unexpected errors are recorded here.
         table.insert(current_test.errors, tostring(err))
         current_test.failed = current_test.failed + 1
       end
@@ -148,6 +154,7 @@ function M.run_assertions(response_data, code, script_vars)
           table.insert(current_test.errors, err_msg)
           current_test.failed = current_test.failed + 1
         end
+        assertion_raised = true
         error(err_msg, 2)
       else
         if current_test then
@@ -193,12 +200,22 @@ function M.run_assertions(response_data, code, script_vars)
 
   local ok, run_err = pcall(fn)
   if not ok then
+    -- Summarize from the tests that already ran; hardcoding passed=0 would
+    -- report passing tests as failed.
+    local error_passed, error_failed = 0, 0
+    for _, test in ipairs(tests) do
+      if test.failed == 0 and #test.errors == 0 then
+        error_passed = error_passed + 1
+      else
+        error_failed = error_failed + 1
+      end
+    end
     return {
       tests = tests,
       logs = logs,
       total = #tests,
-      passed = 0,
-      failed = #tests,
+      passed = error_passed,
+      failed = error_failed,
       error = "Runtime error: " .. tostring(run_err),
     }
   end

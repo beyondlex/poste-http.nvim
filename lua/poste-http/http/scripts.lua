@@ -12,11 +12,13 @@ local M = {}
 ---------------------------------------------------------------------------
 
 --- Resolve {{var}} references iteratively within collected vars.
+--- Same reference grammar as vars.lua: {{([^}]+)}} — names may start with
+--- `_` or contain dashes, not just %w.
 local function resolve_var_refs(vars_table)
   for _ = 1, 20 do
     local changed = false
     for k, v in pairs(vars_table) do
-      local resolved = v:gsub("{{(%w[%w_]*)}}", function(ref)
+      local resolved = v:gsub("{{([^}]+)}}", function(ref)
         if vars_table[ref] ~= nil then
           changed = true
           return vars_table[ref]

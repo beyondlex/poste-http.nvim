@@ -66,10 +66,12 @@ function M.condense_multipart_body(body, content_type)
   if not boundary then return body end
 
   local delim = "--" .. boundary
+  -- Boundary chars are arbitrary per RFC 2046 (may contain '.', '+', '(' …),
+  -- so every delimiter search must be literal, not a pattern.
   local result = {}
   local pos = 1
   while pos <= #body do
-    local dstart = body:find(delim, pos)
+    local dstart = body:find(delim, pos, true)
     if not dstart then
       table.insert(result, body:sub(pos))
       break
@@ -85,7 +87,7 @@ function M.condense_multipart_body(body, content_type)
     local boundary_line = body:sub(dstart, dend - 1):gsub("\r$", "")
     table.insert(result, boundary_line)
 
-    local next_boundary = body:find(delim, dend)
+    local next_boundary = body:find(delim, dend, true)
     if not next_boundary then
       table.insert(result, (body:sub(dend + 1):gsub("^\r?\n", "")))
       break
@@ -129,9 +131,11 @@ function M.strip_request_preamble(raw_body, _raw_headers)
 
   local body_start = nil
   for i, line in ipairs(all_lines) do
-    if line == "" then
+    -- The header/body separator is a blank line; tolerate CRLF remnants
+    -- ("...\r") so a \r\n request is not treated as all-headers.
+    if line:match("^%s*$") then
       body_start = i + 1
-      while body_start <= #all_lines and all_lines[body_start] == "" do
+      while body_start <= #all_lines and all_lines[body_start]:match("^%s*$") do
         body_start = body_start + 1
       end
       break

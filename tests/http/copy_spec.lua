@@ -82,3 +82,51 @@ describe("copy_as_curl", function()
     assert.is_not_nil(cmd)
   end)
 end)
+
+describe("collect_vars (multipart variable layer)", function()
+  local tmpdir, buf
+
+  before_each(function()
+    tmpdir = vim.fn.tempname()
+    vim.fn.mkdir(tmpdir, "p")
+    local f = io.open(vim.fs.joinpath(tmpdir, "env.json"), "w")
+    f:write('{"dev": {"base": "https://env.example.com"}}')
+    f:close()
+  end)
+
+  after_each(function()
+    if buf then
+      pcall(vim.api.nvim_buf_delete, buf, { force = true })
+      buf = nil
+    end
+    pcall(vim.fn.delete, tmpdir, "rf")
+  end)
+
+  local function make_file_buf(lines)
+    buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_name(buf, vim.fs.joinpath(tmpdir, "req.http"))
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    return buf
+  end
+
+  it("lets file-level @vars reference env.json vars", function()
+    make_file_buf({
+      "@url = {{base}}/api",
+      "",
+      "### Upload",
+      "POST https://example.com",
+    })
+    local vars = copy._collect_vars(buf, 3)
+    assert.equals("https://env.example.com/api", vars.url)
+  end)
+
+  it("includes the file-level line directly above the separator", function()
+    make_file_buf({
+      "@tok = abc",
+      "### Upload",
+      "POST https://example.com",
+    })
+    local vars = copy._collect_vars(buf, 2)
+    assert.equals("abc", vars.tok)
+  end)
+end)

@@ -46,6 +46,18 @@ local SECTION_TITLES = {
   http_history = "HTTP Request History",
 }
 
+--- Classify a rendered help line for highlighting. Titles are matched
+--- against the known section titles — a `^%u` pattern would misclassify
+--- key lines whose display name starts uppercase (Enter, Esc, Space…).
+--- @return "title"|"rule"|"key"
+local function classify_line(line)
+  if line:find("^  ─") then return "rule" end
+  for _, title in pairs(SECTION_TITLES) do
+    if line == "  " .. title then return "title" end
+  end
+  return "key"
+end
+
 function M.open()
   local lines = {}
   local width = 50
@@ -99,9 +111,10 @@ function M.open()
   if not win then return end
   local ns = vim.api.nvim_create_namespace("poste_help")
   for i, line in ipairs(lines) do
-    if line:find("^  %u%a") then
+    local kind = classify_line(line)
+    if kind == "title" then
       vim.api.nvim_buf_add_highlight(buf, ns, "Title", i - 1, 2, -1)
-    elseif line:find("^  ─") then
+    elseif kind == "rule" then
       vim.api.nvim_buf_add_highlight(buf, ns, "Comment", i - 1, 2, -1)
     else
       local key_s, key_e = line:find("%S+", 3)
@@ -111,5 +124,7 @@ function M.open()
     end
   end
 end
+
+M._classify_line = classify_line
 
 return M

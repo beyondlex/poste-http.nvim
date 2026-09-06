@@ -49,12 +49,24 @@ class EchoService(echo_pb2_grpc.EchoServiceServicer):
         return echo_pb2.EchoResponse()
 
 
+class OrderService(echo_pb2_grpc.OrderServiceServicer):
+    def PreviewOrder(self, request, context):
+        total = sum(item.quantity * item.unit_price for item in request.items)
+        return echo_pb2.OrderPreview(
+            preview_id=f"prev-{request.customer_id}",
+            total=total,
+            currency="USD",
+        )
+
+
 def serve():
     port = os.environ.get("POSTE_GRPC_PORT", "8891")
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
     echo_pb2_grpc.add_EchoServiceServicer_to_server(EchoService(), server)
+    echo_pb2_grpc.add_OrderServiceServicer_to_server(OrderService(), server)
     service_names = (
         echo_pb2.DESCRIPTOR.services_by_name["EchoService"].full_name,
+        echo_pb2.DESCRIPTOR.services_by_name["OrderService"].full_name,
         reflection.SERVICE_NAME,
     )
     reflection.enable_server_reflection(service_names, server)

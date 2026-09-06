@@ -25,3 +25,4 @@ parser/node-types.json
 *.so
 examples/**/generated/
 .codebase-memory
+__pycache__/

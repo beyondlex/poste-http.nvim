@@ -2,7 +2,7 @@
 #
 # Local backends for manually testing Poste's non-HTTP protocols:
 #   GRAPHQL   -> poste-graphql    :8890  (real graphql-js engine)
-#   GRPC      -> poste-grpc       :8891  (grpcio echo, server reflection on)
+#   GRPC      -> poste-grpc       :8891  (grpcio echo + order services, server reflection on)
 #   WEBSOCKET -> poste-websocket  :8892  (JSON-aware echo)
 #
 # Usage:

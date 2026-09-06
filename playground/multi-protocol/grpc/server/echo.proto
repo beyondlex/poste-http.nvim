@@ -32,3 +32,45 @@ message FailRequest {
   string code = 1;    // gRPC status name: NOT_FOUND, UNAVAILABLE, ...
   string message = 2; // details surfaced as the status message
 }
+
+// Order service for exercising Poste's gRPC completion: nested messages,
+// enums, repeated fields, maps, and oneof all appear in body completions.
+service OrderService {
+  rpc PreviewOrder(OrderRequest) returns (OrderPreview);
+}
+
+enum OrderChannel {
+  ORDER_CHANNEL_UNSPECIFIED = 0;
+  ORDER_CHANNEL_WEB = 1;
+  ORDER_CHANNEL_MOBILE = 2;
+}
+
+message Address {
+  string street = 1;
+  string city = 2;
+  string country = 3;
+}
+
+message OrderItem {
+  string sku = 1;
+  int32 quantity = 2;
+  double unit_price = 3;
+}
+
+message OrderRequest {
+  string customer_id = 1;
+  OrderChannel channel = 2;
+  repeated OrderItem items = 3;
+  Address shipping_address = 4;
+  map<string, string> attributes = 5;
+  oneof notification {
+    string email = 6;
+    string phone = 7;
+  }
+}
+
+message OrderPreview {
+  string preview_id = 1;
+  double total = 2;
+  string currency = 3;
+}

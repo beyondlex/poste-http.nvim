@@ -1,0 +1,61 @@
+# gRPC completion demo — services/methods from server reflection or proto
+# files, message fields and enum values inside the JSON body.
+#
+# Requires the playground gRPC service:
+#   docker compose -f playground/multi-protocol/docker-compose.yml up -d --build
+# Requires grpcurl (Poste checks it via :checkhealth poste-http):
+#   brew install grpcurl
+#
+# How to try it: put the cursor where the notes say COMPLETE and trigger
+# completion (blink.cmp / nvim-cmp as configured). The first query on a
+# changed block may come back empty while grpcurl indexes in the background
+# — trigger again.
+
+@grpc_host = localhost:8891
+
+# REFLECTION LIST: COMPLETE after the host "/" on the request line below.
+# The index comes from `grpcurl {{grpc_host}} list` (server reflection).
+# Expect: poste.test.v1.EchoService/  poste.test.v1.OrderService/
+# @grpc-plaintext
+GRPC {{grpc_host}}/
+
+# REFLECTION METHOD: COMPLETE at the end of the request line below
+# (expect: PreviewOrder, with the request message type as the detail).
+# @grpc-plaintext
+GRPC {{grpc_host}}/poste.test.v1.OrderService/
+
+# BODY FIELDS: executable request. COMPLETE spots inside the body:
+#   - after "cust       -> customer_id
+#   - inside "ORDER_CH  -> enum ORDER_CHANNEL_WEB / ORDER_CHANNEL_MOBILE
+#   - after "sk         -> sku / quantity / unit_price (array element)
+#   - after "ci         -> city / country (nested message)
+#   - empty object {}   -> oneof members "email" / "phone" as keys:
+#                         replace the notification line with
+#                         "notification": {""}  and COMPLETE inside
+# @grpc-plaintext
+GRPC {{grpc_host}}/poste.test.v1.OrderService/PreviewOrder
+
+{
+  "customer_id": "c-42",
+  "channel": "ORDER_CHANNEL_WEB",
+  "items": [
+    {"sku": "POSTE-1", "quantity": 2, "unit_price": 9.5}
+  ],
+  "shipping_address": {"city": "Berlin"},
+  "attributes": {"source": "playground"},
+  "notification": {"email": "noreply@example.com"}
+}
+
+# OFFLINE PROTO MODE: no reflection needed — the block pins the proto file
+# and the index is built with `grpcurl -proto ... list|describe`.
+# COMPLETE on the @grpc-proto argument itself offers proto file paths.
+# Then COMPLETE inside the body: fields of EchoRequest.
+# @grpc-plaintext
+# @grpc-import-path ../grpc/server
+# @grpc-proto echo.proto
+GRPC {{grpc_host}}/poste.test.v1.EchoService/Echo
+
+{
+  "message": "hello completion",
+  "repeat": 1
+}

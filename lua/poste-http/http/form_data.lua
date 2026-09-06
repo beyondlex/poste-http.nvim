@@ -17,6 +17,15 @@ local magic_vars = {
   randomInt = function() return tostring(math.random(0, 9999999)) end,
 }
 
+function M.substitute_magic_vars(line, generated)
+  for name, value in pairs(generated) do
+    -- function replacement: a % in a generated value must stay literal,
+    -- gsub would otherwise read it as a capture reference
+    line = line:gsub("{{%$" .. name .. "}}", function() return value end)
+  end
+  return line
+end
+
 function M.process_form_data(src_buf, cursor_line, content)
   local start_line, end_line = cache.find_request_block_bounds(src_buf, cursor_line)
   if not start_line then return content end
@@ -31,11 +40,7 @@ function M.process_form_data(src_buf, cursor_line, content)
 
   for i, line in ipairs(lines) do
     if i >= start_line and i <= end_line then
-      local processed = line
-      for name, value in pairs(generated) do
-        processed = processed:gsub("{{%$" .. name .. "}}", value)
-      end
-      table.insert(result, processed)
+      table.insert(result, M.substitute_magic_vars(line, generated))
     else
       table.insert(result, line)
     end

@@ -511,6 +511,14 @@ X-Trace-Id: {{trace_id}}
 
 - `GRPC host:port` without a method path lists the server's services via
   reflection (`grpcurl list`)
+- Completion: after the host `/`, services and methods are suggested from the
+  pinned `# @grpc-proto`/`# @grpc-proto-set` files (offline `grpcurl
+  list`/`describe`) or from server reflection when no proto is pinned;
+  inside the JSON body, message fields (including nested objects, array
+  elements, and oneof members) complete as keys and enum-typed fields
+  complete their values; `# @grpc-proto`/`# @grpc-proto-set` arguments
+  complete proto file paths. The index is built in the background, so the
+  first query on a changed block may return nothing until `grpcurl` finishes
 - Assertions see gRPC semantics: `response.status` is the gRPC status code
   (0 = OK, 1–16 = error codes, e.g. 5 = NotFound), `response.body` is the
   response message JSON, and `response.ok`/the response indicator reflect

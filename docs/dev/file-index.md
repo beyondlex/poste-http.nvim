@@ -105,6 +105,7 @@ that hand-rolled floats used to apply unevenly).
 | `completion.lua` | HTTP smart completion (blink.cmp + nvim-cmp) |
 | `context_detector.lua` | Context detection for completion |
 | `item_builder.lua` | Completion item builder |
+| `grpc_proto.lua` | gRPC completion index — `pkg.Service/Method` and JSON body message fields/enums from `# @grpc-proto` files (offline `grpcurl list|describe`, chained into nested types) or server reflection; mtime-keyed cache; `# @grpc-proto` path items |
 | `data.lua` | HTTP history data format helpers, keyword definitions |
 
 #### Scripts & Assertions

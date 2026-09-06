@@ -64,6 +64,11 @@ vim.api.nvim_create_autocmd("BufEnter", {
     vim.wo.winbar = env_mod.build_http_winbar()
     if vim.bo.filetype == "poste_http" then
       require("poste-http.http.boundary_indicator").refresh(buf, vim.fn.line("."))
+      -- proactively warm the gRPC completion index when the cursor sits in
+      -- a GRPC block (cheap no-op otherwise)
+      pcall(function()
+        require("poste-http.http.grpc_proto").prewarm_for_cursor(buf, vim.fn.line("."))
+      end)
     end
   end,
 })

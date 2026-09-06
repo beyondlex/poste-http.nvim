@@ -6,6 +6,7 @@ local M = {}
 local cache = require("poste-http.http.cache")
 local data = require("poste-http.http.data")
 local context_detector = require("poste-http.http.context_detector")
+local grpc_proto = require("poste-http.http.grpc_proto")
 
 local KIND_KEYWORD = 14
 local KIND_PROPERTY = 10
@@ -496,6 +497,12 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
   if ctx == "import_path" then
     items = M.build_items({ "./", "../" }, KIND_VALUE)
     return items
+  elseif ctx == "grpc_method_path" then
+    return grpc_proto.get_method_items(buf, cursor_line, extra)
+  elseif ctx == "grpc_body" then
+    return grpc_proto.get_body_items(buf, cursor_line, cursor_col)
+  elseif ctx == "grpc_proto_path" then
+    return grpc_proto.get_proto_path_items(extra or "")
   elseif ctx == "import_alias" then
     items = {
       {

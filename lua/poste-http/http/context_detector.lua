@@ -4,6 +4,7 @@ local M = {}
 local data = require("poste-http.http.data")
 local cache = require("poste-http.http.cache")
 local ts_query = require("poste-http.http.ts_query")
+local grpc_proto = require("poste-http.http.grpc_proto")
 
 --- Whether tree-sitter should be used for context detection for this buffer.
 --- Falls back to regex-based detection when the parser is unavailable.
@@ -32,6 +33,54 @@ local function detect_client_run_target(line_before_cursor)
       return "run_target_alias", { alias = alias, partial = p or "" }
     end
     return "run_target_hash", rest or ""
+  end
+  return nil
+end
+
+--- GRPC request line: `GRPC host:port/pkg.Service/Method` — complete the
+--- method-path segment once the host slash is typed. While the host is
+--- still being typed (no slash) there is nothing to complete.
+--- @param line_before_cursor string
+--- @return string|nil, table|nil
+local function detect_grpc_request_target(line_before_cursor)
+  local target = line_before_cursor:match("^%s*GRPC%s+(.+)$")
+  if not target then return nil end
+  local slash = target:find("/", 1, true)
+  if not slash then return nil end
+  local host = target:sub(1, slash - 1)
+  local rest = target:sub(slash + 1)
+  -- greedy backtrack puts the capture on the LAST slash in rest
+  local last_slash = rest:match("^.*()/")
+  local service_prefix, partial
+  if last_slash then
+    service_prefix = rest:sub(1, last_slash - 1)
+    partial = rest:sub(last_slash + 1)
+  else
+    service_prefix = ""
+    partial = rest
+  end
+  return "grpc_method_path",
+    { host = host, service_prefix = service_prefix, partial = partial }
+end
+
+--- `# @grpc-proto <path>` / `# @grpc-proto-set <path>` comment operators:
+--- complete the proto file path argument.
+--- @param trimmed string
+--- @return string|nil, string|nil
+local function detect_grpc_comment_operator(trimmed)
+  local partial = trimmed:match("^#%s*@grpc%-proto%-set%s+(.+)$")
+      or trimmed:match("^#%s*@grpc%-proto%s+(.+)$")
+  if partial then return "grpc_proto_path", partial end
+  return nil
+end
+
+--- GRPC request body: complete message fields from the proto index.
+--- @param buf number|nil
+--- @param cursor_line number|nil
+--- @return string|nil, table|nil
+local function detect_grpc_body(buf, cursor_line)
+  if buf and cursor_line and grpc_proto.is_grpc_body(buf, cursor_line) then
+    return "grpc_body", nil
   end
   return nil
 end
@@ -95,6 +144,8 @@ local function ts_detect_context(line_before_cursor, buf, cursor_line, cursor_co
   local parent_type = parent and parent:type() or node_type
 
   if parent_type == "request_line" then
+    local grpc_ctx, grpc_extra = detect_grpc_request_target(line_before_cursor)
+    if grpc_ctx then return grpc_ctx, grpc_extra end
     if node_type == "url" or node_type == "url_path" or node_type == "query_string" then
       return nil
     end
@@ -213,6 +264,8 @@ local function ts_detect_context(line_before_cursor, buf, cursor_line, cursor_co
       local after_open = line_before_cursor:sub(#line_before_cursor - last_open + 2)
       return "variable", after_open
     end
+    local grpc_body_ctx = detect_grpc_body(buf, cursor_line)
+    if grpc_body_ctx then return grpc_body_ctx, nil end
     return nil
   end
 
@@ -221,6 +274,12 @@ local function ts_detect_context(line_before_cursor, buf, cursor_line, cursor_co
   end
 
   local trimmed = vim.trim(line_before_cursor)
+
+  -- comment operators: # @grpc-proto[-set] <path> (comment lines fall through
+  -- the parent branches above when tree-sitter is active)
+  local grpc_op_ctx, grpc_op_extra = detect_grpc_comment_operator(trimmed)
+  if grpc_op_ctx then return grpc_op_ctx, grpc_op_extra end
+
   if trimmed == "" then
     return "method", nil
   end
@@ -346,6 +405,9 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     if trimmed:match("^#%s*<<") then
       -- Fall through for {{variable}} completion
     else
+      -- Comment operators: # @grpc-proto[-set] <path>
+      local grpc_op_ctx, grpc_op_extra = detect_grpc_comment_operator(trimmed)
+      if grpc_op_ctx then return grpc_op_ctx, grpc_op_extra end
       -- Regular comment lines → no completion
       return nil, nil
     end
@@ -380,6 +442,10 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     return "variable", after_open
   end
 
+  -- GRPC request body: complete message fields from the proto index
+  local grpc_body_ctx = detect_grpc_body(buf, cursor_line)
+  if grpc_body_ctx then return grpc_body_ctx, nil end
+
   -- @var definition: detect Lua import alias keypath @var = alias.
   if first_char == "@" then
     local var_name, alias, partial = line_before_cursor:match("^%s*@(%w[%w_]*)%s*=%s*(%w+)%s*%.(.*)$")
@@ -391,6 +457,10 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     end
     return nil, nil
   end
+
+  -- GRPC request line: complete pkg.Service/Method from proto/reflection index
+  local grpc_ctx, grpc_extra = detect_grpc_request_target(line_before_cursor)
+  if grpc_ctx then return grpc_ctx, grpc_extra end
 
   -- URL check (direct string find instead of pattern)
   if line_before_cursor:find("://", 1, true) then

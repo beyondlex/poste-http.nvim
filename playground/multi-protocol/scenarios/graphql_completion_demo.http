@@ -1,0 +1,102 @@
+# GraphQL completion demo — query highlighting (poste_graphql injection),
+# keyword completion, and schema-aware completion from a pinned SDL file.
+#
+# Requires the compiled parsers (setup compiles them automatically; else):
+#   :PosteHttpBuildParsers   (then restart Neovim)
+# Schema-aware blocks read graphql_schema.graphql from the working
+# directory — start Neovim from playground/multi-protocol/scenarios/
+# (operator paths resolve from the CWD, like # @grpc-proto files).
+#
+# How to try it: put the cursor where the notes say COMPLETE and trigger
+# completion (blink.cmp / nvim-cmp as configured). Schema blocks serve
+# instantly (the SDL is read synchronously); blocks without a pinned schema
+# offer GraphQL keywords instead.
+
+@graphql_url = http://localhost:8890
+
+# KEYWORDS (no schema pinned): the body highlights as GraphQL, and
+# COMPLETE inside the query body offers keywords, not HTTP methods:
+#   - after "sub        -> subscription / fragment / on
+#   - after "$id: I     -> Int / ID (built-in scalars)
+#   - inside "{{        -> your variables and request references
+# This block also EXECUTES against the playground server (docker compose).
+### keywords + highlighting
+GRAPHQL {{graphql_url}}
+
+query User($id: I) { # COMPLETE after "$id: I"
+  user(id: $id) { id name email }
+}
+
+{
+  "id": "1"
+}
+
+# SCHEMA PATH: COMPLETE on the argument of the operator line below
+# (expect: graphql_schema.graphql, plus directories under the prefix).
+### schema path completion
+# @graphql-schema graphql_sc
+
+# ROOT + NESTED FIELDS: the block pins the SDL, so COMPLETE offers the
+# schema's fields instead of keywords:
+#   - after "ord         -> orders (Query root field, detail: [Order!]!)
+#   - after "na          -> name (inside user's selection set)
+#   - inside "user(st    -> id (argument names of user)
+# The SDL extends the live server (Order etc. are completion-only);
+# the user line itself EXECUTES against the playground server.
+### schema root + nested fields
+# @graphql-schema ./graphql_schema.graphql
+GRAPHQL {{graphql_url}}
+
+query Demo {
+  ord # COMPLETE after "ord"
+  user(id: "1") {
+    na # COMPLETE after "na"
+  }
+}
+
+# ARGUMENTS + ENUMS: argument names and enum values from the schema:
+#   - after "li         -> limit (argument names of orders)
+#   - after "O          -> OPEN (enum values are prefix-filtered; PAID and
+#                          ARCHIVED appear as the prefix allows)
+# These queries are completion-only — the live server rejects `orders`.
+### arguments + enum values
+# @graphql-schema ./graphql_schema.graphql
+GRAPHQL {{graphql_url}}
+
+query OrdersByName {
+  orders(li # COMPLETE after "li"
+}
+
+query OrdersByStatus {
+  orders(status: O) # COMPLETE after "O"
+}
+
+# MUTATION + INPUT OBJECT: after "cre         -> createUser (Mutation root);
+# after "input: { na" -> name (fields of the CreateUserInput input object).
+# The "add" line EXECUTES against the playground server; createUser is
+# completion-only.
+### mutation with input object
+# @graphql-schema ./graphql_schema.graphql
+GRAPHQL {{graphql_url}}
+
+mutation Demo($name: String!) {
+  add(a: 19, b: 23)
+  cre # COMPLETE after "cre"
+}
+
+{
+  "name": "Ada"
+}
+
+# TYPE NAMES: after "$ids: I" -> ID (every SDL type on an empty prefix);
+# after "on Us" -> User (fragment type conditions filter by prefix too).
+### variable types + fragment on
+# @graphql-schema ./graphql_schema.graphql
+GRAPHQL {{graphql_url}}
+
+fragment UserFields on Us # COMPLETE after "Us"
+{
+  user(id: "1") {
+    ...UserFields
+  }
+}

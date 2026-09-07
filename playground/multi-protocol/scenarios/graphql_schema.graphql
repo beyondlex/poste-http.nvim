@@ -1,0 +1,60 @@
+# SDL schema for graphql_completion_demo.http — the file the demo's
+# `# @graphql-schema` blocks pin. Completion is offline: it reads this file
+# (mtime-cached), it never talks to the server.
+#
+# Query/Mutation/User mirror the playground graphql server (server.js), so
+# the blocks that only touch those fields also EXECUTE against
+# `docker compose -f playground/multi-protocol/docker-compose.yml up`.
+# Order/OrderStatus/CreateUserInput/Node/DateTime are deliberate extras —
+# they exist to make field/enum/input completion richer; queries using them
+# are for completion only (the live server would reject them).
+
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+type Query {
+  hello(name: String! = "world"): String!
+  user(id: ID!): User
+  orders(status: OrderStatus, limit: Int = 10): [Order!]!
+  node(id: ID!): Node
+}
+
+type Mutation {
+  add(a: Int!, b: Int!): Int!
+  createUser(input: CreateUserInput!): User
+}
+
+"""A playground user (extra fields are completion-only)."""
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  friends: [User!]
+  status: OrderStatus
+  joinedAt: DateTime
+}
+
+type Order implements Node {
+  id: ID!
+  total: Float!
+  items: [String!]
+}
+
+input CreateUserInput {
+  name: String!
+  email: String
+}
+
+enum OrderStatus {
+  OPEN
+  PAID
+  ARCHIVED
+}
+
+interface Node {
+  id: ID!
+}
+
+scalar DateTime

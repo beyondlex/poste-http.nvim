@@ -57,6 +57,14 @@ What to look for per protocol:
   JSON body (nested objects, arrays, oneof), and enum-typed fields complete
   their values. The index builds in the background — the first trigger on a
   changed block may be empty, trigger again.
+- **GraphQL completion** — `graphql_completion_demo.http` walks through it:
+  query bodies highlight as GraphQL (`poste_graphql` injection) and complete
+  keywords/scalars/directives without any setup; blocks that pin
+  `# @graphql-schema ./graphql_schema.graphql` complete fields, argument
+  names, enum values, input-object fields and type names from the SDL
+  (read offline, mtime-cached — no server round trip). Start Neovim from
+  `playground/multi-protocol/scenarios/` so the operator's relative path
+  resolves (same rule as `# @grpc-proto`).
 - **WEBSOCKET** — the Msgs tab (`M`) shows `→` sent / `←` received frames;
   the interactive request streams frames live (`s` to send, `c` to close).
 

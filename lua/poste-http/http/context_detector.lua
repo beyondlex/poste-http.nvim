@@ -97,16 +97,29 @@ end
 --- GraphQL query body (regex fallback): cursor sits in the query text of a
 --- GRAPHQL request block. Walks up to the block's request line; the "head"
 --- separator line bounds the scan so a previous block can never match.
+--- A blank line continues the body only when content sits directly above
+--- (the blank line between headers and the query start is not body).
 --- @param buf number
 --- @param cursor_line number
 --- @return boolean
 local function in_graphql_body(buf, cursor_line)
   if not buf or not cursor_line then return false end
-  if cache.get_line_type(buf, cursor_line) ~= "body" then return false end
+  local t = cache.get_line_type(buf, cursor_line)
+  if t == "empty" then
+    local probe = cursor_line - 1
+    while probe >= 1 and cache.get_line_type(buf, probe) == "empty" do
+      probe = probe - 1
+    end
+    if probe < 1 or cache.get_line_type(buf, probe) ~= "body" then
+      return false
+    end
+  elseif t ~= "body" then
+    return false
+  end
   for line = cursor_line - 1, 1, -1 do
-    local t = cache.get_line_type(buf, line)
-    if t == "head" then return false end
-    if t == "request" then
+    local lt = cache.get_line_type(buf, line)
+    if lt == "head" then return false end
+    if lt == "request" then
       local line_text = (vim.api.nvim_buf_get_lines(buf, line - 1, line, false)[1]) or ""
       return line_text:match("^%s*GRAPHQL%s") ~= nil
     end
@@ -431,8 +444,12 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     return "run_target", nil
   end
 
-  -- Fast-path: empty or whitespace-only → method completion
+  -- Fast-path: empty or whitespace-only → method completion — unless the
+  -- blank line continues a GRAPHQL query body (fresh-line completion).
   if trimmed == "" then
+    if in_graphql_body(buf, cursor_line) then
+      return "graphql_query", nil
+    end
     if is_file_level(buf, cursor_line) then
       return "file_directive", nil
     end

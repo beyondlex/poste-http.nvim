@@ -155,6 +155,36 @@ describe("graphql body completion", function()
       assert.equals("name_prefix", extra)
     end)
 
+    it("returns 'graphql_query' on a blank line inside the query text", function()
+      local buf = block_buf({
+        "### GraphQL",
+        "GRAPHQL {{graphql_url}}",
+        "",
+        "query User($id: ID!) {",
+        "  user(id: $id) {",
+        "",
+        "  }",
+        "}",
+      })
+      -- A fresh blank line inside the selection set is the most natural
+      -- completion trigger; the regex fast path used to serve HTTP methods.
+      local ctx = context_detector.detect_context("", buf, 6, 0)
+      delete_buf(buf)
+      assert.equals("graphql_query", ctx)
+    end)
+
+    it("keeps 'method' on the blank line before the query starts", function()
+      local buf = block_buf({
+        "### GraphQL",
+        "GRAPHQL {{graphql_url}}",
+        "",
+        "query User($id: ID!) {",
+      })
+      local ctx = context_detector.detect_context("", buf, 3, 0)
+      delete_buf(buf)
+      assert.equals("method", ctx)
+    end)
+
     it("does not fire in non-GRAPHQL bodies", function()
       local buf = block_buf({
         "### Create",

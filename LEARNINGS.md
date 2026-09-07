@@ -3,6 +3,17 @@
 Agent self-evolution log. When you fix a non-obvious bug or encounter a
 pitfall, log it here. Check this file before starting any task.
 
+- 2026-09-07: lua-patterns/SDL-parsing — two traps hit while writing the
+  graphql_schema SDL slicer: (1) greedy backtracking splits identifier tails —
+  `^%s*%a+%s+[_%w]*([%a][%w_]*)` on "type Query" yields name "y" (the `[_%w]*`
+  class gives back chars one at a time until the next class matches); capture
+  the whole identifier in one class instead (`^%s*%a+%s+([%w_]+)`). (2) A
+  definition-keyword scanner over free text must track `(`/`{` depth and only
+  accept keywords at depth 0 — otherwise a legal argument named `type`/`input`
+  (`createUser(input: ...)`) splits the type's slice mid-field. See
+  `lua/poste-http/http/graphql_schema.lua` parse_sdl,
+  `tests/http/graphql_schema_spec.lua`.
+
 - 2026-09-07: treesitter/injection-testing — nvim 0.12 no longer exposes
   injected LanguageTree children: `parser:children()` returns `{}` even after
   `vim.treesitter.start` + `:parse()`, and `for_each_child` is gone, so a

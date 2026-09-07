@@ -106,6 +106,7 @@ that hand-rolled floats used to apply unevenly).
 | `context_detector.lua` | Context detection for completion |
 | `item_builder.lua` | Completion item builder |
 | `grpc_proto.lua` | gRPC completion index — `pkg.Service/Method` and JSON body message fields/enums from `# @grpc-proto` files (offline `grpcurl list|describe`, chained into nested types) or server reflection; mtime-keyed cache; `# @grpc-proto` path items |
+| `graphql_schema.lua` | GraphQL schema-aware body completion — SDL parsing, `# @graphql-schema` block operator, query-text position walker, field/arg/enum/type items; mtime-keyed cache; `# @graphql-schema` path items |
 | `data.lua` | HTTP history data format helpers, keyword definitions |
 
 #### Scripts & Assertions

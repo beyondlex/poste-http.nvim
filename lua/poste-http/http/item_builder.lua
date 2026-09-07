@@ -7,6 +7,7 @@ local cache = require("poste-http.http.cache")
 local data = require("poste-http.http.data")
 local context_detector = require("poste-http.http.context_detector")
 local grpc_proto = require("poste-http.http.grpc_proto")
+local graphql_schema = require("poste-http.http.graphql_schema")
 
 local KIND_KEYWORD = 14
 local KIND_PROPERTY = 10
@@ -496,7 +497,15 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
     items = M.build_items({ "./", "../" }, KIND_VALUE)
     return items
   elseif ctx == "graphql_query" then
+    -- Schema-aware items win when the block pins a schema; keywords are the
+    -- fallback (get_body_items returns nil without `# @graphql-schema`).
+    local schema_items = graphql_schema.get_body_items(buf, cursor_line, cursor_col)
+    if schema_items then
+      return schema_items
+    end
     return M.build_keyword_items(data.graphql_keywords, KIND_KEYWORD)
+  elseif ctx == "graphql_schema_path" then
+    return graphql_schema.get_schema_path_items(extra or "")
   elseif ctx == "grpc_method_path" then
     return grpc_proto.get_method_items(buf, cursor_line, extra)
   elseif ctx == "grpc_body" then

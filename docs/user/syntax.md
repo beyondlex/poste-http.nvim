@@ -475,11 +475,27 @@ query User($id: ID!) {
   `mutation`, `subscription`, `fragment`, `on`), built-in scalars (`Int`,
   `Float`, `String`, `Boolean`, `ID`) and common directives (`@include`,
   `@skip`, `@deprecated`); `{{var}}` completion works there too
+- Schema-aware completion: pin an SDL file with the `# @graphql-schema`
+  block operator and field names, argument names, enum values, input-object
+  fields and type names complete from the schema (path completion on the
+  operator line, mtime-cached like `# @grpc-proto`):
+
+  ```
+  ### Get user
+  # @graphql-schema ./schema/schema.graphql
+  GRAPHQL {{base_url}}/graphql
+
+  query User($id: ID!) {
+    user(id: $id) {
+      <cursor> → fields of the user type from the schema
+    }
+  }
+  ```
 
 **Implementation status**: Implemented (parser, executor, completion,
-query highlighting via the `poste_graphql` injection). GraphQL-specific
-extras (error surfacing, schema-aware field completion) are not yet
-implemented.
+query highlighting via the `poste_graphql` injection, schema-aware field
+completion via `# @graphql-schema`). GraphQL-specific extras (error
+surfacing, server introspection as a schema source) are not yet implemented.
 
 ### 2.16 gRPC Requests
 

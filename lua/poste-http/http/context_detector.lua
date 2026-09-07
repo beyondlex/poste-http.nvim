@@ -74,6 +74,15 @@ local function detect_grpc_comment_operator(trimmed)
   return nil
 end
 
+--- `# @graphql-schema <path>` comment operator: complete the SDL file path.
+--- @param trimmed string
+--- @return string|nil, string|nil
+local function detect_graphql_comment_operator(trimmed)
+  local partial = trimmed:match("^#%s*@graphql%-schema%s+(.+)$")
+  if partial then return "graphql_schema_path", partial end
+  return nil
+end
+
 --- GRPC request body: complete message fields from the proto index.
 --- @param buf number|nil
 --- @param cursor_line number|nil
@@ -307,10 +316,12 @@ local function ts_detect_context(line_before_cursor, buf, cursor_line, cursor_co
 
   local trimmed = vim.trim(line_before_cursor)
 
-  -- comment operators: # @grpc-proto[-set] <path> (comment lines fall through
-  -- the parent branches above when tree-sitter is active)
+  -- comment operators: # @grpc-proto[-set] / # @graphql-schema (comment
+  -- lines fall through the parent branches above when tree-sitter is active)
   local grpc_op_ctx, grpc_op_extra = detect_grpc_comment_operator(trimmed)
   if grpc_op_ctx then return grpc_op_ctx, grpc_op_extra end
+  local gql_op_ctx, gql_op_extra = detect_graphql_comment_operator(trimmed)
+  if gql_op_ctx then return gql_op_ctx, gql_op_extra end
 
   if trimmed == "" then
     return "method", nil
@@ -437,9 +448,11 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     if trimmed:match("^#%s*<<") then
       -- Fall through for {{variable}} completion
     else
-      -- Comment operators: # @grpc-proto[-set] <path>
+      -- Comment operators: # @grpc-proto[-set] <path>, # @graphql-schema <path>
       local grpc_op_ctx, grpc_op_extra = detect_grpc_comment_operator(trimmed)
       if grpc_op_ctx then return grpc_op_ctx, grpc_op_extra end
+      local gql_op_ctx, gql_op_extra = detect_graphql_comment_operator(trimmed)
+      if gql_op_ctx then return gql_op_ctx, gql_op_extra end
       -- Regular comment lines → no completion
       return nil, nil
     end

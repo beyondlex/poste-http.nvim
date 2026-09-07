@@ -115,7 +115,7 @@ that hand-rolled floats used to apply unevenly).
 | `scripts.lua` | Pre-request script execution (`< {% %}`) |
 | `assertions.lua` | Post-request assertion execution (`> {% %}`) |
 | `script_block.lua` | Shared `< {% %}`/`> {% %}` block extraction (used by scripts.lua + assertions.lua) |
-| `script_sandbox.lua` | Shared sandbox env builder (whitelisted stdlibs + injected API) |
+| `script_sandbox.lua` | Shared sandbox env builder (whitelisted stdlibs, curated `os` without execute/io, + injected API) |
 | `orchestration.lua` | SCRIPT-block orchestration: `client.run()` coroutine scheduler + typed responses |
 | `errors.lua` | Structured pre/post-request error collection + Error tab formatting/highlights |
 | `lua_docs.lua` | Lua API documentation helpers |

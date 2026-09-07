@@ -9,6 +9,18 @@ local M = {}
 
 local md5 = require("poste-http.http.md5").md5
 
+--- Curated `os` for sandboxed scripts. `.http` files are shared (checked
+--- into repos, imported from Postman) and their scripts run on execution,
+--- so nothing here may shell out, terminate nvim, or touch the filesystem.
+--- Time/clock/env reads stay available; file input is covered by `< path`
+--- includes and Lua imports.
+local sandbox_os = {
+  date = os.date,
+  time = os.time,
+  clock = os.clock,
+  getenv = os.getenv,
+}
+
 --- Build a sandbox environment for executing script code.
 --- Exposes the whitelisted stdlibs unconditionally. `response` and `assert`
 --- are only set when provided, so runners that don't support them keep them
@@ -36,8 +48,7 @@ function M.build_sandbox_env(api)
     string = string,
     table = table,
     math = math,
-    os = os,
-    io = io,
+    os = sandbox_os,
     ipairs = ipairs,
     pairs = pairs,
     md5 = md5,

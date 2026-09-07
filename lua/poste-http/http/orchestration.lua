@@ -8,6 +8,7 @@
 local import = require("poste-http.http.import")
 local state = require("poste-http.state")
 local util = require("poste-http.util")
+local script_sandbox = require("poste-http.http.script_sandbox")
 
 local M = {}
 
@@ -77,77 +78,69 @@ function M.run_script(code, opts, on_complete)
     table.insert(logs, table.concat(parts, "\t"))
   end
 
-  local sandbox = {
-    client = {
-      log = collect_log,
-      global = {
+  local client_api = {
+    log = collect_log,
+    global = {
+      set = function(name, value)
+        state.set_global_var(name, tostring(value))
+        state.log("INFO", string.format("Orchestration: client.global.set('%s', '%s')", name, tostring(value)))
+      end,
+      get = function(name)
+        return state.global_vars[name]
+      end,
+      header = {
         set = function(name, value)
-          state.set_global_var(name, tostring(value))
-          state.log("INFO", string.format("Orchestration: client.global.set('%s', '%s')", name, tostring(value)))
+          state.set_global_header(name, tostring(value))
+          state.log("INFO", string.format("Orchestration: client.global.header.set('%s', '%s')", name, tostring(value)))
         end,
         get = function(name)
-          return state.global_vars[name]
+          return state.global_headers[name]
         end,
-        header = {
-          set = function(name, value)
-            state.set_global_header(name, tostring(value))
-            state.log("INFO", string.format("Orchestration: client.global.header.set('%s', '%s')", name, tostring(value)))
-          end,
-          get = function(name)
-            return state.global_headers[name]
-          end,
-          remove = function(name)
-            state.remove_global_header(name)
-            state.log("INFO", string.format("Orchestration: client.global.header.remove('%s')", name))
-          end,
-          clear = function()
-            state.clear_global_headers()
-            state.log("INFO", "Orchestration: client.global.header.clear()")
-          end,
-        },
+        remove = function(name)
+          state.remove_global_header(name)
+          state.log("INFO", string.format("Orchestration: client.global.header.remove('%s')", name))
+        end,
+        clear = function()
+          state.clear_global_headers()
+          state.log("INFO", "Orchestration: client.global.header.clear()")
+        end,
       },
-      assert = function(cond, msg)
-        if not cond then
-          error(msg or "Assertion failed", 2)
-        end
-      end,
-      test = function(name, fn)
-        local ok, err = pcall(fn)
-        if not ok then
-          table.insert(test_failures, { name = name, error = tostring(err) })
-        end
-      end,
-      run = function(target, args)
-        local req = coroutine.yield({ kind = "run", target = target, args = args })
-        if not req or req.error then
-          error(("client.run(%s) failed: %s"):format(tostring(target),
-            req and req.error or "unknown error"), 2)
-        end
-        table.insert(calls, { name = req.name, response = req.response })
-        return M.build_response(req.response)
-      end,
     },
-    print = collect_log,
+    assert = function(cond, msg)
+      if not cond then
+        error(msg or "Assertion failed", 2)
+      end
+    end,
+    test = function(name, fn)
+      local ok, err = pcall(fn)
+      if not ok then
+        table.insert(test_failures, { name = name, error = tostring(err) })
+      end
+    end,
+    run = function(target, args)
+      local req = coroutine.yield({ kind = "run", target = target, args = args })
+      if not req or req.error then
+        error(("client.run(%s) failed: %s"):format(tostring(target),
+          req and req.error or "unknown error"), 2)
+      end
+      table.insert(calls, { name = req.name, response = req.response })
+      return M.build_response(req.response)
+    end,
+  }
+
+  -- Stdlib whitelist comes from the shared builder (orchestration used to
+  -- hand-roll the list and had already drifted: no md5). Orchestration-only
+  -- bits — collect_log as print, the level-2 assert — are layered on top.
+  local sandbox = script_sandbox.build_sandbox_env({
+    client = client_api,
+    variables = opts.variables or {},
+    env = opts.env or {},
+    response = opts.response,
     assert = function(cond, msg)
       if not cond then error(msg or "Assertion failed", 2) end
     end,
-    response = opts.response,
-    variables = opts.variables or {},
-    env = opts.env or {},
-    error = error,
-    pcall = pcall,
-    tostring = tostring,
-    tonumber = tonumber,
-    next = next,
-    type = type,
-    string = string,
-    table = table,
-    math = math,
-    os = os,
-    io = io,
-    ipairs = ipairs,
-    pairs = pairs,
-  }
+  })
+  sandbox.print = collect_log
 
   local co
   local finished = false

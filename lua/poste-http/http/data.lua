@@ -520,8 +520,7 @@ M.lua_sandbox_modules = {
   { name = "string",  desc = "String manipulation library" },
   { name = "table",   desc = "Table manipulation library" },
   { name = "math",    desc = "Mathematical functions library" },
-  { name = "os",      desc = "Operating system facilities" },
-  { name = "io",      desc = "Input/output facilities" },
+  { name = "os",      desc = "Operating system facilities (curated: date/time/clock/getenv)" },
 }
 
 ---------------------------------------------------------------------------
@@ -587,33 +586,12 @@ M.lua_module_members = {
     { name = "math.tanh",     desc = "Hyperbolic tangent" },
   },
   os = {
+    -- Curated to match script_sandbox's sandbox_os — completion must not
+    -- suggest members the sandbox does not expose (os.execute, io.*, …).
     { name = "os.clock",       desc = "CPU time in seconds" },
     { name = "os.date",        desc = "Format date/time" },
-    { name = "os.difftime",    desc = "Difference between two times" },
-    { name = "os.execute",     desc = "Execute system command" },
-    { name = "os.exit",        desc = "Terminate program" },
     { name = "os.getenv",      desc = "Get environment variable" },
-    { name = "os.remove",      desc = "Delete file" },
-    { name = "os.rename",      desc = "Rename file" },
-    { name = "os.setlocale",   desc = "Set program locale" },
     { name = "os.time",        desc = "Get time as seconds since epoch" },
-    { name = "os.tmpname",     desc = "Get temporary file name" },
-  },
-  io = {
-    { name = "io.close",       desc = "Close file" },
-    { name = "io.flush",       desc = "Flush output buffer" },
-    { name = "io.input",       desc = "Set/get default input file" },
-    { name = "io.lines",       desc = "Iterator over file lines" },
-    { name = "io.open",        desc = "Open file" },
-    { name = "io.output",      desc = "Set/get default output file" },
-    { name = "io.popen",       desc = "Open process" },
-    { name = "io.read",        desc = "Read from file" },
-    { name = "io.stderr",      desc = "Standard error file handle" },
-    { name = "io.stdin",       desc = "Standard input file handle" },
-    { name = "io.stdout",      desc = "Standard output file handle" },
-    { name = "io.tmpfile",     desc = "Return temporary file" },
-    { name = "io.type",        desc = "Check file handle type" },
-    { name = "io.write",       desc = "Write to file" },
   },
 }
 

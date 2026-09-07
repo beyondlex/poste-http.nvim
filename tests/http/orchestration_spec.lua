@@ -89,6 +89,18 @@ print("world", 42)
     assert.are_equal("world\t42", result.logs[2])
   end)
 
+  it("shares the tightened sandbox stdlib: md5 available, io/os.execute not", function()
+    local result = run([[
+client.log(md5("abc"))
+assert(io == nil, "io leaked into the orchestration sandbox")
+assert(os.execute == nil, "os.execute leaked into the orchestration sandbox")
+assert(os.date ~= nil and os.time ~= nil and os.clock ~= nil and os.getenv ~= nil,
+  "curated os members missing")
+]])
+    assert.is_nil(result.error)
+    assert.are_equal("900150983cd24fb0d6963f7d28e17f72", result.logs[1])
+  end)
+
   it("executes a single client.run call and returns a typed response", function()
     local captured_target, captured_args
     import.execute_request_reference = function(target, args, _, callback)

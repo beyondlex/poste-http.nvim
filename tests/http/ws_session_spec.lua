@@ -166,4 +166,49 @@ describe("ws_session.start", function()
     vim.wait(200, function() return #responses > 0 end)
     assert.equals(1, #responses)
   end)
+
+  it("deletes its response-buffer autocmd when the session finalizes", function()
+    -- get_buf() only returns an already-created response buffer, which the
+    -- headless spec never builds — point it at a scratch buffer instead.
+    local buffer_mod = require("poste-http.http.buffer")
+    local fake_buf = vim.api.nvim_create_buf(false, true)
+    local orig_get_buf = buffer_mod.get_buf
+    buffer_mod.get_buf = function() return fake_buf end
+
+    local function close_autocmd_count()
+      -- One nvim_create_autocmd call with an event list shows up as one
+      -- entry per event; count distinct ids.
+      local seen = {}
+      for _, au in ipairs(vim.api.nvim_get_autocmds({ buffer = fake_buf })) do
+        if au.event == "BufWipeout" or au.event == "BufDelete" then
+          seen[au.id] = true
+        end
+      end
+      local n = 0
+      for _ in pairs(seen) do n = n + 1 end
+      return n
+    end
+
+    local registered, ok, err
+    ok, err = pcall(function()
+      local progress = {}
+      ws_session.start({
+        url = "wss://x", headers = {}, body = "",
+        on_progress = function(r) table.insert(progress, r) end,
+      }, function() end)
+      captured_opts.on_stdout(900, { 'hi', '' }, nil)
+      vim.wait(200, function() return #progress > 0 end)
+      -- open_ui registered exactly one close autocmd for this session.
+      registered = close_autocmd_count()
+      ws_session.close()
+      vim.wait(200, function() return not ws_session.is_active() end)
+    end)
+
+    buffer_mod.get_buf = orig_get_buf
+    if not ok then error(err) end
+    assert.equals(1, registered)
+    -- finalize must remove it again; otherwise one autocmd accumulates per
+    -- interactive session on the shared response buffer.
+    assert.equals(0, close_autocmd_count())
+  end)
 end)

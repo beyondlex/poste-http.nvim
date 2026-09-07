@@ -43,6 +43,10 @@ local function finalize(session, exit_code, close_reason)
   if session.job_id and session.job_id > 0 then
     pcall(vim.fn.jobstop, session.job_id)
   end
+  if session.buf_autocmd then
+    pcall(vim.api.nvim_del_autocmd, session.buf_autocmd)
+    session.buf_autocmd = nil
+  end
   if session.splitter then
     session.splitter.flush(function(line)
       if vim.trim(line) ~= "" then
@@ -84,7 +88,7 @@ local function open_ui(session)
   keymaps.register(buf, "http_response", "ws_close", "c", function()
     M.close()
   end)
-  vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {
+  session.buf_autocmd = vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {
     buffer = buf,
     callback = function() M.close() end,
   })

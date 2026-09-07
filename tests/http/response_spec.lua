@@ -1,8 +1,9 @@
 -- Tests for the canonical response helpers shared by all protocol executors.
 --
 -- `ok` is the protocol-aware success flag on the canonical response shape
--- (docs/dev/multi-protocol-design.md): HTTP stamps status < 400, gRPC stamps
--- status == 0 (codes 1-16 are errors), WebSocket stamps a normal close code.
+-- (docs/dev/multi-protocol-design.md): HTTP stamps 0 < status < 400, gRPC
+-- stamps status == 0 (codes 1-16 are errors), WebSocket stamps a normal
+-- close code.
 
 local response_mod = require("poste-http.http.response")
 local parser = require("poste-http.http.response_parser")
@@ -66,6 +67,18 @@ describe("response ok stamping", function()
     os.remove(f)
     assert.equals(404, r.status)
     assert.is_false(r.ok)
+  end)
+
+  it("parse_response stamps ok=false for status 0 (no response)", function()
+    -- Exit-0-with-no-headers is not a success: the historical
+    -- `status < 400` stamp called it ok. The is_error fallback for
+    -- UNSTAMPED legacy stubs (import.lua failure shapes) is unchanged.
+    local f = write_headers_file("")
+    local r = parser.parse_response(f, {}, {}, nil, "GET", "https://x", nil)
+    os.remove(f)
+    assert.equals(0, r.status)
+    assert.is_false(r.ok)
+    assert.is_true(response_mod.is_error(r))
   end)
 
   it("parse_error stamps ok=false", function()

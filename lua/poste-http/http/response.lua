@@ -5,10 +5,11 @@
 ---     headers, body, cookies, metadata, ok }
 ---
 --- `ok` is the protocol-aware success flag stamped by each response
---- builder: HTTP uses status < 400, gRPC uses status == 0 (codes 1-16 are
---- errors), WebSocket uses a normal close code (1000). `is_error` reads the
---- stamped flag and falls back to the historical HTTP-shaped rule for
---- legacy responses that never got stamped.
+--- builder: HTTP uses status > 0 and status < 400 (a no-response 0 is not
+--- a success), gRPC uses status == 0 (codes 1-16 are errors), WebSocket
+--- uses a normal close code (1000). `is_error` reads the stamped flag and
+--- falls back to the historical HTTP-shaped rule for legacy responses that
+--- never got stamped.
 
 local M = {}
 

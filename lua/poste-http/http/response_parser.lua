@@ -193,7 +193,8 @@ function M.parse_response(headers_file, stdout_data, stderr_data, start_hires, m
     headers = parsed.headers,
     body = body,
     cookies = cookies,
-    ok = parsed.status < 400,
+    -- status 0 is "No Response" (curl exited 0 without headers): never ok.
+    ok = parsed.status > 0 and parsed.status < 400,
     metadata = {
       method = method or "",
       redirect_count = redirect_count,

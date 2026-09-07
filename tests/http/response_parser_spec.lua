@@ -109,6 +109,46 @@ describe("parse_error", function()
   end)
 end)
 
+describe("parse_response redirect_count", function()
+  local function write_count_file(content)
+    local path = vim.fn.tempname() .. "_redirects"
+    local fd = io.open(path, "w")
+    fd:write(content)
+    fd:close()
+    return path
+  end
+
+  it("prefers the curl --write-out num_redirects file over the verbose grep", function()
+    local f = write_count_file("2\n")
+    local r = parser.parse_response(nil, {}, {
+      "< HTTP/1.1 200 OK",
+    }, nil, "GET", "https://x", nil, f)
+    os.remove(f)
+    assert.equals("2", r.metadata.redirect_count)
+  end)
+
+  it("falls back to the verbose grep when no usable count file exists", function()
+    -- no file at all
+    local r = parser.parse_response(nil, {}, {
+      "* example 3 redirects logged here",
+      "< HTTP/1.1 200 OK",
+    }, nil, "GET", "https://x", nil, nil)
+    assert.equals("3", r.metadata.redirect_count)
+
+    -- a path that cannot be opened
+    local r2 = parser.parse_response(nil, {}, { "< HTTP/1.1 200 OK" },
+      nil, "GET", "https://x", nil, "/nonexistent/poste_redirects")
+    assert.equals("0", r2.metadata.redirect_count)
+
+    -- old curl writes an unknown write-out variable literally
+    local junk = write_count_file("%{num_redirects}")
+    local r3 = parser.parse_response(nil, {}, { "< HTTP/1.1 200 OK" },
+      nil, "GET", "https://x", nil, junk)
+    os.remove(junk)
+    assert.equals("0", r3.metadata.redirect_count)
+  end)
+end)
+
 describe("parse_response effective URL", function()
   it("uses the last Location header as the final URL across a redirect chain", function()
     -- curl -v logs one "< Location:" line per followed hop; the final URL is

@@ -162,7 +162,9 @@ local function extract_cookies_across_hops(blocks)
   return cookies
 end
 
-function M.parse_response(headers_file, stdout_data, stderr_data, start_hires, method, request_url, body_file)
+--- @param redirect_count_file string|nil  File holding curl --write-out
+---   %{num_redirects} output; falls back to grepping the verbose log.
+function M.parse_response(headers_file, stdout_data, stderr_data, start_hires, method, request_url, body_file, redirect_count_file)
   local uv = vim.uv or vim.loop
   local latency_ms = 0
   if start_hires then
@@ -199,10 +201,23 @@ function M.parse_response(headers_file, stdout_data, stderr_data, start_hires, m
 
   local cookies = extract_cookies_across_hops(split_header_blocks(headers_text))
 
-  local redirect_count = "0"
-  local raw_redirect_count = verbose:match("([%d]+) r[ea]direct")
-  if raw_redirect_count then
-    redirect_count = raw_redirect_count
+  -- Preferred source: curl --write-out %{num_redirects} parked in a temp
+  -- file by curl_exec (modern curl never prints "N redirects" to the
+  -- verbose log, so the old grep below usually stayed at "0").
+  local redirect_count
+  if redirect_count_file then
+    local fd = io.open(redirect_count_file, "r")
+    if fd then
+      local content = vim.trim(fd:read("*a") or "")
+      fd:close()
+      -- old curl prints an unknown write-out variable literally
+      if content:match("^%d+$") then
+        redirect_count = content
+      end
+    end
+  end
+  if not redirect_count then
+    redirect_count = verbose:match("([%d]+) r[ea]direct") or "0"
   end
 
   local final_url = request_url or ""

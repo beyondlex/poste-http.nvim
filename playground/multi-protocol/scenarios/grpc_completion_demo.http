@@ -29,9 +29,9 @@ GRPC {{grpc_host}}/poste.test.v1.OrderService/
 #   - inside "ORDER_CH  -> enum ORDER_CHANNEL_WEB / ORDER_CHANNEL_MOBILE
 #   - after "sk         -> sku / quantity / unit_price (array element)
 #   - after "ci         -> city / country (nested message)
-#   - empty object {}   -> oneof members "email" / "phone" as keys:
-#                         replace the notification line with
-#                         "notification": {""}  and COMPLETE inside
+#   - oneof members complete as ordinary keys: replace the "email" line
+#     with a fresh " and COMPLETE -> email / phone (proto3 JSON puts the
+#     oneof member directly at the top level, not under "notification")
 # @grpc-plaintext
 GRPC {{grpc_host}}/poste.test.v1.OrderService/PreviewOrder
 
@@ -43,7 +43,7 @@ GRPC {{grpc_host}}/poste.test.v1.OrderService/PreviewOrder
   ],
   "shipping_address": {"city": "Berlin"},
   "attributes": {"source": "playground"},
-  "notification": {"email": "noreply@example.com"}
+  "email": "noreply@example.com"
 }
 
 # OFFLINE PROTO MODE: no reflection needed — the block pins the proto file

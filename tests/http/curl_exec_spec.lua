@@ -39,6 +39,15 @@ describe("curl_exec.execute", function()
     assert.matches("--data%-binary", captured_args)
   end)
 
+  it("asks curl for %{num_redirects} into a redirect count file", function()
+    -- body (-o) and headers (-D) go to their own files, so stdout only
+    -- carries the --write-out output; it is shell-redirected into the
+    -- count file response_parser reads.
+    curl_exec.execute({ method = "GET", url = "https://api.example.com" }, function() end)
+    assert.matches("%-%-write%-out '%%{num_redirects}'", captured_args)
+    assert.matches("1> ", captured_args)
+  end)
+
   it("returns error when URL is empty", function()
     local result
     curl_exec.execute({ method = "GET", url = "" }, function(r) result = r end)

@@ -46,6 +46,7 @@ function M.execute(opts, callback)
   local headers_file = tmp_dir .. "/headers"
   local req_body_file = tmp_dir .. "/body"
   local resp_body_file = tmp_dir .. "/resp_body"
+  local redirect_count_file = tmp_dir .. "/redirects"
 
   if expanded_body and expanded_body ~= "" then
     local fd, werr = io.open(req_body_file, "wb")
@@ -73,6 +74,7 @@ function M.execute(opts, callback)
     "-X", method,
     "-D", headers_file,
     "-o", resp_body_file,
+    "--write-out", "%{num_redirects}",
     "-A", "poste/0.1.0",
   }
 
@@ -101,7 +103,10 @@ function M.execute(opts, callback)
   for _, a in ipairs(args) do
     table.insert(cmd_parts, util.shell_escape(a))
   end
-  local cmd = table.concat(cmd_parts, " ")
+  -- The body (-o) and the headers (-D) already go to their own files, so
+  -- curl's stdout carries only the --write-out output; redirect it into a
+  -- file for response_parser (grep-able on failure via the verbose log).
+  local cmd = table.concat(cmd_parts, " ") .. " 1> " .. util.shell_escape(redirect_count_file)
 
   local stdout_buf = {}
   local stderr_buf = {}
@@ -110,7 +115,7 @@ function M.execute(opts, callback)
   local function on_complete()
     local response
     if #stdout_buf > 0 or #stderr_buf > 0 then
-      response = response_parser.parse_response(headers_file, stdout_buf, stderr_buf, start_hires, method, url, resp_body_file)
+      response = response_parser.parse_response(headers_file, stdout_buf, stderr_buf, start_hires, method, url, resp_body_file, redirect_count_file)
     else
       response = response_parser.parse_error(headers_file, stdout_buf, stderr_buf, start_hires, method, 1, resp_body_file)
     end

@@ -55,7 +55,7 @@ describe("variable_inspector collect_entries", function()
       '{"obj": {{request1.response.body.obj}}}',
     })
 
-    local entries, sorted = variable_inspector.collect_entries(buf, 5)
+    local entries, _ = variable_inspector.collect_entries(buf, 5)
     assert.truthy(entries)
     assert.truthy(entries.obj)
     assert.equals('{"name":"doge"}', entries.obj[1].value)
@@ -85,7 +85,7 @@ return {
       "GET /test",
     }, os.tmpname() .. ".http")
 
-    local entries, sorted = variable_inspector.collect_entries(buf, 9)
+    local entries, _ = variable_inspector.collect_entries(buf, 9)
     assert.truthy(entries)
     assert.equals("hello from lua", entries.my_name[1].value)
     assert.equals("100", entries.my_number[1].value)
@@ -105,7 +105,7 @@ return {
       "GET /test",
     })
 
-    local entries, sorted = variable_inspector.collect_entries(buf, 6)
+    local entries, _ = variable_inspector.collect_entries(buf, 6)
     assert.truthy(entries)
     assert.truthy(entries.my_name)
     -- When the Lua file doesn't exist, resolve_lua_imports leaves the line

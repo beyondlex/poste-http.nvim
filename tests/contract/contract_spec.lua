@@ -3,7 +3,7 @@
 --- These tests ensure that every JSON shape consumed by Lua code
 --- matches the expected field structure. If a struct adds, removes, or
 --- renames a field, the corresponding fixture must be updated.
-local path_sep = package.config:sub(1, 1)
+local _ = package.config:sub(1, 1)
 local fixture_dir = vim.fn.fnamemodify("tests/contract/fixtures", ":p")
 
 local function load_fixture(name)

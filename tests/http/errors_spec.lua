@@ -1,4 +1,4 @@
-local state = require("poste-http.state")
+local _ = require("poste-http.state")
 
 describe("errors.find_unresolved_vars", function()
   local errors

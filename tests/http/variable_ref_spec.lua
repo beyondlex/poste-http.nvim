@@ -4,14 +4,14 @@ describe("variable ref pattern matching", function()
   describe("{{...}} with } inside content", function()
     it("matches {{jq.response.body}} without special chars", function()
       local line = "GET {{base_url}}/get"
-      local a, b, inner = line:find("{{(.-)}}")
+      local a, _, inner = line:find("{{(.-)}}")
       assert.not_nil(a)
       assert.equals("base_url", inner)
     end)
 
     it("matches {{...}} with single } inside (jq filter)", function()
       local line = [=[<<method [ {{jq.response.body | {name: .[].commit.author.name, email} }} ]]=]
-      local a, b, inner = line:find("{{(.-)}}")
+      local a, _, inner = line:find("{{(.-)}}")
       assert.not_nil(a)
       assert.not_nil(inner:match("^jq%.response%.body"),
         "inner should start with jq.response.body, got: " .. tostring(inner))
@@ -19,7 +19,7 @@ describe("variable ref pattern matching", function()
 
     it("matches {{...}} with multiple } inside (nested objects)", function()
       local line = [=[{{jq.response.body | {a: {b: 1}} }}]=]
-      local a, b, inner = line:find("{{(.-)}}")
+      local a, _, inner = line:find("{{(.-)}}")
       assert.not_nil(a)
       assert.not_nil(inner:match("^jq%.response%.body"),
         "inner should start with jq.response.body, got: " .. tostring(inner))
@@ -61,7 +61,7 @@ describe("variable ref pattern matching", function()
 
     it("new pattern (.-) succeeds on same input", function()
       local line = [=[{{jq.response.body | {name: email} }}]=]
-      local a, b = line:find("{{(.-)}}")
+      local a, _ = line:find("{{(.-)}}")
       assert.not_nil(a, "new pattern (.-) should succeed")
     end)
   end)

@@ -113,7 +113,7 @@ describe("find_file_upwards", function()
 
   it("finds a file in the starting directory", function()
     -- Write a temp file, search for it, then clean up
-    local tmpdir = os.tmpname():gsub("tmp.*", "") or "/tmp"
+    local _ = os.tmpname():gsub("tmp.*", "") or "/tmp"
     -- Use a unique name
     local search_file = "/tmp/poste_test_file_" .. tostring(math.random(10000, 99999)) .. ".tmp"
     local f = io.open(search_file, "w")

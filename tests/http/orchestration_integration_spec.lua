@@ -1,6 +1,6 @@
 --- End-to-end orchestration test: client.run() goes through the real import
 --- resolution and request pipeline (curl and describe are mocked).
-local state = require("poste-http.state")
+local _ = require("poste-http.state")
 
 local mock_describe = {
   describe_content = function()
@@ -43,7 +43,7 @@ describe("client.run orchestration (real import pipeline)", function()
   local req_file
   local buf
   local orig_execute
-  local orig_describe
+  local _
 
   before_each(function()
     package.loaded["poste-http.http.import"] = nil

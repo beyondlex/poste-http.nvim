@@ -129,7 +129,7 @@ describe("ts_query.query_nodes", function()
   it("node_at_point returns correct node", function()
     local node = ts_query.node_at_point(buf, 1, 5)
     assert.is_not_nil(node)
-    local ok, t = pcall(node.type, node)
+    local ok, _ = pcall(node.type, node)
     assert.is_true(ok)
   end)
 

@@ -16,6 +16,7 @@ poste-http-headers	poste.txt	/*poste-http-headers*
 poste-http-import	poste.txt	/*poste-http-import*
 poste-http-inline-script	poste.txt	/*poste-http-inline-script*
 poste-http-method	poste.txt	/*poste-http-method*
+poste-http-multi-protocol	poste.txt	/*poste-http-multi-protocol*
 poste-http-postscript	poste.txt	/*poste-http-postscript*
 poste-http-prescript	poste.txt	/*poste-http-prescript*
 poste-http-run	poste.txt	/*poste-http-run*

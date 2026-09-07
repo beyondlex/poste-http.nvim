@@ -2,7 +2,7 @@
 --- Loads fixtures from tests/http/fixtures/http_completion/fixtures.lua
 --- and runs each through get_items_for_context.
 
-local completion = require("poste-http.http.completion")
+local _ = require("poste-http.http.completion")
 local item_builder = require("poste-http.http.item_builder")
 local cache = require("poste-http.http.cache")
 local state = require("poste-http.state")
@@ -146,7 +146,7 @@ describe("HTTP completion fixtures", function()
       end
 
       -- Clear cache between tests
-      local ct = vim.api.nvim_buf_get_changedtick(buf)
+      local _ = vim.api.nvim_buf_get_changedtick(buf)
       cache.get_buffer_cache(buf)
 
       -- Ensure test buffer is current buffer (collect_env_vars uses buffer 0)

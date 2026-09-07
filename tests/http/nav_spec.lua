@@ -124,7 +124,7 @@ describe("nav.text.goto_definition on Lua import @var = alias.keypath", function
   end
 
   it("jumps to import line when cursor is on the alias", function()
-    local dir, lua_file, buf = setup_lua_import()
+    local dir, _, buf = setup_lua_import()
 
     -- Cursor on 'm' in 'm.a_string' (col 11, 0-indexed where 'm' starts)
     vim.api.nvim_win_set_cursor(0, { 3, 11 })
@@ -188,7 +188,7 @@ describe("nav.ts.goto_definition on Lua import_var_ref", function()
   end
 
   it("jumps to import line when cursor is on the alias", function()
-    local dir, lua_file, buf = setup_lua_import()
+    local dir, _, buf = setup_lua_import()
 
     vim.api.nvim_win_set_cursor(0, { 3, 11 })
 

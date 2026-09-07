@@ -684,7 +684,7 @@ describe("execute_run_directive post-script positioning", function()
   local req_file
   local buf
   local orig_curl_execute
-  local orig_run_curry_before
+  local _
   local mock_describe
 
   before_each(function()

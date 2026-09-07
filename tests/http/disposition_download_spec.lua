@@ -138,7 +138,7 @@ describe("content-disposition download handling", function()
       -- timestamp to second precision: two dumps in one second overwrote
       -- each other. The millisecond suffix must come from hrtime instead.
       local r = { metadata = {} }
-      local lines = fmt_util.save_body_to_file("x", "text/plain", r)
+      local _ = fmt_util.save_body_to_file("x", "text/plain", r)
       local name = r.metadata.file_path:match("([^/]+)$")
       assert.is_not_nil(name:match("^res_%d%d%d%d%d%d%d%d_%d%d%d%d%d%d_%d%d%d%.txt$"),
         "filename should carry a 3-digit millisecond suffix, got: " .. name)

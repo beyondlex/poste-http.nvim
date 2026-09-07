@@ -81,8 +81,6 @@ end
 pcall(vim.api.nvim_del_user_command, "PosteHttpInfo")
 
 vim.api.nvim_create_user_command("PosteHttpInfo", function()
-  local state = require("poste-http.state")
-
   local sep = "─"
   local parts = { sep }
 

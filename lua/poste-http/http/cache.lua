@@ -604,16 +604,18 @@ function M.extract_request_block(buf, start_line)
       end
     end
 
-    if text:match("^%s*#") or text:match("^%s*%-%-") or text:match("^%s*<<") then
-    elseif not request_line and text:match("%S") then
-      request_line = text
-    elseif request_line then
-      if text:match("^%s*$") then
-        break
-      end
-      local key, val = text:match("^([^:]+):%s*(.*)")
-      if key then
-        table.insert(headers, { vim.trim(key), vim.trim(val) })
+    -- skips: comment-ish lines (`#`, `--`) and file references (`<<`)
+    if not (text:match("^%s*#") or text:match("^%s*%-%-") or text:match("^%s*<<")) then
+      if not request_line and text:match("%S") then
+        request_line = text
+      elseif request_line then
+        if text:match("^%s*$") then
+          break
+        end
+        local key, val = text:match("^([^:]+):%s*(.*)")
+        if key then
+          table.insert(headers, { vim.trim(key), vim.trim(val) })
+        end
       end
     end
   end
@@ -642,11 +644,14 @@ function M.find_request_line(buf, start_line)
       end
     elseif trimmed:match("^<%s*{%%") and not trimmed:match("%%}$") then
       in_prescript = true
-    elseif trimmed:match("^<%s*{%%.*%%}$") then
-    elseif trimmed:match("^<%s*%.?%.") and trimmed:match("%.lua%s*$") then
-    elseif trimmed:match("^@%S+%s*[= ]") then
-    elseif trimmed:match("^<<") then
-    elseif trimmed == "" or block_boundary.is_comment(text) then
+    elseif -- skips: single-line script blocks, Lua file includes, @var
+      -- definitions, file references, blanks, and comments
+      trimmed:match("^<%s*{%%.*%%}$")
+      or (trimmed:match("^<%s*%.?%.") and trimmed:match("%.lua%s*$"))
+      or trimmed:match("^@%S+%s*[= ]")
+      or trimmed:match("^<<")
+      or trimmed == "" or block_boundary.is_comment(text) then
+      -- keep scanning for the request line
     else
       return i
     end

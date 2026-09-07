@@ -66,13 +66,14 @@ local function parse_run_line(line)
     vars_str = nil
   end
 
-  local vars = {}
+  -- `var_map` avoids shadowing the poste-http.http.vars module upvalue.
+  local var_map = {}
   if vars_str then
     for pair in vars_str:gmatch("[^,]+") do
       pair = vim.trim(pair)
       local key, value = pair:match("^@?(%w[%w_]*)%s*=%s*(.+)%s*$")
       if key then
-        vars[key] = value
+        var_map[key] = value
       end
     end
   end
@@ -82,17 +83,17 @@ local function parse_run_line(line)
   -- run #alias.Name
   local alias_name, req_name = target:match("^#([^%.]+)%.(.+)$")
   if alias_name and req_name then
-    return { type = "by_alias", alias = alias_name, name = vim.trim(req_name), vars = vars }
+    return { type = "by_alias", alias = alias_name, name = vim.trim(req_name), vars = var_map }
   end
 
   -- run #Name
   local name = target:match("^#(.+)$")
   if name then
-    return { type = "by_name", name = vim.trim(name), vars = vars }
+    return { type = "by_name", name = vim.trim(name), vars = var_map }
   end
 
   -- run ./path
-  return { type = "by_path", path = target, vars = vars }
+  return { type = "by_path", path = target, vars = var_map }
 end
 
 --- Resolve a relative or absolute path against the current buffer's directory.
@@ -432,13 +433,13 @@ function M.execute_request_reference(target, args, opts, callback)
     return
   end
 
-  local vars = {}
+  local var_map = {}
   if args then
     for name, value in pairs(args) do
-      vars[name] = value_to_http_string(value)
+      var_map[name] = value_to_http_string(value)
     end
   end
-  resolved.vars = vars
+  resolved.vars = var_map
 
   M.execute_run_directive(resolved, function(ok, response)
     if callback then callback(ok, response, resolved.request_name) end
@@ -732,9 +733,9 @@ end
 --- Execute all named requests in a file sequentially.
 --- @param file_path string
 --- @param content string  File content (already read)
---- @param vars table|nil  Variable overrides to apply to all requests
+--- @param var_map table|nil  Variable overrides to apply to all requests
 --- @param callback function
-function M.execute_all_requests(file_path, content, vars, callback)
+function M.execute_all_requests(file_path, content, var_map, callback)
   local requests = extract_request_names(content)
   if #requests == 0 then
     vim.notify("No named requests found in " .. file_path, vim.log.levels.WARN, { title = "Poste" })
@@ -759,8 +760,8 @@ function M.execute_all_requests(file_path, content, vars, callback)
       local file_dir = vim.fn.fnamemodify(file_path, ":h")
       local modified_content, _ = process_target_pre_script(dep_resolved_content, req.line, block_end, file_dir)
 
-      if vars and next(vars) then
-        modified_content = M.apply_variable_overrides(modified_content, req.line, vars)
+      if var_map and next(var_map) then
+        modified_content = M.apply_variable_overrides(modified_content, req.line, var_map)
       end
 
       execute_import_via_curl(modified_content, file_path, req.line, state.current_env, function(response)
@@ -792,10 +793,10 @@ end
 --- are processed LAST (HashMap.insert wins for same key) → highest priority.
 --- @param content string  Full file content
 --- @param block_line number  Line number of the ### marker (1-indexed)
---- @param vars table  { var_name = value, ... }
+--- @param var_map table  { var_name = value, ... }
 --- @return string  Modified content
-function M.apply_variable_overrides(content, block_line, vars)
-  if not vars or not next(vars) then return content end
+function M.apply_variable_overrides(content, block_line, var_map)
+  if not var_map or not next(var_map) then return content end
 
   local lines = vim.split(content, "\n", { plain = true })
 
@@ -831,7 +832,7 @@ function M.apply_variable_overrides(content, block_line, vars)
   for idx, line in ipairs(lines) do
     table.insert(result, line)
     if idx == inject_at then
-      for name, value in pairs(vars) do
+      for name, value in pairs(var_map) do
         table.insert(result, string.format("@%s = %s", name, value))
       end
     end

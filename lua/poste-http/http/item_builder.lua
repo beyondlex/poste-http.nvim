@@ -66,7 +66,6 @@ end
 --- @param cursor_line number|nil Cursor line number
 --- @return table Completion items
 function M.build_script_variable_items(line_text, buf, cursor_line)
-  local KIND_VARIABLE = 6
   local items = {}
   buf = buf or vim.api.nvim_get_current_buf()
 
@@ -165,7 +164,6 @@ function M.get_namespace_items(prefix, partial, req_names)
   local items = {}
   local partial_lower = partial:lower()
   local KIND_MODULE = 9
-  local KIND_VARIABLE = 6
 
   for child_name, child_node in pairs(node._children) do
     if partial_lower == "" or child_name:lower():find(partial_lower, 1, true) then

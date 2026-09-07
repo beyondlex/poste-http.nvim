@@ -521,7 +521,6 @@ indicators.set_indicator(src_buf, req_line - 1, "error")
   local req_text = req_block.request_line
 
   -- Resolve Lua import references (@var = m.key, {{m.key}})
-  local import_mod = require("poste-http.http.import")
   local buf_dir = file ~= "" and vim.fn.fnamemodify(file, ":h") or vim.fn.getcwd()
   buf_content = import_mod.resolve_lua_imports(buf_content, buf_dir)
 
@@ -760,31 +759,31 @@ function M.run_request()
     buf_content = buf_content,
   }
 
-  prepare_request(ctx, function(ctx)
-    execute_request(ctx, function(ctx)
-      if ctx.req_text and vim.trim(ctx.req_text):upper() == "SCRIPT" then
+  prepare_request(ctx, function(prepared_ctx)
+    execute_request(prepared_ctx, function(exec_ctx)
+      if exec_ctx.req_text and vim.trim(exec_ctx.req_text):upper() == "SCRIPT" then
         -- A SCRIPT block with a > {% %} body runs as an orchestration script:
         -- client.run() executes imported requests and returns typed responses.
-        if ctx.assertion_code then
-          orchestration.run_script(ctx.assertion_code, {
+        if exec_ctx.assertion_code then
+          orchestration.run_script(exec_ctx.assertion_code, {
             buf = src_buf,
-            variables = ctx.script_vars and ctx.script_vars.variables,
-            env = ctx.script_vars and ctx.script_vars.env,
-            response = make_script_response(ctx.req_text, ctx.req_block),
+            variables = exec_ctx.script_vars and exec_ctx.script_vars.variables,
+            env = exec_ctx.script_vars and exec_ctx.script_vars.env,
+            response = make_script_response(exec_ctx.req_text, exec_ctx.req_block),
           }, function(result)
-            handle_orchestration_result(result, ctx)
+            handle_orchestration_result(result, exec_ctx)
           end)
           return
         end
 
         -- SCRIPT block without an orchestration body: keep the legacy behavior.
-        local script_response = make_script_response(ctx.req_text, ctx.req_block)
+        local script_response = make_script_response(exec_ctx.req_text, exec_ctx.req_block)
         state.set_response(script_response)
         state.clear_json_state()
-        emit_response(script_response, ctx.current_req_name, file, nil, nil)
+        emit_response(script_response, exec_ctx.current_req_name, file, nil, nil)
 
-        local ass_line = find_assertion_line(src_buf, ctx.block_start, ctx.block_end)
-        local assertion_results = run_and_store_assertions(script_response, ctx.assertion_code, ctx.script_vars, file, ass_line)
+        local ass_line = find_assertion_line(src_buf, exec_ctx.block_start, exec_ctx.block_end)
+        local assertion_results = run_and_store_assertions(script_response, exec_ctx.assertion_code, exec_ctx.script_vars, file, ass_line)
 
         if assertion_results and assertion_results.total > 0 then
           view.show_view("assertions")
@@ -794,14 +793,14 @@ function M.run_request()
           view.show_view("verbose")
         end
 
-        set_result_indicator(src_buf, ctx.req_line - 1, script_response, assertion_results)
-        local hist_name = (ctx.current_req_name or "") ~= "" and ctx.current_req_name or ("Script #" .. tostring(ctx.req_line))
+        set_result_indicator(src_buf, exec_ctx.req_line - 1, script_response, assertion_results)
+        local hist_name = (exec_ctx.current_req_name or "") ~= "" and exec_ctx.current_req_name or ("Script #" .. tostring(exec_ctx.req_line))
         add_to_history(hist_name, script_response, file)
         state._busy = false
         return
       end
 
-      start_curl_exec(ctx)
+      start_curl_exec(exec_ctx)
     end)
   end)
 end

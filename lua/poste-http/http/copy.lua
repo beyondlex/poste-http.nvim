@@ -47,14 +47,15 @@ local function load_env_vars(file_path, env_name)
 end
 
 --- Simple {{var}} substitution with iterative resolution (handles nested refs).
-local function substitute_vars(text, vars)
+--- `var_map` avoids shadowing the poste-http.http.vars module upvalue.
+local function substitute_vars(text, var_map)
   local result = text
   for _ = 1, 20 do
-    local next = result:gsub("{{([^}]+)}}", function(var_name)
-      return vars[var_name] or "{{" .. var_name .. "}}"
+    local next_result = result:gsub("{{([^}]+)}}", function(var_name)
+      return var_map[var_name] or "{{" .. var_name .. "}}"
     end)
-    if next == result then break end
-    result = next
+    if next_result == result then break end
+    result = next_result
   end
   return result
 end
@@ -62,7 +63,7 @@ end
 --- Collect @var definitions from a list of lines (single-line: @name = value or @name value).
 --- Returns a table of {name = value, ...}.
 local function collect_var_defs(lines)
-  local vars = {}
+  local var_map = {}
   for _, line in ipairs(lines) do
     local trimmed = vim.trim(line)
     if trimmed:sub(1, 1) == "@" then
@@ -72,11 +73,11 @@ local function collect_var_defs(lines)
       end
       if name and value then
         value = value:match("^'(.-)'$") or value:match('^"(.-)"$') or value
-        vars[name] = value
+        var_map[name] = value
       end
     end
   end
-  return vars
+  return var_map
 end
 
 --- Collect variables from file-level @var defs, env.json, and session vars (client.global + script_variables)
@@ -88,31 +89,31 @@ local function collect_vars(buf, block_start_line)
     and vim.api.nvim_buf_get_lines(buf, 0, block_start_line - 1, false) or {}
   local file_path = vim.api.nvim_buf_get_name(buf)
   local env_vars = load_env_vars(file_path, state.current_env)
-  local vars = collect_var_defs(file_lines)
+  local var_map = collect_var_defs(file_lines)
   -- Env vars must be present BEFORE substituting, so file-level @vars can
   -- reference {{env_keys}} (the earlier code recomputed vars here, wiping
   -- the merge and leaving {{env_refs}} literal in the copied command).
   for k, v in pairs(env_vars) do
-    vars[k] = v
+    var_map[k] = v
   end
-  for name, value in pairs(vars) do
-    vars[name] = substitute_vars(value, vars)
+  for name, value in pairs(var_map) do
+    var_map[name] = substitute_vars(value, var_map)
   end
   for k, v in pairs(env_vars) do
-    if not vars[k] then vars[k] = v end
+    if not var_map[k] then var_map[k] = v end
   end
   -- Add session-scoped vars from client.global.set and request.variables.set
   if state.global_vars then
     for k, v in pairs(state.global_vars) do
-      vars[k] = v
+      var_map[k] = v
     end
   end
   if state.script_variables then
     for k, v in pairs(state.script_variables) do
-      vars[k] = v
+      var_map[k] = v
     end
   end
-  return vars
+  return var_map
 end
 
 --- Resolve a relative file path against the buffer directory.
@@ -129,7 +130,7 @@ end
 
 --- Build -F flags from multipart/form-data body lines (before resolution).
 --- raw_lines: body lines from the .http file (unresolved)
-local function build_multipart_flags(raw_lines, boundary, buf_dir, vars)
+local function build_multipart_flags(raw_lines, boundary, buf_dir, var_map)
   local flags = {}
   local boundary_delim = "--" .. boundary
   local closing_boundary = boundary_delim .. "--"
@@ -146,7 +147,7 @@ local function build_multipart_flags(raw_lines, boundary, buf_dir, vars)
         table.insert(flags, "-F " .. shell_escape(current_name .. "=@" .. resolved))
       end
     else
-      local value = substitute_vars(table.concat(current_value), vars)
+      local value = substitute_vars(table.concat(current_value), var_map)
       value = value:gsub("{{%$timestamp}}", tostring(os.time()))
       value = value:gsub("{{%$uuid}}", function()
         local t = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
@@ -242,15 +243,12 @@ function M.copy_as_curl()
   local in_script = false
 
   for _, line in ipairs(resolved_lines) do
-    if line:match("^%s*###") then
-      -- skip separator
-    elseif line:match("^%s*#") or line:match("^%s*@%S+") then
-      -- skip comments and @var definitions
-    elseif line:match("^%s*%%}") then
+    if line:match("^%s*%%}") then
       in_script = false
     elseif line:match("^%s*[<>]%s*{%%") then
       in_script = true
-    elseif not in_script then
+    elseif not in_script and not (line:match("^%s*###") or line:match("^%s*#") or line:match("^%s*@%S+")) then
+      -- skips: separators, comments, @var definitions, script bodies
       table.insert(request_lines, line)
     end
   end
@@ -363,8 +361,8 @@ function M.copy_as_curl()
   -- Body
   if #body_lines > 0 then
     if is_multipart and #raw_body_lines > 0 then
-      local vars = collect_vars(buf, start_line)
-      local f_flags = build_multipart_flags(raw_body_lines, boundary, buf_dir, vars)
+      local var_map = collect_vars(buf, start_line)
+      local f_flags = build_multipart_flags(raw_body_lines, boundary, buf_dir, var_map)
       for _, flag in ipairs(f_flags) do
         table.insert(parts, flag)
       end

@@ -7,6 +7,8 @@ local function get_node_text(node, source)
   local ok, sr, sc, er, ec = pcall(node.range, node)
   if not ok then return "" end
   local lines = vim.split(source, "\n", { plain = true })
+  -- A node range past the source (stale/partial parse) would index nil.
+  if sr < 0 or er >= #lines or er < sr then return "" end
   if sr == er then
     return lines[sr + 1]:sub(sc + 1, ec)
   end

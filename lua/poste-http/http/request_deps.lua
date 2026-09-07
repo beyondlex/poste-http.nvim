@@ -6,7 +6,6 @@ local assertions = require("poste-http.http.assertions")
 local scripts = require("poste-http.http.scripts")
 local vars = require("poste-http.http.vars")
 local nested_access = require("poste-http.http.nested_access")
-local jq_mapping = require("poste-http.http.jq_mapping")
 local global_headers = require("poste-http.http.global_headers")
 local _import_mod = nil
 local _cache_mod = nil
@@ -28,7 +27,6 @@ local M = {}
 local get_nested_value = nested_access.get_nested_value
 
 local request_response_cache = {}
-local request_response_cache_ct = nil
 
 --- Convert a resolved request-variable value into the text to inject into content.
 --- Strings → as-is, numbers/booleans → tostring, tables → JSON, other → ""
@@ -188,21 +186,6 @@ local function find_dynamic_prompt_refs(block_text)
 end
 
 M.find_request_variable_refs = find_request_variable_refs
-
-local function read_file_vars_from_path(file_path)
-  local ok, content = pcall(vim.fn.readfile, file_path)
-  if not ok or type(content) ~= "table" then return "", 0 end
-  local lines = {}
-  for _, line in ipairs(content) do
-    local trimmed = vim.trim(line)
-    if trimmed:match("^@") then
-      table.insert(lines, trimmed)
-    elseif trimmed:match("^###") then
-      break
-    end
-  end
-  return table.concat(lines, "\n"), #lines
-end
 
 local function execute_dependent_request_async(buf, file, env_name, dep_req, dep_block_text, on_complete)
   if request_response_cache[dep_req.name] then

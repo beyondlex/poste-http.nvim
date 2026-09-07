@@ -60,13 +60,14 @@ end
 function VarResolver:substitute(input)
   local result = input
   for _ = 1, 20 do
-    local next = result:gsub("{{([^}]+)}}", function(var_name)
+    -- `next_result`, not `next` — a local named `next` shadows the global.
+    local next_result = result:gsub("{{([^}]+)}}", function(var_name)
       local v = self:resolve(var_name)
       if v ~= nil then return value_to_string(v) end
       return "{{" .. var_name .. "}}"
     end)
-    if next == result then break end
-    result = next
+    if next_result == result then break end
+    result = next_result
   end
   return result
 end

@@ -36,20 +36,7 @@ vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
   callback = function()
     vim.bo.filetype = "poste_http"
     buffer_setup.setup_buffer_keymaps(0)
-    local buf = vim.api.nvim_get_current_buf()
-    local bg = vim.api.nvim_create_augroup("PosteHttpBoundary_" .. buf, { clear = true })
-    vim.api.nvim_create_autocmd("CursorMoved", {
-      group = bg, buffer = 0,
-      callback = function()
-        require("poste-http.http.boundary_indicator").refresh(0, vim.fn.line("."))
-      end,
-    })
-    vim.api.nvim_create_autocmd("BufDelete", {
-      group = bg, buffer = 0,
-      callback = function()
-        pcall(vim.api.nvim_del_augroup_by_name, "PosteHttpBoundary_" .. buf)
-      end,
-    })
+    buffer_setup.attach_boundary(vim.api.nvim_get_current_buf())
     pcall(function()
       require("poste-http.http.treesitter").enable(0)
     end)
@@ -60,8 +47,6 @@ vim.api.nvim_create_autocmd("BufEnter", {
   pattern = { "*.http", "*.rest" },
   callback = function()
     local buf = vim.api.nvim_get_current_buf()
-    local env_mod = require("poste-http.http.env")
-    vim.wo.winbar = env_mod.build_http_winbar()
     if vim.bo.filetype == "poste_http" then
       require("poste-http.http.boundary_indicator").refresh(buf, vim.fn.line("."))
       -- proactively warm the gRPC completion index when the cursor sits in
@@ -73,24 +58,21 @@ vim.api.nvim_create_autocmd("BufEnter", {
   end,
 })
 
+-- Set the env winbar for http buffers and restore it when a window goes
+-- back to a non-http buffer (env.sync_winbar clears only bars it set).
+vim.api.nvim_create_autocmd("BufEnter", {
+  pattern = "*",
+  callback = function()
+    require("poste-http.http.env").sync_winbar()
+  end,
+})
+
 for _, buf in ipairs(vim.api.nvim_list_bufs()) do
   local name = vim.api.nvim_buf_get_name(buf)
   if name:match("%.http$") or name:match("%.rest$") then
     vim.api.nvim_buf_set_option(buf, "filetype", "poste_http")
     buffer_setup.setup_buffer_keymaps(buf)
-    local bg = vim.api.nvim_create_augroup("PosteHttpBoundary_" .. buf, { clear = true })
-    vim.api.nvim_create_autocmd("CursorMoved", {
-      group = bg, buffer = buf,
-      callback = function()
-        require("poste-http.http.boundary_indicator").refresh(buf, vim.fn.line("."))
-      end,
-    })
-    vim.api.nvim_create_autocmd("BufDelete", {
-      group = bg, buffer = buf,
-      callback = function()
-        pcall(vim.api.nvim_del_augroup_by_name, "PosteHttpBoundary_" .. buf)
-      end,
-    })
+    buffer_setup.attach_boundary(buf)
   end
 end
 

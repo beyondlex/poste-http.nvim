@@ -1,9 +1,22 @@
---- Winbar tab-row rendering shared by the response window and history detail.
+--- Winbar rendering shared by the response window, history detail, and the
+--- request buffer's env bar.
 ---
---- Both surfaces render a row of tabs as a winbar string; only the tab list
---- construction differs (which tabs are active depends on the surface).
+--- All winbar string assembly lives here: only this module may build
+--- %#highlight#/%= winbar strings (docs/dev/agent-guardrails.md §1).
 
 local M = {}
+
+--- Render the request-buffer env bar: env name on the left, help hint on
+--- the right. Moved here from http/env.lua so the exact shape is defined
+--- once — env.sync_winbar compares against this string to decide whether a
+--- window's current winbar is ours and should be restored.
+--- @param env_name string
+--- @return string
+function M.http_env(env_name)
+  local left = string.format(" Env: %s ", env_name)
+  local right = " g? help "
+  return "%#PosteSqlMeta#" .. left .. "%=" .. "%#PosteSqlMetaDim#" .. right
+end
 
 --- Render tab descriptors into a winbar string.
 --- @param tabs table[]  array of { id = string, label = string }

@@ -4,6 +4,7 @@
 -- http/buffer.lua (response window) and http/history.lua (detail window).
 
 local winbar = require("poste-http.ui.winbar")
+local env_mod = require("poste-http.http.env")
 
 describe("poste-http.ui.winbar", function()
   local tabs = {
@@ -47,6 +48,21 @@ describe("poste-http.ui.winbar", function()
     it("returns nil for empty tab lists", function()
       assert.is_nil(winbar.cycle({}, "body", 1))
       assert.is_nil(winbar.cycle(nil, "body", 1))
+    end)
+  end)
+
+  describe("http_env", function()
+    it("renders the env name on the left and the help hint on the right", function()
+      assert.equals("%#PosteSqlMeta# Env: dev %=%#PosteSqlMetaDim# g? help ",
+        winbar.http_env("dev"))
+    end)
+
+    it("matches what http/env.lua builds byte for byte", function()
+      -- The builder moved here from http/env.lua (REVIEW-2026-09-06: winbar
+      -- strings belong in ui/winbar); the shape is load-bearing for
+      -- env.sync_winbar's clear-if-ours comparison.
+      assert.equals(winbar.http_env(require("poste-http.state").current_env),
+        env_mod.build_http_winbar())
     end)
   end)
 end)

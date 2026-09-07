@@ -1,12 +1,32 @@
 local state = require("poste-http.state")
 local util = require("poste-http.util")
+local winbar = require("poste-http.ui.winbar")
 
 local M = {}
 
 local function build_http_winbar()
-  local left = string.format(" Env: %s ", state.current_env)
-  local right = " g? help "
-  return "%#PosteSqlMeta#" .. left .. "%=" .. "%#PosteSqlMetaDim#" .. right
+  return winbar.http_env(state.current_env)
+end
+
+--- Set the env winbar for windows showing http buffers, and clear it again
+--- when such a window shows a non-http buffer (REVIEW-2026-09-06: the
+--- plugin's BufEnter set vim.wo.winbar and never restored it). Called on
+--- every BufEnter from plugin/poste.lua; set_env keeps live windows in
+--- sync after an env switch.
+function M.sync_winbar()
+  local buf = vim.api.nvim_get_current_buf()
+  local name = vim.api.nvim_buf_get_name(buf)
+  local is_http = vim.bo[buf].filetype == "poste_http"
+    or name:match("%.http$") ~= nil
+    or name:match("%.rest$") ~= nil
+  local bar = winbar.http_env(state.current_env)
+  if is_http then
+    vim.wo.winbar = bar
+  elseif vim.wo.winbar == bar then
+    -- Only clear a bar we set; never touch a user's own winbar. nil
+    -- removes the window-local value, falling back to the global.
+    vim.api.nvim_set_option_value("winbar", nil, { scope = "local" })
+  end
 end
 
 function M.set_env(env_name)

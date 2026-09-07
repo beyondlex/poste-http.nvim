@@ -111,4 +111,25 @@ function M.setup_buffer_keymaps(buf)
   })
 end
 
+--- Attach the boundary-indicator autocmds for an .http/.rest buffer:
+--- CursorMoved refreshes the request-block highlight, BufDelete removes the
+--- per-buffer augroup. Extracted from plugin/poste.lua, which needed the
+--- same pair for both its BufRead hook and its already-loaded-buffers loop.
+function M.attach_boundary(buf)
+  if buf == 0 then buf = vim.api.nvim_get_current_buf() end
+  local bg = vim.api.nvim_create_augroup("PosteHttpBoundary_" .. buf, { clear = true })
+  vim.api.nvim_create_autocmd("CursorMoved", {
+    group = bg, buffer = buf,
+    callback = function()
+      require("poste-http.http.boundary_indicator").refresh(buf, vim.fn.line("."))
+    end,
+  })
+  vim.api.nvim_create_autocmd("BufDelete", {
+    group = bg, buffer = buf,
+    callback = function()
+      pcall(vim.api.nvim_del_augroup_by_name, "PosteHttpBoundary_" .. buf)
+    end,
+  })
+end
+
 return M

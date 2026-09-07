@@ -462,9 +462,10 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     -- After ### (request name line) → no completion
     if trimmed:sub(2, 2) == "#" then return nil, nil end
     -- Commented prompt line (# <<var ...): allow {{ completion
-    if trimmed:match("^#%s*<<") then
-      -- Fall through for {{variable}} completion
-    else
+    -- A commented prompt line (# <<var ...) falls through for {{variable}}
+    -- completion; every other comment either names an operator or completes
+    -- nothing.
+    if not trimmed:match("^#%s*<<") then
       -- Comment operators: # @grpc-proto[-set] <path>, # @graphql-schema <path>
       local grpc_op_ctx, grpc_op_extra = detect_grpc_comment_operator(trimmed)
       if grpc_op_ctx then return grpc_op_ctx, grpc_op_extra end
@@ -493,7 +494,7 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     if after_open:match("|%s*{%s*$") or after_open:match("|%s*{%s*%w*$") then
       return "prompt_mapping", after_open
     end
-    local last_dot_start, last_dot_end = after_open:find("%.[^.]*$")
+    local last_dot_start, _ = after_open:find("%.[^.]*$")
     if last_dot_start then
       local prefix = after_open:sub(1, last_dot_start - 1)
       if prefix:match("^[%w_%.]+$") then

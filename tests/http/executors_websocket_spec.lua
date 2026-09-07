@@ -126,19 +126,25 @@ end)
 
 describe("websocket.run", function()
   local orig_jobstart, orig_chansend, orig_chanclose, orig_executable, orig_jobstop
-  local captured_opts, sent, stopped
+  local captured_opts, sent, stopped, closed
 
   before_each(function()
     orig_jobstart, orig_chansend, orig_chanclose, orig_executable, orig_jobstop =
       vim.fn.jobstart, vim.fn.chansend, vim.fn.chanclose, vim.fn.executable, vim.fn.jobstop
     captured_opts, sent, stopped = nil, nil, nil
+    closed = nil
     vim.fn.executable = function(cmd) return cmd == "websocat" and 1 or 0 end
     vim.fn.jobstart = function(cmd, opts)
       captured_opts = opts
       return 777
     end
     vim.fn.chansend = function(_, data) sent = data return #data end
-    vim.fn.chanclose = function() end
+    -- Capture stdin closes: the executor must never close the job's stdin
+    -- (EOF makes websocat drop the websocket before the frames arrive).
+    closed = {}
+    vim.fn.chanclose = function(id, stream)
+      closed[#closed + 1] = { id = id, stream = stream }
+    end
     vim.fn.jobstop = function(id) stopped = id return 1 end
   end)
 
@@ -162,7 +168,7 @@ describe("websocket.run", function()
     assert.equals("a\nb\n", sent)
     -- Closing stdin would EOF websocat, which closes the websocket before
     -- the responses arrive.
-    assert.is_nil(closed)
+    assert.equals(0, #closed, "executor must not close websocat's stdin")
     -- Frames must arrive live: buffered stdout would never flush for a
     -- process we kill at the deadline.
     assert.is_false(captured_opts.stdout_buffered)

@@ -1090,11 +1090,11 @@ function M.resolve_lua_keypath(keypath, content, buf_dir)
       local file_path = resolve_path(imp.path, buf_dir)
       local cached = lua_module_cache[file_path]
       if not cached then
-        local f, err = io.open(file_path, "r")
+        local f, _ = io.open(file_path, "r")
         if not f then return nil end
         local src = f:read("*a")
         f:close()
-        local fn, load_err = load(src, "@" .. file_path)
+        local fn, _ = load(src, "@" .. file_path)
         if not fn then return nil end
         local ok, exports = pcall(fn)
         if not ok then return nil end

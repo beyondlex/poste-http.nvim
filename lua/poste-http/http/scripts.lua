@@ -174,7 +174,7 @@ function M.run_pre_script(code, script_vars)
         end,
         remove = function(name)
           local ctx = state._exec_context
-          local line = ctx and ctx.line
+          local _ = ctx and ctx.line
           state.remove_global_header(name)
           state.log("INFO", string.format("Pre-script: client.global.header.remove('%s')", name))
         end,

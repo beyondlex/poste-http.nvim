@@ -137,7 +137,7 @@ local function describe_via_treesitter(content)
 
   for child in root:iter_children() do
     local type = child:type()
-    local sr, sc, er, ec = child:range()
+    local sr, _, er, _ = child:range()
     local line_num = sr + 1
 
     if type == "request_block" then
@@ -240,13 +240,11 @@ local function describe_via_treesitter(content)
   return blocks, nil
 end
 
+-- `file`/`opts` are accepted for call-site compatibility but unused: the
+-- tree-sitter describe path needs only the content text.
 function M.describe_content(content, file, opts)
-  opts = opts or {}
   if not content or content == "" then
     return {}, nil
-  end
-  if not file or file == "" then
-    file = "untitled.http"
   end
 
   local blocks, err = describe_via_treesitter(content)

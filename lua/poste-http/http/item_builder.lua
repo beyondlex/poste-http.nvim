@@ -399,7 +399,7 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
     local has_dot = line:match("%.%w*$")
     if has_dot then
       local prefix = line:match("^(.+)%.[^.]*$")
-      local partial = line:match("%.(%w*)$")
+      local _ = line:match("%.(%w*)$")
       if prefix then
         prefix = prefix .. "."
         local seen = {}

@@ -38,7 +38,7 @@ local function parse_body(request_body)
   if mode == "raw" then
     local raw = request_body.raw or ""
     local options = request_body.options or {}
-    local lang = (options.raw and options.raw.language) or ""
+    local _ = (options.raw and options.raw.language) or ""
     return raw
   elseif mode == "urlencoded" then
     local parts = {}

@@ -269,7 +269,7 @@ function M.show_references(buf, results, symbol_name)
     table.insert(items, string.format("L%d:%d: %s", r.line, r.col, r.text))
   end
 
-  local preview_data = setmetatable({}, {
+  local _ = setmetatable({}, {
     __index = function(_, idx)
       local r = results[idx]
       if not r then return nil end

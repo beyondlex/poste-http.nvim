@@ -1,12 +1,10 @@
 local M = {}
 local import_parser = require("poste-http.http.import_parser")
 
+-- spec.schemes/spec.host are read by the exporter but deliberately NOT
+-- baked into the generated URL: the host is swapped for {{base_url}}.
 local function build_url(spec, path)
-  local scheme = "https"
-  if spec.schemes and #spec.schemes > 0 then
-    scheme = spec.schemes[1]
-  end
-  local host = spec.host or "localhost"
+  local _ = spec.host or "localhost"
   local base_path = spec.basePath or ""
   return "{{base_url}}" .. base_path .. path
 end
@@ -26,8 +24,8 @@ local function parse_operation(spec, path, method, operation)
   local security_defs = spec.securityDefinitions or {}
   local security = operation.security or spec.security or {}
   for _, req in ipairs(security) do
-    for name, _ in pairs(req) do
-      local def = security_defs[name]
+    for sec_name, _ in pairs(req) do
+      local def = security_defs[sec_name]
       if def then
         if def.type == "apiKey" and def["in"] == "header" then
           table.insert(headers, { key = def.name or "X-API-Key", value = "{{api_key}}" })

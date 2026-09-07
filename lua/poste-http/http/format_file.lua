@@ -175,7 +175,7 @@ function M.format(content)
       table.insert(result, table.concat(script_lines, "\n"))
     else
       local body_lines = {}
-      local body_start = i
+      local _ = i
       while i <= #lines do
         local bl = lines[i]
         local bt = vim.trim(bl)

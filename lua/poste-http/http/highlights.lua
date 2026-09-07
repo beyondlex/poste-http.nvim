@@ -197,7 +197,7 @@ function M.setup()
   vim.api.nvim_set_hl(0, "PosteAssertSep", { fg = 0x3e4452 })                        -- dim line
   vim.api.nvim_set_hl(0, "PosteAssertHint", { fg = 0x5c6370, italic = true })        -- gray italic for hints
 
-  
+
 
   -- File link for binary response Open file: line — blue, underlined, clickable feel
   vim.api.nvim_set_hl(0, "PosteFileLink", { fg = 0x61afef, underline = true, sp = 0x61afef })

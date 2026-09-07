@@ -644,15 +644,14 @@ function M.find_request_line(buf, start_line)
       end
     elseif trimmed:match("^<%s*{%%") and not trimmed:match("%%}$") then
       in_prescript = true
-    elseif -- skips: single-line script blocks, Lua file includes, @var
-      -- definitions, file references, blanks, and comments
-      trimmed:match("^<%s*{%%.*%%}$")
-      or (trimmed:match("^<%s*%.?%.") and trimmed:match("%.lua%s*$"))
-      or trimmed:match("^@%S+%s*[= ]")
-      or trimmed:match("^<<")
-      or trimmed == "" or block_boundary.is_comment(text) then
-      -- keep scanning for the request line
-    else
+    elseif -- the request line: anything that is not one of the skipped
+      -- shapes (single-line script blocks, Lua file includes, @var
+      -- definitions, file references, blanks, and comments)
+      not (trimmed:match("^<%s*{%%.*%%}$")
+        or (trimmed:match("^<%s*%.?%.") and trimmed:match("%.lua%s*$"))
+        or trimmed:match("^@%S+%s*[= ]")
+        or trimmed:match("^<<")
+        or trimmed == "" or block_boundary.is_comment(text)) then
       return i
     end
   end

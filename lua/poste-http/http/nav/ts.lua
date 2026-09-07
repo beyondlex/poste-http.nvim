@@ -233,9 +233,9 @@ function M.goto_definition()
           local imp_alias = l:match("^import%s+%S+%s+as%s+(%S+)")
           if imp_alias == alias_name then
             local _, ae = l:find("as%s+")
-            local col = ae or 0
+            local alias_col = ae or 0 -- not the cursor col from goto_definition
             vim.cmd("normal! m'")
-            vim.api.nvim_win_set_cursor(0, { i, col })
+            vim.api.nvim_win_set_cursor(0, { i, alias_col })
             return
           end
         end
@@ -284,7 +284,7 @@ function M.goto_definition()
     -- Lua import alias.keypath reference: @var = m.a_string
     local alias, keypath = text:match("^(%w+)%.(.+)$")
     if alias and keypath then
-      local sr, sc, er, ec = node:range()
+      local _, sc, _, _ = node:range()
       local rel_col = col - sc
       local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
       local import_mod = require("poste-http.http.import")
@@ -346,7 +346,7 @@ function M.goto_definition()
       vim.notify("Definition not found", vim.log.levels.WARN)
       return
     end
-    local sr, sc = node:start()
+    local _, sc = node:start()
     local rel_col = col - sc
     local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     local import_mod = require("poste-http.http.import")
@@ -435,7 +435,7 @@ function M.goto_definition()
       var_name = line_text:sub(s, e - 1)
     end
     if var_name and var_name ~= "" then
-      local ok_r, sr, sc, er, ec = pcall(node.range, node)
+      local ok_r, sr, _, er, _ = pcall(node.range, node)
       if ok_r then
         for i = sr + 1, er + 1 do
           local l = vim.api.nvim_buf_get_lines(buf, i - 1, i, false)[1] or ""

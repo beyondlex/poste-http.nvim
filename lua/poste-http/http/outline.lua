@@ -105,11 +105,11 @@ local function ts_collect_file_scope_vars(buf)
   local items = {}
 
   for _, match in ipairs(results) do
-    local name_node, val_node = nil, nil
+    local name_node = nil
     local name, val = "", ""
     for _, cap in ipairs(match.captures) do
       if cap.name == "name" then name_node = cap.node; name = ts_query.node_text(cap.node) end
-      if cap.name == "val" then val_node = cap.node; val = ts_query.node_text(cap.node) end
+      if cap.name == "val" then val = ts_query.node_text(cap.node) end
     end
     if name_node then
       local sr = name_node:start()
@@ -164,6 +164,7 @@ local function ts_collect_items(buf)
           local line_nodes = ts_query.query_nodes_in_range(buf, [[
             (request_line) @line
           ]], br, br + 20)
+          -- First request_line wins: the block's own line defines the row.
           for _, ln in ipairs(line_nodes) do
             local line_node = ln.captures[1].node
             local method_node = line_node:named_child(0)

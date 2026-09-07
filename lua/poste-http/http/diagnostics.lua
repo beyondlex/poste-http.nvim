@@ -23,7 +23,7 @@ local function walk(node, diagnostics, buf)
 end
 
 local function check_semantic_rules(root, diagnostics, buf)
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local _ = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 
   local seen_vars = {}
 

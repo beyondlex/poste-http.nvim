@@ -6,11 +6,9 @@ local function parse_servers(spec)
   return servers
 end
 
+-- server_url is accepted for signature parity with import_swagger; the
+-- host is deliberately swapped for the {{base_url}} env variable.
 local function build_url(server_url, path)
-  local base = server_url or ""
-  if base:sub(-1) == "/" then
-    base = base:sub(1, -2)
-  end
   local clean_path = path or ""
   if clean_path:sub(1, 1) ~= "/" then
     clean_path = "/" .. clean_path

@@ -46,7 +46,7 @@ function M.select_headers()
 
   local first = headers[1].captures[1].node
   local last = headers[#headers].captures[1].node
-  local hs, hsc, he, hec = first:range()
+  local hs, hsc, _, _ = first:range()
   local _, _, ls, lc = last:range()
 
   vim.api.nvim_feedkeys(

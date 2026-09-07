@@ -361,8 +361,7 @@ local function execute_deps_for_block(opts)
 
   local pending_deps = {}
   for _, ref in ipairs(refs) do
-    if request_response_cache[ref.request_name] then
-    else
+    if not request_response_cache[ref.request_name] then
       local already_pending = false
       for _, req in ipairs(pending_deps) do
         if req.name == ref.request_name then
@@ -384,22 +383,24 @@ local function execute_deps_for_block(opts)
         if resolved then
           local file_content = vim.fn.readfile(resolved.path)
           if file_content and #file_content > 0 then
-            local block_start = resolved.line
-            local block_end = #file_content
-            for j = block_start + 1, #file_content do
+            -- Bounds inside the IMPORTED file (distinct from the target
+            -- block's block_start/block_end in the source buffer).
+            local import_start = resolved.line
+            local import_end = #file_content
+            for j = import_start + 1, #file_content do
               if file_content[j]:match("^%s*###") then
-                block_end = j - 1
+                import_end = j - 1
                 break
               end
             end
             local block_lines = {}
-            for i = block_start, block_end do
+            for i = import_start, import_end do
               table.insert(block_lines, file_content[i] or "")
             end
             table.insert(pending_deps, {
               name = ref.request_name,
-              start_line = block_start,
-              end_line = block_end,
+              start_line = import_start,
+              end_line = import_end,
               block_text = table.concat(block_lines, "\n"),
               file = resolved.path,
             })

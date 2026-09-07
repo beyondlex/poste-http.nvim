@@ -56,6 +56,24 @@ The first non-comment line after `###` is the request line:
     DELETE /api/items/1
     HEAD /api/items
 
+Beyond plain HTTP verbs, three methods have dedicated executors
+(see |poste-http-multi-protocol|):
+
+    GRAPHQL {{base_url}}/graphql    query body lowered to a JSON POST
+    GRPC {{host}}/service/Method    via grpcurl (unary / server-streaming)
+    WEBSOCKET {{base_url}}/ws       via websocat, frames in the Msgs tab
+    SCRIPT                          body runs as an orchestration script
+
+                                                    *poste-http-multi-protocol*
+A `GRAPHQL` block's body is the query text; an optional trailing JSON
+object is the variables block. `Content-Type: application/json` is
+synthesized unless the block sets its own; pin an SDL schema for
+body completion with `# @graphql-schema ./schema.graphql`.
+`GRPC` resolves protos through server reflection or a pinned file
+(`# @grpc-proto echo.proto`). `WEBSOCKET` opens an interactive session;
+`<CR>` sends the block body as a frame. See docs/user/syntax.md for the
+full reference.
+
 HEADERS ~
                             *poste-http-headers*
 Headers follow the method line, one per line:
@@ -288,6 +306,8 @@ All commands use the `PosteHttp` prefix.
     :PosteHttpClearCache     Remove cached response files
     :PosteHttpTSInspect      Inspect tree-sitter parse tree
     :PosteHttpTSStatus       Show tree-sitter feature status
+    :PosteHttpCmpStatus      Show completion engine status
+    :PosteHttpCmpProfile     Profile completion latency
     :PosteHttpInfo           Show plugin environment info
     :PosteHttpBoundary       Toggle block boundary indicators
 

@@ -152,4 +152,31 @@ describe("parse_response cookies", function()
     assert.equals("theme", r.cookies[2].name)
     assert.equals("dark", r.cookies[2].value)
   end)
+
+  it("collects Set-Cookie headers from intermediate redirect hops", function()
+    -- curl -D dumps one header block per followed hop; only the last block
+    -- is the final response, but a cookie set by a 3xx hop still applies.
+    local f = write_headers_file(
+      "HTTP/1.1 302 Found\nLocation: /final\nSet-Cookie: hop=intermediate\n\n" ..
+      "HTTP/1.1 200 OK\nSet-Cookie: final=done\n\n")
+    local r = parser.parse_response(f, {}, {}, nil, "GET", "https://x", nil)
+    os.remove(f)
+    assert.equals(200, r.status, "final response still comes from the last block")
+    assert.equals(2, #r.cookies)
+    assert.equals("hop", r.cookies[1].name)
+    assert.equals("intermediate", r.cookies[1].value)
+    assert.equals("final", r.cookies[2].name)
+    assert.equals("done", r.cookies[2].value)
+  end)
+
+  it("lets a later hop override a Set-Cookie with the same name", function()
+    local f = write_headers_file(
+      "HTTP/1.1 302 Found\nSet-Cookie: sid=old\n\n" ..
+      "HTTP/1.1 200 OK\nSet-Cookie: sid=new\n\n")
+    local r = parser.parse_response(f, {}, {}, nil, "GET", "https://x", nil)
+    os.remove(f)
+    assert.equals(1, #r.cookies)
+    assert.equals("sid", r.cookies[1].name)
+    assert.equals("new", r.cookies[1].value)
+  end)
 end)

@@ -61,23 +61,20 @@ local function parse_set_cookie(header_value)
   return cookie
 end
 
-local function parse_headers_file(headers_text)
-  if not headers_text or headers_text == "" then
-    return { status = 0, status_text = "No Response", headers = {}, content_type = "" }
-  end
+local function split_header_blocks(headers_text)
   local blocks = {}
-  local text = headers_text .. "\n\n"
+  local text = (headers_text or "") .. "\n\n"
   for block in text:gmatch("(.-)\r?\n\r?\n") do
     local trimmed = vim.trim(block)
     if trimmed ~= "" then
       table.insert(blocks, trimmed)
     end
   end
-  if #blocks == 0 then
-    return { status = 0, status_text = "No Response", headers = {}, content_type = "" }
-  end
-  local final = blocks[#blocks]
-  local lines = vim.split(final, "\n", { plain = true })
+  return blocks
+end
+
+local function parse_header_block(block)
+  local lines = vim.split(block, "\n", { plain = true })
   local status_line = vim.trim(lines[1] or "")
   local status = 0
   local status_text = ""
@@ -116,6 +113,18 @@ local function parse_headers_file(headers_text)
   return { status = status, status_text = status_text, headers = headers, content_type = content_type }
 end
 
+local function parse_headers_file(headers_text)
+  if not headers_text or headers_text == "" then
+    return { status = 0, status_text = "No Response", headers = {}, content_type = "" }
+  end
+  local blocks = split_header_blocks(headers_text)
+  if #blocks == 0 then
+    return { status = 0, status_text = "No Response", headers = {}, content_type = "" }
+  end
+  -- The final block is the response that reached the client.
+  return parse_header_block(blocks[#blocks])
+end
+
 local function extract_cookies(headers)
   local cookies = {}
   for _, h in ipairs(headers) do
@@ -125,6 +134,30 @@ local function extract_cookies(headers)
         table.insert(cookies, c)
       end
     end
+  end
+  return cookies
+end
+
+--- Collect Set-Cookie headers from EVERY hop of a curl -D redirect dump.
+--- A cookie set by an intermediate 3xx still applies (the cookie engine
+--- carries it to the next hop), so cookies must not come from the final
+--- block alone. A later Set-Cookie with the same name replaces the earlier
+--- one, matching cookie-engine overwrite semantics.
+local function extract_cookies_across_hops(blocks)
+  local by_name = {}
+  local order = {}
+  for _, block in ipairs(blocks) do
+    local parsed = parse_header_block(block)
+    for _, c in ipairs(extract_cookies(parsed.headers)) do
+      if not by_name[c.name] then
+        table.insert(order, c.name)
+      end
+      by_name[c.name] = c
+    end
+  end
+  local cookies = {}
+  for _, name in ipairs(order) do
+    table.insert(cookies, by_name[name])
   end
   return cookies
 end
@@ -164,7 +197,7 @@ function M.parse_response(headers_file, stdout_data, stderr_data, start_hires, m
 
   local parsed = parse_headers_file(headers_text)
 
-  local cookies = extract_cookies(parsed.headers)
+  local cookies = extract_cookies_across_hops(split_header_blocks(headers_text))
 
   local redirect_count = "0"
   local raw_redirect_count = verbose:match("([%d]+) r[ea]direct")

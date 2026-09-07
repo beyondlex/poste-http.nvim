@@ -76,6 +76,85 @@ curl -X POST 'https://api.example.com/login' \
     assert.same({ { "X-A", "b" } }, parsed.headers)
   end)
 
+  it("keeps empty-value headers instead of dropping them", function()
+    -- curl's -H 'Name:' would remove the header, but imports of shared
+    -- commands are lossy in the other direction; keep the empty value.
+    local parsed = curl.parse_curl(
+      "curl https://api.example.com -H 'X-Custom:' --header 'X-Other;'")
+    assert.same({
+      { "X-Custom", "" },
+      { "X-Other", "" },
+    }, parsed.headers)
+  end)
+
+  describe("--data-urlencode", function()
+    it("urlencodes name=value pieces and promotes GET to POST", function()
+      local parsed = curl.parse_curl(
+        "curl https://api.example.com --data-urlencode 'name=va lue&x=1'")
+      assert.equals("POST", parsed.method)
+      assert.equals("name=va%20lue%26x%3D1", parsed.body)
+    end)
+
+    it("supports =content and bare-content forms", function()
+      local parsed = curl.parse_curl(
+        "curl https://api.example.com --data-urlencode '=a b' --data-urlencode 'q'")
+      assert.equals("a%20b&q", parsed.body)
+    end)
+
+    it("joins multiple pieces with & and adds the form content-type", function()
+      local parsed = curl.parse_curl(
+        "curl https://api.example.com --data-urlencode 'a=1' --data-urlencode 'b=2'")
+      assert.equals("a=1&b=2", parsed.body)
+      local has_ct = false
+      for _, h in ipairs(parsed.headers) do
+        if h[1] == "Content-Type" then has_ct = true end
+      end
+      assert.is_true(has_ct, "form-urlencoded content-type must be added")
+    end)
+
+    it("respects an explicit Content-Type and reads @file pieces", function()
+      local path = vim.fn.tempname() .. "_dude"
+      local fd = io.open(path, "w")
+      fd:write("va lue")
+      fd:close()
+
+      local parsed = curl.parse_curl(
+        "curl https://api.example.com -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'name@"
+        .. path .. "'")
+      os.remove(path)
+      assert.equals("name=va%20lue", parsed.body)
+      local ct_count = 0
+      for _, h in ipairs(parsed.headers) do
+        if h[1] == "Content-Type" then ct_count = ct_count + 1 end
+      end
+      assert.equals(1, ct_count, "must not add a second content-type")
+    end)
+  end)
+
+  describe("@file data bodies", function()
+    it("bakes -d @file content in at import time", function()
+      local path = vim.fn.tempname() .. "_data"
+      local fd = io.open(path, "w")
+      fd:write('{"k": "v"}')
+      fd:close()
+
+      local separated = curl.parse_curl("curl https://api.example.com -d @" .. path)
+      local attached = curl.parse_curl("curl https://api.example.com -d@" .. path)
+      local binary = curl.parse_curl("curl https://api.example.com --data-binary @" .. path)
+      os.remove(path)
+
+      assert.equals('{"k": "v"}', separated.body)
+      assert.equals('{"k": "v"}', attached.body)
+      assert.equals('{"k": "v"}', binary.body)
+    end)
+
+    it("keeps --data-raw @file literal (curl does not expand it either)", function()
+      local parsed = curl.parse_curl(
+        "curl https://api.example.com --data-raw '@/no/such/file'")
+      assert.equals("@/no/such/file", parsed.body)
+    end)
+  end)
+
   it("keeps interior blank lines when converting a multi-line body", function()
     local orig_getreg = vim.fn.getreg
     vim.fn.getreg = function() return "curl https://api.example.com --data-raw 'a\n\nb\n'" end

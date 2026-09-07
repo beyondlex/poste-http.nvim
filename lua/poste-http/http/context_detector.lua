@@ -85,6 +85,41 @@ local function detect_grpc_body(buf, cursor_line)
   return nil
 end
 
+--- GraphQL query body (regex fallback): cursor sits in the query text of a
+--- GRAPHQL request block. Walks up to the block's request line; the "head"
+--- separator line bounds the scan so a previous block can never match.
+--- @param buf number
+--- @param cursor_line number
+--- @return boolean
+local function in_graphql_body(buf, cursor_line)
+  if not buf or not cursor_line then return false end
+  if cache.get_line_type(buf, cursor_line) ~= "body" then return false end
+  for line = cursor_line - 1, 1, -1 do
+    local t = cache.get_line_type(buf, line)
+    if t == "head" then return false end
+    if t == "request" then
+      local line_text = (vim.api.nvim_buf_get_lines(buf, line - 1, line, false)[1]) or ""
+      return line_text:match("^%s*GRAPHQL%s") ~= nil
+    end
+  end
+  return false
+end
+
+--- Shared {{...}} scan for body contexts: unclosed {{ before the cursor means
+--- variable completion, with the text after {{ as extra data.
+--- @param line_before_cursor string
+--- @return string|nil, string|nil  "variable" context or nil
+local function unclosed_variable_context(line_before_cursor)
+  local rev = line_before_cursor:reverse()
+  local last_open = rev:find("{{", 1, true)
+  local last_close = rev:find("}}", 1, true)
+  if last_open and (not last_close or last_close > last_open) then
+    local after_open = line_before_cursor:sub(#line_before_cursor - last_open + 2)
+    return "variable", after_open
+  end
+  return nil
+end
+
 --- Detect if cursor is inside a pre/post script block via tree-sitter.
 --- cursor_line is 1-based, cursor_col is 0-based (nvim_win_get_cursor).
 local function ts_detect_script_context(buf, cursor_line, cursor_col)
@@ -137,7 +172,7 @@ local function ts_detect_context(line_before_cursor, buf, cursor_line, cursor_co
   local parent = ts_query.parent_of_type(node,
     "request_line", "header", "variable", "variable_definition",
     "prompt_variable", "import_directive", "run_directive",
-    "json_body", "request_block", "multipart_boundary",
+    "json_body", "graphql_body", "request_block", "multipart_boundary",
     "multipart_form_data", "form_body", "file_upload", "file_ref"
   )
 
@@ -213,14 +248,8 @@ local function ts_detect_context(line_before_cursor, buf, cursor_line, cursor_co
   end
 
   if parent_type == "prompt_variable" then
-    local trimmed = vim.trim(line_before_cursor)
-    local rev = line_before_cursor:reverse()
-    local last_open = rev:find("{{", 1, true)
-    local last_close = rev:find("}}", 1, true)
-    if last_open and (not last_close or last_close > last_open) then
-      local after_open = line_before_cursor:sub(#line_before_cursor - last_open + 2)
-      return "variable", after_open
-    end
+    local var_ctx, after_open = unclosed_variable_context(line_before_cursor)
+    if var_ctx then return var_ctx, after_open end
     return nil
   end
 
@@ -255,15 +284,18 @@ local function ts_detect_context(line_before_cursor, buf, cursor_line, cursor_co
     return "run_target", nil
   end
 
+  if parent_type == "graphql_body" then
+    -- Query text of a GRAPHQL request: {{var}} refs complete as variables,
+    -- anything else offers GraphQL keywords.
+    local var_ctx, after_open = unclosed_variable_context(line_before_cursor)
+    if var_ctx then return var_ctx, after_open end
+    return "graphql_query", nil
+  end
+
   if parent_type == "json_body" or parent_type == "multipart_boundary"
     or parent_type == "multipart_form_data" or parent_type == "form_body" then
-    local rev = line_before_cursor:reverse()
-    local last_open = rev:find("{{", 1, true)
-    local last_close = rev:find("}}", 1, true)
-    if last_open and (not last_close or last_close > last_open) then
-      local after_open = line_before_cursor:sub(#line_before_cursor - last_open + 2)
-      return "variable", after_open
-    end
+    local var_ctx, after_open = unclosed_variable_context(line_before_cursor)
+    if var_ctx then return var_ctx, after_open end
     local grpc_body_ctx = detect_grpc_body(buf, cursor_line)
     if grpc_body_ctx then return grpc_body_ctx, nil end
     return nil
@@ -445,6 +477,12 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
   -- GRPC request body: complete message fields from the proto index
   local grpc_body_ctx = detect_grpc_body(buf, cursor_line)
   if grpc_body_ctx then return grpc_body_ctx, nil end
+
+  -- GraphQL query body: keywords (regex mirror of the TS graphql_body branch;
+  -- the {{ scan above already handled variable refs)
+  if in_graphql_body(buf, cursor_line) then
+    return "graphql_query", nil
+  end
 
   -- @var definition: detect Lua import alias keypath @var = alias.
   if first_char == "@" then

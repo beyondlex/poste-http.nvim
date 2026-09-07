@@ -495,6 +495,8 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
   if ctx == "import_path" then
     items = M.build_items({ "./", "../" }, KIND_VALUE)
     return items
+  elseif ctx == "graphql_query" then
+    return M.build_keyword_items(data.graphql_keywords, KIND_KEYWORD)
   elseif ctx == "grpc_method_path" then
     return grpc_proto.get_method_items(buf, cursor_line, extra)
   elseif ctx == "grpc_body" then

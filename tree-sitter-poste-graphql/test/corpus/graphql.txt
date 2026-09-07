@@ -1,0 +1,260 @@
+==================
+Named query with variables
+==================
+
+query User($id: ID!) {
+  user(id: $id) { id name email }
+}
+
+---
+
+(document
+  (operation_definition
+    (operation_type)
+    (name)
+    (variable_definitions
+      (variable_definition
+        (variable
+          (name))
+        (non_null_type
+          (named_type
+            (name)))))
+    (selection_set
+      (selection
+        (field
+          (name)
+          (arguments
+            (argument
+              (name)
+              (variable
+                (name))))
+          (selection_set
+            (selection
+              (field
+                (name)))
+            (selection
+              (field
+                (name)))
+            (selection
+              (field
+                (name)))))))))
+
+==================
+Mutation with arguments
+==================
+
+mutation {
+  createUser(name: "Ada", active: true) { id }
+}
+
+---
+
+(document
+  (operation_definition
+    (operation_type)
+    (selection_set
+      (selection
+        (field
+          (name)
+          (arguments
+            (argument
+              (name)
+              (string_value))
+            (argument
+              (name)
+              (boolean_value)))
+          (selection_set
+            (selection
+              (field
+                (name)))))))))
+
+==================
+Fragment definition and spread
+==================
+
+fragment UserFields on User {
+  id
+  name
+}
+
+query Q {
+  user { ...UserFields }
+}
+
+---
+
+(document
+  (fragment_definition
+    (fragment_name
+      (name))
+    (type_condition
+      (named_type
+        (name)))
+    (selection_set
+      (selection
+        (field
+          (name)))
+      (selection
+        (field
+          (name)))))
+  (operation_definition
+    (operation_type)
+    (name)
+    (selection_set
+      (selection
+        (field
+          (name)
+          (selection_set
+            (selection
+              (fragment_spread
+                (fragment_name
+                  (name))))))))))
+
+==================
+Template variable in value position
+==================
+
+query Q {
+  user(id: {{user_id}}) { id }
+}
+
+---
+
+(document
+  (operation_definition
+    (operation_type)
+    (name)
+    (selection_set
+      (selection
+        (field
+          (name)
+          (arguments
+            (argument
+              (name)
+              (template_variable)))
+          (selection_set
+            (selection
+              (field
+                (name)))))))))
+
+==================
+Template variable inside string stays string content
+==================
+
+query Q {
+  user(name: "{{name_prefix}}") { id }
+}
+
+---
+
+(document
+  (operation_definition
+    (operation_type)
+    (name)
+    (selection_set
+      (selection
+        (field
+          (name)
+          (arguments
+            (argument
+              (name)
+              (string_value)))
+          (selection_set
+            (selection
+              (field
+                (name)))))))))
+
+==================
+Directive and comment
+==================
+
+# fetch only when the flag is on
+query Q($flag: Boolean! = true) {
+  user @include(if: $flag) {
+    name
+    # trailing comment
+  }
+}
+
+---
+
+(document
+  (comment)
+  (operation_definition
+    (operation_type)
+    (name)
+    (variable_definitions
+      (variable_definition
+        (variable
+          (name))
+        (non_null_type
+          (named_type
+            (name)))
+        (default_value
+          (boolean_value))))
+    (selection_set
+      (selection
+        (field
+          (name)
+          (directives
+            (directive
+              (name)
+              (arguments
+                (argument
+                  (name)
+                  (variable
+                    (name))))))
+          (selection_set
+            (selection
+              (field
+                (name)))
+            (comment)))))))
+
+==================
+Operation with alias and default value
+==================
+
+query Q($size: Int = 10, $tags: [String!]) {
+  a: user(limit: $size, tags: $tags) { id }
+}
+
+---
+
+(document
+  (operation_definition
+    (operation_type)
+    (name)
+    (variable_definitions
+      (variable_definition
+        (variable
+          (name))
+        (named_type
+          (name))
+        (default_value
+          (number_value)))
+      (variable_definition
+        (variable
+          (name))
+        (list_type
+          (non_null_type
+            (named_type
+              (name))))))
+    (selection_set
+      (selection
+        (field
+          (alias
+            (name))
+          (name)
+          (arguments
+            (argument
+              (name)
+              (variable
+                (name)))
+            (argument
+              (name)
+              (variable
+                (name))))
+          (selection_set
+            (selection
+              (field
+                (name)))))))))

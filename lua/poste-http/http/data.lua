@@ -442,6 +442,28 @@ M.http_status_codes = {
 }
 
 ---------------------------------------------------------------------------
+-- GraphQL keywords (inside GRAPHQL request bodies)
+---------------------------------------------------------------------------
+M.graphql_keywords = {
+  -- Root operation / fragment keywords
+  { name = "query",        desc = "GraphQL read operation" },
+  { name = "mutation",     desc = "GraphQL write operation" },
+  { name = "subscription", desc = "GraphQL subscription" },
+  { name = "fragment",     desc = "Reusable selection set" },
+  { name = "on",           desc = "Type condition (fragment F on Type)" },
+  -- Built-in scalars (variable definitions, arguments)
+  { name = "Int",          desc = "Built-in scalar: signed 32-bit integer" },
+  { name = "Float",        desc = "Built-in scalar: double precision" },
+  { name = "String",       desc = "Built-in scalar: UTF-8 text" },
+  { name = "Boolean",      desc = "Built-in scalar: true or false" },
+  { name = "ID",           desc = "Built-in scalar: unique identifier" },
+  -- Common directives
+  { name = "@include",     desc = "Directive: include field if(if:) holds" },
+  { name = "@skip",        desc = "Directive: skip field if(if:) holds" },
+  { name = "@deprecated",  desc = "Directive: mark field/enum value deprecated" },
+}
+
+---------------------------------------------------------------------------
 -- Pre-request script keywords (< {% ... %})
 ---------------------------------------------------------------------------
 M.pre_script_keywords = {

@@ -13,6 +13,12 @@ local GRAMMARS = {
     src = "src/parser.c",
     so = "poste_json.so",
   },
+  {
+    name = "poste_graphql",
+    dir = "tree-sitter-poste-graphql",
+    src = "src/parser.c",
+    so = "poste_graphql.so",
+  },
 }
 
 local function plugin_root()

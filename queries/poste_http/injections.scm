@@ -6,3 +6,7 @@
 ; Inject custom JSON (with {{var}} support) into json_body
 ((json_body) @injection.content
  (#set! injection.language "poste_json"))
+
+; Inject custom GraphQL (with {{var}} support) into graphql_body
+((graphql_body) @injection.content
+ (#set! injection.language "poste_graphql"))

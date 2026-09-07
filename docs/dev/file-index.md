@@ -172,6 +172,7 @@ that hand-rolled floats used to apply unevenly).
 | Lua tests | `tests/http/*_spec.lua` | busted framework |
 | Contract tests | `tests/contract/` | Golden fixtures for response shapes |
 | Tree-sitter grammar | `tree-sitter-poste-http/` | Grammar tests |
+| Body injection grammars | `tree-sitter-poste-json/`, `tree-sitter-poste-graphql/` | `poste_json` / `poste_graphql` parsers (JSON/GraphQL + `{{var}}`), injected into request bodies; rtp queries under `queries/poste_*` |
 
 ---
 
@@ -192,4 +193,4 @@ that hand-rolled floats used to apply unevenly).
 
 ---
 
-*File index — Last updated: 2026-08-12*
+*File index — Last updated: 2026-09-07*

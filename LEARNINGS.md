@@ -3,6 +3,19 @@
 Agent self-evolution log. When you fix a non-obvious bug or encounter a
 pitfall, log it here. Check this file before starting any task.
 
+- 2026-09-07: treesitter/injection-testing — nvim 0.12 no longer exposes
+  injected LanguageTree children: `parser:children()` returns `{}` even after
+  `vim.treesitter.start` + `:parse()`, and `for_each_child` is gone, so a
+  "did my injection produce a tree" assertion cannot be written directly.
+  Injection specs must split in two halves: (1) wiring — iterate the
+  `injections` query matches and assert the capture node type +
+  `metadata["injection.language"]`; (2) language — parse the injected range's
+  text with the injected parser directly (`vim.treesitter.get_parser(buf,
+  lang)`) and run its highlights query. Also: `pcall(vim.treesitter.language.add, lang)`
+  succeeds even when the parser .so is missing — guard availability with
+  `pcall(vim.treesitter.get_parser, ...)` instead. See
+  `tests/http/graphql_highlights_spec.lua`.
+
 - 2026-09-02: http/history-ghost-cursor — `gg`/`G` (native buffer motions) in the history list window moved the visible cursor but not the module-local `current_index`, so the next `j`/`k` moved from a stale "ghost baseline" (jumped-to line + 1; `G` then `k` wrapped to the top) and the detail pane kept showing the old entry. Fix: map `gg`/`G` in `setup_list_keymaps` to a `jump_to(index)` that syncs `current_index` + buffer cursor + detail pane (`G` honors `v:count`), and resync `navigate_list` from `nvim_win_get_cursor(list_win)` first so any unmapped motion (mouse, `<C-d>`) can't desync it either. See `lua/poste-http/http/history.lua`, `tests/http/history_spec.lua`.
 
 - 2026-08-30: read `docs/dev/agent-guardrails.md` before UI or test work —

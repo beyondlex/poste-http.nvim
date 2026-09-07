@@ -96,6 +96,10 @@ vim.api.nvim_create_user_command("PosteHttpInfo", function()
   local ts_json_file = (vim.fn.filereadable(parser_dir .. "/poste_json.so") == 1) and "installed" or "missing"
   table.insert(parts, "poste_json:" .. (ts_json_ok and "active" or "unavailable") .. " (" .. ts_json_file .. ")")
 
+  local ts_graphql_ok, _ = pcall(vim.treesitter.get_parser, 0, "poste_graphql")
+  local ts_graphql_file = (vim.fn.filereadable(parser_dir .. "/poste_graphql.so") == 1) and "installed" or "missing"
+  table.insert(parts, "poste_graphql:" .. (ts_graphql_ok and "active" or "unavailable") .. " (" .. ts_graphql_file .. ")")
+
   table.insert(parts, sep)
 
   local blink_ok = pcall(require, "blink.cmp")

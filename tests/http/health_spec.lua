@@ -56,7 +56,7 @@ describe("poste-http healthcheck", function()
     end
 
     vim.treesitter.get_parser = function(buf, lang)
-      if lang == "poste_http" or lang == "poste_json" then
+      if lang == "poste_http" or lang == "poste_json" or lang == "poste_graphql" then
         return {}
       end
       error("parser not found: " .. lang)
@@ -168,10 +168,22 @@ describe("poste-http healthcheck", function()
     assert.is_true(has_grammar_ok)
   end)
 
-  it("reports parser source found for both grammars", function()
+  it("reports poste_graphql grammar directory ok", function()
+    health.check()
+    local has_grammar_ok = false
+    for _, r in ipairs(mock_health._reports) do
+      if r.type == "ok" and r.msg:match("poste_graphql") and r.msg:match("grammar directory") then
+        has_grammar_ok = true
+      end
+    end
+    assert.is_true(has_grammar_ok)
+  end)
+
+  it("reports parser source found for all grammars", function()
     health.check()
     local http_src = false
     local json_src = false
+    local graphql_src = false
     for _, r in ipairs(mock_health._reports) do
       if r.type == "ok" and r.msg:match("poste_http") and r.msg:match("source found") then
         http_src = true
@@ -179,9 +191,13 @@ describe("poste-http healthcheck", function()
       if r.type == "ok" and r.msg:match("poste_json") and r.msg:match("source found") then
         json_src = true
       end
+      if r.type == "ok" and r.msg:match("poste_graphql") and r.msg:match("source found") then
+        graphql_src = true
+      end
     end
     assert.is_true(http_src)
     assert.is_true(json_src)
+    assert.is_true(graphql_src)
   end)
 
   it("reports parser source error when missing", function()
@@ -269,10 +285,11 @@ describe("poste-http healthcheck", function()
     assert.is_false(has_stale)
   end)
 
-  it("reports parser active in Neovim for both grammars", function()
+  it("reports parser active in Neovim for all grammars", function()
     health.check()
     local http_active = false
     local json_active = false
+    local graphql_active = false
     for _, r in ipairs(mock_health._reports) do
       if r.type == "ok" and r.msg:match("poste_http") and r.msg:match("parser active") then
         http_active = true
@@ -280,9 +297,13 @@ describe("poste-http healthcheck", function()
       if r.type == "ok" and r.msg:match("poste_json") and r.msg:match("parser active") then
         json_active = true
       end
+      if r.type == "ok" and r.msg:match("poste_graphql") and r.msg:match("parser active") then
+        graphql_active = true
+      end
     end
     assert.is_true(http_active)
     assert.is_true(json_active)
+    assert.is_true(graphql_active)
   end)
 
   it("reports parser error when get_parser fails", function()

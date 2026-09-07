@@ -468,10 +468,18 @@ query User($id: ID!) {
   including its `errors` array), cross-request references
   (`{{GetUser.response.body.data.user.name}}`), and jq filtering
 - Requires no external tooling — plain HTTP under the hood
+- The query text is highlighted as GraphQL via a bundled `poste_graphql`
+  tree-sitter parser (injected into the body; compiled automatically on
+  setup, or run `:PosteHttpBuildParsers` — see `:checkhealth poste-http`)
+- Completion inside the query body offers GraphQL keywords (`query`,
+  `mutation`, `subscription`, `fragment`, `on`), built-in scalars (`Int`,
+  `Float`, `String`, `Boolean`, `ID`) and common directives (`@include`,
+  `@skip`, `@deprecated`); `{{var}}` completion works there too
 
 **Implementation status**: Implemented (parser, executor, completion,
-highlighting). GraphQL-specific extras (error surfacing, query injections)
-are not yet implemented.
+query highlighting via the `poste_graphql` injection). GraphQL-specific
+extras (error surfacing, schema-aware field completion) are not yet
+implemented.
 
 ### 2.16 gRPC Requests
 

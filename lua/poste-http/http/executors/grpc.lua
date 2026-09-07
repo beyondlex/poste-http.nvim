@@ -57,6 +57,19 @@ function M.parse_target(url)
   return { host = url, method = nil }
 end
 
+--- Mirror grpcurl's parseSymbol: split on the LAST "/" (or, when absent,
+--- the LAST ".") and require both the service and method parts to be
+--- non-empty. A trailing separator (`Service/`, `Service.`) or a name with
+--- no separator cannot be invoked and would only surface as a confusing
+--- grpcurl error, so bail out before spawning the process.
+local function method_is_complete(method)
+  local svc, mth = method:match("^(.*)/([^/]*)$")
+  if svc == nil then
+    svc, mth = method:match("^(.*)%.([^%.]*)$")
+  end
+  return svc ~= nil and svc ~= "" and mth ~= ""
+end
+
 local function op_values(req, name)
   local ops = req.operators
   if not ops or not ops[name] then return {} end
@@ -107,6 +120,11 @@ function M.build_args(req)
 
   local body = req.body or ""
   if target.method then
+    if not method_is_complete(target.method) then
+      return nil, nil, string.format(
+        "incomplete gRPC method %q — expected 'service/method' or 'service.method'",
+        target.method)
+    end
     local has_body = vim.trim(body) ~= ""
     if has_body then
       table.insert(args, "-d")

@@ -119,6 +119,46 @@ describe("grpc.build_args", function()
     assert.equals("localhost:50051", args[#args - 1])
     assert.is_nil(vim.tbl_contains(args, "-d") and true or nil)
   end)
+
+  it("accepts the dotted service.method form", function()
+    local args = grpc.build_args({
+      url = "localhost:50051/pkg.OrderService.PreviewOrder", headers = {}, body = "", timeout = 30000,
+    })
+    assert.equals("localhost:50051", args[#args - 1])
+    assert.equals("pkg.OrderService.PreviewOrder", args[#args])
+  end)
+
+  it("rejects an incomplete method with a trailing slash", function()
+    local _, _, err = grpc.build_args({
+      url = "localhost:50051/pkg.OrderService/", headers = {}, body = "", timeout = 30000,
+    })
+    assert.is_not_nil(err)
+    assert.matches("pkg.OrderService/", err)
+    assert.matches("service/method", err)
+  end)
+
+  it("rejects an incomplete method with a trailing dot", function()
+    local _, _, err = grpc.build_args({
+      url = "localhost:50051/pkg.OrderService.", headers = {}, body = "", timeout = 30000,
+    })
+    assert.is_not_nil(err)
+    assert.matches("service/method", err)
+  end)
+
+  it("rejects a method name with no service/method separator", function()
+    local _, _, err = grpc.build_args({
+      url = "localhost:50051/EchoService", headers = {}, body = "", timeout = 30000,
+    })
+    assert.is_not_nil(err)
+    assert.matches("service/method", err)
+  end)
+
+  it("rejects a method that is only a separator", function()
+    local _, _, err = grpc.build_args({
+      url = "localhost:50051//", headers = {}, body = "", timeout = 30000,
+    })
+    assert.is_not_nil(err)
+  end)
 end)
 
 describe("grpc response mapping", function()

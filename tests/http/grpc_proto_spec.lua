@@ -113,6 +113,33 @@ describe("grpc_proto.get_block_info", function()
     delete_buf(buf)
     assert.is_nil(info)
   end)
+
+  it("resolves {{var}} placeholders in the host from file-level variables", function()
+    local buf = block_buf({
+      "@grpc_host = localhost:50051",
+      "### echo",
+      "# @grpc-plaintext",
+      "GRPC {{grpc_host}}/grpc.examples.echo.EchoService/Echo",
+      "",
+      '{"message": "hi"}',
+    })
+    local info = grpc_proto.get_block_info(buf, 4)
+    delete_buf(buf)
+    assert.equals("localhost:50051", info.host)
+  end)
+
+  it("resolves {{var}} placeholders in the host from block-level variables", function()
+    local buf = block_buf({
+      "### echo",
+      "@host = localhost:50051",
+      "GRPC {{host}}/grpc.examples.echo.EchoService/Echo",
+      "",
+      '{"message": "hi"}',
+    })
+    local info = grpc_proto.get_block_info(buf, 3)
+    delete_buf(buf)
+    assert.equals("localhost:50051", info.host)
+  end)
 end)
 
 describe("grpc_proto.index_key", function()
@@ -218,6 +245,26 @@ describe("grpc_proto.get_method_items", function()
     assert.equals(1, #items)
     assert.equals("Echo", items[1].label)
     assert.equals("pkg.EchoRequest", items[1].detail)
+  end)
+
+  it("marks gRPC methods as Field (5), not Function/Method, so no () is auto-inserted", function()
+    local buf = block_buf({ "### echo", "GRPC localhost:50051/pkg.EchoService/E" })
+    grpc_proto._cache[buf] = {
+      key = "k",
+      index = { services = {
+        ["pkg.EchoService"] = { methods = { { name = "Echo", request_type = "pkg.EchoRequest" } } },
+      } },
+    }
+    local old_key = grpc_proto.index_key
+    grpc_proto.index_key = function() return "k" end
+    local items = grpc_proto.get_method_items(buf, 2,
+      { host = "localhost:50051", service_prefix = "pkg.EchoService", partial = "E" })
+    grpc_proto.index_key = old_key
+    delete_buf(buf)
+    assert.equals(5, items[1].kind)
+    -- blink.cmp auto-inserts `()` for Function(3)/Method(2); the method path
+    -- is plain text, so the insert must not gain brackets.
+    assert.equals("Echo", items[1].insertText)
   end)
 
   it("returns no items when the index is not cached yet", function()

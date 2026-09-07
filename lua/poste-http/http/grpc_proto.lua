@@ -15,6 +15,7 @@ local M = {}
 
 local cache = require("poste-http.http.cache")
 local block_operators = require("poste-http.http.block_operators")
+local vars = require("poste-http.http.vars")
 
 local uv = vim.uv or vim.loop
 
@@ -287,7 +288,12 @@ function M.body_context(text)
 end
 
 --- Collect the GRPC request-line target and `# @grpc-*` operators of the
---- block containing cursor_line. Returns nil outside a request block.
+--- block containing cursor_line. `{{var}}` placeholders in the host and
+--- operator values are resolved from the file/block variables — grpcurl and
+--- the cache key must see `localhost:8891`, not the literal `{{grpc_host}}`
+--- (the demo blocks use a variable host; an unresolved host breaks prewarm
+--- and completion against a running reflection server).
+--- Returns nil outside a request block.
 function M.get_block_info(buf, cursor_line)
   local start_line, end_line = cache.find_request_block_bounds(buf, cursor_line)
   if not start_line then return nil end
@@ -304,11 +310,33 @@ function M.get_block_info(buf, cursor_line)
     end
   end
 
+  local import_paths = operators["grpc-import-path"] or {}
+  local protos = operators["grpc-proto"] or {}
+  local proto_sets = operators["grpc-proto-set"] or {}
+  local has_ref = host and host:find("{", 1, true) or false
+  for _, list in ipairs({ import_paths, protos, proto_sets }) do
+    for _, v in ipairs(list) do
+      if v:find("{", 1, true) then has_ref = true break end
+    end
+    if has_ref then break end
+  end
+  if has_ref then
+    local resolver = vars.build_resolver_from_state({
+      buf = buf,
+      block_start = start_line,
+      block_end = end_line,
+    })
+    host = host and resolver:substitute(host)
+    for _, list in ipairs({ import_paths, protos, proto_sets }) do
+      for i, v in ipairs(list) do list[i] = resolver:substitute(v) end
+    end
+  end
+
   return {
     host = host,
-    protos = operators["grpc-proto"] or {},
-    proto_sets = operators["grpc-proto-set"] or {},
-    import_paths = operators["grpc-import-path"] or {},
+    protos = protos,
+    proto_sets = proto_sets,
+    import_paths = import_paths,
     plaintext = #(operators["grpc-plaintext"] or {}) > 0,
     tls = #(operators["grpc-tls"] or {}) > 0,
   }
@@ -531,7 +559,10 @@ function M.get_method_items(buf, cursor_line, extra)
         if partial == "" or m.name:sub(1, #partial) == partial then
           table.insert(items, {
             label = m.name,
-            kind = 3, -- LSP: Function
+            -- Not Function(3)/Method(2): blink.cmp auto-inserts `()` for
+            -- those kinds, corrupting the request line (PreviewOrder would
+            -- be accepted as PreviewOrder()). The method path is plain text.
+            kind = 5, -- LSP: Field
             insertText = m.name,
             filterText = m.name,
             sortText = "0" .. m.name,

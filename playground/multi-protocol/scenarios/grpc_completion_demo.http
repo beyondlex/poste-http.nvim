@@ -17,11 +17,13 @@
 # The index comes from `grpcurl {{grpc_host}} list` (server reflection).
 # Expect: poste.test.v1.EchoService/  poste.test.v1.OrderService/
 # @grpc-plaintext
-GRPC {{grpc_host}}/
+### reflection list
+GRPC {{grpc_host}}
 
 # REFLECTION METHOD: COMPLETE at the end of the request line below
 # (expect: PreviewOrder, with the request message type as the detail).
 # @grpc-plaintext
+### reflection method
 GRPC {{grpc_host}}/poste.test.v1.OrderService/
 
 # BODY FIELDS: executable request. COMPLETE spots inside the body:
@@ -33,6 +35,7 @@ GRPC {{grpc_host}}/poste.test.v1.OrderService/
 #     with a fresh " and COMPLETE -> email / phone (proto3 JSON puts the
 #     oneof member directly at the top level, not under "notification")
 # @grpc-plaintext
+### body fields
 GRPC {{grpc_host}}/poste.test.v1.OrderService/PreviewOrder
 
 {
@@ -53,6 +56,7 @@ GRPC {{grpc_host}}/poste.test.v1.OrderService/PreviewOrder
 # @grpc-plaintext
 # @grpc-import-path ../grpc/server
 # @grpc-proto echo.proto
+### offline proto mode
 GRPC {{grpc_host}}/poste.test.v1.EchoService/Echo
 
 {

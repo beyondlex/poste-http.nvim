@@ -89,7 +89,7 @@ WEBSOCKET {{ws_url}}
 
 {"type": "emit", "channel": "news"}
 
-### WebSocket: interactive session — frames stream live;
+# WebSocket: interactive session — frames stream live;
 ### press s to send a message, c to close
 # @ws-interactive
 WEBSOCKET {{ws_url}}

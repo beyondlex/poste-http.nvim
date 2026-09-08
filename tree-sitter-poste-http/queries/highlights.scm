@@ -51,6 +51,12 @@
 ; Comment
 (comment) @PosteComment
 
+; Block operators (# @graphql-schema, # @grpc-proto, # @ws-*, ...) are
+; functional directives, not prose — style them apart from plain comments.
+; Matched by shape on the comment node: the grammar has no operator node.
+((comment) @PosteOperator
+  (#lua-match? @PosteOperator "^#%s*@%a[%w%-]*"))
+
 ; Pre/Post scripts
 (pre_script) @PostePreScript
 (post_script) @PosteAssertion

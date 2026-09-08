@@ -311,7 +311,16 @@ describe("graphql_schema block operator", function()
 end)
 
 describe("graphql_schema.load_schema", function()
+  -- stubs are set per-test; restore them so shuffled order never leaks them
+  -- into other describes (a leaked read_file stub poisons every later test)
+  local orig_read_file, orig_fs_stat
+  before_each(function()
+    orig_read_file = graphql_schema.read_file
+    orig_fs_stat = graphql_schema.fs_stat
+  end)
   after_each(function()
+    graphql_schema.read_file = orig_read_file
+    graphql_schema.fs_stat = orig_fs_stat
     graphql_schema._cache = {}
   end)
 
@@ -487,5 +496,120 @@ describe("graphql_schema_path completion context", function()
 
     -- cleanup
     vim.fn.delete(dir, "rf")
+  end)
+end)
+
+describe("graphql_schema.resolve_schema_path", function()
+  local named_buf
+  before_each(function()
+    named_buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_name(named_buf, "/tmp/https/demo.http")
+  end)
+  after_each(function()
+    delete_buf(named_buf)
+  end)
+
+  it("anchors relative paths to the named buffer directory", function()
+    assert.equals("/tmp/https/pin.graphql",
+      graphql_schema.resolve_schema_path(named_buf, "./pin.graphql"))
+    assert.equals("/tmp/https/sub/pin.graphql",
+      graphql_schema.resolve_schema_path(named_buf, "sub/pin.graphql"))
+  end)
+
+  it("passes through absolute and ~ paths", function()
+    assert.equals("/etc/pin.graphql",
+      graphql_schema.resolve_schema_path(named_buf, "/etc/pin.graphql"))
+    assert.equals("~/pin.graphql",
+      graphql_schema.resolve_schema_path(named_buf, "~/pin.graphql"))
+  end)
+
+  it("keeps CWD-relative resolution for unnamed buffers", function()
+    local unnamed = vim.api.nvim_create_buf(false, true)
+    assert.equals("./pin.graphql", graphql_schema.resolve_schema_path(unnamed, "./pin.graphql"))
+    delete_buf(unnamed)
+  end)
+end)
+
+describe("graphql_schema buffer-relative completion", function()
+  -- Reproduces the "opened the demo from another directory" scenario:
+  -- the pinned SDL sits next to the .http file, the CWD does not have it.
+  local dirs, orig_cwd
+
+  local function setup_buffer_dir()
+    local dir = vim.fn.tempname() .. "_gqlspec"
+    vim.fn.mkdir(dir, "p")
+    vim.fn.writefile(vim.split(SCHEMA_SDL, "\n"), dir .. "/pin.graphql")
+    dirs[#dirs + 1] = dir
+    return dir
+  end
+
+  local function graphql_block(dir)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "### GraphQL",                     -- 1
+      "# @graphql-schema ./pin.graphql", -- 2
+      "GRAPHQL {{graphql_url}}",         -- 3
+      "",                                -- 4
+      "query {",                         -- 5
+      "  user {",                        -- 6
+      "    fri",                         -- 7
+      "  }",                             -- 8
+      "}",                               -- 9
+    })
+    vim.api.nvim_buf_set_name(buf, dir .. "/demo.http")
+    return buf
+  end
+
+  before_each(function()
+    dirs = {}
+    orig_cwd = vim.fn.getcwd()
+  end)
+
+  after_each(function()
+    -- restore before deleting so order-shuffled specs never see our CWD
+    vim.fn.chdir(orig_cwd)
+    for _, d in ipairs(dirs) do vim.fn.delete(d, "rf") end
+    graphql_schema._cache = {}
+  end)
+
+  it("serves schema items when CWD differs from the buffer directory", function()
+    local dir = setup_buffer_dir()
+    vim.fn.chdir(vim.env.HOME)  -- CWD without the schema file
+    local buf = graphql_block(dir)
+
+    local items = graphql_schema.get_body_items(buf, 7, 7)
+    delete_buf(buf)
+
+    assert.is_not_nil(items, "pinned schema next to the buffer must be found")
+    local found = false
+    for _, it in ipairs(items) do
+      if it.label == "friends" then found = true end
+    end
+    assert.is_true(found, "friends must be offered from the buffer-relative SDL")
+  end)
+
+  it("returns nil (keyword fallback) when the pinned schema file is missing", function()
+    local dir = vim.fn.tempname() .. "_gqlspec"
+    vim.fn.mkdir(dir, "p")
+    dirs[#dirs + 1] = dir
+    local buf = graphql_block(dir)  -- pin.graphql does not exist in dir
+
+    assert.is_nil(graphql_schema.get_body_items(buf, 7, 7))
+    delete_buf(buf)
+  end)
+
+  it("lists the buffer directory on the operator line without a path prefix", function()
+    local dir = setup_buffer_dir()
+    vim.fn.chdir(vim.env.HOME)
+    local buf = graphql_block(dir)
+
+    local items = graphql_schema.get_schema_path_items("", buf)
+    delete_buf(buf)
+
+    local found = false
+    for _, it in ipairs(items) do
+      if it.label == "pin.graphql" then found = true end
+    end
+    assert.is_true(found, "pin.graphql must be listed from the buffer dir, not CWD")
   end)
 end)

@@ -62,9 +62,9 @@ What to look for per protocol:
   keywords/scalars/directives without any setup; blocks that pin
   `# @graphql-schema ./graphql_schema.graphql` complete fields, argument
   names, enum values, input-object fields and type names from the SDL
-  (read offline, mtime-cached — no server round trip). Start Neovim from
-  `playground/multi-protocol/scenarios/` so the operator's relative path
-  resolves (same rule as `# @grpc-proto`).
+  (read offline, mtime-cached — no server round trip). Relative operator
+  paths resolve against the `.http` file's directory, so the demo works
+  from any CWD (grpc operator paths still follow the CWD, like grpcurl).
 - **WEBSOCKET** — the Msgs tab (`M`) shows `→` sent / `←` received frames;
   the interactive request streams frames live (`s` to send, `c` to close).
 

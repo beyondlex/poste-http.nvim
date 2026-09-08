@@ -951,4 +951,22 @@ M.prompt_mapping_fields = {
   { name = "description", desc = "Description shown in picker" },
 }
 
+---------------------------------------------------------------------------
+-- Block operators: "# @name value" comment directives (block_operators.lua
+-- extracts them). The path-valued ones continue into graphql_schema_path /
+-- grpc_proto_path completion once the name is complete.
+---------------------------------------------------------------------------
+M.block_operators = {
+  { name = "graphql-schema", desc = "Pin a GraphQL SDL file for schema-aware completion (path)" },
+  { name = "grpc-proto", desc = "Proto file for this request (path)" },
+  { name = "grpc-proto-set", desc = "Compiled descriptor set for this request (path)" },
+  { name = "grpc-import-path", desc = "grpcurl -import-path for proto resolution (path)" },
+  { name = "grpc-plaintext", desc = "Use plaintext instead of TLS (flag)" },
+  { name = "grpc-tls", desc = "Use TLS (flag)" },
+  { name = "grpc-flags", desc = "Raw grpcurl args, shell-split (escape hatch)" },
+  { name = "ws-wait-ms", desc = "Milliseconds to wait for websocket frames (number)" },
+  { name = "ws-flags", desc = "Extra websocat options, repeatable" },
+  { name = "ws-interactive", desc = "Keep the websocket open for interactive streaming (flag)" },
+}
+
 return M

@@ -35,7 +35,11 @@ syn match PostePromptMappingPath '\.[^,}{\]]*' contained
 syn match PosteCommentedPrompt '^\s*#\s*<<.\{-}\(\[.*\]\|{{.\{-}}}\)\?\s*$'
   \ contains=PosteCommentedPromptMarker,PostePromptOpts
 syn match PosteCommentedPromptMarker '#\s*<<' contained
-syn match PosteComment '^\s*#\%(\s*<<\)\@!\([^#].*\|$\)'
+" Block operators: # @graphql-schema / # @grpc-proto / # @ws-... — functional
+" directives, styled apart from prose comments (mirrors the highlights.scm
+" #lua-match? pattern)
+syn match PosteOperator '^\s*#\s*@[a-zA-Z][a-zA-Z0-9-]*\%(\s[^#]*\)\?$'
+syn match PosteComment '^\s*#\%(\s*<<\)\@!\%(\s*@[a-zA-Z]\)\@!\([^#].*\|$\)'
 syn match PosteComment '^\s*--.*$'
 
 " ─── import/run cross-file reference directives ─────

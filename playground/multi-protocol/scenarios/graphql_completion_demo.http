@@ -3,9 +3,9 @@
 #
 # Requires the compiled parsers (setup compiles them automatically; else):
 #   :PosteHttpBuildParsers   (then restart Neovim)
-# Schema-aware blocks read graphql_schema.graphql from the working
-# directory — start Neovim from playground/multi-protocol/scenarios/
-# (operator paths resolve from the CWD, like # @grpc-proto files).
+# Schema-aware blocks resolve # @graphql-schema paths relative to THIS
+# file's directory, so the demo works no matter where Neovim was started.
+# (grpc operator paths still resolve from the CWD, like grpcurl itself.)
 #
 # How to try it: put the cursor where the notes say COMPLETE and trigger
 # completion (blink.cmp / nvim-cmp as configured). Schema blocks serve

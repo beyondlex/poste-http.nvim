@@ -505,7 +505,22 @@ function M.get_items_for_context(line_before_cursor, buf, cursor_line, cursor_co
     end
     return M.build_keyword_items(data.graphql_keywords, KIND_KEYWORD)
   elseif ctx == "graphql_schema_path" then
-    return graphql_schema.get_schema_path_items(extra or "")
+    return graphql_schema.get_schema_path_items(extra or "", buf)
+  elseif ctx == "comment_operator" then
+    -- "# @g" → complete the operator name itself; the typed "@" stays.
+    local op_items = {}
+    for _, op in ipairs(data.block_operators) do
+      if extra == "" or op.name:sub(1, #extra) == extra then
+        op_items[#op_items + 1] = {
+          label = "@" .. op.name,
+          kind = KIND_KEYWORD,
+          insertText = op.name,
+          filterText = op.name,
+          detail = op.desc,
+        }
+      end
+    end
+    return op_items
   elseif ctx == "grpc_method_path" then
     return grpc_proto.get_method_items(buf, cursor_line, extra)
   elseif ctx == "grpc_body" then

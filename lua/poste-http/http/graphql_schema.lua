@@ -644,6 +644,21 @@ function M.items_for_context(schema, bc)
   return {}
 end
 
+--- Anchor a relative operator path to the directory of the .http buffer
+--- (same semantics as import.lua); CWD-relative only for unnamed buffers.
+--- Absolute and ~ paths pass through unchanged; a leading "./" is dropped
+--- so the anchored path stays clean.
+function M.resolve_schema_path(buf, path)
+  if not path or path == "" then return path end
+  local first = path:sub(1, 1)
+  if first == "/" or first == "~" then return path end
+  local name = buf and vim.api.nvim_buf_get_name(buf) or ""
+  if name == "" then return path end
+  local rel = path:gsub("^%./+", "")
+  if rel == "" then rel = "." end
+  return vim.fn.fnamemodify(name, ":h") .. "/" .. rel
+end
+
 --- `# @graphql-schema <path>` operator of the request block containing
 --- cursor_line (with {{var}} placeholders resolved). nil when absent.
 function M.get_schema_path(buf, cursor_line)
@@ -705,12 +720,13 @@ function M.find_body_start(buf, cursor_line)
 end
 
 --- Schema-aware items for the GRAPHQL body at the cursor. Returns nil when
---- no schema is pinned (caller falls back to keyword items).
+--- no schema is pinned (caller falls back to keyword items) or when the
+--- pinned file cannot be read (keywords beat an empty list).
 function M.get_body_items(buf, cursor_line, cursor_col)
   local path = M.get_schema_path(buf, cursor_line)
   if not path then return nil end
-  local schema = M.load_schema(buf, path)
-  if not schema then return {} end
+  local schema = M.load_schema(buf, M.resolve_schema_path(buf, path))
+  if not schema then return nil end
 
   local start_line = M.find_body_start(buf, cursor_line)
   if not start_line or cursor_line < start_line then return {} end
@@ -725,11 +741,13 @@ end
 --- Completion items for the `graphql_schema_path` context: directories (with
 --- a trailing slash) and *.graphql/*.gql files under the directory part of
 --- `partial` — same segment-only insertText contract as grpc proto paths.
-function M.get_schema_path_items(partial)
+--- Relative directories are anchored to the .http buffer's directory (buf).
+function M.get_schema_path_items(partial, buf)
   partial = partial or ""
   local dir = partial:match("^(.*/)") or ""
   local name_prefix = partial:match("([^/]*)$") or ""
   local scan_dir = dir == "" and "." or dir
+  scan_dir = M.resolve_schema_path(buf, scan_dir)
 
   local items = {}
   local fd = uv.fs_scandir(scan_dir)

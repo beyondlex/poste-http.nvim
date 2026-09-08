@@ -70,3 +70,69 @@ describe("highlights query captures protocol methods", function()
       "graphql_body must carry the PosteRequestBody capture")
   end)
 end)
+
+describe("highlights query distinguishes block operator comments", function()
+  local function comment_captures_by_row(lines)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].filetype = "poste_http"
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    local parser = vim.treesitter.get_parser(buf, "poste_http")
+    local root = parser:parse()[1]:root()
+    local q = vim.treesitter.query.get("poste_http", "highlights")
+
+    local by_row = {}
+    for capture, node in q:iter_captures(root, buf, 0, -1) do
+      local name = type(capture) == "number" and q.captures[capture] or capture
+      if name == "PosteComment" or name == "PosteOperator" then
+        local row = node:range()
+        by_row[row] = by_row[row] or {}
+        table.insert(by_row[row], name)
+      end
+    end
+    vim.api.nvim_buf_delete(buf, { force = true })
+    return by_row
+  end
+
+  it("captures '# @graphql-schema' operator lines as PosteOperator", function()
+    local by_row = comment_captures_by_row({
+      "### GraphQL",
+      "# @graphql-schema ./schema.graphql",
+      "GRAPHQL {{u}}",
+    })
+    local names = by_row[1] or {}
+    assert.is_true(vim.tbl_contains(names, "PosteOperator"),
+      "operator comment must carry PosteOperator, got: " .. table.concat(names, ","))
+  end)
+
+  it("captures grpc and ws operator lines as PosteOperator too", function()
+    local by_row = comment_captures_by_row({
+      "### Grpc",
+      "# @grpc-proto echo.proto",
+      "# @grpc-tls",
+      "# @ws-wait-ms 3000",
+      "GRPC localhost:50051/pkg.Svc/M",
+    })
+    for _, row in ipairs({ 1, 2, 3 }) do
+      assert.is_true(vim.tbl_contains(by_row[row] or {}, "PosteOperator"),
+        string.format("operator line %d must carry PosteOperator, got: %s",
+          row + 1, table.concat(by_row[row] or {}, ",")))
+    end
+  end)
+
+  it("keeps plain comments as PosteComment without PosteOperator", function()
+    -- NB: "--" dash lines are not comment nodes in the grammar — only '#'
+    local by_row = comment_captures_by_row({
+      "### Notes",
+      "# just prose",
+      "# not an @ either",
+      "#",
+    })
+    for _, row in ipairs({ 1, 2, 3 }) do
+      local names = by_row[row] or {}
+      assert.is_true(vim.tbl_contains(names, "PosteComment"),
+        string.format("plain comment %d must stay PosteComment", row + 1))
+      assert.falsy(vim.tbl_contains(names, "PosteOperator"),
+        string.format("plain comment %d must not be PosteOperator", row + 1))
+    end
+  end)
+end)

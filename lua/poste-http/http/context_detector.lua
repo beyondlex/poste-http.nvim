@@ -64,22 +64,36 @@ local function detect_grpc_request_target(line_before_cursor)
 end
 
 --- `# @grpc-proto <path>` / `# @grpc-proto-set <path>` comment operators:
---- complete the proto file path argument.
---- @param trimmed string
+--- complete the proto file path argument. Called with the RAW line so the
+--- mandatory space is still there when the cursor sits right after it.
+--- @param line string
 --- @return string|nil, string|nil
-local function detect_grpc_comment_operator(trimmed)
-  local partial = trimmed:match("^#%s*@grpc%-proto%-set%s+(.+)$")
-      or trimmed:match("^#%s*@grpc%-proto%s+(.+)$")
+local function detect_grpc_comment_operator(line)
+  local partial = line:match("^%s*#%s*@grpc%-proto%-set%s+(.*)$")
+      or line:match("^%s*#%s*@grpc%-proto%s+(.*)$")
+      or line:match("^%s*#%s*@grpc%-import%-path%s+(.*)$")
   if partial then return "grpc_proto_path", partial end
   return nil
 end
 
 --- `# @graphql-schema <path>` comment operator: complete the SDL file path.
---- @param trimmed string
+--- @param line string
 --- @return string|nil, string|nil
-local function detect_graphql_comment_operator(trimmed)
-  local partial = trimmed:match("^#%s*@graphql%-schema%s+(.+)$")
+local function detect_graphql_comment_operator(line)
+  local partial = line:match("^%s*#%s*@graphql%-schema%s+(.*)$")
   if partial then return "graphql_schema_path", partial end
+  return nil
+end
+
+--- Partial block-operator name right after "# @": complete the name itself
+--- (graphql-schema, grpc-proto, ws-wait-ms, ...). Full names with a value
+--- are handled by the per-operator detectors above. Called with the RAW
+--- line: a trailing space (name complete, value pending) must not match.
+--- @param line string
+--- @return string|nil, string|nil
+local function detect_comment_operator_name(line)
+  local partial = line:match("^%s*#%s*@([%w%-]*)$")
+  if partial then return "comment_operator", partial end
   return nil
 end
 
@@ -331,9 +345,13 @@ local function ts_detect_context(line_before_cursor, buf, cursor_line, cursor_co
 
   -- comment operators: # @grpc-proto[-set] / # @graphql-schema (comment
   -- lines fall through the parent branches above when tree-sitter is active)
-  local grpc_op_ctx, grpc_op_extra = detect_grpc_comment_operator(trimmed)
+  -- All three take the RAW line: the trailing-space distinction between
+  -- "still typing the name" and "name done, value pending" is signal.
+  local op_name_ctx, op_name_extra = detect_comment_operator_name(line_before_cursor)
+  if op_name_ctx then return op_name_ctx, op_name_extra end
+  local grpc_op_ctx, grpc_op_extra = detect_grpc_comment_operator(line_before_cursor)
   if grpc_op_ctx then return grpc_op_ctx, grpc_op_extra end
-  local gql_op_ctx, gql_op_extra = detect_graphql_comment_operator(trimmed)
+  local gql_op_ctx, gql_op_extra = detect_graphql_comment_operator(line_before_cursor)
   if gql_op_ctx then return gql_op_ctx, gql_op_extra end
 
   if trimmed == "" then
@@ -466,10 +484,14 @@ local function detect_context(line_before_cursor, buf, cursor_line, cursor_col)
     -- completion; every other comment either names an operator or completes
     -- nothing.
     if not trimmed:match("^#%s*<<") then
+      -- Partial block-operator name (RAW line: a trailing space means the
+      -- name is complete and value completion takes over below)
+      local op_name_ctx, op_name_extra = detect_comment_operator_name(line_before_cursor)
+      if op_name_ctx then return op_name_ctx, op_name_extra end
       -- Comment operators: # @grpc-proto[-set] <path>, # @graphql-schema <path>
-      local grpc_op_ctx, grpc_op_extra = detect_grpc_comment_operator(trimmed)
+      local grpc_op_ctx, grpc_op_extra = detect_grpc_comment_operator(line_before_cursor)
       if grpc_op_ctx then return grpc_op_ctx, grpc_op_extra end
-      local gql_op_ctx, gql_op_extra = detect_graphql_comment_operator(trimmed)
+      local gql_op_ctx, gql_op_extra = detect_graphql_comment_operator(line_before_cursor)
       if gql_op_ctx then return gql_op_ctx, gql_op_extra end
       -- Regular comment lines → no completion
       return nil, nil

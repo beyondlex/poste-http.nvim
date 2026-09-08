@@ -478,7 +478,14 @@ query User($id: ID!) {
 - Schema-aware completion: pin an SDL file with the `# @graphql-schema`
   block operator and field names, argument names, enum values, input-object
   fields and type names complete from the schema (path completion on the
-  operator line, mtime-cached like `# @grpc-proto`):
+  operator line, mtime-cached like `# @grpc-proto`). Relative paths resolve
+  against the `.http` file's directory — unlike `# @grpc-proto`, the CWD
+  does not matter. If the pinned file cannot be read, keyword completion
+  serves as the fallback.
+- Block operators (`# @...`) are functional directives, highlighted
+  distinctly from prose comments (`PosteOperator`). Typing `# @` completes
+  the operator name; once the name is in, its argument completes paths or
+  flags depending on the operator.
 
   ```
   ### Get user

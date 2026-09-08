@@ -1,6 +1,8 @@
 local M = {}
 local text = require("poste-http.ui.text")
 local semantics = require("poste-http.ui.semantics")
+-- Fallback picker for the no-snacks path of show_symbols.
+local picker = require("poste-http.ui.picker")
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -32,6 +34,20 @@ local function short_name(name)
 end
 
 local method_hl = semantics.method_hl
+
+-- Index of the last request starting at or before cursor_line (nil if none).
+-- Same "current block" semantics as outline.lua's find_current_item.
+local function current_index(requests, cursor_line)
+  local idx = nil
+  for i, req in ipairs(requests) do
+    if (req.line or 0) <= cursor_line then
+      idx = i
+    else
+      break
+    end
+  end
+  return idx
+end
 
 ---------------------------------------------------------------------------
 -- Parse requests from buffer
@@ -106,7 +122,25 @@ end
 -- Snacks picker
 ---------------------------------------------------------------------------
 
-local function show_snacks_picker(requests)
+local function jump_to_request(req)
+  vim.api.nvim_win_set_cursor(0, { req.line, 0 })
+  vim.cmd("normal! zz")
+end
+
+-- Snacks opens with the cursor on the first list row; on_show fires after the
+-- items are sorted, so walk them and land on the marked current one (same
+-- pattern as snacks' own git_branches source).
+local function preselect_current(snacks, p)
+  for i, item in ipairs(p:items()) do
+    if item.current then
+      p.list:view(i)
+      snacks.picker.actions.list_scroll_center(p)
+      break
+    end
+  end
+end
+
+local function show_snacks_picker(snacks, requests, current_idx)
   local max_method_width = 4
   for _, req in ipairs(requests) do
     local m = (req.method or "--"):len()
@@ -114,7 +148,7 @@ local function show_snacks_picker(requests)
   end
 
   local items = {}
-  for _, req in ipairs(requests) do
+  for i, req in ipairs(requests) do
     local method = req.method or "--"
     local url, short
 
@@ -133,6 +167,7 @@ local function show_snacks_picker(requests)
     items[#items + 1] = {
       text = method .. pad .. "  " .. url .. "  " .. short,
       key = req,
+      current = (i == current_idx) or nil,
       _method = method,
       _pad = pad,
       _url = url,
@@ -140,8 +175,7 @@ local function show_snacks_picker(requests)
     }
   end
 
-  -- luacheck: ignore Snacks
-  Snacks.picker.select(
+  snacks.picker.select(
     items,
     {
       prompt = "Requests",
@@ -158,15 +192,35 @@ local function show_snacks_picker(requests)
         end
         return item.text
       end,
+      snacks = {
+        on_show = function(p)
+          preselect_current(snacks, p)
+        end,
+      },
     },
     function(item)
       if item and item.key then
-        local req = item.key
-        vim.api.nvim_win_set_cursor(0, { req.line, 0 })
-        vim.cmd("normal! zz")
+        jump_to_request(item.key)
       end
     end
   )
+end
+
+-- Fallback picker (ui/picker primitive) when snacks.picker is unavailable.
+local function show_fallback_picker(requests)
+  local normalized = {}
+  for _, req in ipairs(requests) do
+    normalized[#normalized + 1] = {
+      key = req,
+      name = req.name,
+      description = (req.method or "--") .. " " .. (req.url_path or ""),
+    }
+  end
+  picker.open(normalized, "Requests", function(req)
+    if req then
+      jump_to_request(req)
+    end
+  end)
 end
 
 ---------------------------------------------------------------------------
@@ -182,7 +236,15 @@ function M.show_symbols()
     return
   end
 
-  show_snacks_picker(requests)
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local idx = cursor and current_index(requests, cursor[1]) or nil
+
+  local ok_snacks, snacks = pcall(require, "snacks")
+  if ok_snacks and snacks and snacks.picker then
+    show_snacks_picker(snacks, requests, idx)
+    return
+  end
+  show_fallback_picker(requests)
 end
 
 --- Collect request list for the outline/symbol method column.
@@ -190,6 +252,15 @@ end
 --- @return table  list of { name, method, url_path }
 function M.collect_requests(bufnr)
   return collect_requests(bufnr)
+end
+
+--- Index (1-based) of the request containing cursor_line, or nil when the
+--- cursor sits above every request. Exported for the preselect spec.
+--- @param requests table  list of { line = number, ... }
+--- @param cursor_line number
+--- @return number|nil
+function M.current_index(requests, cursor_line)
+  return current_index(requests, cursor_line)
 end
 
 return M

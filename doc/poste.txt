@@ -270,7 +270,7 @@ picker. The current environment is shown in the winbar.
     ]] / [[                Jump to next/previous request block
     gd                     Go to variable/request definition
     grr                    List variable references (quickfix)
-    gs                     Toggle request outline
+    gs                     Toggle request outline (opens on the request at cursor)
     K                      Show variable value / response chain
     gi                     Open variable inspector
     <leader>rp             Paste curl command as request

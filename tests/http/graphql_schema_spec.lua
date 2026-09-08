@@ -500,20 +500,42 @@ describe("graphql_schema_path completion context", function()
 end)
 
 describe("graphql_schema.resolve_schema_path", function()
-  local named_buf
+  local named_buf, dirs
+
+  local function temp_dir()
+    local dir = vim.fn.tempname() .. "_gqlresolve"
+    vim.fn.mkdir(dir, "p")
+    dirs[#dirs + 1] = dir
+    return dir
+  end
+
   before_each(function()
+    dirs = {}
     named_buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(named_buf, "/tmp/https/demo.http")
+    vim.api.nvim_buf_set_name(named_buf, temp_dir() .. "/demo.http")
   end)
   after_each(function()
     delete_buf(named_buf)
+    for _, d in ipairs(dirs) do vim.fn.delete(d, "rf") end
   end)
 
   it("anchors relative paths to the named buffer directory", function()
-    assert.equals("/tmp/https/pin.graphql",
+    vim.fn.writefile({ "type Query { ok: Boolean }" }, dirs[1] .. "/pin.graphql")
+    vim.fn.mkdir(dirs[1] .. "/sub", "p")
+    vim.fn.writefile({ "type Query { ok: Boolean }" }, dirs[1] .. "/sub/pin.graphql")
+    -- nvim normalizes the buffer name (macOS /var -> /private/var), so derive
+    -- the expected prefix from the buffer's own name spelling
+    local buf_dir = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(named_buf), ":h")
+    assert.equals(buf_dir .. "/pin.graphql",
       graphql_schema.resolve_schema_path(named_buf, "./pin.graphql"))
-    assert.equals("/tmp/https/sub/pin.graphql",
+    assert.equals(buf_dir .. "/sub/pin.graphql",
       graphql_schema.resolve_schema_path(named_buf, "sub/pin.graphql"))
+  end)
+
+  it("falls back to the CWD-relative path when nothing exists at the anchor", function()
+    -- dirs[1]/pin.graphql does not exist -> anchoring would lose the CWD lookup
+    assert.equals("./pin.graphql",
+      graphql_schema.resolve_schema_path(named_buf, "./pin.graphql"))
   end)
 
   it("passes through absolute and ~ paths", function()

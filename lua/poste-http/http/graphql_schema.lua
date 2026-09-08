@@ -647,16 +647,21 @@ end
 --- Anchor a relative operator path to the directory of the .http buffer
 --- (same semantics as import.lua); CWD-relative only for unnamed buffers.
 --- Absolute and ~ paths pass through unchanged; a leading "./" is dropped
---- so the anchored path stays clean.
+--- so the anchored path stays clean. When nothing exists at the anchored
+--- path, the legacy CWD-relative lookup is kept as the fallback.
 function M.resolve_schema_path(buf, path)
   if not path or path == "" then return path end
   local first = path:sub(1, 1)
   if first == "/" or first == "~" then return path end
   local name = buf and vim.api.nvim_buf_get_name(buf) or ""
   if name == "" then return path end
+  local dir = vim.fn.fnamemodify(name, ":h")
+  if dir == "" or dir == "." then return path end
   local rel = path:gsub("^%./+", "")
   if rel == "" then rel = "." end
-  return vim.fn.fnamemodify(name, ":h") .. "/" .. rel
+  local anchored = dir .. "/" .. rel
+  if M.fs_stat(anchored) then return anchored end
+  return path
 end
 
 --- `# @graphql-schema <path>` operator of the request block containing

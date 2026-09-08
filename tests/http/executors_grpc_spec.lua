@@ -207,15 +207,15 @@ end)
 
 describe("grpc.run", function()
   local orig_jobstart, orig_chansend, orig_chanclose, orig_executable
-  local captured_job, captured_opts, sent, closed
+  local captured_opts, sent, closed
 
   before_each(function()
     orig_jobstart, orig_chansend, orig_chanclose, orig_executable =
       vim.fn.jobstart, vim.fn.chansend, vim.fn.chanclose, vim.fn.executable
-    captured_job, captured_opts, sent, closed = nil, nil, nil, nil
+    captured_opts, sent, closed = nil, nil, nil
     vim.fn.executable = function(cmd) return cmd == "grpcurl" and 1 or 0 end
-    vim.fn.jobstart = function(cmd, opts)
-      captured_job, captured_opts = cmd, opts
+    vim.fn.jobstart = function(_, opts)
+      captured_opts = opts
       return 4242
     end
     vim.fn.chansend = function(_, data) sent = data return #data end

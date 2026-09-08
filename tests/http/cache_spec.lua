@@ -436,7 +436,7 @@ describe("cache query functions", function()
 end)
 
 describe("get_semantic_blocks with no tree-sitter fallback", function()
-  local function create_buf(lines)
+  local function make_buf(lines)
     local buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     return buf
@@ -457,7 +457,7 @@ describe("get_semantic_blocks with no tree-sitter fallback", function()
   }
 
   it("returns block array (not empty) when TS is unavailable", function()
-    local buf = create_buf(sample_lines)
+    local buf = make_buf(sample_lines)
 
     local describe = require("poste-http.http.describe")
     local orig_describe = describe.describe_content
@@ -479,7 +479,7 @@ describe("get_semantic_blocks with no tree-sitter fallback", function()
   end)
 
   it("block_at_line works on fallback blocks", function()
-    local buf = create_buf(sample_lines)
+    local buf = make_buf(sample_lines)
 
     local describe = require("poste-http.http.describe")
     local orig_describe = describe.describe_content
@@ -496,7 +496,7 @@ describe("get_semantic_blocks with no tree-sitter fallback", function()
   end)
 
   it("cached fallback is reused on subsequent calls", function()
-    local buf = create_buf(sample_lines)
+    local buf = make_buf(sample_lines)
 
     local describe = require("poste-http.http.describe")
     local orig_describe = describe.describe_content
@@ -514,7 +514,7 @@ describe("get_semantic_blocks with no tree-sitter fallback", function()
   end)
 
   it("buffer_caches and semantic_caches return same block data", function()
-    local buf = create_buf(sample_lines)
+    local buf = make_buf(sample_lines)
 
     local describe = require("poste-http.http.describe")
     local orig_describe = describe.describe_content

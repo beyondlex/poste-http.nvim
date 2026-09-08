@@ -23,13 +23,12 @@ describe("curl_exec.execute", function()
   end)
 
   it("builds curl command with method and URL", function()
-    local callback_called = false
     curl_exec.execute({
       method = "POST",
       url = "https://api.example.com/users",
       headers = { { "Content-Type", "application/json" } },
       body = '{"name": "test"}',
-    }, function() callback_called = true end)
+    }, function() end)
 
     assert.is_string(captured_args)
     assert.matches("curl", captured_args)

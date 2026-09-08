@@ -433,7 +433,7 @@ describe("scripts.scan_script_set_calls", function()
 end)
 
 describe("run.start_curl_exec", function()
-  local run, state, executors, view
+  local run, executors, view
   local orig_exec_run, orig_show_view
 
   before_each(function()
@@ -488,7 +488,7 @@ describe("run.start_curl_exec", function()
 end)
 
 describe("run.run_request run-directive assertions", function()
-  local state, run, import, cache, assertions, view
+  local run, import, cache, assertions, view
 
   local originals
 
@@ -546,9 +546,7 @@ describe("run.run_request run-directive assertions", function()
       return { tests = {}, passed = 0, failed = 0, total = 0 }
     end
     view.show_view = function() end
-    local directive_cb
     import.execute_run_directive = function(_resolved, cb)
-      directive_cb = cb
       cb(true, { protocol = "http", status = 200, ok = true, headers = {}, body = "", metadata = {} })
     end
 

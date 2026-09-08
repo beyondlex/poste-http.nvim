@@ -10,12 +10,12 @@ local state = require("poste-http.state")
 
 describe("ws_session.start", function()
   local orig_jobstart, orig_chansend, orig_chanclose, orig_executable, orig_jobstop
-  local captured_opts, sent, stopped
+  local captured_opts, sent
 
   before_each(function()
     orig_jobstart, orig_chansend, orig_chanclose, orig_executable, orig_jobstop =
       vim.fn.jobstart, vim.fn.chansend, vim.fn.chanclose, vim.fn.executable, vim.fn.jobstop
-    captured_opts, sent, stopped = nil, nil, nil
+    captured_opts, sent = nil, nil
     vim.fn.executable = function(cmd) return cmd == "websocat" and 1 or 0 end
     vim.fn.jobstart = function(cmd, opts)
       captured_opts = opts
@@ -23,7 +23,7 @@ describe("ws_session.start", function()
     end
     vim.fn.chansend = function(_, data) sent = data return #data end
     vim.fn.chanclose = function() end
-    vim.fn.jobstop = function(id) stopped = id return 1 end
+    vim.fn.jobstop = function(id) return 1 end
     state.live_session = nil
   end)
 

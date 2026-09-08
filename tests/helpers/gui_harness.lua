@@ -110,11 +110,6 @@ local function save_fn(name)
   _originals[name] = vim.api[name]
 end
 
-local function override(name, fn)
-  _originals[name] = vim.api[name]
-  vim.api[name] = fn
-end
-
 function M.setup(opts)
   opts = opts or {}
   M.reset_calls()

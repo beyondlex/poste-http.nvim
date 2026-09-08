@@ -105,7 +105,7 @@ describe("script_block external script loading", function()
 describe("script_block file_dir resolves external scripts regardless of current buffer", function()
   local http_dir
   local wrong_dir
-  local external_file
+  local ext_file
   before_each(function()
     http_dir = vim.fn.tempname()
     vim.fn.mkdir(http_dir, "p")
@@ -113,8 +113,8 @@ describe("script_block file_dir resolves external scripts regardless of current 
     vim.fn.mkdir(scripts_dir, "p")
     wrong_dir = vim.fn.tempname()
     vim.fn.mkdir(wrong_dir, "p")
-    external_file = scripts_dir .. "/auth.lua"
-    local f, err = io.open(external_file, "w")
+    ext_file = scripts_dir .. "/auth.lua"
+    local f, err = io.open(ext_file, "w")
     assert.is_true(f ~= nil, "Failed to open temp file: " .. tostring(err))
     f:write("local token = 'secret'\n")
     f:close()
@@ -128,7 +128,7 @@ describe("script_block file_dir resolves external scripts regardless of current 
   end)
 
   after_each(function()
-    pcall(os.remove, external_file)
+    pcall(os.remove, ext_file)
     pcall(vim.fn.delete, http_dir, "rf")
     pcall(vim.fn.delete, wrong_dir, "rf")
     pcall(vim.api.nvim_buf_delete, buf, { force = true })
@@ -189,8 +189,8 @@ end)
 describe("wrapper extract functions pass file_dir to script_block", function()
   local http_dir
   local wrong_dir
-  local external_file
-  local buf
+  local ext_file
+  local wrap_buf
   local scripts
   local assertions
 
@@ -201,25 +201,25 @@ describe("wrapper extract functions pass file_dir to script_block", function()
     vim.fn.mkdir(scripts_dir, "p")
     wrong_dir = vim.fn.tempname()
     vim.fn.mkdir(wrong_dir, "p")
-    external_file = scripts_dir .. "/auth.lua"
-    local f, err = io.open(external_file, "w")
+    ext_file = scripts_dir .. "/auth.lua"
+    local f, err = io.open(ext_file, "w")
     assert.is_true(f ~= nil, "Failed to open temp file: " .. tostring(err))
     f:write("local token = 'secret'\n")
     f:close()
 
-    buf = vim.api.nvim_create_buf(true, true)
-    vim.api.nvim_buf_set_name(buf, wrong_dir .. "/other.http")
-    vim.api.nvim_set_current_buf(buf)
+    wrap_buf = vim.api.nvim_create_buf(true, true)
+    vim.api.nvim_buf_set_name(wrap_buf, wrong_dir .. "/other.http")
+    vim.api.nvim_set_current_buf(wrap_buf)
 
     scripts = require("poste-http.http.scripts")
     assertions = require("poste-http.http.assertions")
   end)
 
   after_each(function()
-    pcall(os.remove, external_file)
+    pcall(os.remove, ext_file)
     pcall(vim.fn.delete, http_dir, "rf")
     pcall(vim.fn.delete, wrong_dir, "rf")
-    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    pcall(vim.api.nvim_buf_delete, wrap_buf, { force = true })
   end)
 
   it("extract_pre_script_blocks uses file_dir for external script resolution", function()

@@ -483,7 +483,7 @@ describe("execute_import_via_curl", function()
       callback({ status = 200, body = "ok", headers = {}, metadata = {} })
     end
 
-    local import_mod = require("poste-http.http.import")
+    import_mod = require("poste-http.http.import")
     local content = [[
 ### GetUser
 GET /api/users/42
@@ -544,7 +544,7 @@ Authorization: Bearer token123
       callback({ status = 200, body = '{"token":"abc"}', headers = {}, metadata = {} })
     end
 
-    local import_mod = require("poste-http.http.import")
+    import_mod = require("poste-http.http.import")
     local got
     import_mod.execute_import_via_curl([[
 ### Login
@@ -593,7 +593,7 @@ describe("resolve_request_reference", function()
 
   it("resolves an aliased reference from the buffer's imports", function()
     set_buffer_content({ "import " .. req_file .. " as alias" })
-    local import_mod = require("poste-http.http.import")
+    import_mod = require("poste-http.http.import")
     local r = import_mod.resolve_request_reference("#alias.login", buf)
     assert.are_equal("execute", r.action)
     assert.are_equal(req_file, r.path)
@@ -602,7 +602,7 @@ describe("resolve_request_reference", function()
 
   it("resolves a bare reference", function()
     set_buffer_content({ "import " .. req_file })
-    local import_mod = require("poste-http.http.import")
+    import_mod = require("poste-http.http.import")
     local r = import_mod.resolve_request_reference("#get_profile", buf)
     assert.are_equal(req_file, r.path)
     assert.are_equal("get_profile", r.request_name)
@@ -610,7 +610,7 @@ describe("resolve_request_reference", function()
 
   it("returns nil and an error for an unknown reference", function()
     set_buffer_content({ "import " .. req_file .. " as alias" })
-    local import_mod = require("poste-http.http.import")
+    import_mod = require("poste-http.http.import")
     local r, err = import_mod.resolve_request_reference("#nope", buf)
     assert.is_nil(r)
     assert.matches("not found", err)
@@ -618,7 +618,6 @@ describe("resolve_request_reference", function()
 end)
 
 describe("execute_request_reference", function()
-  local import_mod
   local orig_resolve
   local orig_execute
 
@@ -684,7 +683,6 @@ describe("execute_run_directive post-script positioning", function()
   local req_file
   local buf
   local orig_curl_execute
-  local _
   local mock_describe
 
   before_each(function()
@@ -696,18 +694,19 @@ describe("execute_run_directive post-script positioning", function()
 
     req_file = os.tmpname() .. ".http"
     local f = io.open(req_file, "w")
-    f:write([[
-### login
-> {% 
-  client.log("post-script-ran")
-%}
-
-< {% 
-  request.variables.set("a", "1")
-  request.variables.set("b", "2")
-%}
-GET /login
-]])
+    -- the trailing space after "{%" is the point: the parser must tolerate it
+    f:write(table.concat({
+      "### login",
+      "> {% ",
+      '  client.log("post-script-ran")',
+      "%}",
+      "",
+      "< {% ",
+      '  request.variables.set("a", "1")',
+      '  request.variables.set("b", "2")',
+      "%}",
+      "GET /login",
+    }, "\n"))
     f:close()
 
     buf = vim.api.nvim_create_buf(true, true)
@@ -775,7 +774,7 @@ GET /login
   end)
 
   it("runs the target post-script when pre-script injection shifts block lines", function()
-    local import_mod = require("poste-http.http.import")
+    import_mod = require("poste-http.http.import")
 
     import_mod.execute_run_directive({
       action = "execute",

@@ -43,7 +43,6 @@ describe("client.run orchestration (real import pipeline)", function()
   local req_file
   local buf
   local orig_execute
-  local _
 
   before_each(function()
     package.loaded["poste-http.http.import"] = nil

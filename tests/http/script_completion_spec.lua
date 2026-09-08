@@ -359,7 +359,7 @@ end)
 
 describe("script API docs", function()
   it("documents client.run for the K hover", function()
-    local data = require("poste-http.http.data")
+    data = require("poste-http.http.data")
     local entry = data.script_api_docs.post["client.run"]
     assert.is_not_nil(entry)
     assert.truthy(entry.sig:match("client%.run"))

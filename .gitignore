@@ -26,3 +26,6 @@ parser/node-types.json
 examples/**/generated/
 .codebase-memory
 __pycache__/
+
+# stray runtime log
+nvim.log

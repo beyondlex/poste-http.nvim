@@ -262,34 +262,9 @@ function M.show_references(buf, results, symbol_name)
   end
 
   local items = {}
-  local filetype = vim.api.nvim_get_option_value("filetype", { buf = buf })
-  local total = vim.api.nvim_buf_line_count(buf)
-
   for _, r in ipairs(results) do
     table.insert(items, string.format("L%d:%d: %s", r.line, r.col, r.text))
   end
-
-  local _ = setmetatable({}, {
-    __index = function(_, idx)
-      local r = results[idx]
-      if not r then return nil end
-      local ctx = 5
-      local start_l = math.max(1, r.line - ctx)
-      local end_l = math.min(total, r.line + ctx)
-      local preview_lines = {}
-      local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      for i = start_l, end_l do
-        local ltext = all_lines[i] or ""
-        local prefix = (i == r.line) and "▶ " .. i .. " " or "  " .. i .. " "
-        preview_lines[i - start_l + 1] = prefix .. ltext
-      end
-      return {
-        lines = preview_lines,
-        filetype = filetype,
-        highlight_line = r.line - start_l + 1,
-      }
-    end,
-  })
 
   local function jump_to(item)
     xpcall(function()

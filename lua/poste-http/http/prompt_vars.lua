@@ -36,12 +36,14 @@ function M.handle_prompt_variables(buf, cursor_line, content, file, env_name, on
   local cancelled = false
 
   local function process_next()
+    -- A cancelled prompt aborts the rest of the walk: the resolution result
+    -- is discarded anyway, so later <<vars must not prompt again.
+    if cancelled then
+      on_complete(nil)
+      return
+    end
     if idx > #lines then
-      if cancelled then
-        on_complete(nil)
-      else
-        on_complete(table.concat(result, "\n"))
-      end
+      on_complete(table.concat(result, "\n"))
       return
     end
 

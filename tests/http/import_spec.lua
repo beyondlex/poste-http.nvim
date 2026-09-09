@@ -848,3 +848,45 @@ describe("import status with Lua imports", function()
     assert.matches("Lua module", joined)
   end)
 end)
+
+describe("execute_all_requests prompt cancellation", function()
+  local resolve_mod
+  local orig_resolve
+
+  before_each(function()
+    resolve_mod = require("poste-http.http.resolve")
+    orig_resolve = resolve_mod.resolve
+  end)
+
+  after_each(function()
+    resolve_mod.resolve = orig_resolve
+  end)
+
+  it("keeps the batch going when the user cancels a prompt", function()
+    -- Before the fix a cancelled prompt handed nil to find_block_end,
+    -- which raised and halted the whole batch (execute_next never ran).
+    resolve_mod.resolve = function(_content, _opts, cb) cb(nil) end
+
+    local batch_file = os.tmpname() .. ".http"
+    local f = io.open(batch_file, "w")
+    f:write("### one\nGET /one\n\n### two\nGET /two\n")
+    f:close()
+
+    local done = false
+    local ok, results
+    import_mod.execute_all_requests(batch_file, "### one\nGET /one\n\n### two\nGET /two\n", nil,
+      function(success, res)
+        done = true
+        ok = success
+        results = res
+      end)
+    os.remove(batch_file)
+
+    vim.wait(1000, function() return done end)
+    assert.is_true(done, "batch callback never fired after a cancelled prompt")
+    assert.is_true(ok)
+    assert.are_equal(2, #results)
+    assert.are_equal("Cancelled", results[1].response.status_text)
+    assert.are_equal("Cancelled", results[2].response.status_text)
+  end)
+end)

@@ -630,7 +630,9 @@ local function process_target_pre_script(content, block_start, block_end, file_d
   if state.global_vars and next(state.global_vars) then
     local gcount
     modified_content, gcount = scripts.inject_global_vars(modified_content, block_start, state.global_vars)
-    total_injected = total_injected + gcount or 0
+    -- inject_global_vars always returns a numeric count; no `or 0` fallback
+    -- (an `a + b or 0` chain would only mask a nil, not survive it).
+    total_injected = total_injected + gcount
   end
 
   return modified_content, total_injected
@@ -756,6 +758,19 @@ function M.execute_all_requests(file_path, content, var_map, callback)
     idx = idx + 1
 
     resolve_import_content(content, req.line, file_path, state.current_env, "import", function(dep_resolved_content)
+      if not dep_resolved_content then
+        -- Prompt cancelled: record the skip and keep the batch going.
+        -- dep_resolved_content is nil here, so any parsing below would crash.
+        table.insert(results, { name = req.name, response = {
+          status = 0, status_text = "Cancelled", body = "",
+        }})
+        vim.schedule(function()
+          vim.notify(string.format("[%d/%d] %s — cancelled", idx - 1, #requests, req.name),
+            vim.log.levels.WARN, { title = "Poste" })
+        end)
+        execute_next()
+        return
+      end
       local block_end = find_block_end(dep_resolved_content, req.line)
       local file_dir = vim.fn.fnamemodify(file_path, ":h")
       local modified_content, _ = process_target_pre_script(dep_resolved_content, req.line, block_end, file_dir)

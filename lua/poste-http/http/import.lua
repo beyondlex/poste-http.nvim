@@ -978,8 +978,58 @@ local function resolve_path_for_export(exports, keypath)
   return current
 end
 
--- Cache for loaded Lua modules: resolved_path → exports table
+-- Cache for loaded Lua modules: resolved_path → { mtime = key, exports = table }.
+-- Keyed by the file's mtime so editing the imported data file invalidates it
+-- (same discipline as graphql_schema/grpc_proto), instead of living forever.
 local lua_module_cache = {}
+
+local function mtime_key(path)
+  local st = uv.fs_stat(path)
+  local mt = st and st.mtime or nil
+  return mt and (mt.sec .. "." .. mt.nsec) or "missing"
+end
+
+--- Load (or fetch from cache) the exports of a Lua import file.
+--- @param file_path string  Resolved absolute path
+--- @param imp_path string  As written in the import line (for log messages)
+--- @param log_warn boolean  Log read/load/exec failures (status-style callers)
+--- @return table  Exports table; empty when the file is unusable
+local function cached_lua_exports(file_path, imp_path, log_warn)
+  local key = mtime_key(file_path)
+  local cached = lua_module_cache[file_path]
+  if cached and cached.mtime == key then
+    return cached.exports
+  end
+
+  local exports = {}
+  local f, err = io.open(file_path, "r")
+  if not f then
+    if log_warn then
+      state.log("WARN", string.format("Cannot read Lua import '%s': %s", imp_path, err or "unknown"))
+    end
+  else
+    local src = f:read("*a")
+    f:close()
+    local fn, load_err = load(src, "@" .. file_path)
+    if not fn then
+      if log_warn then
+        state.log("WARN", string.format("Cannot load Lua import '%s': %s", imp_path, load_err))
+      end
+    else
+      local ok, result = pcall(fn)
+      if not ok then
+        if log_warn then
+          state.log("WARN", string.format("Cannot execute Lua import '%s': %s", imp_path, result))
+        end
+      else
+        exports = result or {}
+      end
+    end
+  end
+
+  lua_module_cache[file_path] = { mtime = key, exports = exports }
+  return exports
+end
 
 --- Resolve Lua import references in content.
 --- Finds `import ./path.lua as alias` lines, loads the Lua files,
@@ -1013,31 +1063,7 @@ function M.resolve_lua_imports(content, buf_dir)
   local alias_exports = {}
   for _, imp in ipairs(lua_imports) do
     local file_path = resolve_path(imp.path, buf_dir)
-    local cached = lua_module_cache[file_path]
-    if not cached then
-      local f, err = io.open(file_path, "r")
-      if not f then
-        state.log("WARN", string.format("Cannot read Lua import '%s': %s", imp.path, err or "unknown"))
-        cached = {}
-      else
-        local src = f:read("*a")
-        f:close()
-        local fn, load_err = load(src, "@" .. file_path)
-        if not fn then
-          state.log("WARN", string.format("Cannot load Lua import '%s': %s", imp.path, load_err))
-          cached = {}
-        else
-          local ok, exports = pcall(fn)
-          if not ok then
-            state.log("WARN", string.format("Cannot execute Lua import '%s': %s", imp.path, exports))
-            cached = {}
-          else
-            cached = exports or {}
-          end
-        end
-      end
-      lua_module_cache[file_path] = cached
-    end
+    local cached = cached_lua_exports(file_path, imp.path, true)
     if imp.type == "aliased" and imp.alias then
       alias_exports[imp.alias] = cached
     end
@@ -1103,19 +1129,7 @@ function M.resolve_lua_keypath(keypath, content, buf_dir)
     local imp = parse_import_line(line)
     if imp and imp.type == "aliased" and imp.alias == alias then
       local file_path = resolve_path(imp.path, buf_dir)
-      local cached = lua_module_cache[file_path]
-      if not cached then
-        local f, _ = io.open(file_path, "r")
-        if not f then return nil end
-        local src = f:read("*a")
-        f:close()
-        local fn, _ = load(src, "@" .. file_path)
-        if not fn then return nil end
-        local ok, exports = pcall(fn)
-        if not ok then return nil end
-        cached = exports or {}
-        lua_module_cache[file_path] = cached
-      end
+      local cached = cached_lua_exports(file_path, imp.path, false)
       local inner_keypath = keypath:match("^%w+%.(.+)$")
       if inner_keypath then
         local resolved = resolve_path_for_export(cached, inner_keypath)

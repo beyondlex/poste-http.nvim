@@ -890,3 +890,28 @@ describe("execute_all_requests prompt cancellation", function()
     assert.are_equal("Cancelled", results[2].response.status_text)
   end)
 end)
+
+describe("Lua import module cache invalidation", function()
+  it("re-reads a Lua import after the file changes on disk", function()
+    -- The cache used to live forever: editing the imported data file never
+    -- showed up until nvim restarted. Cache entries are now keyed by mtime.
+    local tmpfile = os.tmpname() .. ".lua"
+    local f = io.open(tmpfile, "w")
+    f:write("return { version = 1 }")
+    f:close()
+
+    local content = "import " .. tmpfile .. " as m\n### t\nGET /{{m.version}}\n"
+    local buf_dir = vim.fn.getcwd()
+    local out = imp.resolve_lua_imports(content, buf_dir)
+    assert.truthy(out:match("GET /1"), "first read resolves to version 1")
+
+    -- rewrite + bump mtime (os.time granularity is fine: nsec differs)
+    f = io.open(tmpfile, "w")
+    f:write("return { version = 2 }")
+    f:close()
+
+    out = imp.resolve_lua_imports(content, buf_dir)
+    os.remove(tmpfile)
+    assert.truthy(out:match("GET /2"), "edited import file must invalidate the cache")
+  end)
+end)

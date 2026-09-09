@@ -334,9 +334,6 @@ function M.show_inspector()
     pcall(vim.api.nvim_win_close, win, true)
   end
 
-  vim.keymap.set("n", "q", close, { buffer = float_buf, noremap = true, silent = true })
-  vim.keymap.set("n", "<Esc>", close, { buffer = float_buf, noremap = true, silent = true })
-
   local function jump_to_def()
     local cur = vim.api.nvim_win_get_cursor(win)
     local entry = jump_map[cur[1]]

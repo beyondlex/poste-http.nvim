@@ -1,5 +1,9 @@
 local M = {}
 
+local function json_escape_string(s)
+  return s:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '\\r'):gsub('\t', '\\t')
+end
+
 local function json_pretty(value, indent)
   indent = indent or 0
   local indent_str = string.rep("  ", indent)
@@ -30,12 +34,15 @@ local function json_pretty(value, indent)
       local items = {}
       for _, k in ipairs(keys) do
         local v = value[k]
-        table.insert(items, indent_str_inner .. '"' .. k .. '": ' .. json_pretty(v, indent + 1))
+        -- keys need the same escaping as string values: a decoded key can
+        -- legitimately contain `"` or `\`, and re-emitting it raw would
+        -- produce invalid JSON
+        table.insert(items, indent_str_inner .. '"' .. json_escape_string(k) .. '": ' .. json_pretty(v, indent + 1))
       end
       return "{\n" .. table.concat(items, ",\n") .. "\n" .. indent_str .. "}"
     end
   elseif type(value) == "string" then
-    return '"' .. value:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '\\r'):gsub('\t', '\\t') .. '"'
+    return '"' .. json_escape_string(value) .. '"'
   elseif type(value) == "number" then
     return tostring(value)
   elseif type(value) == "boolean" then

@@ -415,7 +415,11 @@ local function execute_deps_for_block(opts)
     for _, ref in ipairs(refs) do
       local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
       if value ~= nil then
-        resolved_block = resolved_block:gsub(vim.pesc(ref.full), value_to_http_string(value))
+        -- replacement via function: response values may contain `%`
+        -- (URL-encoding, base64), which a string replacement would treat
+        -- as a capture reference
+        resolved_block = resolved_block:gsub(vim.pesc(ref.full),
+          function() return value_to_http_string(value) end)
       else
         state.log("WARN", string.format("Could not resolve variable: %s", ref.full))
       end
@@ -430,7 +434,8 @@ local function execute_deps_for_block(opts)
         for _, ref in ipairs(refs) do
           local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
           if value ~= nil then
-            line = line:gsub(vim.pesc(ref.full), value_to_http_string(value))
+            line = line:gsub(vim.pesc(ref.full),
+              function() return value_to_http_string(value) end)
           end
         end
         table.insert(result_lines, line)

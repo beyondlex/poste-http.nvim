@@ -254,3 +254,54 @@ describe("request_deps file-level @var referencing a response", function()
     assert.is_falsy(body:match("%{%%assetId%%}"))
   end)
 end)
+
+describe("request_deps substitution with % in the value", function()
+  after_each(function()
+    request_deps.cache_response("request_a", nil)
+  end)
+
+  -- Same shape as the file-level @var fixture above, re-declared here
+  -- because that one is local to its describe block.
+  local function file_vars_content()
+    return table.concat({
+      "@assetId = {{request_a.response.body.info.assetId}}",
+      "@moderationId = {{request_a.response.body.info.moderationId}}",
+      "",
+      "### request_a",
+      "GET {{host}}/path/a",
+      "",
+      "### request_b",
+      "POST {{host}}/path/b",
+      "Content-Type: application/json",
+      "",
+      "{",
+      '  "merchantAssertLibraryId": {{assetId}},',
+      '  "colorPickImgModificationId": {{moderationId}}',
+      "}",
+    }, "\n")
+  end
+
+  it("substitutes a response value containing % into the body verbatim", function()
+    -- A string replacement would read the % as a capture reference and
+    -- raise "invalid use of '%' in replacement string" (or mangle it).
+    request_deps.cache_response("request_a", {
+      body = vim.json.encode({ info = { a_json_obj = {}, a_string = "100% done %1 tok%2Fen" } }),
+    })
+
+    local result = resolve_deps(request_b_block(), 4)
+    assert.truthy(result)
+    assert.truthy(result:match('"sourceImgUrl": "100%% done %%1 tok%%2Fen"'),
+      "percent signs must survive substitution verbatim")
+  end)
+
+  it("substitutes a response value containing % into a file-level @var verbatim", function()
+    request_deps.cache_response("request_a", {
+      body = vim.json.encode({ info = { assetId = "A%2F1", moderationId = "M%1" } }),
+    })
+
+    local result = resolve_deps(file_vars_content(), 7)
+    assert.truthy(result)
+    assert.truthy(result:match("@assetId = A%%2F1"))
+    assert.truthy(result:match("@moderationId = M%%1"))
+  end)
+end)

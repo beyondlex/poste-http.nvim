@@ -92,6 +92,21 @@ describe("ai.auto_context.render", function()
       blocks = blocks.list_requests(content), block = blocks.list_requests(content)[1],
     })
     assert.truthy(md:match("%(truncated%)"))
-    assert.equals(auto_context._test.MAX_CHARS + #"\n(truncated)", #md)
+    assert.equals(auto_context._test.MAX_CHARS + #"\n… (truncated)", #md)
+  end)
+
+  it("truncation never splits a UTF-8 sequence", function()
+    local big = { "### 大请求", "GET /big" }
+    for _ = 1, 600 do
+      table.insert(big, string.rep("汉", 20)) -- 60 bytes of CJK per line
+    end
+    local content = table.concat(big, "\n")
+    local lines = vim.split(content, "\n", { plain = true })
+    local md = auto_context.render({
+      file = "x.http", env = "dev", lines = lines,
+      blocks = blocks.list_requests(content), block = blocks.list_requests(content)[1],
+    })
+    local head = md:gsub("\n… %(truncated%)$", "")
+    assert.equals(head, vim.fn.iconv(head, "utf-8", "utf-8"), "context cut produced invalid UTF-8")
   end)
 end)

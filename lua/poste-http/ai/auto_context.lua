@@ -40,7 +40,9 @@ function M.render(focus)
   end
 
   if #md > MAX_CHARS then
-    md = md:sub(1, MAX_CHARS) .. "\n(truncated)"
+    -- blocks.truncate backs off an incomplete UTF-8 sequence at the cut;
+    -- a bare :sub emitted invalid bytes for CJK content.
+    md = blocks_mod.truncate(md, MAX_CHARS)
   end
   return md
 end

@@ -203,3 +203,58 @@ describe("history list window navigation", function()
     assert.equals(1, list_cursor())
   end)
 end)
+
+describe("history.apply_jq_filter", function()
+  local history2 = require("poste-http.http.history")
+  local notify_calls
+  local orig_notify
+
+  before_each(function()
+    notify_calls = {}
+    orig_notify = vim.notify
+    vim.notify = function(msg, level)
+      notify_calls[#notify_calls + 1] = { msg = msg, level = level }
+    end
+  end)
+
+  after_each(function()
+    vim.notify = orig_notify
+  end)
+
+  local function make_pane(lines)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    return buf
+  end
+
+  it("a jq failure keeps the pane and the entry untouched, and notifies", function()
+    local pane = make_pane({ "original body line" })
+    local e = { name = "GetUser", response = { body = '{"a":1}' } }
+    history2._run_jq = function()
+      return false, ""
+    end
+    local applied = history2.apply_jq_filter(e, ".bad[", pane)
+    history2._run_jq = nil
+    assert.is_false(applied)
+    assert.is_nil(e._jq and e._jq.is_filtered, "entry not marked filtered")
+    assert.same({ "original body line" }, vim.api.nvim_buf_get_lines(pane, 0, -1, false))
+    assert.equals(1, #notify_calls)
+    assert.equals(vim.log.levels.ERROR, notify_calls[1].level)
+    assert.truthy(notify_calls[1].msg:match("jq error"))
+  end)
+
+  it("a successful jq filter updates the pane and records the query", function()
+    local pane = make_pane({ "original body line" })
+    local e = { name = "GetUser", response = { body = '{"a":1}' } }
+    history2._run_jq = function()
+      return true, '{"a":1}\n'
+    end
+    local applied = history2.apply_jq_filter(e, ".a", pane)
+    history2._run_jq = nil
+    assert.is_true(applied)
+    assert.is_true(e._jq.is_filtered)
+    assert.equals(".a", e._jq.query)
+    assert.truthy(vim.api.nvim_buf_get_lines(pane, 0, -1, false)[1]:match('"a"'))
+    assert.equals(0, #notify_calls)
+  end)
+end)

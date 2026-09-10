@@ -19,7 +19,6 @@ local detail_win = nil
 local current_index = nil
 local DEFAULT_DETAIL_VIEW = "verbose"
 local detail_view = DEFAULT_DETAIL_VIEW
-local _ = nil  -- detail_jq_query placeholder
 local hiding = false
 local list_ns = vim.api.nvim_create_namespace("poste_history_list")
 
@@ -300,37 +299,51 @@ local function render_detail()
   format.apply_view_highlights(detail_buf, detail_view, lines, r)
 end
 
-local function history_jq_filter(query)
-  local entry = state.http_history[current_index]
-  if not entry or not entry.response or not entry.response.body then return end
+--- Run jq and report failure the way json.apply_filter does: vim.fn.system
+--- only captures stdout, so a bad query exits non-zero with empty output —
+--- treating that as success silently wiped the detail pane.
+--- Exposed for specs (vim.v.shell_error cannot be forced in headless runs).
+function M._run_jq(query, body)
+  local ok, output = pcall(vim.fn.system, { "jq", query, "-r" }, body)
+  if ok and vim.v.shell_error == 0 then
+    return true, output
+  end
+  return false, output
+end
+
+--- Apply a jq query to one history entry's response body and render the
+--- result into the detail pane buffer. The <leader>j keymap resolves the
+--- current entry; specs call this directly with a stub entry.
+--- Returns true when the filter was applied.
+function M.apply_jq_filter(entry, query, pane_buf)
+  if not entry or not entry.response or not entry.response.body then return false end
 
   if not entry._jq then entry._jq = {} end
   if not entry._jq.original_lines then
-    entry._jq.original_lines = vim.api.nvim_buf_get_lines(detail_buf, 0, -1, false)
+    entry._jq.original_lines = vim.api.nvim_buf_get_lines(pane_buf, 0, -1, false)
   end
 
   local result
   if vim.fn.executable("jq") == 1 then
-    local ok, output = pcall(vim.fn.system, { "jq", query, "-r" }, entry.response.body)
-    if ok then
-      result = format.pretty_body(output, "application/json")
-    else
+    local ok, output = M._run_jq(query, entry.response.body)
+    if not ok then
       vim.notify("jq error: " .. (output or "unknown"), vim.log.levels.ERROR)
-      return
+      return false
     end
+    result = format.pretty_body(output, "application/json")
   else
     local json = require("poste-http.http.json")
     result = json._jsonpath_query(entry.response.body, query)
   end
 
-  if not result then return end
+  if not result then return false end
 
   local lines = vim.split(result, "\n")
   entry._jq.query = query
   entry._jq.is_filtered = true
   entry._jq.lines = lines
 
-  render.set_lines(detail_buf, buffer.sanitize_lines(lines))
+  render.set_lines(pane_buf, buffer.sanitize_lines(lines))
 
   if detail_win and vim.api.nvim_win_is_valid(detail_win) then
     vim.wo[detail_win].foldmethod = "indent"
@@ -339,6 +352,11 @@ local function history_jq_filter(query)
   end
 
   update_winbar()
+  return true
+end
+
+local function history_jq_filter(query)
+  M.apply_jq_filter(state.http_history[current_index], query, detail_buf)
 end
 
 local function history_jq_restore()

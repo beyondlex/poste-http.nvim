@@ -160,13 +160,33 @@ function M.dep_names(text)
   return names
 end
 
---- Cap text at max_chars bytes with an ellipsis note.
+--- Cap text at max_chars bytes with an ellipsis note. The cut backs off an
+--- incomplete trailing UTF-8 sequence (CJK bodies are the norm here) so the
+--- prompt never carries an invalid byte.
 --- @param text string
 --- @param max_chars number
 --- @return string
 function M.truncate(text, max_chars)
   if #text <= max_chars then return text end
-  return text:sub(1, max_chars) .. "\n… (truncated)"
+  local head = text:sub(1, max_chars)
+  -- Walk back over continuation bytes (10xxxxxx) to the last lead byte and
+  -- keep it only when its whole sequence fits inside head; ASCII tails and
+  -- complete sequences stay untouched.
+  local i = #head
+  while i > 0 and i > #head - 4 do
+    local b = head:byte(i)
+    if b < 0x80 then
+      break -- ends on an ASCII byte: valid cut
+    elseif b >= 0xC0 then
+      local seq_len = (b >= 0xF0) and 4 or (b >= 0xE0) and 3 or 2
+      if #head - i + 1 < seq_len then
+        head = head:sub(1, i - 1) -- lead whose continuations were cut off
+      end
+      break
+    end
+    i = i - 1
+  end
+  return head .. "\n… (truncated)"
 end
 
 --- Resolve what the chat is talking about — the single stateful seam for

@@ -261,3 +261,30 @@ describe("ai.blocks.truncate", function()
     assert.truthy(out:match("truncated"))
   end)
 end)
+
+---------------------------------------------------------------------------
+-- truncate (UTF-8 safety)
+---------------------------------------------------------------------------
+
+describe("ai.blocks truncate UTF-8 safety", function()
+  it("never splits a UTF-8 sequence at the byte cut", function()
+    -- CJK bodies are the norm in AI context: every cut offset must leave
+    -- the prefix valid UTF-8 (iconv round-trip returns "" on invalid input).
+    local s = ("日"):rep(12) -- 36 bytes, 12 chars
+    for cut = 1, #s - 1 do
+      local out = blocks.truncate(s, cut)
+      local head = out:gsub("\n… %(truncated%)$", "")
+      assert.equals(head, vim.fn.iconv(head, "utf-8", "utf-8"),
+        ("cut %d produced invalid UTF-8"):format(cut))
+    end
+  end)
+
+  it("keeps byte-budget semantics and the truncation note", function()
+    local ascii = ("a"):rep(100)
+    assert.equals(ascii, blocks.truncate(ascii, 100))
+    local cut = blocks.truncate(ascii, 50)
+    assert.truthy(cut:find("truncated", 1, true), "note appended")
+    assert.equals(50, #cut - #"\n… (truncated)")
+    assert.equals("abc", blocks.truncate("abc", 10), "under budget: unchanged")
+  end)
+end)

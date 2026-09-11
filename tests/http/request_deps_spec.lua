@@ -155,6 +155,54 @@ describe("request_deps dep post-scripts", function()
   end)
 end)
 
+describe("request_deps .res. shorthand substitution", function()
+  after_each(function()
+    request_deps.cache_response("request_a", nil)
+  end)
+
+  local function shorthand_content()
+    return table.concat({
+      "### request_a",
+      "GET {{host}}/path/a",
+      "",
+      "### request_b",
+      "POST {{host}}/path/b",
+      '  "sourceImgUrl": "{{request_a.res.body.info.a_string}}"',
+    }, "\n")
+  end
+
+  it("substitutes a {{Name.res.body.X}} ref into the request", function()
+    request_deps.cache_response("request_a", {
+      body = vim.json.encode({ info = { a_string = "hello world" } }),
+    })
+    local result = resolve_deps(shorthand_content(), 4)
+    assert.truthy(result)
+    assert.truthy(result:match('"sourceImgUrl": "hello world"'),
+      ".res. shorthand ref should be substituted, got: " .. tostring(result))
+    assert.is_falsy(result:match("request_a%%.res%%."))
+  end)
+
+  it("substitutes a .res. ref in a file-level @var line", function()
+    request_deps.cache_response("request_a", {
+      body = vim.json.encode({ info = { a_string = "hello world" } }),
+    })
+    local content = table.concat({
+      "@assetId = {{request_a.res.body.info.a_string}}",
+      "",
+      "### request_a",
+      "GET {{host}}/path/a",
+      "",
+      "### request_b",
+      "POST {{host}}/path/b",
+      '  "id": {{assetId}}',
+    }, "\n")
+    local result = resolve_deps(content, 6)
+    assert.truthy(result)
+    assert.truthy(result:match("@assetId = hello world"),
+      ".res. shorthand in a file-level @var should be substituted, got: " .. tostring(result))
+  end)
+end)
+
 describe("request_deps execute_dependent_request_async", function()
   local orig_execute
   local orig_describe

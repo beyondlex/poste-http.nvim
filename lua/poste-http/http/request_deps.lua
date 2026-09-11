@@ -100,6 +100,29 @@ local function split_request_ref(pattern)
   return req_name, source, target, path or ""
 end
 
+--- Normalize the `.res.` shorthand to `.response.` so lookups go through the
+--- single split path. Returns the input unchanged when it has no shorthand.
+local function normalize_ref(inner)
+  return (inner:gsub("%.res%.", ".response."))
+end
+
+--- Build one ref record from the raw `{{...}}` text as written in the buffer.
+--- `full` keeps the raw spelling (substitution must match what the user wrote,
+--- e.g. `{{Login.res.body.token}}`), `norm` is the `.response.`-normalized
+--- inner ref used for the cache lookup. `norm` is nil when identical to raw.
+local function make_ref(raw_inner)
+  local norm = normalize_ref(raw_inner)
+  local req_name, source = split_request_ref(norm)
+  if not source then
+    return nil
+  end
+  return {
+    full = "{{" .. raw_inner .. "}}",
+    norm = (norm ~= raw_inner) and norm or nil,
+    request_name = req_name,
+  }
+end
+
 local function resolve_request_variable(pattern, cached_responses)
   -- Parse as <req_name>.<source>.<target>.<path> where source/target come from a
   -- fixed vocabulary, so request names may themselves contain dots.
@@ -155,13 +178,12 @@ end
 
 local function find_request_variable_refs(block_text)
   local refs = {}
-  local normalized = block_text:gsub("%.res%.", ".response.")
-  for full_ref in normalized:gmatch("{{(.-)}}") do
-    if full_ref:match("%.response%.") or full_ref:match("%.request%.") then
-      local req_name = split_request_ref(full_ref)
-      if req_name then
-        table.insert(refs, { full = "{{" .. full_ref .. "}}", request_name = req_name })
-      end
+  -- Scan the raw text so `full` preserves the user's `.res.` spelling; the
+  -- normalized form is derived per-ref in make_ref for the cache lookup.
+  for raw_inner in block_text:gmatch("{{(.-)}}") do
+    local ref = make_ref(raw_inner)
+    if ref then
+      table.insert(refs, ref)
     end
   end
   return refs
@@ -169,23 +191,22 @@ end
 
 local function find_dynamic_prompt_refs(block_text)
   local refs = {}
-  local normalized = block_text:gsub("%.res%.", ".response.")
-  for line in normalized:gmatch("[^\n]+") do
+  for line in block_text:gmatch("[^\n]+") do
     local options_str = line:match("^%s*<<[%a_][%w_]*%s*%[(.+)%]")
     if options_str then
-      local full_ref = options_str:match("{{(.+%.response%..+)}}")
-      if full_ref then
-        local req_name = split_request_ref(full_ref)
-        if req_name then
-          table.insert(refs, { full = "{{" .. full_ref .. "}}", request_name = req_name })
+      -- Greedy: a jq mapping inside the prompt options may itself end with
+      -- `}}`, so the ref span runs to the LAST closing braces.
+      local raw_inner = options_str:match("{{(.+)}}")
+      if raw_inner then
+        local ref = make_ref(raw_inner)
+        if ref then
+          table.insert(refs, ref)
         end
       end
     end
   end
   return refs
 end
-
-M.find_request_variable_refs = find_request_variable_refs
 
 local function execute_dependent_request_async(buf, file, env_name, dep_req, dep_block_text, on_complete)
   if request_response_cache[dep_req.name] then
@@ -413,7 +434,9 @@ local function execute_deps_for_block(opts)
   local function substitute_and_finish()
     local resolved_block = block_text
     for _, ref in ipairs(refs) do
-      local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
+      -- Lookup uses the normalized form; the gsub pattern stays the raw
+      -- `{{...}}` spelling so `.res.` shorthand refs are replaced too.
+      local value = resolve_request_variable(ref.norm or ref.full:sub(3, -3), request_response_cache)
       if value ~= nil then
         -- replacement via function: response values may contain `%`
         -- (URL-encoding, base64), which a string replacement would treat
@@ -432,7 +455,7 @@ local function execute_deps_for_block(opts)
       elseif i <= file_var_end then
         local line = l
         for _, ref in ipairs(refs) do
-          local value = resolve_request_variable(ref.full:sub(3, -3), request_response_cache)
+          local value = resolve_request_variable(ref.norm or ref.full:sub(3, -3), request_response_cache)
           if value ~= nil then
             line = line:gsub(vim.pesc(ref.full),
               function() return value_to_http_string(value) end)

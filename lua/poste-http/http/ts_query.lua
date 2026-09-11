@@ -81,8 +81,8 @@ function M.parent_of_type(node, ...)
     if type_set[t] then
       return node
     end
-    ok, parent = pcall(node.parent, node)
-    if not ok then return nil end
+    local ok2, parent = pcall(node.parent, node)
+    if not ok2 then return nil end
     node = parent
   end
   return nil

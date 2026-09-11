@@ -141,6 +141,10 @@ pitfall, log it here. Check this file before starting any task.
 
 ## Entries
 
+- 2026-09-12: http/dep-resolution — the `.res.` shorthand was normalized to `.response.` for ref DETECTION but substitution gsub'd the normalized `{{...}}` against the UN-normalized block text: the dependency executed while the literal ref stayed in the request (detection and substitution used different spellings of the same ref). Fix: refs carry the raw spelling for substitution plus a normalized form for lookup — normalize once per ref, never mutate the scanned copy of the text. See `lua/poste-http/http/request_deps.lua` (`make_ref`).
+
+- 2026-09-12: http/ts_query — `.luacheckrc` sets `allow_defined = true`, which silences "setting global variable" warnings: `ok, parent = pcall(...)` silently wrote `_G.parent` and worked by accident. When a multi-assignment pcall reuses a local from a previous line, check whether the second name is actually declared. See `lua/poste-http/http/ts_query.lua` (`parent_of_type`).
+
 - 2026-09-04: http/executors — async executor tests (grpcurl/websocat) need three stubs working together: stub `vim.fn.jobstart` to capture opts and return a fake id, invoke `captured_opts.on_stdout/on_exit` manually, then `vim.wait` to pump `vim.schedule` callbacks; also stub `vim.fn.chansend/chanclose/jobstop` — real `chansend` on a fake id throws. A uv-timer deadline fires only inside `vim.wait`, so a spec that never pumps hangs silently. Session-style modules with a singleton (`ws_session.active`) leak state across tests — close the session in `after_each`. See `tests/http/executors_grpc_spec.lua`, `tests/http/ws_session_spec.lua`.
 
 - 2026-06-26: agent — `lua local function f()` defined after its first caller causes "nil value" at runtime. Lua requires local functions to be declared before use, or forward-declared via `local f`. Fix: always order helper functions top-down, or add `local f` forward decl at module top. See `lua/poste-http/http/request_vars.lua:155-160`.

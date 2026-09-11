@@ -223,7 +223,14 @@ function M.read_spec(path)
   local content = fd:read("*a")
   fd:close()
   local ok, spec = pcall(vim.json.decode, content)
-  if not ok then return nil, "Invalid JSON: " .. tostring(spec) end
+  if not ok then
+    -- A YAML spec (the other common OpenAPI format) fails JSON decode; name
+    -- the actual limitation instead of a bare "Invalid JSON".
+    if content:match("^%s*[%w_]+:%s") or content:match("^%s*-") then
+      return nil, path .. " looks like YAML — only JSON specs are supported"
+    end
+    return nil, "Invalid JSON: " .. tostring(spec)
+  end
   return spec, nil
 end
 

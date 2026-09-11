@@ -122,7 +122,9 @@ end
 function M.run()
   import_parser.run_importer({
     mode = "file",
-    extensions = { "json", "yaml", "yml" },
+    -- read_spec is JSON-only; advertising yaml/yml here would let the picker
+    -- offer files the importer then rejects.
+    extensions = { "json" },
     title = "Swagger",
     import_fn = function(spec_path, out_dir)
       return M.import_spec(spec_path, out_dir)

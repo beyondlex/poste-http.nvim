@@ -471,7 +471,7 @@ local function execute_request(ctx, callback)
     state._exec_context = nil
     if pre_result.error then
       state.log("ERROR", pre_result.error)
-indicators.set_indicator(src_buf, req_line - 1, "error")
+      indicators.set_indicator(src_buf, req_line - 1, "error")
       state.set_errors({ errors.pre_request("pre_script", tostring(pre_result.error), { line = block_start, file = file }) })
       state.set_response(nil)
       state.set_pending_request(nil)

@@ -57,17 +57,12 @@ local function format_status_text(r)
   return status_text
 end
 
-local function format_elapsed(ms, pending_start_hires)
-  local elapsed_ms = ms
-  if not elapsed_ms and pending_start_hires then
-    local ns = (vim.uv or vim.loop).hrtime() - pending_start_hires
-    elapsed_ms = ns / 1e6
-  end
-  if elapsed_ms then
-    if elapsed_ms >= 1000 then
-      return string.format("%.2f s", elapsed_ms / 1000)
+local function format_elapsed(ms)
+  if ms then
+    if ms >= 1000 then
+      return string.format("%.2f s", ms / 1000)
     end
-    return string.format("%.2f ms", elapsed_ms)
+    return string.format("%.2f ms", ms)
   end
   return "-"
 end

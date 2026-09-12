@@ -562,6 +562,10 @@ local function setup_detail_keymaps()
   })
 
   vim.keymap.set("n", "<C-h>", wincmd_list, { buffer = detail_buf, noremap = true, silent = true, nowait = true })
+
+  -- Family float convention: <Esc> mirrors the configured close key (q) on
+  -- both panes (util.open_doc_preview / poste-mq result panel precedent).
+  vim.keymap.set("n", "<Esc>", hide, { buffer = detail_buf, noremap = true, silent = true, nowait = true })
 end
 
 local function setup_list_keymaps()
@@ -570,6 +574,7 @@ local function setup_list_keymaps()
     { action = "delete_entry", default = "dd", handler = delete_at_cursor },
     { action = "focus_detail", default = "<CR>", handler = focus_detail },
   })
+  vim.keymap.set("n", "<Esc>", hide, { buffer = list_buf, noremap = true, silent = true, nowait = true })
 
   vim.keymap.set("n", "j", function() navigate_list(1) end, { buffer = list_buf, noremap = true, silent = true })
   vim.keymap.set("n", "k", function() navigate_list(-1) end, { buffer = list_buf, noremap = true, silent = true })

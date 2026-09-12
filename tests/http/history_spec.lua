@@ -189,6 +189,20 @@ describe("history list window navigation", function()
     assert.matches("one%.example", detail_first_line())
   end)
 
+  it("<Esc> closes both panes like q (family float convention)", function()
+    history.show()
+    assert.truthy(#vim.api.nvim_tabpage_list_wins(0) >= 1)
+    feed("<Esc>")
+    for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+      assert.equals("", vim.api.nvim_win_get_config(w).relative,
+        "no float window may survive <Esc>")
+    end
+    -- the view is reusable after close
+    history.show()
+    assert.truthy(detail_first_line())
+    feed("q")
+  end)
+
   it("G then k lands on the second-to-last entry", function()
     history.show()
     feed("G")

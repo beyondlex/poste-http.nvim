@@ -1,4 +1,4 @@
-*poste.txt*   Poste HTTP - File-driven HTTP request executor
+*poste-http.txt*   Poste HTTP - File-driven HTTP request executor
 
 ==============================================================================
 CONTENTS                                                    *poste-contents*

@@ -13,10 +13,11 @@ File-driven HTTP request executor (Lua + curl). `.http` → execute → results 
 
 - Lua: `local M = {} ... return M`, `vim.api.*` conventions
 - HTTP code in `lua/poste-http/http/`, shared infra in `lua/poste-http/`
-- No `require("poste.sql.*")` — SQL is a separate repo
-- **Module name ownership**: `poste-http.nvim` comes before `poste-sql.nvim` in rtp.
-  Never create files under `lua/poste/sql/` — they would shadow `poste-sql.nvim`'s
-  modules silently.
+- No `require("poste.sql.*")` — SQL lives in [poste-db.nvim](https://github.com/beyondlex/poste-db.nvim)
+  (formerly the `poste-sql` naming; never read or shadow it)
+- **Module name ownership**: this repo owns `lua/poste-http/` and filetype
+  `poste_http`. Never create `lua/poste/<other-protocol>/`-style paths here —
+  each protocol is its own repo, and stray family paths shadow silently.
 - **HTTP grammar ↔ tree-sitter sync**: Any change to HTTP grammar (parser, syntax)
   must be mirrored in the tree-sitter grammar (`tree-sitter-poste-http/grammar.js`) and
   its query files (`highlights.scm`, `injections.scm`, `locals.scm`).

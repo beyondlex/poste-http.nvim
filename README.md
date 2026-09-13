@@ -1,6 +1,23 @@
-# Poste HTTP
+# poste-http.nvim
 
-**HTTP request execution for Neovim.**
+[![CI](https://github.com/beyondlex/poste-http.nvim/actions/workflows/ci.yml/badge.svg)](https://github.com/beyondlex/poste-http.nvim/actions/workflows/ci.yml)
+
+**HTTP request execution for Neovim.** Define requests in plain `.http`/`.rest`
+files, press `<CR>`, and read the response in an editable, jq-filterable
+buffer — JetBrains HTTP Client ergonomics, Vim-native.
+
+Fully self-contained: pure Lua + tree-sitter, `curl` as the only hard
+subprocess — no binary to install, no plugin host. Part of the
+[Poste](https://github.com/beyondlex/poste.nvim) family, whose plugins are
+independent and release on their own.
+
+<!--
+Hero screenshot: a .http buffer with the cursor on a request block and the
+response panel beside it — Body view with the jq filter prompt active and
+the multi-tab strip (Body / Verbose / Assertions / Script logs) visible.
+Drop the image at .github/assets/hero.png and uncomment.
+![poste-http.nvim — request file + response panel](.github/assets/hero.png)
+-->
 
 ## Features
 
@@ -12,6 +29,14 @@
 - **Prompt variables** — Interactive `<<var` prompts with picker/text input
 - **Completion** — HTTP methods, headers, values, env vars (blink.cmp / nvim-cmp)
 - **jq filtering** — Interactive JSON exploration in response view
+
+<!--
+Screenshot: the response panel mid-exploration — JSON body folded to a
+depth, the interactive jq filter line showing a live query, image preview
+via K in a second tab.
+Suggested path: .github/assets/json-ux.png
+-->
+
 - **Multi-protocol** — `GRAPHQL` (real POST with query+variables), `GRPC` (via
   grpcurl: unary, server-streaming, reflection), and `WEBSOCKET` (via websocat:
   batch collect and interactive sessions) in the same `.http` files. See
@@ -25,54 +50,27 @@
   AI-generated ```http blocks through the regular pipeline. See
   [AI integration](docs/dev/ai-integration.md).
 
-## Import
+## Requirements
 
-Convert API specs to `.http` files. Supports OpenAPI 3.x, Swagger 2.0, and Postman collections.
+- Neovim (0.10+)
+- `curl` — required, the only hard subprocess
+- `grpcurl` — optional, for `GRPC` requests
+- `websocat` — optional, for `WEBSOCKET` requests
+- A C compiler — to compile the bundled tree-sitter parsers on first setup
+- [snacks.nvim](https://github.com/folke/snacks.nvim) — optional, nicer picker UI (built-in float fallback)
 
-### Neovim
+Run `:checkhealth poste-http` to verify your installation.
 
-```vim
-:PosteHttpImportOpenAPI      " Browse for spec → choose output directory
-:PosteHttpImportSwagger
-:PosteHttpImportPostman
-```
-
-## Orchestration
-
-Define requests in one file (like Postman), then run them as a flow from a
-`SCRIPT` block. `client.run()` executes an imported request and returns its
-typed response, so you can chain tokens, loop, and assert:
-
-```http
-import ./requests.http as api
-
-### Login then fetch profile
-SCRIPT
-> {%
-  local login = client.run("#api.Login", { username = "alice", password = "secret" })
-  assert(login.status == 200, "login failed")
-  local profile = client.run("#api.GetProfile", { auth_token = login.body.token })
-  assert(profile.status == 200, "get profile failed")
-  client.log("profile: " .. profile.body.username)
-%}
-```
-
-`gd` jumps to the request definition, completion/highlighting work like
-`run #alias.Name`, and every call's response appears in the multi-response
-chain. Full docs: [Scripts](https://github.com/beyondlex/poste-http.nvim/wiki/Scripts).
-
-## Quick Start
-
-### Install
+## Install
 
 ```lua
 -- lazy.nvim
 {
   "beyondlex/poste-http.nvim",
   dependencies = {
-    "saghen/blink.cmp",
-    "stevearc/dressing.nvim",
-    "beyondlex/finder",
+    "saghen/blink.cmp",        -- completion (nvim-cmp also works)
+    "folke/snacks.nvim",       -- optional: picker UI
+    "beyondlex/finder",        -- optional: spec import (OpenAPI/Swagger/Postman)
   },
   config = function()
     require("poste-http").setup()
@@ -136,6 +134,15 @@ Open a `.http` file. With cursor on a request block, press `<CR>` to execute. Re
 | `K` | Show variable value / response chain |
 | `<leader>vv` | Pick environment |
 | `<leader>l` | Open request history |
+
+<!--
+Screenshot: the history float — request list with method/status/latency
+columns, one entry's detail pane open, quick re-run hint visible.
+Suggested path: .github/assets/history.png
+-->
+
+| Key | Action |
+|-----|--------|
 | `ga` | Ask the AI about the request under cursor (poste-ai.nvim) |
 | `g?` | Open help window |
 
@@ -201,6 +208,41 @@ require("poste-http").setup({
 })
 ```
 
+## Orchestration
+
+Define requests in one file (like Postman), then run them as a flow from a
+`SCRIPT` block. `client.run()` executes an imported request and returns its
+typed response, so you can chain tokens, loop, and assert:
+
+```http
+import ./requests.http as api
+
+### Login then fetch profile
+SCRIPT
+> {%
+  local login = client.run("#api.Login", { username = "alice", password = "secret" })
+  assert(login.status == 200, "login failed")
+  local profile = client.run("#api.GetProfile", { auth_token = login.body.token })
+  assert(profile.status == 200, "get profile failed")
+  client.log("profile: " .. profile.body.username)
+%}
+```
+
+`gd` jumps to the request definition, completion/highlighting work like
+`run #alias.Name`, and every call's response appears in the multi-response
+chain. Full docs: [Scripts](https://github.com/beyondlex/poste-http.nvim/wiki/Scripts).
+
+## Import
+
+Convert API specs to `.http` files. Supports OpenAPI 3.x, Swagger 2.0, and Postman collections
+(uses the optional [finder](https://github.com/beyondlex/finder) file picker).
+
+```vim
+:PosteHttpImportOpenAPI      " Browse for spec → choose output directory
+:PosteHttpImportSwagger
+:PosteHttpImportPostman
+```
+
 ## Completion
 
 Poste provides context-aware completions for HTTP files.
@@ -222,7 +264,7 @@ Prompt variables allow interactive input when running a request.
 <<email [{{1.response.body | {name: ..., key: ..., desc: ...} }}]  -- Dynamic from prior response
 ```
 
-## CLI
+## CLI-style Commands
 
 There is no standalone CLI. Requests run directly from Neovim:
 
@@ -230,6 +272,18 @@ There is no standalone CLI. Requests run directly from Neovim:
 - `:PosteHttpCopyAsCurl` to copy the request as a curl command
 - `:PosteHttpChat` to open the AI chat scoped to the current `.http` file (needs poste-ai.nvim)
 - `:PosteHttpImportOpenAPI` / `:PosteHttpImportSwagger` / `:PosteHttpImportPostman` to import specs
+
+## Documentation
+
+- `:h poste-http` — full help (`doc/poste-http.txt`)
+- [User docs](docs/user/README.md) — syntax, variables, form-data, keymaps, [quick reference](docs/user/quick-reference.md)
+- [Developer docs](docs/dev/README.md) — architecture, testing, agent guardrails
+
+## Testing
+
+```bash
+./tests/run.sh          # Lua + tree-sitter + contract suites
+```
 
 ## License
 

@@ -15,7 +15,8 @@ source buffer → run.lua → extract pre-script → run in sandbox
 ```
 
 **No Rust CLI.** All parsing, resolving, formatting, and import parsing are pure Lua.
-The only subprocess is `curl`. See `docs/dev/rust-retirement-plan.md` for migration status.
+The only subprocess is `curl` (migration record:
+`docs/dev/archived/rust-retirement-plan.md`).
 
 ## File Index
 
@@ -23,15 +24,15 @@ The only subprocess is `curl`. See `docs/dev/rust-retirement-plan.md` for migrat
 
 | File | Why |
 |------|-----|
-| `lua/poste/state.lua` | Shared state object |
-| `lua/poste/init.lua` | Entry point, setup(), dispatches by filetype |
-| `lua/poste/buffer_setup.lua` | Shared keymap registration for source buffers |
-| `lua/poste/indicators.lua` | Spinner/✓/✘ indicators, request block boundary detection |
-| `lua/poste/select.lua` | Picker UI (telescope/fzf/mini.pick fallback) |
-| `lua/poste/util.lua` | `clean_nil`, `find_file_upwards`, `ensure_job_data` |
-| `lua/poste/help.lua` | Keymap help window (HTTP section) |
+| `lua/poste-http/state.lua` | Shared state object |
+| `lua/poste-http/init.lua` | Entry point, setup(), dispatches by filetype |
+| `lua/poste-http/buffer_setup.lua` | Shared keymap registration for source buffers |
+| `lua/poste-http/indicators.lua` | Spinner/✓/✘ indicators, request block boundary detection |
+| `lua/poste-http/select.lua` | Picker UI |
+| `lua/poste-http/util.lua` | `clean_nil`, `find_file_upwards`, `ensure_job_data` |
+| `lua/poste-http/help.lua` | Keymap help window (HTTP section) |
 
-### HTTP Lua (`lua/poste/http/`)
+### HTTP Lua (`lua/poste-http/http/`)
 
 #### Execution
 
@@ -139,7 +140,7 @@ source buffer → run.lua → extract pre-script → run in sandbox
 
 ## Key State Fields
 
-All in `state` (from `lua/poste/state.lua`):
+All in `state` (from `lua/poste-http/state.lua`):
 
 | Field | Set by | Used by |
 |-------|--------|---------|

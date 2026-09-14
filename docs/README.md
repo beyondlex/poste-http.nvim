@@ -26,9 +26,9 @@ See the [project README](../README.md) for features, installation, quick start, 
 | General | [Dev Docs](./dev/README.md) | TDD guide, architecture, error patterns, executed-plan archive |
 | General | [Multi-Protocol Design](./dev/multi-protocol-design.md) | GraphQL / gRPC / WebSocket executor design |
 | General | [Agent Guardrails](./dev/agent-guardrails.md) | Hard rules for AI agents working in this repo |
-| General | [Quality Ledger](./REVIEW-2026-09-13.md) | Per-session review records (newest: 2026-09-13) |
 
 ---
 
-*Documentation center — Last updated: 2026-09-13 (release prep: executed
-plans/reviews moved to docs/dev/archived/)*
+*Documentation center — Last updated: 2026-09-14 (community-readiness
+sweep: per-session review records and executed-plan archives removed —
+git history keeps them; living docs only)*

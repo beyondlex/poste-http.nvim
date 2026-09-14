@@ -165,7 +165,8 @@ local function ts_collect_items(buf)
             (request_line) @line
           ]], br, br + 20)
           -- First request_line wins: the block's own line defines the row.
-          for _, ln in ipairs(line_nodes) do
+          local ln = line_nodes[1]
+          if ln then
             local line_node = ln.captures[1].node
             local method_node = line_node:named_child(0)
             if method_node then
@@ -180,7 +181,6 @@ local function ts_collect_items(buf)
                 if url_path then url_path = url_path:gsub("%?.*", "") end
               end
             end
-            break
           end
         end
       end

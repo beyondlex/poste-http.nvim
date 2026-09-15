@@ -111,6 +111,11 @@ function M.load()
   end
 end
 
+-- { [entry_id] = { [view_name] = { row, col }, ... }, ... } — declared before
+-- add_entry/delete_entry reference it (a local read before its declaration
+-- line resolves to a nil GLOBAL, the family shadowing pitfall).
+local _detail_cursor = {}
+
 function M.add_entry(name, response, assertion_results, script_logs, source_file)
   state.http_history_id_counter = state.http_history_id_counter + 1
   local sec, usec = now()
@@ -127,7 +132,9 @@ function M.add_entry(name, response, assertion_results, script_logs, source_file
   table.insert(state.http_history, 1, entry)
   local max = state.config.http_history_max or state.http_history_max
   if #state.http_history > max then
-    table.remove(state.http_history)
+    local evicted = table.remove(state.http_history)
+    -- the evicted entry's cursor memory is dead weight from here on
+    _detail_cursor[evicted.id] = nil
   end
   persist()
 end
@@ -136,6 +143,7 @@ function M.delete_entry(id)
   for i, entry in ipairs(state.http_history) do
     if entry.id == id then
       table.remove(state.http_history, i)
+      _detail_cursor[id] = nil
       persist()
       return
     end
@@ -236,8 +244,6 @@ local function update_winbar()
   if not detail_win or not vim.api.nvim_win_is_valid(detail_win) then return end
   vim.wo[detail_win].winbar = winbar.render_tabs(get_active_tabs(), detail_view)
 end
-
-local _detail_cursor = {}  -- { [entry_id] = { [view_name] = { row, col }, ... }, ... }
 
 local function render_detail()
   if not detail_buf or not vim.api.nvim_buf_is_valid(detail_buf) then return end
@@ -450,6 +456,10 @@ local function hide()
   detail_win = nil
   current_index = nil
   detail_view = DEFAULT_DETAIL_VIEW
+  -- Per-entry cursor memory only matters while the browser is open; keeping
+  -- it across closes just accumulates dead rows for evicted entries
+  -- (REVIEW-2026-09-13 follow-up).
+  _detail_cursor = {}
   hiding = false
 end
 

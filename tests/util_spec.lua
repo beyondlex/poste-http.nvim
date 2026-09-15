@@ -285,3 +285,24 @@ describe("redacted_cmd", function()
     assert.equals("", util.redacted_cmd({}))
   end)
 end)
+---------------------------------------------------------------------------
+-- seed_random
+---------------------------------------------------------------------------
+
+describe("seed_random", function()
+  it("seeds exactly once across repeated calls", function()
+    local real_seed = math.randomseed
+    local calls = 0
+    math.randomseed = function(n)
+      calls = calls + 1
+      return real_seed(n)
+    end
+    util._random_seeded = false -- isolate from earlier specs in the session
+    util.seed_random()
+    util.seed_random()
+    util.seed_random()
+    math.randomseed = real_seed
+    assert.equals(1, calls, "repeat calls must not re-seed the generator")
+    assert.is_true(util._random_seeded)
+  end)
+end)

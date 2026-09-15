@@ -1,5 +1,6 @@
 local M = {}
 local state = require("poste-http.state")
+local util = require("poste-http.util")
 
 local VarResolver = {}
 VarResolver.__index = VarResolver
@@ -26,6 +27,7 @@ function VarResolver:resolve(name)
 end
 
 function VarResolver:_resolve_magic(name)
+  util.seed_random() -- first random draw must not repeat across sessions
   if name == "$timestamp" then
     return tostring(os.time()) .. math.random(100000, 999999)
   elseif name == "$uuid" then

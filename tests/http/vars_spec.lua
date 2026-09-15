@@ -124,3 +124,39 @@ describe("VarResolver:substitute with table values", function()
     assert.equals("{{unknown}}", result)
   end)
 end)
+describe("magic vars", function()
+  it("draws differ within a session", function()
+    local r = vars.new()
+    assert.not_equals(r:substitute("{{$uuid}}"), r:substitute("{{$uuid}}"))
+    assert.not_equals(r:substitute("{{$randomInt}}"), r:substitute("{{$randomInt}}"))
+  end)
+
+  it("{{$uuid}} differs across processes (math.random seeded on first use)", function()
+    -- LuaJIT seeds math.random deterministically at process start: without
+    -- an explicit seed every nvim session produced the SAME first uuid /
+    -- randomInt, so idempotency keys repeated run over run. Probe two real
+    -- subprocesses — exactly the cross-process property seeding restores.
+    -- util.lua only (no plugin bootstrap): the seed lives there.
+    local root = vim.loop.cwd()
+    local function triple_from_fresh_process()
+      local out = vim.fn.system({
+        vim.v.progpath, "--headless", "-u", "NONE", "-c", "set rtp+=" .. root,
+        "-c",
+        "lua local u = require('poste-http.util'); u.seed_random(); print(math.random(0, 255), math.random(0, 255), math.random(0, 255))",
+        "-c", "qa!",
+      })
+      return vim.trim(tostring(out))
+    end
+    local a = triple_from_fresh_process()
+    local b = triple_from_fresh_process()
+    assert.matches("^%d+ %d+ %d+$", a)
+    assert.not_equals(a, b, "two fresh nvim processes must not share the random sequence")
+  end)
+
+  it("substitute wires the seeding (util._random_seeded set after a magic draw)", function()
+    local util = require("poste-http.util")
+    local r = vars.new()
+    r:substitute("{{$uuid}}")
+    assert.is_true(util._random_seeded)
+  end)
+end)

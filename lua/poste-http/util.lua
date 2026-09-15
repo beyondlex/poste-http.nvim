@@ -1,6 +1,23 @@
 local M = {}
 local hover_tracker = nil
 
+-- LuaJIT seeds math.random deterministically at process start: without an
+-- explicit seed every nvim session produced the SAME sequence, so the first
+-- {{$uuid}}/{{$randomInt}}/{{$timestamp}} repeated across runs — idempotency
+-- keys colliding run over run. Seed once, on first use, from the wall clock
+-- + the monotonic clock + the pid: two processes started in the same second
+-- still differ.
+M._random_seeded = false
+
+--- Seed the global PRNG exactly once per session (a no-op afterwards).
+function M.seed_random()
+  if M._random_seeded then return end
+  M._random_seeded = true
+  local uv = vim.uv or vim.loop
+  local mono_ms = uv and math.floor((uv.hrtime() / 1000000) % 1000000) or 0
+  math.randomseed(os.time() * 31 + vim.fn.getpid() * 1000003 + mono_ms)
+end
+
 --- Recursively convert decoded JSON to pure Lua tables, avoiding userdata/cdata.
 --- `vim.json.decode` may return `vim.NIL` or cdata wrappers depending on
 --- the Neovim build; this normalizes to plain `nil` and plain Lua tables.

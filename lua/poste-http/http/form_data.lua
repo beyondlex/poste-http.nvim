@@ -1,4 +1,5 @@
 local cache = require("poste-http.http.cache")
+local util = require("poste-http.util")
 
 local M = {}
 
@@ -31,6 +32,7 @@ function M.process_form_data(src_buf, cursor_line, content)
   if not start_line then return content end
 
   local generated = {}
+  util.seed_random() -- magic draws must differ across sessions (fixed LuaJIT seed)
   for name, gen in pairs(magic_vars) do
     generated[name] = gen()
   end

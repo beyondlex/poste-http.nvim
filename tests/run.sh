@@ -6,6 +6,13 @@ set -e
 
 cd "$(dirname "$0")/.."
 
+# Isolated XDG dirs so headless runs never touch the user's real cache/state
+# (family lesson from poste-mq/poste-redis). Without this, suite runs race
+# the user's live nvim on the real ShaDa file and leak tmp shada files.
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/poste-http-test-cache}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-/tmp/poste-http-test-data}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-/tmp/poste-http-test-state}"
+
 PLENARY_PATH="${1:-$HOME/.local/share/nvim/lazy/plenary.nvim}"
 if [ ! -d "$PLENARY_PATH" ]; then
     echo "Error: plenary.nvim not found at $PLENARY_PATH"

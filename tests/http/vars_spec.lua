@@ -139,8 +139,10 @@ describe("magic vars", function()
     -- util.lua only (no plugin bootstrap): the seed lives there.
     local root = vim.loop.cwd()
     local function triple_from_fresh_process()
+      -- -i NONE: the child must not read or write the real ShaDa file —
+      -- concurrent runs would corrupt it (E576) and leak tmp files.
       local out = vim.fn.system({
-        vim.v.progpath, "--headless", "-u", "NONE", "-c", "set rtp+=" .. root,
+        vim.v.progpath, "--headless", "-u", "NONE", "-i", "NONE", "-c", "set rtp+=" .. root,
         "-c",
         "lua local u = require('poste-http.util'); u.seed_random(); print(math.random(0, 255), math.random(0, 255), math.random(0, 255))",
         "-c", "qa!",

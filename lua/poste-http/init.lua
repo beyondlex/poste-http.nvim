@@ -55,10 +55,7 @@ function M.setup(opts)
   -- Auto-clean old response cache on startup (deferred)
   vim.defer_fn(function()
     local format = require("poste-http.http.format")
-    local cleaned = format.clean_response_cache(120)  -- 2 hour default
-    if cleaned > 0 then
-      vim.notify(string.format("[Poste] Cleaned %d stale response file(s)", cleaned), vim.log.levels.DEBUG)
-    end
+    format.clean_response_cache(120)
   end, 2000)
 
   completion.register()

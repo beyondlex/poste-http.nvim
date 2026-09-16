@@ -1,5 +1,6 @@
 --- Copy HTTP request as curl command.
 local state = require("poste-http.state")
+local util = require("poste-http.util")
 local vars = require("poste-http.http.vars")
 local request_deps = require("poste-http.http.request_deps")
 
@@ -80,8 +81,11 @@ local function collect_var_defs(lines)
   return var_map
 end
 
---- Collect variables from file-level @var defs, env.json, and session vars (client.global + script_variables)
-local function collect_vars(buf, block_start_line)
+--- Collect variables from file-level @var defs, block-level @var defs,
+--- env.json, and session vars (client.global + script_variables).
+--- block_lines (optional) are the raw request-block lines; block defs
+--- override file-level ones, matching the resolver's precedence.
+local function collect_vars(buf, block_start_line, block_lines)
   -- File-level region: every line above the block's separator (the
   -- request's start_line). start_line - 1 is the 0-based exclusive end,
   -- so the line directly above the separator is included.
@@ -90,6 +94,11 @@ local function collect_vars(buf, block_start_line)
   local file_path = vim.api.nvim_buf_get_name(buf)
   local env_vars = load_env_vars(file_path, state.current_env)
   local var_map = collect_var_defs(file_lines)
+  if block_lines then
+    for k, v in pairs(collect_var_defs(block_lines)) do
+      var_map[k] = v
+    end
+  end
   -- Env vars must be present BEFORE substituting, so file-level @vars can
   -- reference {{env_keys}} (the earlier code recomputed vars here, wiping
   -- the merge and leaving {{env_refs}} literal in the copied command).
@@ -361,7 +370,11 @@ function M.copy_as_curl()
   -- Body
   if #body_lines > 0 then
     if is_multipart and #raw_body_lines > 0 then
-      local var_map = collect_vars(buf, start_line)
+      -- Magic-var generation below draws math.random without going through
+      -- the resolver's seeding path: arm it explicitly or the first copied
+      -- {{$uuid}}/{{$randomInt}} repeats the session's fixed LuaJIT sequence.
+      util.seed_random()
+      local var_map = collect_vars(buf, start_line, raw_lines)
       local f_flags = build_multipart_flags(raw_body_lines, boundary, buf_dir, var_map)
       for _, flag in ipairs(f_flags) do
         table.insert(parts, flag)

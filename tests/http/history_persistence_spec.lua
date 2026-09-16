@@ -64,12 +64,21 @@ describe("history persistence", function()
     local entry_payload = { status = 200, body = "{}", metadata = {} }
     history.add_entry("JqEntry", entry_payload)
     state.http_history[1]._jq = { query = ".foo", original_lines = { "x", "y" } }
+    local in_memory = state.http_history[1]
+
+    -- The realistic leak: a LATER add re-persists the whole list, so the
+    -- earlier entry's _jq (set after its own add) must be stripped then —
+    -- not just absent because the file predates it.
+    history.add_entry("Later", { status = 201, metadata = {} })
 
     state.http_history = {}
     history.load()
 
     assert.is_nil(state.http_history[1]._jq)
-    assert.equals("{}", state.http_history[1].response.body)
+    assert.is_nil(state.http_history[2]._jq)
+    assert.equals("{}", state.http_history[2].response.body)
+    -- the live in-memory entry keeps its filter state
+    assert.equals(".foo", in_memory._jq.query)
   end)
 
   it("respects persist_history=false (no file written)", function()

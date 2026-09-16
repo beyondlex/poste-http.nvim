@@ -62,7 +62,18 @@ end
 --- http_history_max entries with bodies truncated to MAX_BODY_SAVE).
 local function persist()
   if not state.config.persist_history then return end
+  -- _jq is transient UI state (jq filter result + original lines up to 2x
+  -- the body size); it must not reach disk. Nil it out around the encode —
+  -- persist runs synchronously on the main loop, so nothing re-enters.
+  local saved_jq = {}
+  for i, entry in ipairs(state.http_history) do
+    saved_jq[i] = entry._jq
+    entry._jq = nil
+  end
   local ok, payload = pcall(vim.json.encode, state.http_history)
+  for i, entry in ipairs(state.http_history) do
+    entry._jq = saved_jq[i]
+  end
   if not ok or not payload then return end
   local file = history_file()
   local ok_dir, _ = pcall(vim.fn.mkdir, vim.fn.fnamemodify(file, ":h"), "p")

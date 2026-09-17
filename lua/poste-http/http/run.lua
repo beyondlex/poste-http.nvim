@@ -27,6 +27,18 @@ local M = {}
 -- Pipeline helpers
 ---------------------------------------------------------------------------
 
+--- Parts the unresolved-variable gate scans: URL, body, and every header's
+--- NAME and VALUE. Exposed for specs — the name side used to be missing, so
+--- a literal {{var}} header name went to curl verbatim (REVIEW-2026-09-17).
+function M.unresolved_var_parts(url, body, headers)
+  local parts = { url, body }
+  for _, h in ipairs(headers or {}) do
+    table.insert(parts, h[1] or "")
+    table.insert(parts, h[2] or "")
+  end
+  return parts
+end
+
 --- Build a synthetic response for a script-only block.
 local function make_script_response(req_text, req_block)
   return {
@@ -593,13 +605,11 @@ local function start_curl_exec(ctx)
   end
 
   -- Pre-request validation: block if any variable remains unresolved in the
-  -- URL, body, or headers. Sending a request with literal {{var}} in it is
-  -- almost certainly a mistake, so fail fast instead of hitting the network.
-  local parts = { url, body }
-  for _, h in ipairs(headers) do
-    table.insert(parts, h[2] or "")
-  end
-  local unresolved = errors.find_unresolved_vars(parts)
+  -- URL, body, or headers — names and values both (REVIEW-2026-09-17 noted
+  -- that a literal {{var}} in a header NAME slipped past and went to curl
+  -- verbatim). Sending a request with literal {{var}} in it is almost
+  -- certainly a mistake, so fail fast instead of hitting the network.
+  local unresolved = errors.find_unresolved_vars(M.unresolved_var_parts(url, body, headers))
   if #unresolved > 0 then
     indicators.set_indicator(src_buf, req_line - 1, "error")
     local src_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)

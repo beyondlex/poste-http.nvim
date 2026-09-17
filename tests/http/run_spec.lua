@@ -558,3 +558,24 @@ describe("run.run_request run-directive assertions", function()
     assert.is_table(captured_vars, "script_vars flow through alongside the assertion code")
   end)
 end)
+
+describe("run.unresolved_var_parts", function()
+  local run = require("poste-http.http.run")
+  local errors = require("poste-http.http.errors")
+
+  it("scans the URL, body, header values AND header names", function()
+    -- The gate used to collect header values only, so a literal {{var}} in
+    -- a header NAME slipped past the fail-fast check and went to curl.
+    local parts = run.unresolved_var_parts(
+      "https://api.example.com/{{base}}", "body {{bvar}}",
+      { { "X-{{hname}}", "v {{hval}}" } })
+    local names = errors.find_unresolved_vars(parts)
+    table.sort(names)
+    assert.same({ "base", "bvar", "hname", "hval" }, names)
+  end)
+
+  it("tolerates nil bodies, nil headers and nil header halves", function()
+    assert.same({}, errors.find_unresolved_vars(
+      run.unresolved_var_parts("https://api.example.com", nil, { { "X-A", nil }, {} })))
+  end)
+end)

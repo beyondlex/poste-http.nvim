@@ -357,7 +357,8 @@ end
 --- Collect variable entries for a buffer at the given cursor line.
 --- @param buf number
 --- @param cursor_line number
---- @return table, boolean  entries map, sorted flag
+--- @return table, table  entries map (name → array of entries, last = active),
+---   sorted_names (rows in display order, priority then name)
 function M.collect_entries(buf, cursor_line)
   return collect_entries(buf, cursor_line)
 end

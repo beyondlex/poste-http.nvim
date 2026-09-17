@@ -60,6 +60,53 @@ curl -X POST 'https://api.example.com/login' \
     assert.equals('{"k": "v w"}', parsed.body)
   end)
 
+  it("honors backslash-quote escapes inside double quotes (Windows-style -d)", function()
+    -- Before the fix the `"` in `\"` closed the quote early and the body
+    -- arrived mangled as {\name\:\test\}.
+    local parsed = curl.parse_curl(
+      'curl -X POST https://api.example.com -H "Content-Type: application/json" -d "{\\"name\\":\\"test\\"}"')
+    assert.equals('{"name":"test"}', parsed.body)
+    assert.equals("application/json", parsed.headers[1][2])
+  end)
+
+  it("keeps literal backslashes that don't escape a quote inside double quotes", function()
+    local parsed = curl.parse_curl([[curl https://api.example.com -d "{\"re\\n\": 1}"]])
+    -- shell word: {"re\\n": 1} — `\\` is an escaped backslash, kept as one
+    assert.equals('{"re\\n": 1}', parsed.body)
+  end)
+
+  it("keeps backslashes literal inside single quotes (shell rules)", function()
+    local parsed = curl.parse_curl([[curl https://api.example.com -d '{"a": "b\c"}']])
+    assert.equals('{"a": "b\\c"}', parsed.body)
+  end)
+
+  it("takes the FIRST bare argument as the URL", function()
+    -- curl sends the first bare arg; -o out.txt after the URL must not
+    -- replace it (previously the LAST bare arg won, so the output file
+    -- name became the request target).
+    local parsed = curl.parse_curl("curl https://api.example.com/users -o out.txt")
+    assert.equals("https://api.example.com/users", parsed.url)
+  end)
+
+  it("consumes values of unmapped flags instead of leaking them as URL/body", function()
+    local parsed = curl.parse_curl(
+      "curl https://api.example.com -u alice:s3cret -o out.txt -m 30 --connect-timeout 5 -A curl/8 -x http://proxy:8080 --retry 2")
+    assert.equals("https://api.example.com", parsed.url)
+    assert.is_nil(parsed.body)
+  end)
+
+  it("consumes attached short flag values: -m10, -ooutline", function()
+    local parsed = curl.parse_curl("curl -m10 -sS https://api.example.com -oout.txt")
+    assert.equals("https://api.example.com", parsed.url)
+  end)
+
+  it("accepts --url and --url= long forms", function()
+    local separated = curl.parse_curl("curl --url https://api.example.com")
+    local attached = curl.parse_curl("curl --url=https://api.example.com")
+    assert.equals("https://api.example.com", separated.url)
+    assert.equals("https://api.example.com", attached.url)
+  end)
+
   it("supports attached short forms: -XPOST, -H'...', -dvalue", function()
     local parsed = curl.parse_curl(
       [[curl -XPOST https://api.example.com -H'Content-Type: application/json' -d'{ "a": 1 }']])

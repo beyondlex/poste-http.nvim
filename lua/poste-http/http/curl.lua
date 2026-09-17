@@ -49,7 +49,10 @@ end
 
 --- Parse curl command and extract method, URL, headers, and body.
 --- Supports: curl -X METHOD, -H header (incl. empty-value `Name:`/`Name;`),
---- -d/--data/--data-binary (incl. @file), --data-raw, --data-urlencode
+--- -d/--data/--data-binary (incl. @file), --data-raw, --data-urlencode,
+--- --url[=]. Value flags without a .http mapping (-o/-u/-m/…) are consumed
+--- so their values can't be mistaken for the URL; the URL is the FIRST bare
+--- argument (curl semantics). Backslash escapes inside "…" are honored.
 --- Returns: { method = "POST", url = "...", headers = {...}, body = "..." }
 local function parse_curl(cmd)
   if not cmd or cmd == "" then
@@ -91,13 +94,23 @@ local function parse_curl(cmd)
       else
         current = current .. char
       end
-    else
-      if char == quote_char then
-        in_quotes = false
-        quote_char = nil
+    elseif char == quote_char then
+      in_quotes = false
+      quote_char = nil
+    elseif quote_char == '"' and char == "\\" and i < #cmd then
+      -- Double quotes honor backslash escapes (POSIX shell rules): `\"`
+      -- must not close the string, or pasted Windows-style bodies like
+      -- -d "{\"k\": \"v\"}" arrive mangled. Single quotes are literal in
+      -- the shell, so the escape pass only runs for `"..."`
+      local nxt = cmd:sub(i + 1, i + 1)
+      if nxt == quote_char or nxt == "\\" then
+        current = current .. nxt
+        i = i + 1
       else
         current = current .. char
       end
+    else
+      current = current .. char
     end
 
     i = i + 1
@@ -134,6 +147,25 @@ local function parse_curl(cmd)
   end
 
   local idx = 1
+  -- Short flags whose value we don't map into the .http form (output file,
+  -- proxy, timeouts, certs, …): their value must be consumed, or a bare
+  -- value like `-o out.txt` used to win the "last bare arg is the URL"
+  -- scan and replace the real request target.
+  local ignored_value_short = {
+    o = true, u = true, A = true, e = true, b = true, x = true,
+    m = true, D = true, E = true, Q = true, T = true, Y = true, y = true,
+    C = true, K = true, w = true,
+  }
+  -- Same for long flags, matched in both `--flag value` and `--flag=value`
+  -- shapes (the `=` shapes are handled by prefix below).
+  local ignored_value_long = {
+    ["--output"] = true, ["--user"] = true, ["--user-agent"] = true,
+    ["--referer"] = true, ["--cookie"] = true, ["--proxy"] = true,
+    ["--max-time"] = true, ["--connect-timeout"] = true, ["--retry"] = true,
+    ["--retry-delay"] = true, ["--dump-header"] = true, ["--cacert"] = true,
+    ["--capath"] = true, ["--cert"] = true, ["--key"] = true,
+    ["--resolve"] = true, ["--unix-socket"] = true, ["--config"] = true,
+  }
   while idx <= #args do
     local arg = args[idx]
 
@@ -195,9 +227,26 @@ local function parse_curl(cmd)
       -- --data-raw never expands @file, matching curl
       body = arg:sub(#"--data-raw=" + 1)
       promote_post()
+    elseif arg == "--url" then
+      idx = idx + 1
+      url = url == "" and (args[idx] or "") or url
+    elseif arg:match("^%-%-url=") then
+      if url == "" then url = arg:sub(#"--url=" + 1) end
+    elseif ignored_value_long[arg] then
+      -- `--flag value` shape: drop both.
+      idx = idx + 1
+    elseif arg:match("^%-(%a)") then
+      -- Generic short flag. Known value flags take their value from the
+      -- rest of the arg (attached `-m10`) or the next arg (separate
+      -- `-m 10`); boolean flags (-s, -L, -k, …) have no value to consume.
+      local letter, rest = arg:match("^%-(%a)(.*)$")
+      if ignored_value_short[letter] and rest == "" then
+        idx = idx + 1
+      end
     else
-      -- Assume it's the URL
-      if not arg:match("^-") then
+      -- Assume it's the URL: curl sends the FIRST bare argument; a second
+      -- one is an additional URL, not a replacement for the first.
+      if not arg:match("^-") and url == "" then
         url = arg
       end
     end

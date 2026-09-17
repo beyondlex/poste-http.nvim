@@ -47,12 +47,83 @@ local function maybe_expand_data(value)
   return value
 end
 
+--- Parse one -F/--form piece: `name=value`, `name=@file` (attach with
+--- filename), `name=<file` (content only), `--form-string` passes
+--- expand_at=false so `@` stays literal. curl's `;type=` / `;filename=` /
+--- `;enc=` directives after a file path are dropped. File parts keep the
+--- PATH instead of baking content in — the .http body's `< path` line is
+--- resolved per run, so re-runs pick up file changes and binary uploads
+--- never pass through the text importer.
+local function parse_form_piece(piece, expand_at)
+  local name, rest = piece:match("^([^=]+)=(.*)$")
+  if not name then return nil end
+  local part = { name = name }
+  local sigil = rest:sub(1, 1)
+  -- --form-string (expand_at=false) treats @/< as literal text; only -F
+  -- and --form expand file sigils.
+  local is_file = expand_at and (sigil == "@" or sigil == "<")
+  local path = is_file and rest:sub(2) or nil
+  if path and path ~= "" then
+    -- Strip trailing ;key=value directives right-to-left; a lone `;` or a
+    -- directive-shaped prefix stays part of the path.
+    while true do
+      local stripped = path:match("^(.-);%a+=[^;]*$")
+      if not stripped or stripped == "" then break end
+      path = stripped
+    end
+    part.file_path = path
+    part.content_only = sigil == "<"
+  else
+    part.value = rest
+  end
+  return part
+end
+
+--- Render form parts as multipart body text in the same shape copy_as_curl
+--- parses back out (boundary lines, Content-Disposition, `< path` refs).
+local function build_multipart_body(parts, boundary)
+  local lines = {}
+  for _, part in ipairs(parts) do
+    lines[#lines + 1] = "--" .. boundary
+    if part.file_path and not part.content_only then
+      lines[#lines + 1] = string.format('Content-Disposition: form-data; name="%s"; filename="%s"',
+        part.name, vim.fn.fnamemodify(part.file_path, ":t"))
+    else
+      lines[#lines + 1] = string.format('Content-Disposition: form-data; name="%s"', part.name)
+    end
+    lines[#lines + 1] = ""
+    if part.file_path then
+      lines[#lines + 1] = "< " .. part.file_path
+    else
+      lines[#lines + 1] = part.value
+    end
+  end
+  lines[#lines + 1] = "--" .. boundary .. "--"
+  return table.concat(lines, "\n")
+end
+
+--- Import-time multipart boundary. Deterministic is fine: the delimiter
+--- only has to be unique within the one body that declares it.
+local function generate_boundary()
+  return string.format("----PosteBoundary%08x%04x",
+    os.time(), math.floor(os.clock() * 65536) % 65536)
+end
+
+--- Basic auth from `-u user:pass`, as the header the .http file would write.
+local function add_basic_auth(headers, creds)
+  if creds and creds ~= "" and vim.base64 and vim.base64.encode then
+    table.insert(headers, { "Authorization", "Basic " .. vim.base64.encode(creds) })
+  end
+end
+
 --- Parse curl command and extract method, URL, headers, and body.
 --- Supports: curl -X METHOD, -H header (incl. empty-value `Name:`/`Name;`),
 --- -d/--data/--data-binary (incl. @file), --data-raw, --data-urlencode,
---- --url[=]. Value flags without a .http mapping (-o/-u/-m/…) are consumed
---- so their values can't be mistaken for the URL; the URL is the FIRST bare
---- argument (curl semantics). Backslash escapes inside "…" are honored.
+--- -F/--form/--form-string (as a multipart body with `< path` file refs),
+--- -u/--user (as an Authorization: Basic header), --url[=]. Value flags
+--- without a .http mapping (-o/-m/…) are consumed so their values can't be
+--- mistaken for the URL; the URL is the FIRST bare argument (curl
+--- semantics). Backslash escapes inside "…" are honored.
 --- Returns: { method = "POST", url = "...", headers = {...}, body = "..." }
 local function parse_curl(cmd)
   if not cmd or cmd == "" then
@@ -122,7 +193,9 @@ local function parse_curl(cmd)
 
   -- Process arguments
   local urlencode_parts = {}
+  local form_parts = {}
   local had_content_type = false
+  local content_type_value = nil
 
   local function promote_post()
     if method == "GET" then
@@ -142,6 +215,7 @@ local function parse_curl(cmd)
       table.insert(headers, { key, value })
       if key:lower() == "content-type" then
         had_content_type = true
+        content_type_value = value
       end
     end
   end
@@ -152,14 +226,14 @@ local function parse_curl(cmd)
   -- value like `-o out.txt` used to win the "last bare arg is the URL"
   -- scan and replace the real request target.
   local ignored_value_short = {
-    o = true, u = true, A = true, e = true, b = true, x = true,
+    o = true, A = true, e = true, b = true, x = true,
     m = true, D = true, E = true, Q = true, T = true, Y = true, y = true,
     C = true, K = true, w = true,
   }
   -- Same for long flags, matched in both `--flag value` and `--flag=value`
   -- shapes (the `=` shapes are handled by prefix below).
   local ignored_value_long = {
-    ["--output"] = true, ["--user"] = true, ["--user-agent"] = true,
+    ["--output"] = true, ["--user-agent"] = true,
     ["--referer"] = true, ["--cookie"] = true, ["--proxy"] = true,
     ["--max-time"] = true, ["--connect-timeout"] = true, ["--retry"] = true,
     ["--retry-delay"] = true, ["--dump-header"] = true, ["--cacert"] = true,
@@ -227,6 +301,24 @@ local function parse_curl(cmd)
       -- --data-raw never expands @file, matching curl
       body = arg:sub(#"--data-raw=" + 1)
       promote_post()
+    elseif arg == "-F" or arg == "--form" or arg == "--form-string" then
+      idx = idx + 1
+      local piece = args[idx]
+      local part = piece and parse_form_piece(piece, arg ~= "--form-string")
+      if part then table.insert(form_parts, part) end
+      promote_post()
+    elseif arg:match("^%-F.") or arg:match("^%-%-form=") or arg:match("^%-%-form%-string=") then
+      local piece = arg:match("^%-F(.+)$")
+        or arg:match("^%-%-form=(.+)$")
+        or arg:match("^%-%-form%-string=(.+)$")
+      local part = parse_form_piece(piece, not arg:match("^%-%-form%-string"))
+      if part then table.insert(form_parts, part) end
+      promote_post()
+    elseif arg == "-u" or arg == "--user" then
+      idx = idx + 1
+      add_basic_auth(headers, args[idx])
+    elseif arg:match("^%-u.") or arg:match("^%-%-user=") then
+      add_basic_auth(headers, arg:match("^%-u(.+)$") or arg:match("^%-%-user=(.+)$"))
     elseif arg == "--url" then
       idx = idx + 1
       url = url == "" and (args[idx] or "") or url
@@ -269,6 +361,32 @@ local function parse_curl(cmd)
     if not had_content_type then
       table.insert(headers, { "Content-Type", "application/x-www-form-urlencoded" })
     end
+  end
+
+  -- -F parts become a multipart body in the .http shape (boundary lines +
+  -- Content-Disposition + `< path` refs). Mixing -d with -F is a curl
+  -- usage error; the -d body wins here and the parts are dropped.
+  if #form_parts > 0 and not body then
+    local boundary
+    local ct_multipart = content_type_value
+      and content_type_value:match("multipart/form%-data") ~= nil
+    if ct_multipart then
+      boundary = vim.trim(content_type_value:match("boundary=([^;]+)") or "")
+    end
+    if boundary == nil or boundary == "" then
+      boundary = generate_boundary()
+      if ct_multipart then
+        -- extend the existing multipart Content-Type in place
+        for _, h in ipairs(headers) do
+          if h[1]:lower() == "content-type" then
+            h[2] = h[2] .. "; boundary=" .. boundary
+          end
+        end
+      else
+        table.insert(headers, { "Content-Type", "multipart/form-data; boundary=" .. boundary })
+      end
+    end
+    body = build_multipart_body(form_parts, boundary)
   end
 
   return {

@@ -107,6 +107,69 @@ curl -X POST 'https://api.example.com/login' \
     assert.equals("https://api.example.com", attached.url)
   end)
 
+  describe("-F/--form multipart import", function()
+    it("imports value parts with a generated boundary and form content-type", function()
+      local parsed = curl.parse_curl("curl https://api.example.com -F 'name=lex' -F 'role=admin'")
+      assert.equals("POST", parsed.method)
+      assert.matches("^multipart/form%-data; boundary=", parsed.headers[#parsed.headers][2])
+      local boundary = parsed.headers[#parsed.headers][2]:match("boundary=(.+)$")
+      assert.equals(table.concat({
+        "--" .. boundary,
+        'Content-Disposition: form-data; name="name"',
+        "",
+        "lex",
+        "--" .. boundary,
+        'Content-Disposition: form-data; name="role"',
+        "",
+        "admin",
+        "--" .. boundary .. "--",
+      }, "\n"), parsed.body)
+    end)
+
+    it("imports @file parts as live `< path` refs, keeping filename", function()
+      local parsed = curl.parse_curl("curl https://api.example.com -F 'avatar=@~/pics/avatar.png;type=image/png'")
+      assert.truthy(parsed.body:find('; name="avatar"; filename="avatar.png"\n\n< ~/pics/avatar.png\n', 1, true))
+      -- the ;type= directive must not leak into the path or a second line
+      assert.falsy(parsed.body:find("image/png", 1, true))
+    end)
+
+    it("reuses the boundary from an explicit multipart Content-Type", function()
+      local parsed = curl.parse_curl(
+        "curl https://api.example.com -H 'Content-Type: multipart/form-data; boundary=MyB' -F 'a=1'")
+      local ct_count = 0
+      for _, h in ipairs(parsed.headers) do
+        if h[1]:lower() == "content-type" then ct_count = ct_count + 1 end
+      end
+      assert.equals(1, ct_count, "must not add a second content-type")
+      assert.truthy(parsed.body:find("--MyB\n", 1, true))
+      assert.equals("--MyB--", parsed.body:sub(-#"--MyB--"))
+    end)
+
+    it("keeps --form-string @ literal and supports attached -F forms", function()
+      local str = curl.parse_curl("curl https://api.example.com --form-string 'a=@lit'")
+      assert.truthy(str.body:find('; name="a"\n\n@lit\n', 1, true))
+      local attached = curl.parse_curl("curl https://api.example.com -Fb=2")
+      assert.truthy(attached.body:find('; name="b"\n\n2\n', 1, true))
+    end)
+  end)
+
+  describe("-u/--user basic auth import", function()
+    it("emits an Authorization: Basic header from -u", function()
+      local parsed = curl.parse_curl("curl -u alice:s3cret https://api.example.com")
+      local expected = "Basic " .. vim.base64.encode("alice:s3cret")
+      assert.same({ { "Authorization", expected } }, parsed.headers)
+      -- the raw credentials must not surface anywhere else
+      assert.falsy(parsed.url:find("alice", 1, true))
+    end)
+
+    it("supports --user= and attached -u forms", function()
+      local long = curl.parse_curl("curl --user=b:c https://api.example.com")
+      local attached = curl.parse_curl("curl -ub:c https://api.example.com")
+      assert.equals("Basic " .. vim.base64.encode("b:c"), long.headers[1][2])
+      assert.equals("Basic " .. vim.base64.encode("b:c"), attached.headers[1][2])
+    end)
+  end)
+
   it("supports attached short forms: -XPOST, -H'...', -dvalue", function()
     local parsed = curl.parse_curl(
       [[curl -XPOST https://api.example.com -H'Content-Type: application/json' -d'{ "a": 1 }']])

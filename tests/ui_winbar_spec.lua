@@ -29,6 +29,24 @@ describe("poste-http.ui.winbar", function()
     assert.equals("", winbar.render_tabs(nil, "body"))
   end)
 
+  it("escapes % in dynamic labels (jq queries, request names)", function()
+    -- A literal % in a label is a statusline flag: "50%" mangles the bar,
+    -- "%*" ends the highlight run early (same bug poste-mq fixed in its
+    -- winbars on 2026-09-17).
+    local out = winbar.render_tabs({ { id = "body", label = "jq: .p | 100%" } }, "body")
+    assert.equals("%#TabLineSel# jq: .p | 100%% %*", out)
+  end)
+
+  describe("escape", function()
+    it("doubles % signs and passes plain text through", function()
+      -- Lua literals need no % escaping: "a%b" is the 3-char string with
+      -- one %, doubled to a%%b (two %) for statusline use.
+      assert.equals("a%%b", winbar.escape("a%b"))
+      assert.equals("plain", winbar.escape("plain"))
+      assert.equals("", winbar.escape(nil))
+    end)
+  end)
+
   describe("cycle", function()
     it("advances forward and wraps", function()
       assert.equals("verbose", winbar.cycle(tabs, "body", 1))

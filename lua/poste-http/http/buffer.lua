@@ -107,7 +107,7 @@ function M.update_winbar(active)
   if state.last_responses and #state.last_responses > 0 then
     local idx = state.response_index or 1
     local name = (state.last_responses[idx] and state.last_responses[idx].name) or ""
-    local label = string.format("[%d/%d] %s", idx, #state.last_responses, name)
+    local label = string.format("[%d/%d] %s", idx, #state.last_responses, winbar.escape(name))
     table.insert(parts, "%#TabLineFill# " .. label .. " %*")
   end
 

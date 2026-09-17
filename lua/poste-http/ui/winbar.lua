@@ -6,6 +6,13 @@
 
 local M = {}
 
+--- Escape dynamic text for a winbar string (request names, jq queries,
+--- env names): a literal "%" would otherwise be read as a statusline flag
+--- ("50%" mangles the rest of the bar, "%*" ends highlight runs early).
+function M.escape(s)
+  return (tostring(s or ""):gsub("%%", "%%%%"))
+end
+
 --- Render the request-buffer env bar: env name on the left, help hint on
 --- the right. Moved here from http/env.lua so the exact shape is defined
 --- once — env.sync_winbar compares against this string to decide whether a
@@ -13,7 +20,7 @@ local M = {}
 --- @param env_name string
 --- @return string
 function M.http_env(env_name)
-  local left = string.format(" Env: %s ", env_name)
+  local left = string.format(" Env: %s ", M.escape(env_name))
   local right = " g? help "
   return "%#PosteSqlMeta#" .. left .. "%=" .. "%#PosteSqlMetaDim#" .. right
 end
@@ -25,10 +32,13 @@ end
 function M.render_tabs(tabs, active_id)
   local parts = {}
   for _, tab in ipairs(tabs or {}) do
+    -- labels carry user data (jq queries, request names) — escape here so
+    -- every caller is covered by one choke point
+    local label = M.escape(tab.label)
     if tab.id == active_id then
-      parts[#parts + 1] = "%#TabLineSel# " .. tab.label .. " %*"
+      parts[#parts + 1] = "%#TabLineSel# " .. label .. " %*"
     else
-      parts[#parts + 1] = "%#TabLine# " .. tab.label .. " %*"
+      parts[#parts + 1] = "%#TabLine# " .. label .. " %*"
     end
   end
   return table.concat(parts)

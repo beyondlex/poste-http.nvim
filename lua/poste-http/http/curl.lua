@@ -120,10 +120,11 @@ end
 --- Supports: curl -X METHOD, -H header (incl. empty-value `Name:`/`Name;`),
 --- -d/--data/--data-binary (incl. @file), --data-raw, --data-urlencode,
 --- -F/--form/--form-string (as a multipart body with `< path` file refs),
---- -u/--user (as an Authorization: Basic header), --url[=]. Value flags
---- without a .http mapping (-o/-m/…) are consumed so their values can't be
---- mistaken for the URL; the URL is the FIRST bare argument (curl
---- semantics). Backslash escapes inside "…" are honored.
+--- -u/--user (as an Authorization: Basic header), -G/--get (data moves to
+--- the query string), --url[=]. Value flags without a .http mapping (-o/-m/
+--- …) are consumed so their values can't be mistaken for the URL; the URL
+--- is the FIRST bare argument (curl semantics). Backslash escapes inside
+--- "…" are honored.
 --- Returns: { method = "POST", url = "...", headers = {...}, body = "..." }
 local function parse_curl(cmd)
   if not cmd or cmd == "" then
@@ -192,8 +193,14 @@ local function parse_curl(cmd)
   end
 
   -- Process arguments
-  local urlencode_parts = {}
+  -- Every --data-* piece feeds one ordered list joined with `&`, exactly as
+  -- curl concatenates them on the wire (`-d a=1 -d b=2` sends `a=1&b=2`,
+  -- verified against curl 8.7.1); --data-urlencode pieces are encoded at
+  -- add time and keep their position in the sequence.
+  local data_parts = {}
+  local had_urlencode = false
   local form_parts = {}
+  local get_flag = false
   local had_content_type = false
   local content_type_value = nil
 
@@ -202,6 +209,10 @@ local function parse_curl(cmd)
       method = "POST"
     end
   end
+  -- True once -X/--request named an explicit method; a --get rewrite must
+  -- not clobber it (curl sends the -X token, with the data still in the
+  -- query string).
+  local method_forced = false
 
   local function header_from_text(text)
     -- `Name:` (empty value) and curl's `Name;` no-value form are kept as
@@ -228,7 +239,8 @@ local function parse_curl(cmd)
   local ignored_value_short = {
     o = true, A = true, e = true, b = true, x = true,
     m = true, D = true, E = true, Q = true, T = true, Y = true, y = true,
-    C = true, K = true, w = true,
+    C = true, K = true, w = true, c = true, P = true, r = true, t = true,
+    U = true, z = true,
   }
   -- Same for long flags, matched in both `--flag value` and `--flag=value`
   -- shapes (the `=` shapes are handled by prefix below).
@@ -239,6 +251,13 @@ local function parse_curl(cmd)
     ["--retry-delay"] = true, ["--dump-header"] = true, ["--cacert"] = true,
     ["--capath"] = true, ["--cert"] = true, ["--key"] = true,
     ["--resolve"] = true, ["--unix-socket"] = true, ["--config"] = true,
+    ["--cookie-jar"] = true, ["--proxy-user"] = true, ["--range"] = true,
+    ["--time-cond"] = true, ["--upload-file"] = true, ["--trace"] = true,
+    ["--trace-ascii"] = true, ["--ftp-port"] = true,
+    ["--telnet-option"] = true, ["--proto"] = true,
+    ["--proto-redir"] = true, ["--request-target"] = true,
+    ["--engine"] = true, ["--random-file"] = true, ["--crlfile"] = true,
+    ["--pinnedpubkey"] = true, ["--pubkey"] = true,
   }
   while idx <= #args do
     local arg = args[idx]
@@ -246,11 +265,14 @@ local function parse_curl(cmd)
     if arg == "-X" or arg == "--request" then
       idx = idx + 1
       method = (args[idx] or "GET"):upper()
+      method_forced = true
     elseif arg:match("^%-X.") then
       -- Attached form: -XPOST
       method = arg:sub(3):upper()
+      method_forced = true
     elseif arg:match("^%-%-request=") then
       method = arg:sub(#"--request=" + 1):upper()
+      method_forced = true
     elseif arg == "-H" or arg == "--header" then
       idx = idx + 1
       local header = args[idx]
@@ -268,39 +290,45 @@ local function parse_curl(cmd)
       if piece then
         local built = build_urlencode_piece(piece)
         if built then
-          table.insert(urlencode_parts, built)
+          table.insert(data_parts, built)
+          had_urlencode = true
         end
       end
       promote_post()
     elseif arg:match("^%-%-data%-urlencode=") then
       local built = build_urlencode_piece(arg:sub(#"--data-urlencode=" + 1))
       if built then
-        table.insert(urlencode_parts, built)
+        table.insert(data_parts, built)
+        had_urlencode = true
       end
       promote_post()
     elseif arg == "-d" or arg == "--data" or arg == "--data-binary" then
       idx = idx + 1
-      body = maybe_expand_data(args[idx])
+      table.insert(data_parts, maybe_expand_data(args[idx]))
       promote_post()
     elseif arg:match("^%-d.") then
       -- Attached form: -d'{}', -d@file
-      body = maybe_expand_data(arg:sub(3))
+      table.insert(data_parts, maybe_expand_data(arg:sub(3)))
       promote_post()
     elseif arg == "--data-raw" then
       idx = idx + 1
       -- --data-raw never expands @file, matching curl
-      body = args[idx]
+      table.insert(data_parts, args[idx])
       promote_post()
     elseif arg:match("^%-%-data=") then
-      body = maybe_expand_data(arg:sub(#"--data=" + 1))
+      table.insert(data_parts, maybe_expand_data(arg:sub(#"--data=" + 1)))
       promote_post()
     elseif arg:match("^%-%-data%-binary=") then
-      body = maybe_expand_data(arg:sub(#"--data-binary=" + 1))
+      table.insert(data_parts, maybe_expand_data(arg:sub(#"--data-binary=" + 1)))
       promote_post()
     elseif arg:match("^%-%-data%-raw=") then
       -- --data-raw never expands @file, matching curl
-      body = arg:sub(#"--data-raw=" + 1)
+      table.insert(data_parts, arg:sub(#"--data-raw=" + 1))
       promote_post()
+    elseif arg == "-G" or arg == "--get" then
+      -- Data pieces ride on the query string instead of a body; handled
+      -- after the loop once the URL is final.
+      get_flag = true
     elseif arg == "-F" or arg == "--form" or arg == "--form-string" then
       idx = idx + 1
       local piece = args[idx]
@@ -350,15 +378,23 @@ local function parse_curl(cmd)
     return nil, "No URL found in curl command"
   end
 
-  -- curl concatenates every data piece (-d, --data-binary,
-  -- --data-urlencode) with & before sending; mirror that, and give the
-  -- request the form content-type unless the command set one itself.
-  if #urlencode_parts > 0 then
-    if body then
-      table.insert(urlencode_parts, 1, body)
-    end
-    body = table.concat(urlencode_parts, "&")
-    if not had_content_type then
+  -- curl concatenates every data piece (-d, --data-binary, --data-raw,
+  -- --data-urlencode) with & in command order before sending; mirror that,
+  -- and give the request the form content-type only when the command used
+  -- --data-urlencode (a bare -d '{"json"}' import stays content-type-clean).
+  if #data_parts > 0 then
+    body = table.concat(data_parts, "&")
+    if get_flag then
+      -- --get moves the data onto the query string whatever -X says (curl
+      -- sends `PUT /?a=1` for `--get -X PUT -d a=1`); append with & when the
+      -- URL already carries a query. Without an explicit -X the request
+      -- stays a GET (undo the data flags' POST promotion).
+      url = url .. (url:find("?", 1, true) and "&" or "?") .. body
+      body = nil
+      if not method_forced then
+        method = "GET"
+      end
+    elseif had_urlencode and not had_content_type then
       table.insert(headers, { "Content-Type", "application/x-www-form-urlencoded" })
     end
   end
@@ -372,6 +408,10 @@ local function parse_curl(cmd)
       and content_type_value:match("multipart/form%-data") ~= nil
     if ct_multipart then
       boundary = vim.trim(content_type_value:match("boundary=([^;]+)") or "")
+      -- A quoted boundary (`boundary="abc"`) is one value per RFC 2045; the
+      -- delimiter lines must carry the unquoted token or no server can
+      -- match them to the header.
+      boundary = boundary:match('^"(.*)"$') or boundary
     end
     if boundary == nil or boundary == "" then
       boundary = generate_boundary()

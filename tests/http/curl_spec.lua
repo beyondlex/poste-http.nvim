@@ -47,6 +47,39 @@ curl -X POST 'https://api.example.com/login' \
     assert.equals("a=1", parsed.body)
   end)
 
+  it("concatenates multiple -d pieces with & in command order", function()
+    -- curl 8.7.1 sends `a=1&b=2` for -d a=1 -d b=2; the importer used to
+    -- keep only the LAST piece.
+    local parsed = curl.parse_curl("curl https://api.example.com -d a=1 -d b=2")
+    assert.equals("a=1&b=2", parsed.body)
+  end)
+
+  it("interleaves -d and --data-urlencode pieces in command order", function()
+    -- curl 8.7.1 sends `a=1&b=x%20y&c=3` for this sequence.
+    local parsed = curl.parse_curl(
+      "curl https://api.example.com -d a=1 --data-urlencode 'b=x y' -d c=3")
+    assert.equals("a=1&b=x%20y&c=3", parsed.body)
+    assert.equals("application/x-www-form-urlencoded", parsed.headers[1][2])
+  end)
+
+  it("moves data to the query string with -G/--get", function()
+    local short = curl.parse_curl("curl -G https://api.example.com/search -d q=abc")
+    assert.equals("GET", short.method)
+    assert.equals("https://api.example.com/search?q=abc", short.url)
+    assert.is_nil(short.body)
+    local long = curl.parse_curl(
+      "curl --get 'https://api.example.com/search?lang=en' --data-urlencode 'q=x y'")
+    assert.equals("GET", long.method)
+    assert.equals("https://api.example.com/search?lang=en&q=x%20y", long.url)
+    assert.is_nil(long.body)
+    -- --get moves the data even under -X (curl sends `PUT /?a=1`);
+    -- -X only overrides the method token
+    local forced = curl.parse_curl("curl --get -X PUT https://api.example.com -d a=1")
+    assert.equals("PUT", forced.method)
+    assert.equals("https://api.example.com?a=1", forced.url)
+    assert.is_nil(forced.body)
+  end)
+
   it("accepts --data-raw and --header long forms", function()
     local parsed = curl.parse_curl("curl --request PUT https://api.example.com --header 'X-A: b' --data-raw '{}'")
     assert.equals("PUT", parsed.method)
@@ -91,6 +124,13 @@ curl -X POST 'https://api.example.com/login' \
   it("consumes values of unmapped flags instead of leaking them as URL/body", function()
     local parsed = curl.parse_curl(
       "curl https://api.example.com -u alice:s3cret -o out.txt -m 30 --connect-timeout 5 -A curl/8 -x http://proxy:8080 --retry 2")
+    assert.equals("https://api.example.com", parsed.url)
+    assert.is_nil(parsed.body)
+  end)
+
+  it("consumes the long tail of value flags (-c -P -r -t -U -z and long forms)", function()
+    local parsed = curl.parse_curl(
+      "curl https://api.example.com -c /tmp/jar.txt --cookie-jar jar2 -P 21 -r 0-99 -t TTYPE=vt100 -U puser:ppass -z 'yesterday' --range 0-9 --time-cond now --upload-file f --proto https --request-target /x --engine openssl --trace out")
     assert.equals("https://api.example.com", parsed.url)
     assert.is_nil(parsed.body)
   end)
@@ -143,6 +183,15 @@ curl -X POST 'https://api.example.com/login' \
       assert.equals(1, ct_count, "must not add a second content-type")
       assert.truthy(parsed.body:find("--MyB\n", 1, true))
       assert.equals("--MyB--", parsed.body:sub(-#"--MyB--"))
+    end)
+
+    it("strips RFC 2045 quotes from an explicit boundary", function()
+      -- A quoted boundary is one value; delimiter lines must carry the
+      -- unquoted token or no server can match them to the header.
+      local parsed = curl.parse_curl(
+        'curl https://api.example.com -H \'Content-Type: multipart/form-data; boundary="My B"\' -F \'a=1\'')
+      assert.truthy(parsed.body:find("--My B\n", 1, true))
+      assert.equals("--My B--", parsed.body:sub(-#"--My B--"))
     end)
 
     it("keeps --form-string @ literal and supports attached -F forms", function()

@@ -34,6 +34,21 @@ describe("json.get_key_paths", function()
     assert.is_truthy(vim.tbl_contains(paths, ".items[0]"))
     assert.is_truthy(vim.tbl_contains(paths, ".items[].name"))
   end)
+
+  it("caps per-array index paths so big responses don't flood the picker", function()
+    -- A 1000-element array used to enumerate every index; the [] wildcard
+    -- stays available for arbitrary elements.
+    local entries = {}
+    for i = 1, 1000 do
+      entries[#entries + 1] = '{"n": ' .. i .. "}"
+    end
+    state.last_response = { body = '{"items": [' .. table.concat(entries, ",") .. "]}" }
+    local paths = json.get_key_paths()
+    assert.is_truthy(vim.tbl_contains(paths, ".items[]"))
+    assert.is_truthy(vim.tbl_contains(paths, ".items[0]"))
+    assert.is_truthy(vim.tbl_contains(paths, ".items[2]"))
+    assert.falsy(vim.tbl_contains(paths, ".items[3]"))
+  end)
 end)
 
 describe("json._jsonpath_query", function()

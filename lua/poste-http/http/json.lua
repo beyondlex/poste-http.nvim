@@ -24,6 +24,12 @@ function M.start_interactive_input()
   end
 end
 
+--- Cap on how many numeric indices one array contributes to the jq picker.
+--- The `[]` wildcard path is always offered (and replayable by the no-jq
+--- evaluator), so the extra indices only help pick a specific element of a
+--- short array; enumerating a 1000-element response flooded the picker.
+local MAX_INDEX_PATHS = 3
+
 function M.get_key_paths()
   local r = state.last_response
   if not r or not r.body then return {} end
@@ -41,6 +47,7 @@ function M.get_key_paths()
         walk(obj[1], wild)
       end
       for i, v in ipairs(obj) do
+        if i > MAX_INDEX_PATHS then break end
         local p = prefix .. "[" .. tostring(i - 1) .. "]"
         table.insert(paths, p)
         walk(v, p)

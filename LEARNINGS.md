@@ -3,6 +3,16 @@
 Agent self-evolution log. When you fix a non-obvious bug or encounter a
 pitfall, log it here. Check this file before starting any task.
 
+- 2026-09-19: curl-import-fidelity — verify importer claims against the real
+  binary's wire behavior, not from memory: three bugs this round (multi `-d`
+  last-wins instead of `&`-joined, quoted `boundary="x"` leaking quotes into
+  delimiter lines, `-G` ignored) were only provable by capturing actual curl
+  8.7.1 requests through a netcat listener. The same probes also killed a
+  plausible "fix" (reuse the user's multipart boundary) — modern curl appends
+  its OWN boundary as a second `boundary=` param and never uses the header's.
+  Probe recipe: `(nc -l 127.0.0.1 PORT > cap.txt &) ; sleep 0.5; curl -s ... ;
+  cat cap.txt`. See `lua/poste-http/http/curl.lua`, `tests/http/curl_spec.lua`.
+
 - 2026-09-07: lua-patterns/SDL-parsing — two traps hit while writing the
   graphql_schema SDL slicer: (1) greedy backtracking splits identifier tails —
   `^%s*%a+%s+[_%w]*([%a][%w_]*)` on "type Query" yields name "y" (the `[_%w]*`

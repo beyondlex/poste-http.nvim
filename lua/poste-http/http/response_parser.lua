@@ -223,9 +223,14 @@ function M.parse_response(headers_file, stdout_data, stderr_data, start_hires, m
   local final_url = request_url or ""
   -- With -L the verbose log carries one Location line per hop; the last one
   -- is the request that produced the final response, i.e. the effective URL.
+  -- Relative Location values (`Location: /new`) can't be resolved here
+  -- without replaying every hop's base URL, so they don't replace the
+  -- request URL (a bare path like `/new` is not a usable URL).
   local last_loc
   for loc in verbose:gmatch("Location:%s*([^\r\n]+)") do
-    last_loc = loc
+    if loc:match("^https?://") then
+      last_loc = loc
+    end
   end
   if last_loc then
     final_url = vim.trim(last_loc)
@@ -309,7 +314,11 @@ function M.parse_error(headers_file, stdout_data, stderr_data, start_hires, meth
     status_text = "Failed (exit " .. tostring(exit_code) .. ")",
     latency_ms = latency_ms,
     url = "",
-    content_type = parsed.content_type or "text/plain",
+    -- parse_headers_file returns "" (not nil) when no headers arrived, so
+    -- the plain `or` fallback never fired; keep the explicit fallback for
+    -- the error shape.
+    content_type = (parsed.content_type and parsed.content_type ~= "")
+      and parsed.content_type or "text/plain",
     headers = parsed.headers,
     body = display_body,
     cookies = {},

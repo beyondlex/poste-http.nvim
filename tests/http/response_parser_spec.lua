@@ -107,6 +107,13 @@ describe("parse_error", function()
     assert.equals("Connection refused", r.body)
     assert.equals("Connection refused", r.metadata.error)
   end)
+
+  it("falls back to text/plain when no headers arrived", function()
+    -- parse_headers_file returns content_type = "" (not nil) when no
+    -- headers arrived; the previous `or` fallback never fired.
+    local r = parser.parse_error(nil, {}, {}, nil, "GET", 7, nil)
+    assert.equals("text/plain", r.content_type)
+  end)
 end)
 
 describe("parse_response redirect_count", function()
@@ -167,6 +174,17 @@ describe("parse_response effective URL", function()
     local r = parser.parse_response(nil, {}, {
       "< HTTP/1.1 200 OK",
       "< Content-Type: text/plain",
+    }, nil, "GET", "https://example.com/start", nil)
+    assert.equals("https://example.com/start", r.url)
+  end)
+
+  it("ignores relative Location headers (keeps the request URL)", function()
+    -- A relative Location can't be resolved without replaying each hop's
+    -- base URL; a bare `/path` used to replace the request URL verbatim.
+    local r = parser.parse_response(nil, {}, {
+      "< HTTP/1.1 302 Found",
+      "< Location: /final",
+      "< HTTP/1.1 200 OK",
     }, nil, "GET", "https://example.com/start", nil)
     assert.equals("https://example.com/start", r.url)
   end)

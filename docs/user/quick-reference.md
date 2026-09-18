@@ -157,14 +157,16 @@ Full keymap reference in [Keymaps](keymaps.md). Quick overview:
 
 | Command / Key | Function |
 |---------------|----------|
-| `<leader>rr` | Execute current request |
+| `<CR>` | Execute current request |
+| `<M-CR>` | Execute request, response in a horizontal split |
 | `]]` / `[[` | Jump to next/previous request |
 | `:PosteHttpEnv [name]` | Show/switch environment |
 | `K` | Show variable value / response chain |
+| `gi` | Open the variable inspector |
+| `<leader>rp` | Paste curl command as a request block |
 | `<leader>rc` | Copy request as curl |
+| `<leader>vv` | Select environment (env.json) |
 | `<leader>l` | Open request history |
 | `q` (response buffer) | Close response window |
 
 For complete keymaps, see [Keymaps Reference](keymaps.md).
-
-*HTTP Quick Reference — Last updated: 2026-07-06*

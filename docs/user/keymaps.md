@@ -42,17 +42,19 @@ Override in `setup({ keymaps = { <group_name> = { ... } } })`.
 | Key | Action | Description |
 |-----|--------|-------------|
 | `<CR>` | `run` | Execute request under cursor |
+| `<M-CR>` | `run_hsplit` | Execute request, response in a horizontal split |
 | `]]` | `jump_next` | Jump to next request block |
 | `[[` | `jump_prev` | Jump to previous request block |
 | `gd` | `goto_definition` | Go to variable definition |
 | `grr` | `goto_references` | Show variable references |
+| `K` | `show_var_value` | Show variable value / response chain |
+| `gi` | `show_variable_inspector` | Open the variable inspector for this file |
 | `]q` | `quickfix_next` | Next quickfix item |
 | `[q` | `quickfix_prev` | Previous quickfix item |
 | `<leader>rp` | `paste_curl` | Paste curl command from clipboard |
 | `<leader>rc` | `copy_as_curl` | Copy request as curl command |
 | `gs` | `toggle_outline` | Toggle outline sidebar |
 | `<leader>vv` | `pick_env` | Select environment |
-| `K` | `show_var_value` | Show variable value / response chain |
 | `<leader>l` | `show_history` | Open request history |
 | `ga` | `ask_ai` | Ask the AI about the request under cursor (needs poste-ai.nvim) |
 | `g?` | `help` | Open help window |

@@ -173,6 +173,22 @@ function M._jsonpath_query(body, query)
         local key = token:match("^%.(.+)") or token
         if current[key] ~= nil then
           current = current[key]
+        elseif #current > 0 then
+          -- jq semantics: a key applied to an array maps across its
+          -- elements (`.items[].name`). get_key_paths() emits these
+          -- candidates, so the no-jq fallback must evaluate them too —
+          -- it used to report "Key not found" on the array itself.
+          local mapped = {}
+          for _, item in ipairs(current) do
+            if type(item) == "table" and item[key] ~= nil then
+              mapped[#mapped + 1] = item[key]
+            end
+          end
+          if #mapped == 0 then
+            vim.notify("Key '" .. key .. "' not found", vim.log.levels.WARN)
+            return nil
+          end
+          current = mapped
         else
           vim.notify("Key '" .. key .. "' not found", vim.log.levels.WARN)
           return nil

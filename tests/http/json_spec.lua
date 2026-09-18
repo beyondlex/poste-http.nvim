@@ -63,6 +63,15 @@ describe("json._jsonpath_query", function()
     assert.is_truthy(out:find("2"))
   end)
 
+  it("maps a key across array elements after [] (jq semantics)", function()
+    -- get_key_paths offers `.items[].name`; the no-jq fallback used to fail
+    -- it with "Key 'name' not found" because it looked up the key on the
+    -- array itself instead of mapping across elements.
+    local out = json._jsonpath_query('{"items": [{"name": "a"}, {"name": "b"}]}', ".items[].name")
+    assert.is_truthy(out:find("a"))
+    assert.is_truthy(out:find("b"))
+  end)
+
   it("returns nil and notifies for a missing key", function()
     local notified
     local orig = vim.notify

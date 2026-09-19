@@ -48,7 +48,7 @@ admin@example.com
 ------MyBoundary{{$timestamp}}--
 ```
 
-### File Upload with `< path` (Multipart Only)
+### File Upload with `< path`
 
 Use the `< path` syntax to include file contents in multipart form data parts:
 
@@ -102,11 +102,11 @@ value
 ------WebKitFormBoundary1704067200123456--
 ```
 
-## File Inclusion with `< path` (Multipart Only)
+## File Inclusion with `< path`
 
-The `< path` syntax reads a file and inserts its contents into a multipart form data part. This is used for file uploads in `multipart/form-data` requests only.
+The `< path` syntax reads a file and inserts its bytes into the request body where the line sits — the intended use is file-upload parts of a `multipart/form-data` request. The expansion runs on the body regardless of Content-Type, but for external JSON we recommend Lua import instead: `import ./vars.lua as m` then `{{m.key}}` or `@var = m.key` (imported values resolve as variables, `< path` inserts bytes verbatim).
 
-> **Note**: `< path` for JSON body embedding (e.g., `< /path/to/payload.json` with `Content-Type: application/json`) has been removed. Use Lua import instead: `import ./vars.lua as m` then `{{m.key}}` or `@var = m.key`.
+A missing or unreadable file (e.g. a directory) aborts the run with an explicit error — the literal `< path` line is never sent.
 
 ### Syntax
 
@@ -200,13 +200,15 @@ Software developer from New York
 
 1. **Magic Variable Processing**: Before sending the request, Poste scans the request body and replaces all `{{$timestamp}}` occurrences with a unique timestamp value.
 
-2. **File Inclusion (Multipart Only)**: When Poste encounters a line starting with `<` followed by a file path inside a multipart boundary, it:
+2. **File Inclusion**: When Poste encounters a line starting with `<` followed by a file path in the request body, it:
    - Expands `~` to the home directory
    - Resolves relative paths relative to the buffer's directory
-   - Reads the file contents
+   - Reads the file bytes verbatim
    - Replaces the `< path` line with the actual file contents
+   - Aborts the run with an error when the file is missing or unreadable
 
-   > **Removed**: `< path` for non-multipart bodies (e.g., JSON body embedding) is no longer supported. Use Lua import instead.
+   For external JSON, Lua import (`import ./vars.lua as m` → `{{m.key}}`) is the
+   recommended route: imported values resolve as variables, `< path` inserts bytes.
 
 3. **Binary Data Preservation**: Poste uses `curl --data-binary` instead of `curl -d` to ensure binary data (like images) is transmitted correctly without modification.
 

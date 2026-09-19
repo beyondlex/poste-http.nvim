@@ -168,10 +168,17 @@ Content-Type: multipart/form-data; boundary=----boundary
 **Rules**:
 - `<` followed by a space, then the file path
 - Path supports absolute paths, `./` relative paths, `~/` home directory
-- **Only valid inside `multipart/form-data`** bodies (file upload parts)
-- If file is not found, the original line is preserved with a warning
+- The file's bytes are included verbatim (binary-safe, sent via `--data-binary`)
+- The expansion runs on the request body regardless of Content-Type — but the
+  intended use is multipart file-upload parts
+- A missing or unreadable file (e.g. a directory) aborts the run with an
+  explicit error — the literal `< path` line is never sent
 
-> **Removed**: `< path` for JSON body embedding (e.g., `< /path/to/payload.json` with `Content-Type: application/json`) has been removed. Use Lua import instead: `import ./vars.lua as m` then `{{m.key}}` or `@var = m.key`.
+> **Note**: `< path` also still expands inside JSON bodies (e.g. `< /path/to/payload.json`
+> with `Content-Type: application/json`). For external JSON we recommend Lua import
+> instead — `import ./vars.lua as m` then `{{m.key}}` or `@var = m.key` — because the
+> imported values resolve as variables (substitution, request chaining) rather than
+> as a byte-for-byte file insert.
 
 ### 2.8 Variable References
 

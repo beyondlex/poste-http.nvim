@@ -55,7 +55,13 @@ function M.handle_prompt_variables(buf, cursor_line, content, file, env_name, on
       local varname_sel, options_str = line:match("^%s*<<([%a_][%w_]*)%s*%[(.+)%]")
 
       if varname_sel and options_str then
-        local ref_match = options_str:gsub("%.res%.", ".response."):match("{{(.+%.response%..+)}}")
+        -- Dynamic refs in prompt options: same source vocabulary as
+        -- request_deps.find_dynamic_prompt_refs (response AND request) — a
+        -- .request. ref used to fall through to static options, showing a
+        -- garbage entry while the dependency executed anyway.
+        local normalized = options_str:gsub("%.res%.", ".response.")
+        local ref_match = normalized:match("{{(.+%.response%..+)}}")
+          or normalized:match("{{(.+%.request%..+)}}")
 
         if ref_match and execute_dep and resolve_req_var and collect_requests then
           local ref_text, mapping = jq_mapping.parse_dynamic_mapping("{{" .. ref_match .. "}}")

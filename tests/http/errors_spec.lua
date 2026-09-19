@@ -221,6 +221,29 @@ describe("errors.apply_highlights jump targets", function()
     assert.is_true(next(jumps) == nil)
     pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end)
+
+  it("keeps jump targets when an earlier error has no source detail line", function()
+    -- An entry whose source carries a file but no line writes no detail
+    -- line; the highlighter used to treat the NEXT error's message as that
+    -- missing detail and dropped every later jump target.
+    local buf = vim.api.nvim_create_buf(false, true)
+    local list = {
+      { type = "post_request", stage = "post_script", message = "boom", source = { file = "/tmp/noline.http" } },
+      { type = "pre_request", stage = "variable_resolution", message = "Cannot resolve {{id}}",
+        source = { var = "id", file = "/tmp/a.http", line = 7 } },
+    }
+    local lines = errors.format_errors(list)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    errors.apply_highlights(buf, lines, list)
+    local jumps = errors.get_jump_targets(buf)
+    local found
+    for _, t in pairs(jumps or {}) do
+      if t.file == "/tmp/a.http" then found = t end
+    end
+    assert.is_not_nil(found, "later error's jump target must survive a sourceless earlier error")
+    assert.equal(7, found.line)
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end)
 end)
 
 describe("errors.builders", function()

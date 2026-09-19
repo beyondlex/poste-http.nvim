@@ -79,7 +79,10 @@ function M.format_errors(errors)
         table.insert(detail, string.format("%s:%d", short, e.source.line))
       end
       if #detail > 0 then
-        table.insert(lines, "  " .. table.concat(detail, " · "))
+        -- 4-space indent: detail lines must be structurally distinct from
+        -- message lines for apply_highlights' prefix dispatch (a 2-space
+        -- detail after a sourceless message read as the next message).
+        table.insert(lines, "    " .. table.concat(detail, " · "))
       end
     end
   end
@@ -87,6 +90,9 @@ function M.format_errors(errors)
 end
 
 --- Apply extmark highlights to the errors buffer and store jump targets.
+--- Line kinds are dispatched by the prefix format_errors writes (summary,
+--- 2-space message, 4-space detail), so a sourceless error between others
+--- cannot shift the error/detail pairing.
 --- @param buf number
 --- @param lines string[]
 --- @param errors table[]|nil  Error entries for jump target mapping
@@ -94,8 +100,7 @@ function M.apply_highlights(buf, lines, errors)
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   vim.api.nvim_buf_clear_namespace(buf, jump_ns, 0, -1)
   jump_targets[buf] = {}
-  local err_idx = 1
-  local expect_source = false
+  local cur = 0 -- errors[] index of the most recent message line
   for i, line in ipairs(lines) do
     local row = i - 1
     if line:match("^  Errors:") then
@@ -103,32 +108,30 @@ function M.apply_highlights(buf, lines, errors)
         end_row = row, end_col = #line,
         hl_group = "PosteAssertSummary", priority = 100,
       })
-    elseif expect_source then
-      -- Source detail line: underline file:line and store jump target
-      if errors and errors[err_idx] then
-        local src = errors[err_idx].source
-        if src and src.file and src.line then
-          local short = vim.fn.fnamemodify(src.file, ":t")
-          local loc = string.format("%s:%d", short, src.line)
-          local start_col = line:find(loc, 1, true)
-          if start_col then
-            vim.api.nvim_buf_set_extmark(buf, jump_ns, row, start_col - 1, {
-              end_row = row, end_col = start_col - 1 + #loc,
-              hl_group = "Underlined",
-            })
-            jump_targets[buf][row] = { file = src.file, line = src.line }
-          end
+    elseif line:match("^    %S") then
+      -- Detail line of the error owning the previous message line:
+      -- underline file:line, store jump.
+      local e = errors and errors[cur]
+      local src = e and e.source
+      if src and src.file and src.line then
+        local short = vim.fn.fnamemodify(src.file, ":t")
+        local loc = string.format("%s:%d", short, src.line)
+        local start_col = line:find(loc, 1, true)
+        if start_col then
+          vim.api.nvim_buf_set_extmark(buf, jump_ns, row, start_col - 1, {
+            end_row = row, end_col = start_col - 1 + #loc,
+            hl_group = "Underlined",
+          })
+          jump_targets[buf][row] = { file = src.file, line = src.line }
         end
       end
-      expect_source = false
-      err_idx = err_idx + 1
     elseif line:match("^  %S") then
-      -- Message line: highlight with PosteAssertError and arm source expectation
+      -- Message line: highlight with PosteAssertError
+      cur = cur + 1
       vim.api.nvim_buf_set_extmark(buf, ns, row, 0, {
         end_row = row, end_col = #line,
         hl_group = "PosteAssertError", priority = 100,
       })
-      expect_source = true
     end
   end
 end

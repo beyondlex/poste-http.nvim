@@ -31,8 +31,15 @@ function M.expand_file_includes(content, buf_dir)
       if not fd then
         return nil, "File not found: " .. resolved .. " (referenced from body line)"
       end
-      local file_content = fd:read("*a")
+      -- io.open succeeds on directories (fopen "rb" is legal), but the read
+      -- fails — nil here used to be swallowed by table.insert, silently
+      -- dropping the include line (and with it the whole body).
+      local file_content, read_err = fd:read("*a")
       fd:close()
+      if not file_content then
+        return nil, "Cannot read file: " .. resolved
+          .. " (" .. tostring(read_err or "unreadable") .. ", referenced from body line)"
+      end
       table.insert(result, file_content)
       had_include = true
     else

@@ -130,6 +130,37 @@ describe("ws_session.start", function()
     assert.is_nil(state.live_session)
   end)
 
+  it("registers panel keys and publishes initial progress at start, before any inbound frame", function()
+    -- A server that only receives never sends a frame; keymaps and the
+    -- first progress used to wait for one, leaving the run busy-locked
+    -- with no visible way to send (`s`) or close (`c`) the session.
+    local keymaps = require("poste-http.ui.keymaps")
+    local buffer_mod = require("poste-http.http.buffer")
+    local orig_register, orig_get_buf = keymaps.register, buffer_mod.get_buf
+    local registered = {}
+    keymaps.register = function(_, _, action, ...) registered[#registered + 1] = action; return true end
+    local fake_buf = vim.api.nvim_create_buf(false, true)
+    buffer_mod.get_buf = function() return fake_buf end
+
+    local progress = {}
+    ws_session.start({
+      url = "wss://x", headers = {}, body = "",
+      on_progress = function(r) table.insert(progress, r) end,
+    }, function() end)
+
+    vim.wait(200, function() return #progress > 0 end)
+
+    keymaps.register = orig_register
+    buffer_mod.get_buf = orig_get_buf
+    if vim.api.nvim_buf_is_valid(fake_buf) then
+      vim.api.nvim_buf_delete(fake_buf, { force = true })
+    end
+
+    assert.equals(1, #progress)
+    assert.truthy(vim.list_contains(registered, "ws_send"), "ws_send key must register at start")
+    assert.truthy(vim.list_contains(registered, "ws_close"), "ws_close key must register at start")
+  end)
+
   it("labels a user-closed session as Session closed", function()
     local responses = {}
     ws_session.start({
@@ -198,6 +229,9 @@ describe("ws_session.start", function()
       }, function() end)
       captured_opts.on_stdout(900, { 'hi', '' }, nil)
       vim.wait(200, function() return #progress > 0 end)
+      -- open_ui runs on a schedule now (initial-progress tick), so pump
+      -- until the autocmd is actually there before counting.
+      vim.wait(200, function() return close_autocmd_count() > 0 end)
       -- open_ui registered exactly one close autocmd for this session.
       registered = close_autocmd_count()
       ws_session.close()

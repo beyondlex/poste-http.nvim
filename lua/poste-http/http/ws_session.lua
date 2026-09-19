@@ -145,10 +145,6 @@ function M.start(req, callback)
           table.insert(session.frames.received, { direction = "recv", data = vim.trim(line) })
         end
       end)
-      if not session.opened and #session.frames.received > 0 then
-        session.opened = true
-        open_ui(session)
-      end
       progress(session)
     end,
     on_stderr = function(_, data)
@@ -189,6 +185,19 @@ function M.start(req, callback)
   if #outgoing > 0 then
     vim.fn.chansend(session.job_id, table.concat(outgoing, "\n") .. "\n")
   end
+
+  -- The session is live once the job spawned, not at the first inbound
+  -- frame: a server that only receives never sends one, which used to
+  -- hold the run busy-locked with no `s`/`c` keys on the response panel.
+  -- Scheduled so run.lua's synchronous tail (pending-request state +
+  -- verbose view, which also creates the response buffer) finishes first;
+  -- the initial progress then opens the Msgs tab, releases busy, and
+  -- open_ui finds the panel to register the keys on.
+  vim.schedule(function()
+    if session.finished then return end
+    open_ui(session)
+    progress(session)
+  end)
 end
 
 --- Send one text frame on the active session (defaults to `active`).

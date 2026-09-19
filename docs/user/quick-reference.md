@@ -77,7 +77,7 @@ Content-Type: multipart/form-data
 < /path/to/file.txt
 ```
 
-> **Note**: `< path` for JSON body embedding has been removed. Use Lua import: `import ./vars.lua as m` then `{{m.key}}`.
+> **Note**: `< path` inserts the file's bytes verbatim (missing/unreadable file aborts the run). For external JSON prefer Lua import — `import ./vars.lua as m` then `{{m.key}}` — so the value resolves as a variable.
 
 ---
 

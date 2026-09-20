@@ -73,6 +73,12 @@ function M.expand()
   local buf = active.buf
   local cur_line = vim.fn.line(".")
 
+  -- Only expand from the buffer the hint was shown in: a same-line-number
+  -- coincidence in another buffer must never edit the original one.
+  if vim.api.nvim_get_current_buf() ~= buf then
+    M.clear()
+    return false
+  end
   if not vim.api.nvim_buf_is_valid(buf) or cur_line ~= active.line then
     M.clear()
     return false

@@ -112,7 +112,9 @@ describe("zero-coverage smoke specs", function()
     it("collect_parameters emits an enum header param as a {{var}} header", function()
       -- A header parameter with enum values used to emit only the prompt
       -- line — the header itself was missing from the generated request.
-      local headers, qs, _, prompts = import_parser.collect_parameters({
+      -- (collect_parameters returns headers, query_parts, url_vars,
+      -- has_body, prompts — all five must be destructured.)
+      local headers, qs, _, _, prompts = import_parser.collect_parameters({
         {
           name = "X-Region",
           ["in"] = "header",

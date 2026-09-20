@@ -32,10 +32,11 @@ function M.format_body(r)
 
   -- Image/binary response without Content-Disposition: save body to file for preview
   if r.body and r.body ~= "" and not (r.metadata and r.metadata.file_path) then
-    local ct = r.content_type or ""
-    local mime = ct:match("^([^;]+)") or ct
-    mime = vim.trim(mime):lower()
-    if mime ~= "" and not mime:find("text") and not mime:find("json") and not mime:find("xml") and not mime:find("html") then
+    -- Textual types (including form-urlencoded and javascript, whose mime
+    -- names carry no text/json/xml/html marker) render inline; only real
+    -- binary payloads are dumped to a file.
+    if not fmt_util.is_text_content_type(r.content_type) then
+      local ct = r.content_type or ""
       local ext = fmt_util.content_type_extension(ct)
       local ms = math.floor(((vim.uv or vim.loop).hrtime() / 1e6) % 1000)
       local fn = "res_" .. os.date("%Y%m%d_%H%M%S") .. string.format("_%03d", ms) .. ext
@@ -46,10 +47,7 @@ function M.format_body(r)
   -- Binary file/download response: show file info instead of mangled raw content
   if r.metadata and r.metadata.file_path and r.metadata.file_content_type
     and (r.metadata.content_disposition_attachment
-      or (not r.metadata.file_content_type:find("text")
-        and not r.metadata.file_content_type:find("json")
-        and not r.metadata.file_content_type:find("xml")
-        and not r.metadata.file_content_type:find("html"))) then
+      or not fmt_util.is_text_content_type(r.metadata.file_content_type)) then
     local lines = {}
     local ct = r.metadata.file_content_type or r.content_type or ""
     local image_mod = require("poste-http.http.format.image")
@@ -86,6 +84,16 @@ function M.format_body(r)
   -- Large text response: truncate and save to file
   if fmt_util.is_large_body(r.body) then
     return fmt_util.save_body_to_file(r.body, r.content_type, r)
+  end
+
+  -- Form-urlencoded responses render as decoded key-value lines, matching
+  -- how the verbose view presents the same body.
+  if fmt_util.mime_of(r.content_type) == "application/x-www-form-urlencoded" then
+    local form_lines = fmt_util.format_urlencoded_body(r.body)
+    if form_lines then
+      r._cached_body = form_lines
+      return form_lines
+    end
   end
 
   local body = M.pretty_body(r.body, r.content_type)

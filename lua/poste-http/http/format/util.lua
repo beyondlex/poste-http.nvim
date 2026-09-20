@@ -135,7 +135,9 @@ end
 
 --- Decode %XX escapes and '+' (space) in a urlencoded component.
 --- '+' → space runs first so %2B decodes to a literal plus.
-local function url_decode(s)
+--- Exported for the verbose Query Parameters display (bug: it used to
+--- decode %XX before '+', turning an encoded literal plus into a space).
+function M.url_decode(s)
   s = s:gsub("+", " ")
   return s:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
 end
@@ -146,8 +148,8 @@ function M.format_urlencoded_body(body)
   for pair in body:gmatch("[^&]+") do
     local key, val = pair:match("^([^=]+)=(.*)$")
     if key and val ~= nil then
-      key = url_decode(key)
-      val = url_decode(val)
+      key = M.url_decode(key)
+      val = M.url_decode(val)
       table.insert(lines, string.format("  %s: %s", key, val))
     end
   end
@@ -165,6 +167,65 @@ function M.pretty_body(body, content_type)
     end
   end
   return body
+end
+
+---------------------------------------------------------------------------
+-- Content-type classification
+---------------------------------------------------------------------------
+
+-- Single source of truth for content-type → treesitter filetype. format.lua
+-- and format/verbose.lua each used to keep a private copy that drifted.
+M.content_type_map = {
+  ["application/json"] = "json",
+  ["application/ld+json"] = "json",
+  ["application/vnd.api+json"] = "json",
+  ["text/html"] = "html",
+  ["application/xhtml+xml"] = "html",
+  ["text/xml"] = "xml",
+  ["application/xml"] = "xml",
+  ["application/rss+xml"] = "xml",
+  ["application/atom+xml"] = "xml",
+  ["text/javascript"] = "javascript",
+  ["application/javascript"] = "javascript",
+  ["text/css"] = "css",
+  ["text/markdown"] = "markdown",
+  ["text/yaml"] = "yaml",
+  ["application/x-yaml"] = "yaml",
+  ["text/plain"] = "text",
+}
+
+--- Extract the bare mime (no parameters) from a Content-Type value.
+function M.mime_of(content_type)
+  if not content_type then return "" end
+  local mime = content_type:match("^([^;]+)") or content_type
+  return vim.trim(mime):lower()
+end
+
+--- Whether a response with this Content-Type should render as text rather
+--- than being dumped to a file behind a "Binary File Response" card.
+---
+--- The legacy test was "mime mentions text/json/xml/html", which misrouted
+--- textual types whose names carry none of those markers
+--- (application/x-www-form-urlencoded, application/javascript, yaml
+--- variants, …) to the binary path. Those are listed explicitly; the
+--- structured +json/+xml suffixes are honored too. Unknown types still
+--- default to binary — dumping mojibake into the buffer is worse than the
+--- card. An empty type counts as text (same behavior as before).
+function M.is_text_content_type(content_type)
+  local mime = M.mime_of(content_type)
+  if mime == "" then return true end
+  if mime:find("text") or mime:find("json") or mime:find("xml") or mime:find("html") then
+    return true
+  end
+  if mime:match("%+json$") or mime:match("%+xml$") then return true end
+  local extra_text_mimes = {
+    ["application/x-www-form-urlencoded"] = true,
+    ["application/javascript"] = true,
+    ["application/x-yaml"] = true,
+    ["application/yaml"] = true,
+    ["application/toml"] = true,
+  }
+  return extra_text_mimes[mime] or false
 end
 
 local content_type_ext = {
@@ -187,8 +248,7 @@ local content_type_ext = {
 
 function M.content_type_extension(content_type)
   if not content_type then return ".bin" end
-  local mime = content_type:match("^([^;]+)") or content_type
-  mime = vim.trim(mime):lower()
+  local mime = M.mime_of(content_type)
   return content_type_ext[mime] or ".bin"
 end
 

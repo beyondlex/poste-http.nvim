@@ -9,6 +9,7 @@
 --- NOTE: New code should require the sub-modules directly. The re-exports
 --- here are maintained for backward compatibility.
 local state = require("poste-http.state")
+local fmt_util = require("poste-http.http.format.util")
 
 local body_mod = require("poste-http.http.format.body")
 local verbose_mod = require("poste-http.http.format.verbose")
@@ -23,32 +24,15 @@ local request_ns = vim.api.nvim_create_namespace("poste_request")
 
 ---------------------------------------------------------------------------
 -- Content-type → filetype mapping (for treesitter syntax highlighting)
+-- The table lives in format/util.lua; format/verbose.lua shares it.
 ---------------------------------------------------------------------------
-local content_type_map = {
-  ["application/json"] = "json",
-  ["application/ld+json"] = "json",
-  ["application/vnd.api+json"] = "json",
-  ["text/html"] = "html",
-  ["application/xhtml+xml"] = "html",
-  ["text/xml"] = "xml",
-  ["application/xml"] = "xml",
-  ["application/rss+xml"] = "xml",
-  ["application/atom+xml"] = "xml",
-  ["text/javascript"] = "javascript",
-  ["application/javascript"] = "javascript",
-  ["text/css"] = "css",
-  ["text/markdown"] = "markdown",
-  ["text/yaml"] = "yaml",
-  ["application/x-yaml"] = "yaml",
-  ["text/plain"] = "text",
-}
+local content_type_map = fmt_util.content_type_map
 
 function M.detect_filetype(content_type)
   if not content_type or content_type == "" then
     return "text"
   end
-  local mime = content_type:match("^([^;]+)") or content_type
-  mime = vim.trim(mime):lower()
+  local mime = fmt_util.mime_of(content_type)
   if content_type_map[mime] then return content_type_map[mime] end
   if mime:match("%+json$") then return "json" end
   return "text"

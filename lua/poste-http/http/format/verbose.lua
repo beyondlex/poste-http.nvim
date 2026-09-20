@@ -16,25 +16,8 @@ local json_ns = vim.api.nvim_create_namespace("poste_verbose_json")
 local _sep_lines = nil
 local _section_lines = nil
 
--- Content-type → filetype mapping
-local content_type_map = {
-  ["application/json"] = "json",
-  ["application/ld+json"] = "json",
-  ["application/vnd.api+json"] = "json",
-  ["text/html"] = "html",
-  ["application/xhtml+xml"] = "html",
-  ["text/xml"] = "xml",
-  ["application/xml"] = "xml",
-  ["application/rss+xml"] = "xml",
-  ["application/atom+xml"] = "xml",
-  ["text/javascript"] = "javascript",
-  ["application/javascript"] = "javascript",
-  ["text/css"] = "css",
-  ["text/markdown"] = "markdown",
-  ["text/yaml"] = "yaml",
-  ["application/x-yaml"] = "yaml",
-  ["text/plain"] = "text",
-}
+-- Content-type → filetype mapping (shared with format.lua via format/util)
+local content_type_map = fmt_util.content_type_map
 
 ---------------------------------------------------------------------------
 -- Verbose formatting
@@ -255,8 +238,10 @@ function M.format_verbose(r, pending, opts)
       for pair in query_string:gmatch("[^&]+") do
         local key, val = pair:match("^([^=]+)=(.*)$")
         if key then
-          val = val:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
-          val = val:gsub("+", " ")
+          -- Shared decoder: '+' → space BEFORE %XX, so an encoded literal
+          -- plus (%2B) survives as '+' instead of collapsing into a space.
+          key = fmt_util.url_decode(key)
+          val = fmt_util.url_decode(val)
           table.insert(lines, string.format("  %s: %s", key, val))
         else
           table.insert(lines, "  " .. pair)
@@ -350,10 +335,8 @@ function M.format_verbose(r, pending, opts)
 
       -- Image/binary response without Content-Disposition: save body to file for preview
       if r.body and r.body ~= "" and not (r.metadata and r.metadata.file_path) then
-        local ct = r.content_type or ""
-        local mime = ct:match("^([^;]+)") or ct
-        mime = vim.trim(mime):lower()
-        if mime ~= "" and not mime:find("text") and not mime:find("json") and not mime:find("xml") and not mime:find("html") then
+        if not fmt_util.is_text_content_type(r.content_type) then
+          local ct = r.content_type or ""
           local ext = fmt_util.content_type_extension(ct)
           local ms = math.floor(((vim.uv or vim.loop).hrtime() / 1e6) % 1000)
           local fn = "res_" .. os.date("%Y%m%d_%H%M%S") .. string.format("_%03d", ms) .. ext

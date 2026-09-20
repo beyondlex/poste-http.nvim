@@ -30,7 +30,9 @@ function M.format_messages(r)
   if #sent > 0 then
     table.insert(lines, "Sent (" .. #sent .. ")")
     for _, f in ipairs(sent) do
-      table.insert(lines, "→ " .. f)
+      -- Same normalization as received frames: a frame entry may be a plain
+      -- string (the ws_session send path today) or a { data = ... } table.
+      table.insert(lines, "→ " .. frame_data(f))
     end
     if #received > 0 then
       table.insert(lines, "")

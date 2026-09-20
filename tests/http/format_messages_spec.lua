@@ -31,4 +31,19 @@ describe("format.messages.format_messages", function()
     local lines = messages.format_messages({ metadata = {} })
     assert.is_true(#lines > 0)
   end)
+
+  it("normalizes table-shaped sent frames like received ones", function()
+    -- ws_session send paths store plain strings today, but format_messages
+    -- used to concatenate sent frames raw — a { data = ... } entry would
+    -- have crashed with "attempt to concatenate a table value".
+    local lines = messages.format_messages({
+      metadata = {
+        frames = {
+          sent = { { direction = "send", data = "hello" } },
+          received = {},
+        },
+      },
+    })
+    assert.matches("→ hello", table.concat(lines, "\n"))
+  end)
 end)

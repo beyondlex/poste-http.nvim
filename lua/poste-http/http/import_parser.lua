@@ -160,9 +160,16 @@ function M.collect_parameters(openapi_params, path_params, spec)
         -- Add a prompt with enum values directly as options
         local options_str = "[" .. table.concat(enum_values, ", ") .. "]"
         table.insert(prompts, { name = name, options = options_str })
-        -- Use {{varname}} in the URL instead of the hardcoded value
+        -- Use {{varname}} instead of a hardcoded value wherever the
+        -- parameter lands: query params go into the query string, header
+        -- params into a header line. Path params already reference
+        -- {{name}} via the {{param}} URL rewrite, so they need nothing
+        -- here. (Header params with an enum used to emit no header at
+        -- all — the prompt line existed, the request was missing it.)
         if in_location == "query" then
           table.insert(query_parts, name .. "={{" .. name .. "}}")
+        elseif in_location == "header" then
+          table.insert(headers, { key = name, value = "{{" .. name .. "}}" })
         end
       else
         if in_location == "header" then

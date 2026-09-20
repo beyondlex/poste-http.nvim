@@ -108,6 +108,30 @@ describe("zero-coverage smoke specs", function()
     it("make_filename sanitizes a title", function()
       assert.equals("pet_store_api.http", import_parser.make_filename("Pet Store API!"))
     end)
+
+    it("collect_parameters emits an enum header param as a {{var}} header", function()
+      -- A header parameter with enum values used to emit only the prompt
+      -- line — the header itself was missing from the generated request.
+      local headers, qs, _, prompts = import_parser.collect_parameters({
+        {
+          name = "X-Region",
+          ["in"] = "header",
+          required = true,
+          schema = { type = "string", enum = { "us", "eu" } },
+        },
+        {
+          name = "sort",
+          ["in"] = "query",
+          schema = { type = "string", enum = { "asc", "desc" } },
+        },
+      }, {}, {})
+      assert.equals(1, #headers)
+      assert.equals("X-Region", headers[1].key)
+      assert.equals("{{X-Region}}", headers[1].value)
+      assert.equals(1, #qs)
+      assert.equals("sort={{sort}}", qs[1])
+      assert.equals(2, #prompts)
+    end)
   end)
 
   ---------------------------------------------------------------------------

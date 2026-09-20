@@ -107,6 +107,16 @@ describe("format_body binary misdetection regression", function()
   end)
 end)
 
+describe("format.detect_filetype structured suffixes", function()
+  local format = require("poste-http.http.format")
+
+  it("maps +json and +xml suffixes even for unknown mimes", function()
+    assert.equals("json", format.detect_filetype("application/problem+json"))
+    assert.equals("xml", format.detect_filetype("application/vnd.example+xml"))
+    assert.equals("text", format.detect_filetype("application/x-unknown"))
+  end)
+end)
+
 describe("verbose Query Parameters decoding", function()
   it("keeps an encoded literal plus (%2B) as a plus", function()
     -- The old inline decode ran %XX before '+', so %2B collapsed into a

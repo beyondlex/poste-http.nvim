@@ -34,7 +34,9 @@ function M.detect_filetype(content_type)
   end
   local mime = fmt_util.mime_of(content_type)
   if content_type_map[mime] then return content_type_map[mime] end
+  -- Structured-syntax suffixes (RFC 6839): application/problem+json etc.
   if mime:match("%+json$") then return "json" end
+  if mime:match("%+xml$") then return "xml" end
   return "text"
 end
 

@@ -56,3 +56,33 @@ error("top-level boom")
     assert.equals(1, result.failed)
   end)
 end)
+
+describe("response.headers lookups", function()
+  local response = {
+    status = 200,
+    body = "{}",
+    headers = { { "Content-Type", "application/json" } },
+  }
+
+  it("resolves case-insensitively", function()
+    local result = assertions.run_assertions(response, [[
+client.test("header lookup", function()
+  client.assert(response.headers["content-type"] == "application/json", "lowercase miss")
+  client.assert(response.headers["CONTENT-TYPE"] == "application/json", "uppercase miss")
+end)
+]])
+    assert.equals(0, result.failed, table.concat(result.tests[1].errors, " | "))
+  end)
+
+  it("returns nil (not an error) for nil and non-string keys", function()
+    -- A raw table yields nil for these; the case-insensitive __index used
+    -- to call k:lower() and crash on them instead.
+    local result = assertions.run_assertions(response, [[
+client.test("odd keys", function()
+  client.assert(response.headers[nil] == nil, "nil key must be nil")
+  client.assert(response.headers[42] == nil, "number key must be nil")
+end)
+]])
+    assert.equals(0, result.failed, table.concat(result.tests[1].errors, " | "))
+  end)
+end)

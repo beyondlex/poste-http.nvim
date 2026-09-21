@@ -56,6 +56,10 @@ function M.run_assertions(response_data, code, script_vars)
     status = response_data.status,
     headers = setmetatable(headers, {
       __index = function(t, k)
+        -- A raw table returns nil for nil/non-string keys; without this
+        -- guard the metatable turned `response.headers[nil]` in a user
+        -- script into "attempt to index a nil value (k)".
+        if type(k) ~= "string" then return nil end
         return rawget(t, k:lower())
       end,
     }),

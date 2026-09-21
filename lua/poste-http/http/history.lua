@@ -616,6 +616,23 @@ local function setup_list_keymaps()
   })
 end
 
+--- Pure: list/detail pane widths for `avail_width` editor columns.
+--- On a normal editor the list keeps its full 53 columns; on a narrow one
+--- the list shrinks first (columns.render truncates cells to whatever width
+--- it is given) and the detail pane is clamped to a positive floor —
+--- nvim_open_win rejects width < 1, which used to make :PosteHttpHistory
+--- close itself instantly on terminals under ~56 columns.
+function M._layout_widths(avail_width)
+  local gap = 1
+  local MIN_DETAIL = 20
+  local list = 53
+  if avail_width < list + gap + 1 + MIN_DETAIL then
+    list = math.max(24, avail_width - gap - 1 - MIN_DETAIL)
+  end
+  local detail = math.max(MIN_DETAIL, avail_width - list - gap - 1)
+  return list, detail
+end
+
 function M.show()
 
   if list_win and vim.api.nvim_win_is_valid(list_win) then
@@ -629,8 +646,10 @@ function M.show()
   local total_height = math.floor(editor_height * 0.88)
   local top = math.floor((editor_height - total_height) / 2)
   local left = math.floor((editor_width - total_width) / 2)
-  list_width = 53
   local gap = 1
+
+  local list_w, detail_width = M._layout_widths(total_width)
+  list_width = list_w
 
   -- close_keys = {}: the list/detail keymaps below own "q" (hide closes both
   -- windows), so the float primitive must not map its own close keys.
@@ -646,7 +665,6 @@ function M.show()
   })
   if not list_win then return end
 
-  local detail_width = total_width - list_width - gap - 1
   detail_buf, detail_win = float.open({
     width = detail_width,
     height = total_height,

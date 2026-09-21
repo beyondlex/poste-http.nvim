@@ -272,3 +272,25 @@ describe("history.apply_jq_filter", function()
     assert.equals(0, #notify_calls)
   end)
 end)
+
+describe("history._layout_widths (narrow-terminal geometry)", function()
+  it("keeps the 53-column list when the editor is wide", function()
+    local list, detail = history._layout_widths(110)
+    assert.equals(53, list)
+    assert.equals(55, detail)
+  end)
+
+  it("shrinks the list first on a narrow editor", function()
+    -- 60-column editor → 55 available; the old math produced detail_width
+    -- = 0 and nvim_open_win rejected it, so the history UI closed instantly.
+    local list, detail = history._layout_widths(55)
+    assert.equals(33, list)
+    assert.equals(20, detail)
+  end)
+
+  it("keeps the detail pane positive on degenerate widths", function()
+    local list, detail = history._layout_widths(20)
+    assert.is_true(list >= 24, "list floors at 24, got " .. list)
+    assert.is_true(detail >= 20, "detail floors at 20, got " .. detail)
+  end)
+end)

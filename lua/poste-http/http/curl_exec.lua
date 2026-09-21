@@ -95,6 +95,10 @@ function M.execute(opts, callback)
     table.insert(args, cookie_jar)
   end
 
+  -- End-of-options guard: the URL is curl's only free-position argument
+  -- (option values are consumed as optargs even when they start with `-`),
+  -- so `--` is what stops a pathological URL from parsing as flags.
+  table.insert(args, "--")
   table.insert(args, url)
 
   state.log("INFO", "curl: " .. util.redacted_cmd(args):sub(1, 500))

@@ -5,20 +5,10 @@ local vars = require("poste-http.http.vars")
 local request_deps = require("poste-http.http.request_deps")
 
 local M = {}
-
---- Shell-escape a string for curl argument
-local function shell_escape(s)
-  if not s or s == "" then
-    return ""
-  end
-  -- If contains special chars, wrap in single quotes
-  if s:match("['\"\\$`!#&|;(){}<>*?~%[%]]") or s:match("%s") then
-    -- Escape single quotes within the string
-    s = s:gsub("'", "'\\''")
-    return "'" .. s .. "'"
-  end
-  return s
-end
+-- Shell-escaping goes through util.shell_escape (the whitelist dialect).
+-- This module used to keep its own blacklist-based variant and the two
+-- drifted (util quoted more inputs); every caller below produces non-empty
+-- strings, so util's `''`-for-empty contract never fires here.
 
 --- Walk up from directory looking for env.json and return current env's variables.
 local function load_env_vars(file_path, env_name)
@@ -153,7 +143,7 @@ local function build_multipart_flags(raw_lines, boundary, buf_dir, var_map)
     if file_path then
       local resolved = resolve_file_path(file_path, buf_dir)
       if resolved then
-        table.insert(flags, "-F " .. shell_escape(current_name .. "=@" .. resolved))
+        table.insert(flags, "-F " .. util.shell_escape(current_name .. "=@" .. resolved))
       end
     else
       local value = substitute_vars(table.concat(current_value), var_map)
@@ -167,7 +157,7 @@ local function build_multipart_flags(raw_lines, boundary, buf_dir, var_map)
       end)
       value = value:gsub("{{%$date}}", os.date("%Y-%m-%d"))
       value = value:gsub("{{%$randomInt}}", tostring(math.random(0, 9999999)))
-      table.insert(flags, "-F " .. shell_escape(current_name .. "=" .. value))
+      table.insert(flags, "-F " .. util.shell_escape(current_name .. "=" .. value))
     end
   end
 
@@ -326,7 +316,7 @@ function M.copy_as_curl()
   end
 
   -- URL
-  table.insert(parts, shell_escape(url))
+  table.insert(parts, util.shell_escape(url))
 
   -- Detect multipart/form-data (extract boundary from raw header)
   local is_multipart = false
@@ -363,7 +353,7 @@ function M.copy_as_curl()
   -- Headers (skip Content-Type for multipart — curl sets it for -F)
   for _, h in ipairs(headers) do
     if not (is_multipart and h[1]:lower() == "content-type") then
-      table.insert(parts, "-H " .. shell_escape(h[1] .. ": " .. h[2]))
+      table.insert(parts, "-H " .. util.shell_escape(h[1] .. ": " .. h[2]))
     end
   end
 
@@ -381,7 +371,7 @@ function M.copy_as_curl()
       end
     else
       local body = table.concat(body_lines, "\n")
-      table.insert(parts, "--data-binary " .. shell_escape(body))
+      table.insert(parts, "--data-binary " .. util.shell_escape(body))
     end
   end
 

@@ -34,6 +34,27 @@ describe("copy_as_curl", function()
     assert.matches("https://api%.example%.com/users", cmd)
   end)
 
+  it("quotes values with the shared util.shell_escape dialect", function()
+    -- Regression: copy.lua kept a private blacklist-based escape that drifted
+    -- from util.shell_escape (whitelist). Both dialects agree on the common
+    -- shapes (plain URLs unquoted, spaces quoted); this pins a `+`-bearing
+    -- header value, which the old local variant left bare, to the shared one.
+    local buf = make_buf({
+      "### Ping",
+      "POST https://api.example.com/echo",
+      "X-Trace: a+b+c",
+      "",
+      "-leading-dash body",
+    })
+    vim.api.nvim_set_current_buf(buf)
+    vim.fn.setpos(".", { 0, 2, 1, 0 })
+
+    local cmd = copy.copy_as_curl()
+    assert.is_not_nil(cmd)
+    assert.matches("'X%-Trace: a%+b%+c'", cmd)
+    assert.matches("%-%-data%-binary '%-leading%-dash body'", cmd)
+  end)
+
   it("includes headers and method", function()
     local buf = make_buf({
       "### Create",

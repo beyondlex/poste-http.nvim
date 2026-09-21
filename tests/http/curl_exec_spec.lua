@@ -47,6 +47,15 @@ describe("curl_exec.execute", function()
     assert.matches("1> ", captured_args)
   end)
 
+  it("emits -- before the URL so it can never parse as flags", function()
+    -- The URL is curl's only free-position argument; a value there starting
+    -- with `-` would be parsed as options. Option VALUES are safe regardless
+    -- of quoting (getopt consumes the next argv as the optarg), so the `--`
+    -- separator is the real guard.
+    curl_exec.execute({ method = "GET", url = "https://example.com/x" }, function() end)
+    assert.matches("%-%- https://example%.com/x", captured_args)
+  end)
+
   it("returns error when URL is empty", function()
     local result
     curl_exec.execute({ method = "GET", url = "" }, function(r) result = r end)

@@ -26,3 +26,14 @@ max_line_length = false
 
 -- Ignore "setting read-only field" (Neovim bo/wo/g metatable patterns)
 ignore = { "122" }
+
+-- Example pre/post scripts run inside the plugin's Lua sandbox, which
+-- injects these objects as globals (see http/script_sandbox.lua). Not
+-- defined at parse time, so declare them instead of warning on each use.
+files["examples"] = {
+  globals = {
+    "client",
+    "response",
+    "request",
+  },
+}

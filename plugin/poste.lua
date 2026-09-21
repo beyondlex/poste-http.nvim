@@ -70,7 +70,7 @@ vim.api.nvim_create_autocmd("BufEnter", {
 for _, buf in ipairs(vim.api.nvim_list_bufs()) do
   local name = vim.api.nvim_buf_get_name(buf)
   if name:match("%.http$") or name:match("%.rest$") then
-    vim.api.nvim_buf_set_option(buf, "filetype", "poste_http")
+    vim.bo[buf].filetype = "poste_http"
     buffer_setup.setup_buffer_keymaps(buf)
     buffer_setup.attach_boundary(buf)
   end

@@ -176,7 +176,16 @@ end
 
 function M.set_responses(chain, idx)
   M.last_responses = chain
-  M.response_index = idx or (#chain or 1)
+  -- `#chain` errors on a nil chain rather than yielding nil, so the old
+  -- `idx or (#chain or 1)` crashed instead of falling back; make the
+  -- fallback explicit and keep set_responses(nil, nil) total.
+  if idx then
+    M.response_index = idx
+  elseif type(chain) == "table" then
+    M.response_index = #chain
+  else
+    M.response_index = nil
+  end
 end
 
 function M.set_errors(errors)

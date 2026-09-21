@@ -62,6 +62,31 @@ describe("state mutable fields", function()
     assert.is_nil(state.last_response)
   end)
 
+  describe("set_responses", function()
+    it("defaults the index to the chain length", function()
+      local chain = { { status = 200 }, { status = 201 }, { status = 204 } }
+      state.set_responses(chain)
+      assert.equals(3, state.response_index)
+      state.set_responses(nil)
+      state.last_responses = nil
+    end)
+
+    it("honors an explicit index", function()
+      state.set_responses({ { status = 200 } }, 1)
+      assert.equals(1, state.response_index)
+      state.set_responses(nil)
+      state.last_responses = nil
+    end)
+
+    it("stays total on (nil, nil) instead of erroring on #chain", function()
+      -- The old `idx or (#chain or 1)` crashed here: `#nil` errors rather
+      -- than yielding nil, so the `or 1` fallback was unreachable.
+      assert.has_no_errors(function() state.set_responses(nil, nil) end)
+      assert.is_nil(state.last_responses)
+      assert.is_nil(state.response_index)
+    end)
+  end)
+
   it("last_assertion_results stores test summary", function()
     local results = { passed = 3, failed = 1, total = 4 }
     state.last_assertion_results = results

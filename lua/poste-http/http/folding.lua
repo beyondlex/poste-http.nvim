@@ -22,10 +22,38 @@ end
 local cached_separators = {}
 local cached_tick = {}
 
+--- Drop one buffer's cache entries. Wired to BufWipeout below so wiped
+--- buffers (every closed .http file, each run's scratch buffers) don't
+--- accumulate forever under their bufnr keys.
+function M._evict(bufnr)
+  cached_separators[bufnr] = nil
+  cached_tick[bufnr] = nil
+end
+
+--- For tests: number of buffers currently holding cached separator ranges.
+function M._cache_size()
+  local n = 0
+  for _ in pairs(cached_separators) do n = n + 1 end
+  return n
+end
+
+local eviction_armed = false
+local function arm_eviction()
+  if eviction_armed then return end
+  eviction_armed = true
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    group = vim.api.nvim_create_augroup("poste_http_folding_cache", { clear = true }),
+    callback = function(args)
+      M._evict(args.buf)
+    end,
+  })
+end
+
 function M.foldexpr()
   local buf = 0
   local lnum = vim.v.lnum - 1
   local ct = vim.api.nvim_buf_get_changedtick(buf)
+  arm_eviction()
 
   -- nvim_buf_get_changedtick is per-buffer; two buffers can share a tick value.
   -- Cache by buffer number so the separator ranges never leak across buffers.

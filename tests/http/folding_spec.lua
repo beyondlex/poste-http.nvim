@@ -78,4 +78,21 @@ describe("folding.foldexpr", function()
     vim.v.lnum = 1
     assert.equals(">3", folding.foldexpr())
   end)
+
+  it("evicts the cache entry when the buffer is wiped out", function()
+    if not ts_query.is_available(buf_a) then
+      return
+    end
+
+    local before = folding._cache_size()
+    vim.api.nvim_set_current_buf(buf_a)
+    vim.v.lnum = 1
+    folding.foldexpr() -- primes cached_separators[buf_a]
+    assert.is_true(folding._cache_size() >= before + 1,
+      "priming must add a cache entry")
+
+    vim.api.nvim_buf_delete(buf_a, { force = true }) -- fires BufWipeout
+    assert.equals(before, folding._cache_size(),
+      "BufWipeout must drop the buffer's cache entry")
+  end)
 end)

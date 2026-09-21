@@ -135,6 +135,17 @@ pitfall, log it here. Check this file before starting any task.
 - YYYY-MM-DD: <scope> — <one-line problem>. Fix: <one-line fix>. See <file>:<line>.
 ```
 
+- 2026-09-22: curl-import/shell-escape — shell quoting and curl flag
+  parsing are DIFFERENT layers, and only the shell layer is fixable by an
+  escape function. Netcat probe (curl 8.7.1): `--data-binary -foo` sends
+  `-foo` as the body — getopt consumes the next argv as the optarg even
+  when it starts with `-`, short or long form, quoted or not. So
+  "leading-dash value could parse as a flag" is only real in FREE
+  positions (curl's trailing URL); the fix there is an explicit `--`
+  separator, not quotes. See `lua/poste-http/http/curl_exec.lua`,
+  `lua/poste-http/http/curl.lua` (combined `-sSo out.txt` blob walk),
+  `docs/dev/review-2026-09-22.md`.
+
 - 2026-07-07: http/dep-resolution — Rust parser (parser.rs:318-325) treats `<<var` as request line (not `@`, `#`, `>`). Before CLI execution, `<<var` MUST be converted to `@var = value` via Lua `handle_prompt_variables`. Fix: removed depth-1 limit and prompt skip from `resolve_request_variables` and `resolve_content_dependencies`; added recursive sub-dep resolution with depth tracking; added prompt handling for same-file deps via `handle_prompt_variables`; added `handle_import_prompts` with scratch buffer for imported file prompts. See `lua/poste-http/http/request_vars.lua:871-977,1027-1142` and `lua/poste-http/http/import.lua:347-383,530-619`.
 - 2026-07-07: http/dep-execution — `execute_dependent_request_async` (line 298) used `dep_req.start_line` as `--line` but sent only the dep's block text via stdin. Rust parser's `parse_at_line` counts lines from stdin, finds `--line` > stdin line count, bails with "No request found". Dep silently fails, ref stays unresolved. Fix: use `--line 1` since stdin always has only the block (starting at `###`). This bug existed before the recursive change — old code also passed block text with wrong line. See `lua/poste-http/http/request_vars.lua:323`.
 - 2026-07-07: http/dep-file-vars — `execute_dependent_request_async` sends only dep's block text via stdin, so Rust parser's `extract_file_variables` sees NO file-level `@var` lines (they're above `###` in the original file). `{{base_url}}` (from `@base_url = https://...`) stays unresolved → CLI builds request to `{{base_url}}/path` → HTTP fails with status 0 + empty body → `resolve_request_variable` returns nil at `if not body or body == "" then return nil end` → ref stays as `{{...}}`. Fix: `read_file_vars_from_path` helper reads `@var` lines (before first `###`) from the source file on disk; `execute_dependent_request_async` prepends them to stdin content and adjusts `--line` to point at the dep's `###` within the combined content. See `lua/poste-http/http/request_vars.lua:290-321`.

@@ -198,11 +198,11 @@ describe("load_env_vars_with_lines section scanning", function()
   }
 }
 ]=])
-    local vars = require("poste-http.http.vars").load_env_vars_with_lines(env_path, "dev")
-    assert.equals("https://dev.example.com", vars.host.value)
-    assert.equals("{", vars.open.value)
-    assert.equals("}", vars.close.value)
+    local env = require("poste-http.http.vars").load_env_vars_with_lines(env_path, "dev")
+    assert.equals("https://dev.example.com", env.host.value)
+    assert.equals("{", env.open.value)
+    assert.equals("}", env.close.value)
     -- the leak signature: prod.host would have overwritten dev.host
-    assert.equals("https://dev.example.com", vars.host.value)
+    assert.equals("https://dev.example.com", env.host.value)
   end)
 end)

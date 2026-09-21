@@ -232,15 +232,17 @@ local function parse_curl(cmd)
   end
 
   local idx = 1
-  -- Short flags whose value we don't map into the .http form (output file,
-  -- proxy, timeouts, certs, …): their value must be consumed, or a bare
-  -- value like `-o out.txt` used to win the "last bare arg is the URL"
-  -- scan and replace the real request target.
-  local ignored_value_short = {
+  -- Short flags that take a value: either their own dedicated branches
+  -- above (H, X, d, F, u) or flags whose value we don't map into the .http
+  -- form (output file, proxy, timeouts, certs, …). The value must be
+  -- consumed either way, or a bare `-o out.txt` wins the "first bare arg is
+  -- the URL" scan and replaces the real request target.
+  local value_short = {
     o = true, A = true, e = true, b = true, x = true,
     m = true, D = true, E = true, Q = true, T = true, Y = true, y = true,
     C = true, K = true, w = true, c = true, P = true, r = true, t = true,
     U = true, z = true,
+    H = true, X = true, d = true, F = true, u = true,
   }
   -- Same for long flags, matched in both `--flag value` and `--flag=value`
   -- shapes (the `=` shapes are handled by prefix below).
@@ -356,12 +358,19 @@ local function parse_curl(cmd)
       -- `--flag value` shape: drop both.
       idx = idx + 1
     elseif arg:match("^%-(%a)") then
-      -- Generic short flag. Known value flags take their value from the
-      -- rest of the arg (attached `-m10`) or the next arg (separate
-      -- `-m 10`); boolean flags (-s, -L, -k, …) have no value to consume.
-      local letter, rest = arg:match("^%-(%a)(.*)$")
-      if ignored_value_short[letter] and rest == "" then
-        idx = idx + 1
+      -- Combined short-flag blob (-sS, -sSo): walk the letters. A value
+      -- flag takes the rest of the blob as its attached value (-sofile) or
+      -- the next argv when it ends the blob (-sSo out.txt); boolean letters
+      -- continue the walk. Without the walk, `-sSo out.txt` leaked out.txt
+      -- as a bare arg and the URL scan picked it as the request target.
+      local letters = arg:sub(2)
+      for pos = 1, #letters do
+        if value_short[letters:sub(pos, pos)] then
+          if pos == #letters then
+            idx = idx + 1 -- value rides in the next argv
+          end
+          break -- anything after the value letter was its attached value
+        end
       end
     else
       -- Assume it's the URL: curl sends the FIRST bare argument; a second

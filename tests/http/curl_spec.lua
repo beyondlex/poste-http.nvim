@@ -382,3 +382,32 @@ describe("curl.paste_curl (conversion shape)", function()
     assert.is_truthy(tostring(notified[1]):find("Failed to parse curl"))
   end)
 end)
+
+describe("curl.parse_curl combined short flags", function()
+  it("consumes the value that rides after a trailing value flag in a blob", function()
+    -- Regression: the generic branch treated every letter as boolean, so
+    -- `out.txt` leaked out as a bare arg and won the first-bare-arg-is-URL
+    -- scan, replacing the real request target.
+    local parsed = curl.parse_curl("curl -sSo out.txt https://api.example.com/users")
+    assert.equals("https://api.example.com/users", parsed.url)
+  end)
+
+  it("consumes an attached value inside a blob (-sofile)", function()
+    local parsed = curl.parse_curl("curl -soresp.txt https://api.example.com/users")
+    assert.equals("https://api.example.com/users", parsed.url)
+  end)
+
+  it("keeps boolean-only blobs working", function()
+    local parsed = curl.parse_curl("curl -sSLk https://api.example.com/users")
+    assert.equals("https://api.example.com/users", parsed.url)
+    assert.equals("GET", parsed.method)
+  end)
+
+  it("does not let a blob value hijack the URL before the real target", function()
+    -- URL first, output flag after: the blob's value must be consumed even
+    -- though the URL scan already matched.
+    local parsed = curl.parse_curl("curl https://api.example.com/users -sSo out.txt -X POST")
+    assert.equals("https://api.example.com/users", parsed.url)
+    assert.equals("POST", parsed.method)
+  end)
+end)

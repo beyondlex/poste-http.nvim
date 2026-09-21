@@ -162,3 +162,47 @@ describe("magic vars", function()
     assert.is_true(util._random_seeded)
   end)
 end)
+
+describe("load_env_vars_with_lines section scanning", function()
+  local dir, env_path
+
+  before_each(function()
+    dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    env_path = vim.fs.joinpath(dir, "env.json")
+  end)
+
+  after_each(function()
+    pcall(vim.fn.delete, dir, "rf")
+  end)
+
+  local function write_env(content)
+    local f = io.open(env_path, "w")
+    f:write(content)
+    f:close()
+  end
+
+  it("stops at the section boundary even when values contain braces", function()
+    -- Regression: bare { / } counting read braces INSIDE string values, so
+    -- a value like "{" pushed the boundary out and the next env section's
+    -- keys leaked into the lookup.
+    write_env([=[
+{
+  "dev": {
+    "open": "{",
+    "close": "}",
+    "host": "https://dev.example.com"
+  },
+  "prod": {
+    "host": "https://prod.example.com"
+  }
+}
+]=])
+    local vars = require("poste-http.http.vars").load_env_vars_with_lines(env_path, "dev")
+    assert.equals("https://dev.example.com", vars.host.value)
+    assert.equals("{", vars.open.value)
+    assert.equals("}", vars.close.value)
+    -- the leak signature: prod.host would have overwritten dev.host
+    assert.equals("https://dev.example.com", vars.host.value)
+  end)
+end)

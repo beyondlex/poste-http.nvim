@@ -207,6 +207,31 @@ function M.load_env_vars(file_path, env_name)
   return {}
 end
 
+-- Net { minus } on one line, counting only braces OUTSIDE JSON string
+-- literals. A value like "pattern": "{" is legal JSON but used to shift the
+-- section boundary, leaking the next env section's keys into this one.
+local function brace_delta_outside_strings(s)
+  local depth, in_str, i = 0, false, 1
+  while i <= #s do
+    local c = s:sub(i, i)
+    if in_str then
+      if c == "\\" then
+        i = i + 1 -- skip the escaped char
+      elseif c == '"' then
+        in_str = false
+      end
+    elseif c == '"' then
+      in_str = true
+    elseif c == "{" then
+      depth = depth + 1
+    elseif c == "}" then
+      depth = depth - 1
+    end
+    i = i + 1
+  end
+  return depth
+end
+
 function M.load_env_vars_with_lines(file_path, env_name)
   local result = {}
   if not file_path or file_path == "" then return result end
@@ -241,7 +266,7 @@ function M.load_env_vars_with_lines(file_path, env_name)
     if not in_section then
       if trimmed:match('^"' .. vim.pesc(env_name) .. '"%s*:') then
         in_section = true
-        brace_depth = brace_depth + trimmed:gsub("[^{]", ""):len() - trimmed:gsub("[^}]", ""):len()
+        brace_depth = brace_depth + brace_delta_outside_strings(trimmed)
       end
     else
       local key = trimmed:match('^"([^"]+)"%s*:')
@@ -253,7 +278,7 @@ function M.load_env_vars_with_lines(file_path, env_name)
           result[key] = { value = value, line = i }
         end
       end
-      brace_depth = brace_depth + trimmed:gsub("[^{]", ""):len() - trimmed:gsub("[^}]", ""):len()
+      brace_depth = brace_depth + brace_delta_outside_strings(trimmed)
       if brace_depth <= 0 then
         break
       end

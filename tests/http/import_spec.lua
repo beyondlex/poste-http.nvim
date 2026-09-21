@@ -138,6 +138,26 @@ describe("resolve_reference", function()
     assert.are_equal(1, r.line)
   end)
 
+  it("falls back to the bare scan when a dotted name is a literal request name", function()
+    -- Regression: any dotted reference was parsed as alias.Name and returned
+    -- nil when the alias was unknown, making a bare import's request named
+    -- "Get User.v2" unresolvable. Alias form still wins on a real match.
+    local dotted_index = {
+      bare = {
+        {
+          path = "/dir/users.http",
+          requests = { { name = "Get User.v2", line = 3 } },
+        },
+      },
+      aliased = {},
+      errors = {},
+      warnings = {},
+    }
+    local r = imp.resolve_reference("Get User.v2", dotted_index)
+    assert.are_equal("/dir/users.http", r.path)
+    assert.are_equal(3, r.line)
+  end)
+
   it("returns nil for unknown reference", function()
     assert.is_nil(imp.resolve_reference("Unknown", index))
   end)

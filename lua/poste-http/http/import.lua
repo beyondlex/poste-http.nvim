@@ -268,7 +268,7 @@ end
 --- @param index table  Import index from build_import_index()
 --- @return { path: string, line: number, request: {name: string, line: number} }|nil
 local function resolve_reference(reference, index)
-  -- Try alias.Name format
+  -- Try alias.Name format first
   local alias, name = reference:match("^([^%.]+)%.(.+)$")
   if alias and name then
     local entry = index.aliased[alias]
@@ -279,7 +279,9 @@ local function resolve_reference(reference, index)
         end
       end
     end
-    return nil
+    -- No alias.Name hit: fall through to the bare scan. A dotted reference
+    -- can be a bare import's LITERAL request name ("Get User.v2"); returning
+    -- nil here made such requests unresolvable. Alias form keeps precedence.
   end
 
   -- Try bare name lookup

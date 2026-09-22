@@ -45,6 +45,23 @@ local function stop_all_timers(buf)
   spinners[buf] = nil
 end
 
+--- Drop one buffer's spinner state (test/eviction hook). A scratch `.http`
+--- buffer wiped mid-run leaves nobody to call clear_all: the spinner timer
+--- then ticks over the dead buffer forever.
+function M._evict(buf)
+  _extmarks[buf] = nil
+  stop_all_timers(buf)
+end
+
+--- Buffers carrying spinner state (test hook).
+function M._spinner_count()
+  local n = 0
+  for _ in pairs(spinners) do
+    n = n + 1
+  end
+  return n
+end
+
 function M.clear_all(buf)
   -- 0 = current-buffer sentinel; sign_unplace rejects 0 (E158), so resolve
   -- before the guard (0 is truthy and nvim_buf_is_valid(0) is true).
@@ -152,19 +169,15 @@ function M.set_indicator(buf, line_0, status, latency_ms, assertion_results)
   end
 end
 
+-- BufWipeout, NOT BufDelete: nvim_buf_delete on an unloaded scratch buffer
+-- (the normal .http case) fires only BufWipeout, so the old BufDelete hook
+-- never ran and wiped-with-a-running-spinner buffers leaked their uv timers.
+-- Folding.lua's eviction precedent (folding_spec covers the same shape).
 local _indicator_augroup = vim.api.nvim_create_augroup("PosteHttpIndicators", { clear = true })
-vim.api.nvim_create_autocmd("BufDelete", {
+vim.api.nvim_create_autocmd("BufWipeout", {
   group = _indicator_augroup,
   callback = function(ev)
-    local buf = ev.buf
-    if _extmarks[buf] then _extmarks[buf] = nil end
-    if spinners[buf] then
-      for _, s in pairs(spinners[buf]) do
-        s.timer:stop()
-        s.timer:close()
-      end
-      spinners[buf] = nil
-    end
+    M._evict(ev.buf)
   end,
 })
 

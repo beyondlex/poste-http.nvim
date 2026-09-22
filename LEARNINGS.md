@@ -3,6 +3,14 @@
 Agent self-evolution log. When you fix a non-obvious bug or encounter a
 pitfall, log it here. Check this file before starting any task.
 
+- 2026-09-23: indicators BufDelete-vs-BufWipeout — `nvim_buf_delete` on an
+  UNLOADED SCRATCH buffer (the normal .http nofile case) fires only
+  `BufWipeout`; `BufDelete` stayed at 0 in a headless probe, so a cleanup
+  autocmd hung on BufDelete never ran and spinner timers leaked per wiped
+  buffer. When a scratch buffer's teardown matters, hook BufWipeout
+  (folding.lua and indicators.lua now share the _evict shape). See
+  `lua/poste-http/indicators.lua`, `tests/http/indicators_eviction_spec.lua`.
+
 - 2026-09-19: curl-import-fidelity — verify importer claims against the real
   binary's wire behavior, not from memory: three bugs this round (multi `-d`
   last-wins instead of `&`-joined, quoted `boundary="x"` leaking quotes into

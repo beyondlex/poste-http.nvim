@@ -99,6 +99,10 @@ describe("poste-http.http.image_cache", function()
       local url = "https://cache-unit/nottl.png"
 
       vim.fn.system = function(cmd)
+        -- end-of-options guard: the URL is the only free-position argv slot
+        -- (curl_exec precedent), so `--` must precede it
+        assert.equals("--", cmd[#cmd - 1], "URL must be guarded with --")
+        assert.equals(url, cmd[#cmd])
         -- simulate curl: write the body to the -o target
         for i, arg in ipairs(cmd) do
           if arg == "-o" then

@@ -152,7 +152,12 @@ function M.download_image_url(url)
   local ms = math.floor(((vim.uv or vim.loop).hrtime() / 1e6) % 1000)
   local tmp = cache_dir .. "/img/url_" .. os.date("%Y%m%d_%H%M%S") .. string.format("_%03d", ms) .. extension_for(ct)
   M.register_temp_file(tmp)
-  local cmd = { "curl", "-s", "-S", "-L", "--max-time", "15", "-o", tmp, url }
+  local cmd = { "curl", "-s", "-S", "-L", "--max-time", "15", "-o", tmp }
+  -- End-of-options guard (curl_exec precedent): the URL is the only
+  -- free-position argv slot, so `--` stops a pathological URL — e.g. one
+  -- harvested from a response body — from parsing as flags.
+  cmd[#cmd + 1] = "--"
+  cmd[#cmd + 1] = url
   vim.fn.system(cmd)
 
   if vim.v.shell_error ~= 0 then

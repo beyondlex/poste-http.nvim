@@ -178,6 +178,16 @@ describe("ai.blocks.dep_names", function()
     assert.same({}, blocks.dep_names("{{api_base}} {{other}}"))
     assert.same({}, blocks.dep_names(nil))
   end)
+
+  it("matches the executor's ref grammar: spaced/dotted names and .res. shorthand", function()
+    -- request_deps.split_request_ref takes EVERYTHING before `.response.` /
+    -- `.request.` as the request name (block names may carry spaces or
+    -- dots) and normalizes `.res.` → `.response.`. dep_names feeds
+    -- auto_context's dep lookup, so a grammar divergence here silently
+    -- drops those deps from the chat context.
+    local text = "{{Login User.response.body.token}} {{v1.2 Login.res.status}}"
+    assert.same({ "Login User", "v1.2 Login" }, blocks.dep_names(text))
+  end)
 end)
 
 ---------------------------------------------------------------------------

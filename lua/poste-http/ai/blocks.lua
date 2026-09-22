@@ -145,14 +145,26 @@ function M.block_text_at_line(content, line)
 end
 
 --- Request names referenced via {{Name.response.*}} / {{Name.request.*}},
---- sorted, deduplicated.
+--- sorted, deduplicated. Mirrors request_deps.split_request_ref's grammar:
+--- the name is EVERYTHING before `.response.`/`.request.` (block names may
+--- carry spaces or dots), and `.res.` normalizes to `.response.` — a
+--- divergence here would drop deps from the chat context the executor
+--- still runs.
 --- @param text string
 --- @return string[]
 function M.dep_names(text)
   local seen = {}
   if type(text) == "string" then
-    for name in text:gmatch("{{([%w_]+)%.response%.") do seen[name] = true end
-    for name in text:gmatch("{{([%w_]+)%.request%.") do seen[name] = true end
+    for inner in text:gmatch("{{(.-)}}") do
+      local ref = (inner:gsub("%.res%.", ".response."))
+      local rpos = ref:find(".response.", 1, true)
+      local qpos = ref:find(".request.", 1, true)
+      local pos = math.max(rpos or 0, qpos or 0)
+      if pos > 1 then
+        local name = vim.trim(ref:sub(1, pos - 1))
+        if name ~= "" then seen[name] = true end
+      end
+    end
   end
   local names = {}
   for n in pairs(seen) do names[#names + 1] = n end

@@ -223,7 +223,12 @@ function M.ask_request()
 
   local state = require("poste-http.state")
   local file = vim.api.nvim_buf_get_name(buf)
-  local where = ("file `%s`, env `%s`"):format(file ~= "" and file or "scratch", tostring(state.current_env))
+  -- Only name the env when one is bound: a literal "env `nil`" in the
+  -- prompt invites the model to invent one.
+  local where = ("file `%s`"):format(file ~= "" and file or "scratch")
+  if state.current_env and state.current_env ~= "" then
+    where = where .. (", env `%s`"):format(state.current_env)
+  end
 
   local block_text
   if l1 then

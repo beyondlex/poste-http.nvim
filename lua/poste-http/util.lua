@@ -146,6 +146,23 @@ M.SENSITIVE_HEADERS = {
   ["api-key"] = true,
 }
 
+--- Redact user:pass@ in a URL's authority (poste-mq util.redact_url rule:
+--- split at the LAST @ so a bare @ inside a password leaks nothing, scoped
+--- to the authority so path @s stay untouched). URLs without userinfo are
+--- returned unchanged.
+function M.redact_url_userinfo(url)
+  if type(url) ~= "string" then return url end
+  local scheme, rest = url:match("^(%w+)://(.*)$")
+  if not scheme then return url end
+  local authority, tail = rest:match("^([^/?]*)(.*)$")
+  local userinfo, hostport = authority:match("^(.*)@(.+)$")
+  if userinfo and userinfo:find(":", 1, true) then
+    local user = userinfo:match("^[^:]*")
+    authority = user .. ":***@" .. hostport
+  end
+  return scheme .. "://" .. authority .. (tail or "")
+end
+
 --- Shell-escape a single argument. Safe characters pass through unquoted.
 function M.shell_escape(s)
   if not s or s == "" then return "''" end
@@ -158,7 +175,8 @@ end
 
 --- Render an argv list as a log-safe command string.
 --- Values of sensitive headers (see M.SENSITIVE_HEADERS) are replaced with
---- [REDACTED]; every argument is shell-escaped.
+--- [REDACTED]; -u/--user values are credentials outright; URL-shaped
+--- arguments get their userinfo masked; every argument is shell-escaped.
 function M.redacted_cmd(args)
   if not args then return "" end
   local parts = {}
@@ -177,8 +195,16 @@ function M.redacted_cmd(args)
         table.insert(parts, M.shell_escape(raw))
         i = i + 1
       end
-    else
+    elseif (a == "-u" or a == "--user") and args[i + 1] then
       table.insert(parts, M.shell_escape(a))
+      table.insert(parts, M.shell_escape("***"))
+      i = i + 1
+    else
+      local shown = a
+      if type(a) == "string" and a:match("^%w+://") then
+        shown = M.redact_url_userinfo(a)
+      end
+      table.insert(parts, M.shell_escape(shown))
     end
     i = i + 1
   end

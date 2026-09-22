@@ -284,6 +284,25 @@ describe("redacted_cmd", function()
     assert.equals("", util.redacted_cmd(nil))
     assert.equals("", util.redacted_cmd({}))
   end)
+
+  it("redacts the value of -u/--user (basic auth argv slot)", function()
+    -- The executors build auth as -H headers today, but a pasted/imported
+    -- argv can still carry -u: the logged command must not print the secret.
+    local out = util.redacted_cmd({ "curl", "-u", "bob:s3cret", "https://h" })
+    assert.is_nil(out:find("s3cret", 1, true), "-u value must not appear in the log")
+    assert.matches("%-u '%*%*%*'", out)
+  end)
+
+  it("redacts userinfo inside URL-shaped arguments (last-@ split)", function()
+    -- A .http request line may embed credentials in the URL; the logged argv
+    -- carries the password verbatim today. Same rule as poste-mq's
+    -- util.redact_url: authority-scoped, split at the LAST @.
+    local out = util.redacted_cmd({ "curl", "https://bob:p@ss@host/x?y=1" })
+    assert.is_nil(out:find("p@ss", 1, true), "password fragment leaked into the log")
+    assert.matches("bob:%*%*%*@host/x%?y=1", out)
+    -- credential-free URLs pass through untouched
+    assert.matches("https://api%.example%.com", util.redacted_cmd({ "curl", "https://api.example.com" }))
+  end)
 end)
 ---------------------------------------------------------------------------
 -- seed_random

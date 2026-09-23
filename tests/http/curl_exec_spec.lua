@@ -195,3 +195,94 @@ describe("curl_exec.execute", function()
     assert.matches("Failed to write request body", result.error)
   end)
 end)
+
+-- The body a .http file declares is annotated JSON (`//`/`#`/`--` comments,
+-- blank lines). It is normalized on the way out — after `< path` expansion, so
+-- an external payload file gets the same treatment — and never rewritten when
+-- the result would not parse.
+describe("curl_exec.execute JSON body normalization", function()
+  local orig_jobstart
+  local captured_cmd
+
+  before_each(function()
+    orig_jobstart = vim.fn.jobstart
+    captured_cmd = nil
+    vim.fn.jobstart = function(cmd)
+      captured_cmd = cmd
+      return 12345
+    end
+  end)
+
+  after_each(function()
+    vim.fn.jobstart = orig_jobstart
+  end)
+
+  local function sent_body()
+    local raw = captured_cmd:match("%-%-data%-binary (%S+)")
+    if not raw then return nil end
+    -- shell_escape may or may not quote the path; either way, unwrap it.
+    local path = raw:gsub("'", ""):gsub("^@", "")
+    return table.concat(vim.fn.readfile(path), "\n")
+  end
+
+  it("strips comments and blank lines from a JSON body", function()
+    curl_exec.execute({
+      method = "POST",
+      url = "https://api.example.com/users",
+      headers = { { "Content-Type", "application/json" } },
+      body = '{\n  "a": "b",\n  // trimmed\n\n  "c": "https://x.test/p"\n}',
+    }, function() end)
+
+    local body = sent_body()
+    assert.equals('{\n  "a": "b",\n  "c": "https://x.test/p"\n}', body)
+    assert.is_true(pcall(vim.json.decode, body))
+  end)
+
+  it("normalizes a body pulled in by a < path include", function()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    local path = dir .. "/payload.json"
+    local fd = io.open(path, "wb")
+    fd:write('{\n  "a": 1,\n  -- gone\n}')
+    fd:close()
+
+    curl_exec.execute({
+      method = "POST",
+      url = "https://api.example.com/users",
+      body = "< " .. path,
+    }, function() end)
+
+    assert.equals('{\n  "a": 1\n}', sent_body())
+  end)
+
+  it("leaves a non-JSON body alone", function()
+    curl_exec.execute({
+      method = "POST",
+      url = "https://api.example.com/login",
+      headers = { { "Content-Type", "application/x-www-form-urlencoded" } },
+      body = "a=1\n\nb=2",
+    }, function() end)
+
+    assert.equals("a=1\n\nb=2", sent_body())
+  end)
+
+  it("sends an unparseable JSON-shaped body as written, with a warning", function()
+    local state = require("poste-http.state")
+    local orig_log = state.log
+    local logged = {}
+    state.log = function(level, msg)
+      logged[#logged + 1] = level .. ": " .. msg
+    end
+
+    local src = '{\n  "a": ,,\n}'
+    curl_exec.execute({
+      method = "POST",
+      url = "https://api.example.com/users",
+      body = src,
+    }, function() end)
+
+    state.log = orig_log
+    assert.equals(src, sent_body())
+    assert.matches("not parseable", table.concat(logged, "\n"))
+  end)
+end)

@@ -73,6 +73,28 @@ describe("copy_as_curl", function()
     assert.matches("data%-binary", cmd)
   end)
 
+  it("normalizes a JSON body so the copied command sends what runs", function()
+    local buf = make_buf({
+      "### Annotated JSON",
+      "POST https://api.example.com/users",
+      "Content-Type: application/json",
+      "",
+      "{",
+      '  "a": "b",',
+      "  // blank lines and comments are stripped",
+      "",
+      '  "c": 1',
+      "}",
+    })
+    vim.api.nvim_set_current_buf(buf)
+    vim.fn.setpos(".", { 0, 2, 1, 0 })
+
+    local cmd = copy.copy_as_curl()
+    assert.is_not_nil(cmd)
+    local payload = cmd:match("%-%-data%-binary '(.*)'$")
+    assert.equals('{\n  "a": "b",\n  "c": 1\n}', payload)
+  end)
+
   it("returns error when no request block at cursor (blank separator line)", function()
     local buf = make_buf({
       "### Block one",

@@ -3,6 +3,7 @@ local state = require("poste-http.state")
 local util = require("poste-http.util")
 local vars = require("poste-http.http.vars")
 local request_deps = require("poste-http.http.request_deps")
+local json_body = require("poste-http.http.json_body")
 
 local M = {}
 -- Shell-escaping goes through util.shell_escape (the whitelist dialect).
@@ -371,6 +372,9 @@ function M.copy_as_curl()
       end
     else
       local body = table.concat(body_lines, "\n")
+      -- Same pre-send normalization the executor applies (json_body.lua), so
+      -- the copied command carries what a run would actually send.
+      body = json_body.normalize(body)
       table.insert(parts, "--data-binary " .. util.shell_escape(body))
     end
   end

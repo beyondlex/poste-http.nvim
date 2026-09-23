@@ -3,6 +3,7 @@ local state = require("poste-http.state")
 local util = require("poste-http.util")
 local response_parser = require("poste-http.http.response_parser")
 local file_include = require("poste-http.http.file_include")
+local json_body = require("poste-http.http.json_body")
 
 local uv = vim.uv or vim.loop
 
@@ -41,6 +42,18 @@ function M.execute(opts, callback)
     callback({ error = inc_err })
     return
   end
+
+  -- A .http JSON body is annotated JSON: `//`, `#`, `--` comments and blank
+  -- lines that strict servers reject. This is the single rewrite point — after
+  -- `< path` expansion, so an external payload file is covered too, and every
+  -- executor that reaches the wire through curl (HTTP, GRAPHQL) gets it. A body
+  -- that cannot be made to parse is sent as written rather than guessed at.
+  local normalized, body_info = json_body.normalize(expanded_body)
+  if body_info.json and not body_info.valid then
+    state.log("WARN", "JSON request body is not parseable after stripping comments; "
+      .. "sending it as written")
+  end
+  expanded_body = normalized
 
   local tmp_dir = make_temp_dir()
   local headers_file = tmp_dir .. "/headers"

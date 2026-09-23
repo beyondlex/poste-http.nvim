@@ -36,6 +36,7 @@ local DESCRIPTIONS = {
   http_history = {
     close = "Close history window",
     delete_entry = "Delete current history entry",
+    clear_all = "Clear all history (press twice within 3s)",
     focus_detail = "Focus detail pane",
   },
 }

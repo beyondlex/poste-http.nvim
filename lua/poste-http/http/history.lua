@@ -452,6 +452,11 @@ local function render_list()
   end
 end
 
+-- Double-press guard for the destructive clear-all (mq DELETE-confirm
+-- pattern): the first D arms and announces the count, a second D within
+-- 3s executes. Stale arming never outlives the browser window.
+local clear_armed_since = nil
+
 local function hide()
   if hiding then return end
   hiding = true
@@ -467,6 +472,7 @@ local function hide()
   detail_win = nil
   current_index = nil
   detail_view = DEFAULT_DETAIL_VIEW
+  clear_armed_since = nil
   -- Per-entry cursor memory only matters while the browser is open; keeping
   -- it across closes just accumulates dead rows for evicted entries
   -- (REVIEW-2026-09-13 follow-up).
@@ -515,6 +521,32 @@ local function delete_at_cursor()
   end
   render_list()
   render_detail()
+end
+
+--- Wipe every history entry (in-memory ring + the persisted file) and
+--- re-render the browser. Also exposed as M.clear for specs/commands.
+function M.clear()
+  state.http_history = {}
+  state.http_history_id_counter = 0
+  _detail_cursor = {}
+  current_index = nil
+  clear_armed_since = nil
+  pcall(os.remove, history_file())
+  render_list()
+  render_detail()
+end
+
+local function clear_all()
+  if #state.http_history == 0 then return end
+  local armed_at = os.time()
+  if clear_armed_since and armed_at - clear_armed_since <= 3 then
+    M.clear()
+    return
+  end
+  clear_armed_since = armed_at
+  vim.notify(
+    string.format("Press D again within 3s to clear all %d history entries", #state.http_history),
+    vim.log.levels.WARN, { title = "Poste" })
 end
 
 local function switch_tab(tab_id)
@@ -593,6 +625,7 @@ local function setup_list_keymaps()
   keymaps.register_all(list_buf, "http_history", {
     { action = "close", default = "q", handler = hide },
     { action = "delete_entry", default = "dd", handler = delete_at_cursor },
+    { action = "clear_all", default = "D", handler = clear_all },
     { action = "focus_detail", default = "<CR>", handler = focus_detail },
   })
   vim.keymap.set("n", "<Esc>", hide, { buffer = list_buf, noremap = true, silent = true, nowait = true })

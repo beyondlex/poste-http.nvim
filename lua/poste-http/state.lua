@@ -59,6 +59,7 @@ M.config = {
     http_history = {
       close = "q",
       delete_entry = "dd",
+      clear_all = "D",
       focus_detail = "<CR>",
     },
   },

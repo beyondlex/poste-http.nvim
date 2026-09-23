@@ -139,4 +139,21 @@ describe("history persistence", function()
 
     assert.equals(0, #state.http_history)
   end)
+
+  it("clear wipes the ring, the id counter, and the persisted file", function()
+    history.add_entry("A", { status = 200, metadata = {} })
+    history.add_entry("B", { status = 200, metadata = {} })
+    assert.equals(2, #state.http_history)
+    assert.equals(1, vim.fn.filereadable(tmp_dir .. "/history.json"))
+
+    history.clear()
+
+    assert.equals(0, #state.http_history)
+    assert.equals(0, state.http_history_id_counter)
+    assert.equals(0, vim.fn.filereadable(tmp_dir .. "/history.json"))
+    -- the next run starts from a clean, fresh file
+    history.add_entry("C", { status = 200, metadata = {} })
+    assert.equals(1, #state.http_history)
+    assert.equals(1, state.http_history_id_counter)
+  end)
 end)

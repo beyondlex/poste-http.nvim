@@ -37,7 +37,9 @@
 ```
 
 - Allowed anywhere in the file
-- `--` style comments (SQL style) are NOT supported in HTTP files
+- `--` and `//` are comment markers only inside a JSON request body, where they
+  are stripped before sending (see [Request Body](#27-request-body)). Everywhere
+  else write `#`
 
 ### 2.2 Variable Definitions
 
@@ -155,6 +157,32 @@ Content-Type: application/json
 - JSON (syntax-highlighted when Content-Type contains `json`)
 - URL-encoded form data (`key=value&key2=value2`)
 - `multipart/form-data` (via `request_vars.lua`)
+
+**A JSON body may be annotated** — the file is the source of truth, the payload
+is cleaned on the way out:
+
+```
+POST /api/data
+Content-Type: application/json
+
+{
+  "a": "b",
+  // "dropped": "field",
+  # whole-line hash comment, -- and /* block */ comments work too
+
+  "url": "https://example.com/not-a-comment"
+}
+```
+
+- `//`, `/* */`, `#` and `--` comments and blank lines never reach the server
+- The scanner is string-aware: the `//` inside `https://…` above is data
+- The `,` the commented-out field leaves behind is repaired
+- The body is only rewritten when the cleaned text parses as JSON. A body that
+  still does not parse is sent exactly as written and the run logs a warning —
+  Poste never guesses at bytes it cannot prove are JSON
+- The `.http` file itself is never modified; only the request payload changes
+- Bodies that do not start with `{` or `[` (form data, multipart parts, GraphQL
+  queries, plain text) are always sent verbatim
 
 **File upload in multipart form data** (`< path`):
 
@@ -651,6 +679,7 @@ themed in `http/highlights.lua`). Last verified against the code: 2026-09-05.
 | `Key: Value` header | ✅ | ✅ | ✅ |
 | Blank line separator | ✅ | — | — |
 | Request body (JSON/form/multipart) | ✅ | — | ✅ |
+| JSON body comment/blank-line stripping | ✅ | — | ✅ |
 | `< path` file include/upload | ✅ | — | ✅ |
 | `{{var}}` reference | ✅ | ✅ | ✅ |
 | `{{$magic}}` | ✅ | ✅ | ✅ |

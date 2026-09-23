@@ -66,7 +66,7 @@ that hand-rolled floats used to apply unevenly).
 | `format/messages.lua` | Messages view formatter — WebSocket frame transcript to lines |
 | `block_operators.lua` | Extract `# @name value` operator comments from a request block |
 | `response.lua` | Canonical response helpers — protocol-aware `ok` flag and `is_error` |
-| `curl_exec.lua` | Build curl args, spawn via `jobstart`, temp file management |
+| `curl_exec.lua` | Build curl args, spawn via `jobstart`, temp file management; single JSON body normalization point before the body file is written |
 | `response_parser.lua` | Parse curl `-D` headers, status, cookies, stderr verbose |
 | `file_include.lua` | Expand `< path` directives in body |
 
@@ -75,6 +75,7 @@ that hand-rolled floats used to apply unevenly).
 | File | Description |
 |------|-------------|
 | `describe.lua` | Single parse authority — tree-sitter based block metadata |
+| `json_body.lua` | Request-body JSON normalization — strip `//` `/* */` `#` `--` comments and blank lines, repair the dangling comma, but only when the result parses |
 | `vars.lua` | `VarResolver` — 7-layer priority chain for `{{var}}` substitution |
 | `cache.lua` | UI-level buffer index (line types, block bounds) |
 | `var_collector.lua` | Variable collection/rollup for completion |

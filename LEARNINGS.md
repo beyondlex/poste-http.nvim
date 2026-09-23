@@ -3,6 +3,24 @@
 Agent self-evolution log. When you fix a non-obvious bug or encounter a
 pitfall, log it here. Check this file before starting any task.
 
+- 2026-09-23: http/json-body-region — a grammar TOKEN is not a boundary.
+  `json_body: token(seq(/[\[{][^\n]*/, /(?:\n[^\n]+)*/))` ends at the first
+  blank line, so `{"a":1,\n\n"b":2}` silently sent `{"a": 1,` (array bodies the
+  same), while a `> {%` written directly after `}` had the OPPOSITE problem —
+  the continuation swallowed the assertion block into the body and shipped it.
+  A whole-body `< ./payload.json` include vanished too: the grammar types it
+  `external_script`/`file_upload`, describe marks those lines non-body, and
+  `file_include` never saw them. describe.lua now derives the region line-wise
+  from `block_boundary.last_content_line`, stopping at script delimiters
+  (`[<>] {%`, `%}`, `[<>] ….lua`) and keeping `< path` includes; the node text
+  is only the hint that a JSON body starts here. Fixing bodies in the send path
+  (curl_exec) rather than in display code also meant `Copy as cURL` had to be
+  wired to the same `json_body.normalize` — copy.lua is a SECOND, independent
+  body assembly (it splits headers/body on the first blank line), so any
+  body-shape rule has to be applied twice until that is ever unified.
+  See `lua/poste-http/http/describe.lua`, `lua/poste-http/http/json_body.lua`,
+  `tests/http/describe_spec.lua`, `tests/http/json_body_spec.lua`.
+
 - 2026-09-23: indicators BufDelete-vs-BufWipeout — `nvim_buf_delete` on an
   UNLOADED SCRATCH buffer (the normal .http nofile case) fires only
   `BufWipeout`; `BufDelete` stayed at 0 in a headless probe, so a cleanup

@@ -69,4 +69,26 @@ describe("poste-http.ui.text", function()
       assert.equals("…", text.middle("abcdef", 1))
     end)
   end)
+
+  describe("NUL bytes (binary-derived text)", function()
+    -- A literal \u0000 arriving from JSON variables or response previews
+    -- makes vim.fn.strdisplaywidth raise Vim E976 ("Using a Blob as a
+    -- String"); truncation must survive it instead of killing the render.
+    it("truncate drops NUL bytes instead of raising E976", function()
+      assert.equals("ab", text.truncate("a\0b", 10))
+      assert.equals(2, width(text.truncate("a\0b", 10)))
+    end)
+
+    it("truncate still respects the budget with NULs present", function()
+      assert.equals("a…", text.truncate("a\0bcdef", 2))
+    end)
+
+    it("middle drops NUL bytes instead of raising E976", function()
+      assert.equals("ab", text.middle("a\0b", 10))
+    end)
+
+    it("strings without NULs are untouched", function()
+      assert.equals("plain", text.truncate("plain", 10))
+    end)
+  end)
 end)

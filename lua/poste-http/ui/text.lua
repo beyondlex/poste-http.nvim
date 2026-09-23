@@ -11,6 +11,18 @@
 
 local M = {}
 
+--- A NUL byte turns a Lua string into a Blob the moment it crosses into a
+--- vim.fn string function (Vim E976), so one binary-derived character —
+--- a literal \u0000 from a JSON variable, a control byte in a response
+--- preview — would take down the whole render path (winbar, outline,
+--- history list). NUL carries no displayable content: drop it at the door.
+local function strip_nul(s)
+  if type(s) == "string" and s:find("%z") then
+    return (s:gsub("%z", ""))
+  end
+  return s
+end
+
 --- Chars of s (from the start) fitting within max_w display columns.
 --- Returns the prefix and the display width actually used.
 local function take_prefix(s, max_w)
@@ -48,6 +60,7 @@ end
 --- @return string
 function M.truncate(s, max)
   if not s then return "" end
+  s = strip_nul(s)
   max = max or 0
   if max < 1 then return "" end
   if vim.fn.strdisplaywidth(s) <= max then return s end
@@ -62,6 +75,7 @@ end
 --- @return string
 function M.middle(s, max)
   if not s then return "" end
+  s = strip_nul(s)
   max = max or 0
   if max < 1 then return "" end
   if vim.fn.strdisplaywidth(s) <= max then return s end

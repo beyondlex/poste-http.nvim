@@ -82,16 +82,20 @@ function M.run_script(code, opts, on_complete)
     log = collect_log,
     global = {
       set = function(name, value)
-        state.set_global_var(name, tostring(value))
-        state.log("INFO", string.format("Orchestration: client.global.set('%s', '%s')", name, tostring(value)))
+        local stored = script_sandbox.coerce_set_value("Orchestration: client.global.set", name, value)
+        if stored == nil then return end
+        state.set_global_var(name, stored)
+        state.log("INFO", string.format("Orchestration: client.global.set('%s', '%s')", name, stored))
       end,
       get = function(name)
         return state.global_vars[name]
       end,
       header = {
         set = function(name, value)
-          state.set_global_header(name, tostring(value))
-          state.log("INFO", string.format("Orchestration: client.global.header.set('%s', '%s')", name, tostring(value)))
+          local stored = script_sandbox.coerce_set_value("Orchestration: client.global.header.set", name, value)
+          if stored == nil then return end
+          state.set_global_header(name, stored)
+          state.log("INFO", string.format("Orchestration: client.global.header.set('%s', '%s')", name, stored))
         end,
         get = function(name)
           return state.global_headers[name]

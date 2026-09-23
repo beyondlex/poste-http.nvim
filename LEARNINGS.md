@@ -3,6 +3,21 @@
 Agent self-evolution log. When you fix a non-obvious bug or encounter a
 pitfall, log it here. Check this file before starting any task.
 
+- 2026-09-23: http/script-set-nil-clobber — a failed request destroyed the
+  session variables a previous success had set. `tostring(nil)` is the string
+  `"nil"`, so `client.global.set('token', response.body.token)` on a 5xx (whose
+  body has no `token`) overwrote a good token with `"nil"`, and the next request
+  went out as `Authorization: Bearer nil` — worse than empty, because nothing
+  looks broken. Transport failures (`response.error` / status 0) already skipped
+  post-scripts via `handle_curl_response`'s early return, so the two failure
+  shapes behaved oppositely; HTTP 4xx/5xx still runs post-scripts ON PURPOSE
+  (`client.test` asserts on error responses) — so the fix is at the write, not
+  the runner: `script_sandbox.coerce_set_value` returns nil for a nil value and
+  every set site skips the write with a WARN. `false`/`0` must survive, hence
+  `value == nil` and never `if not value`. 8 sites across 3 runners; deps and
+  imported blocks inherit through `assertions.run_assertions`.
+  See `lua/poste-http/http/script_sandbox.lua:26`, `tests/http/script_set_nil_spec.lua`.
+
 - 2026-09-23: http/json-body-region — a grammar TOKEN is not a boundary.
   `json_body: token(seq(/[\[{][^\n]*/, /(?:\n[^\n]+)*/))` ends at the first
   blank line, so `{"a":1,\n\n"b":2}` silently sent `{"a": 1,` (array bodies the

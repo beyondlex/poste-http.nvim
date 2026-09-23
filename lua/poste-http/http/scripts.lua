@@ -131,13 +131,15 @@ function M.run_pre_script(code, script_vars)
   local request = {
     variables = {
       set = function(name, value)
-        variables[name] = tostring(value)
+        local stored = script_sandbox.coerce_set_value("Pre-script: request.variables.set", name, value)
+        if stored == nil then return end
+        variables[name] = stored
         local ctx = state._exec_context
         local line = ctx and ctx.set_lines and ctx.set_lines[name] or (ctx and ctx.line)
         if line then
           state.script_variables_sources[name] = { file = ctx.file, line = line }
         end
-        state.log("INFO", string.format("Pre-script: request.variables.set('%s', '%s')", name, tostring(value)))
+        state.log("INFO", string.format("Pre-script: request.variables.set('%s', '%s')", name, stored))
       end,
       get = function(name)
         return variables[name]
@@ -148,26 +150,30 @@ function M.run_pre_script(code, script_vars)
   local client = {
     global = {
       set = function(name, value)
+        local stored = script_sandbox.coerce_set_value("Pre-script: client.global.set", name, value)
+        if stored == nil then return end
         local ctx = state._exec_context
         local line = ctx and ctx.set_lines and ctx.set_lines[name] or (ctx and ctx.line)
-        state.set_global_var(name, tostring(value))
+        state.set_global_var(name, stored)
         if line then
           state.global_vars_sources[name] = { file = ctx.file, line = line }
         end
-        state.log("INFO", string.format("Pre-script: client.global.set('%s', '%s')", name, tostring(value)))
+        state.log("INFO", string.format("Pre-script: client.global.set('%s', '%s')", name, stored))
       end,
       get = function(name)
         return state.global_vars[name]
       end,
       header = {
         set = function(name, value)
+          local stored = script_sandbox.coerce_set_value("Pre-script: client.global.header.set", name, value)
+          if stored == nil then return end
           local ctx = state._exec_context
           local line = ctx and ctx.line
-          state.set_global_header(name, tostring(value))
+          state.set_global_header(name, stored)
           if line then
             state.global_headers_sources[name] = { file = ctx.file, line = line }
           end
-          state.log("INFO", string.format("Pre-script: client.global.header.set('%s', '%s')", name, tostring(value)))
+          state.log("INFO", string.format("Pre-script: client.global.header.set('%s', '%s')", name, stored))
         end,
         get = function(name)
           return state.global_headers[name]

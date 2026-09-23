@@ -106,6 +106,27 @@ GET https://api.example.com/profile/{{user_id}}
 Authorization: Bearer {{session_token}}
 ```
 
+**A `set` of nothing never overwrites.** Scripts run for failed requests too
+(so `client.test` can assert on 4xx/5xx responses), and a failed response
+usually lacks the field being extracted. `client.global.set('session_token',
+response.body.token)` with no `token` in the body is then a no-op that logs a
+warning, keeping the previously stored value — instead of writing the string
+`"nil"` and sending `Authorization: Bearer nil` on the next request. Clear a
+variable deliberately by guarding on the status and setting it to a real value:
+
+```http
+> {%
+  if response.status >= 400 then
+    client.global.set('session_token', '')
+  else
+    client.global.set('session_token', response.body.token)
+  end
+%}
+```
+
+`false` and `0` are values, not absent values, and are stored as `"false"` /
+`"0"`. Only `nil` is skipped.
+
 ### 5. Script Variables (`request.variables.set`)
 
 Set via pre-scripts using `request.variables.set()`. Also available to

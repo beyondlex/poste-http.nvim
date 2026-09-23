@@ -411,3 +411,32 @@ describe("curl.parse_curl combined short flags", function()
     assert.equals("POST", parsed.method)
   end)
 end)
+
+describe("curl.parse_curl tokenizer edges (2026-09-24 round)", function()
+  it("treats a bare newline as an argument separator, not URL content", function()
+    -- A hard-wrapped paste (no backslash) used to glue both lines into one
+    -- url arg: "http://x.y/a\nhttp://z.z".
+    local parsed = curl.parse_curl("curl 'http://x.y/a'\n'http://z.z'")
+    assert.equals("http://x.y/a", parsed.url)
+  end)
+
+  it("keeps a newline inside quotes as part of the argument", function()
+    local parsed = curl.parse_curl("curl -d 'a\nb' http://x.y")
+    assert.equals("a\nb", parsed.body)
+  end)
+
+  it("delivers an empty quoted argument as an empty argv (-d '')", function()
+    -- The tokenizer used to drop it, so -d ate the URL and the import
+    -- failed with "No URL found".
+    local parsed = curl.parse_curl("curl -d '' http://x.y")
+    assert.equals("http://x.y", parsed.url)
+    assert.equals("POST", parsed.method)
+    assert.equals("", parsed.body)
+  end)
+
+  it("rejects the bare `curl` instead of importing curl as the URL", function()
+    local parsed, err = curl.parse_curl("curl")
+    assert.is_nil(parsed)
+    assert.matches("No URL", err)
+  end)
+end)

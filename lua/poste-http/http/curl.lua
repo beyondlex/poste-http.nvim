@@ -136,8 +136,10 @@ local function parse_curl(cmd)
   cmd = cmd:gsub("\\\n", " ")  -- Remove backslash-newline continuations
   cmd = cmd:gsub("\\\r\n", " ")
 
-  -- Remove "curl" command itself
+  -- Remove "curl" command itself ("^curl%s+" misses the bare `curl`, which
+  -- then won the "first bare arg is the URL" scan as the target "curl")
   cmd = cmd:gsub("^curl%s+", "")
+  if cmd == "curl" then cmd = "" end
 
   local method = "GET"
   local url = ""
@@ -149,6 +151,10 @@ local function parse_curl(cmd)
   local current = ""
   local in_quotes = false
   local quote_char = nil
+  -- True once the current argument contained a quoted segment: an arg of
+  -- two lone quotes (`-d ''`) must arrive as an EMPTY argv, or the next
+  -- token is eaten as the flag's value and the import fails with "No URL".
+  local current_quoted = false
   local i = 1
 
   while i <= #cmd do
@@ -158,10 +164,14 @@ local function parse_curl(cmd)
       if char == '"' or char == "'" then
         in_quotes = true
         quote_char = char
-      elseif char == ' ' or char == '\t' then
-        if #current > 0 then
+        current_quoted = true
+      elseif char == ' ' or char == '\t' or char == '\n' or char == '\r' then
+        -- Newlines separate argvs like the shell does (outside quotes); a
+        -- hard-wrapped paste used to glue both lines into ONE url arg.
+        if #current > 0 or current_quoted then
           table.insert(args, current)
           current = ""
+          current_quoted = false
         end
       else
         current = current .. char
@@ -188,7 +198,7 @@ local function parse_curl(cmd)
     i = i + 1
   end
 
-  if #current > 0 then
+  if #current > 0 or current_quoted then
     table.insert(args, current)
   end
 

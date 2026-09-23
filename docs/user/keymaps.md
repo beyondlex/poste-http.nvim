@@ -90,6 +90,7 @@ Override in `setup({ keymaps = { <group_name> = { ... } } })`.
 |-----|--------|-------------|
 | `q` | `close` | Close history window |
 | `dd` | `delete_entry` | Delete current entry |
+| `D` | `clear_all` | Clear all history (press twice within 3s) |
 | `<CR>` | `focus_detail` | Focus detail panel |
 
 ---
@@ -183,6 +184,7 @@ require("poste-http").setup({
     http_history = {
       close = "q",
       delete_entry = "dd",
+      clear_all = "D",
       focus_detail = "<CR>",
     },
   },

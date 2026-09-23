@@ -1,5 +1,6 @@
 local state = require("poste-http.state")
 local block_boundary = require("poste-http.http.block_boundary")
+local json_body = require("poste-http.http.json_body")
 
 local M = {}
 
@@ -39,6 +40,46 @@ local function assemble_line_body(block, body_start, end_line, lines)
     if not block._non_body_lines[i] then
       table.insert(parts, lines[i])
     end
+  end
+  return table.concat(parts, "\n")
+end
+
+--- A `< path` line is body content: `file_include.expand_file_includes` inserts
+--- the file's bytes at send time. `< {% … %}` and `< ./x.lua` are the
+--- pre-script machinery instead (script_block.lua), which is not body.
+local function is_body_file_include(line)
+  if not line then return false end
+  if line:match("^%s*<%s*{%%") then return false end
+  local path = line:match("^%s*<%s+(.-)%s*$")
+  if not path or path == "" then return false end
+  return not path:match("%.lua$")
+end
+
+--- Lines that end a body. The grammar marks real script nodes as non-body, but
+--- a `> {% … %}` written directly after a JSON body is swallowed by the
+--- json_body token and never becomes a node, so the scan stops on it itself.
+local function is_script_delimiter(line)
+  if not line then return false end
+  if line:match("^%s*[<>]%s*{%%") then return true end
+  if vim.trim(line) == "%}" then return true end
+  return line:match("^%s*[<>]%s*[%./][^%s]-%.lua%s*$") ~= nil
+end
+
+--- Line-wise assembly of a body region. Unlike `assemble_line_body` this one
+--- bounds the region at the block's last content line, keeps `< path` includes,
+--- and stops at a script delimiter — the grammar's body tokens are only a hint
+--- where the body starts, never how far it reaches.
+local function assemble_body_region(block, body_start, last_content, lines)
+  local parts = {}
+  for i = body_start, last_content do
+    local line = lines[i]
+    if is_script_delimiter(line) then break end
+    if not block._non_body_lines[i] or is_body_file_include(line) then
+      parts[#parts + 1] = line
+    end
+  end
+  while #parts > 0 and not parts[#parts]:match("%S") do
+    table.remove(parts)
   end
   return table.concat(parts, "\n")
 end
@@ -97,14 +138,23 @@ local function describe_via_treesitter(content)
       end
 
       if current_block._body_parts[1].start_row == body_start then
-        -- The grammar covered the body from its first line. Multiple
-        -- segments (an anonymous GRAPHQL query plus its variables block)
-        -- are joined with the blank line that separated them.
-        local texts = {}
-        for _, part in ipairs(current_block._body_parts) do
-          table.insert(texts, part.text)
+        local part = current_block._body_parts[1]
+        if #current_block._body_parts == 1 and json_body.looks_like_json(part.text) then
+          -- A JSON body: re-scan the region line-wise. The json_body token ends
+          -- at the first blank line (silently dropping the rest of the object)
+          -- and runs past a `> {%` that follows the closing brace.
+          current_block.body = assemble_body_region(current_block, body_start,
+            current_block.last_content_line or end_line, lines)
+        else
+          -- The grammar covered the body from its first line. Multiple
+          -- segments (an anonymous GRAPHQL query plus its variables block)
+          -- are joined with the blank line that separated them.
+          local texts = {}
+          for _, seg in ipairs(current_block._body_parts) do
+            table.insert(texts, seg.text)
+          end
+          current_block.body = table.concat(texts, "\n\n")
         end
-        current_block.body = table.concat(texts, "\n\n")
       else
         -- Content precedes the first body node (a GRAPHQL query text):
         -- fall back to line-based assembly so nothing is dropped.
@@ -121,8 +171,13 @@ local function describe_via_treesitter(content)
       end
       if body_start <= end_line then
         local first_line = lines[body_start]
-        if first_line and not current_block._non_body_lines[body_start] then
-          current_block.body = assemble_line_body(current_block, body_start, end_line, lines)
+        -- A whole-body `< path` include is typed `file_upload`/`external_script`
+        -- by the grammar (so it is marked non-body) but it IS the body: drop
+        -- that marker for it, otherwise the request is sent with no payload.
+        if first_line and (not current_block._non_body_lines[body_start]
+          or is_body_file_include(first_line)) then
+          current_block.body = assemble_body_region(current_block, body_start,
+            current_block.last_content_line or end_line, lines)
         end
       end
     end

@@ -95,7 +95,7 @@ function M.collect_var_defs(lines, start_idx, end_idx)
     if not line then break end
     local trimmed = vim.trim(line)
     if trimmed:sub(1, 1) == "@" then
-      local name, value = trimmed:match("^@(%S+)%s*=%s*(.+)")
+      local name, value = trimmed:match("^@(%S+)%s*=%s*(.*)")
       if not name then
         name, value = trimmed:match("^@(%S+)%s+(.+)")
       end
@@ -134,7 +134,7 @@ function M.collect_var_defs_with_lines(lines, start_idx, end_idx)
     local line_num = i
     local trimmed = vim.trim(line)
     if trimmed:sub(1, 1) == "@" then
-      local name, value = trimmed:match("^@(%S+)%s*=%s*(.+)")
+      local name, value = trimmed:match("^@(%S+)%s*=%s*(.*)")
       if not name then
         name, value = trimmed:match("^@(%S+)%s+(.+)")
       end

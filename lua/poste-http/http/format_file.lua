@@ -130,12 +130,16 @@ function M.format(content)
       end
       i = i + 1
     elseif trimmed:match("^@") then
-      local name, value = trimmed:match("^@(%S+)%s*=%s*(.+)")
+      local name, value = trimmed:match("^@(%S+)%s*=%s*(.*)")
       if not name then
         name, value = trimmed:match("^@(%S+)%s+(.+)")
       end
       if name and value then
-        table.insert(result, "@" .. name .. " = " .. value)
+        if value == "" then
+          table.insert(result, "@" .. name .. " =")
+        else
+          table.insert(result, "@" .. name .. " = " .. value)
+        end
       else
         table.insert(result, line)
       end

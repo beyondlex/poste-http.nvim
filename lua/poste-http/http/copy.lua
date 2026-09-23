@@ -59,7 +59,7 @@ local function collect_var_defs(lines)
   for _, line in ipairs(lines) do
     local trimmed = vim.trim(line)
     if trimmed:sub(1, 1) == "@" then
-      local name, value = trimmed:match("^@(%S+)%s*=%s*(.+)")
+      local name, value = trimmed:match("^@(%S+)%s*=%s*(.*)")
       if not name then
         name, value = trimmed:match("^@(%S+)%s+(.+)")
       end

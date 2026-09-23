@@ -78,6 +78,19 @@ describe("collect_var_defs", function()
     local r = collect(lines, 1, #lines)
     assert.equals("http://localhost:8888", r.host)
   end)
+
+  -- The old pattern required one char after `=`, so the space-separator
+  -- fallback picked the line up instead and captured the `=` itself as the
+  -- value: `@token =` substituted as literal "=".
+  it("treats @var = with no value as the empty string", function()
+    local r = collect({ "@token =" }, 1, 1)
+    assert.equals("", r.token)
+  end)
+
+  it("treats @var= (no spaces, no value) as the empty string", function()
+    local r = collect({ "@token=" }, 1, 1)
+    assert.equals("", r.token)
+  end)
 end)
 
 describe("VarResolver:substitute with table values", function()

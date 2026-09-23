@@ -58,7 +58,7 @@ function M.apply_jq_mapping(value, mapping)
 
   local items
   if uses_array_iteration then
-    if vim.tbl_islist(value) then
+    if vim.islist(value) then
       items = value
     else
       items = { value }
@@ -71,7 +71,7 @@ function M.apply_jq_mapping(value, mapping)
     end
     mapping = clean
   else
-    if vim.tbl_islist(value) then
+    if vim.islist(value) then
       items = value
     else
       items = { value }

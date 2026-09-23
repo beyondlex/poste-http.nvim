@@ -63,6 +63,30 @@ describe("zero-coverage smoke specs", function()
     it("returns nil for missing paths", function()
       assert.is_nil(nested_access.get_nested_value({ a = 1 }, "b.c"))
     end)
+
+    -- get_key_paths() emits `.data[0][0]`-shaped candidates for 2-D arrays,
+    -- and `{{Req.response.body.data[0][1]}}` refs resolve through here too —
+    -- the old single-bracket match made every trailing index after the
+    -- first fail (it looked the base up as the literal key "data[0]").
+    it("resolves consecutive indexes into nested arrays", function()
+      local obj = { data = { { 1, 2 }, { 3, 4 } } }
+      assert.equals(2, nested_access.get_nested_value(obj, "data[0][1]"))
+      assert.equals(3, nested_access.get_nested_value(obj, "data[1][0]"))
+      assert.equals(9, nested_access.get_nested_value({ m = { { { { z = 9 } } } } }, "m[0][0][0].z"))
+    end)
+
+    it("resolves an index after the [] wildcard", function()
+      local obj = { rows = { { "a", "b" }, { "c", "d" } } }
+      assert.same({ "a", "c" }, nested_access.get_nested_value(obj, "rows[][0]"))
+    end)
+
+    it("treats non-numeric brackets as literal keys, numeric as indexes", function()
+      -- `x[weird]` stays one key; `x[0]` is always array indexing (a key
+      -- literally named "x[0]" is not addressable — inherent grammar limit).
+      local obj = { ["x[weird]"] = 7, x = { "indexed" } }
+      assert.equals(7, nested_access.get_nested_value(obj, "x[weird]"))
+      assert.equals("indexed", nested_access.get_nested_value(obj, "x[0]"))
+    end)
   end)
 
   ---------------------------------------------------------------------------

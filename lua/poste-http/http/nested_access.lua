@@ -26,52 +26,83 @@ local function parse_path_segments(path)
   return segments
 end
 
-local function resolve_segments(current, segments, idx)
-  if idx > #segments then return current end
-  if type(current) == "string" then
-    local ok, parsed = pcall(vim.json.decode, current)
-    if ok and type(parsed) == "table" then
-      current = parsed
-    else
-      return nil
-    end
+--- Split one segment into its base key plus the bracket tokens that trail
+--- it: "items" → ("items", {}), "items[0]" → ("items", {"0"}),
+--- "data[0][1]" → ("data", {"0", "1"}), "grid[][0]" → ("grid", {"", "0"}).
+--- An empty token is the `[]` wildcard; a numeric token is a 0-based index.
+--- A non-numeric bracket (`x[weird]`) stops the scan so the whole segment
+--- stays one literal key, matching the old single-bracket behavior.
+local function parse_bracket_tokens(part)
+  local base = part
+  local tokens = {}
+  while true do
+    local head, inner = base:match("^(.*)%[([^%[%]]*)%]$")
+    if not head then break end
+    if inner ~= "" and not inner:match("^%d+$") then break end
+    table.insert(tokens, 1, inner)
+    base = head
   end
-  if type(current) ~= "table" then return nil end
-  local part = segments[idx]
-  local array_field = part:match("^(.*)%[%]$")
-  if array_field then
-    local arr
-    if array_field == "" then
-      arr = current
-    else
-      arr = current[array_field]
-      if arr == nil then arr = current[array_field .. "[]"] end
+  return base, tokens
+end
+
+--- Decode a string value that is itself JSON (a body stored as text), once.
+local function ensure_traversable(value)
+  if type(value) == "string" then
+    local ok, parsed = pcall(vim.json.decode, value)
+    if ok and type(parsed) == "table" then
+      return parsed
     end
-    if type(arr) ~= "table" or not vim.tbl_islist(arr) then return nil end
+    return nil
+  end
+  return value
+end
+
+--- Apply this segment's bracket tokens, then hand the result to the next
+--- segment. `[]` fans out over a list and collects the non-nil results of
+--- the remaining path per element (a missing element is filtered, matching
+--- the old wildcard contract); `[n]` descends 0-based.
+local resolve_segments
+
+local function apply_tokens(value, tokens, token_idx, segments, seg_idx)
+  if token_idx > #tokens then
+    return resolve_segments(value, segments, seg_idx)
+  end
+  value = ensure_traversable(value)
+  if type(value) ~= "table" then return nil end
+  local token = tokens[token_idx]
+  if token == "" then
+    if not vim.islist(value) then return nil end
     local results = {}
-    for _, elem in ipairs(arr) do
-      local r = resolve_segments(elem, segments, idx + 1)
+    for _, elem in ipairs(value) do
+      local r = apply_tokens(elem, tokens, token_idx + 1, segments, seg_idx)
       if r ~= nil then
         table.insert(results, r)
       end
     end
     return results
   end
-  local field, idx_str = part:match("^(.*)%[(%d+)%]$")
-  if field and idx_str then
-    local arr
-    if field == "" then
-      arr = current
-    else
-      arr = current[field]
-      if arr == nil then arr = current[field .. "[]"] end
-    end
-    if type(arr) ~= "table" then return nil end
-    return resolve_segments(arr[tonumber(idx_str) + 1], segments, idx + 1)
+  return apply_tokens(value[tonumber(token) + 1], tokens, token_idx + 1, segments, seg_idx)
+end
+
+--- Resolve a plain-key (or base-key) segment, honoring the `key[]`-style
+--- fallback key a stored list may use, then apply its bracket tokens.
+local function resolve_segment(current, part, segments, seg_idx)
+  local base, tokens = parse_bracket_tokens(part)
+  local value
+  if base == "" then
+    value = current
+  else
+    value = current[base]
+    if value == nil then value = current[base .. "[]"] end
   end
-  local value = current[part]
-  if value == nil then value = current[part .. "[]"] end
-  return resolve_segments(value, segments, idx + 1)
+  return apply_tokens(value, tokens, 1, segments, seg_idx + 1)
+end
+
+resolve_segments = function(current, segments, idx)
+  if idx > #segments then return current end
+  current = ensure_traversable(current)
+  if type(current) ~= "table" then return nil end
+  return resolve_segment(current, segments[idx], segments, idx)
 end
 
 function M.get_nested_value(obj, path)

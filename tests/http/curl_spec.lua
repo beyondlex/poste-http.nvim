@@ -410,6 +410,52 @@ describe("curl.parse_curl combined short flags", function()
     assert.equals("https://api.example.com/users", parsed.url)
     assert.equals("POST", parsed.method)
   end)
+
+  it("dispatches a semantic value letter in a blob to its real handler (-sd)", function()
+    -- curl reads `-sd v` as `-s -d v`; the old walk swallowed the value, so
+    -- the body vanished AND the request stayed a GET.
+    local parsed = curl.parse_curl("curl -sd '{\"a\":1}' https://api.example.com/users")
+    assert.equals("POST", parsed.method)
+    assert.equals('{"a":1}', parsed.body)
+  end)
+
+  it("dispatches an attached semantic value inside a blob (-sd'{..}')", function()
+    local parsed = curl.parse_curl("curl -sd'{\"a\":1}' https://api.example.com/users")
+    assert.equals("POST", parsed.method)
+    assert.equals('{"a":1}', parsed.body)
+  end)
+
+  it("dispatches -H inside a blob instead of dropping the header", function()
+    local parsed = curl.parse_curl("curl -sH 'Accept: application/json' https://api.example.com/users")
+    assert.equals("GET", parsed.method)
+    local found = false
+    for _, h in ipairs(parsed.headers) do
+      if h[1] == "Accept" and h[2] == "application/json" then
+        found = true
+      end
+    end
+    assert.truthy(found, "Accept header must survive the blob")
+  end)
+
+  it("dispatches -X inside a blob so -sXGET -d is not promoted to POST", function()
+    -- The dedicated branches never see -sXGET (it starts "-s"), so without
+    -- X handling here the later -d promotion made it POST, which is not
+    -- what curl sends.
+    local parsed = curl.parse_curl("curl -sXGET -d a=1 https://api.example.com/users")
+    assert.equals("GET", parsed.method)
+    assert.equals("a=1", parsed.body)
+  end)
+
+  it("dispatches -u inside a blob to the Basic auth header", function()
+    local parsed = curl.parse_curl("curl -su bob:secret https://api.example.com/users")
+    local auth
+    for _, h in ipairs(parsed.headers) do
+      if h[1] == "Authorization" then
+        auth = h[2]
+      end
+    end
+    assert.truthy(auth and auth:match("^Basic "), "Basic Authorization expected")
+  end)
 end)
 
 describe("curl.parse_curl tokenizer edges (2026-09-24 round)", function()

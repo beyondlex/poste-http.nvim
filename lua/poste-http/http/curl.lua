@@ -214,15 +214,16 @@ local function parse_curl(cmd)
   local had_content_type = false
   local content_type_value = nil
 
+  -- True once -X/--request named an explicit method; neither the data
+  -- flags' POST promotion nor a --get rewrite may clobber it (curl sends
+  -- the -X token — `-X GET -d a=1` is a GET with a body, not a POST).
+  local method_forced = false
+
   local function promote_post()
-    if method == "GET" then
+    if not method_forced and method == "GET" then
       method = "POST"
     end
   end
-  -- True once -X/--request named an explicit method; a --get rewrite must
-  -- not clobber it (curl sends the -X token, with the data still in the
-  -- query string).
-  local method_forced = false
 
   local function header_from_text(text)
     -- `Name:` (empty value) and curl's `Name;` no-value form are kept as
@@ -373,14 +374,45 @@ local function parse_curl(cmd)
       -- the next argv when it ends the blob (-sSo out.txt); boolean letters
       -- continue the walk. Without the walk, `-sSo out.txt` leaked out.txt
       -- as a bare arg and the URL scan picked it as the request target.
+      --
+      -- Semantic value letters (H/X/d/F/u) inside the blob must reach the
+      -- SAME handlers as their dedicated branches: curl reads `-sd v` as
+      -- `-s -d v`, and the old walk just swallowed the value — `-sd
+      -- '{"a":1}'` imported as a bodyless GET and `-sH 'Accept: …'` lost
+      -- the header outright.
       local letters = arg:sub(2)
-      for pos = 1, #letters do
-        if value_short[letters:sub(pos, pos)] then
-          if pos == #letters then
+      local pos = 1
+      while pos <= #letters do
+        local letter = letters:sub(pos, pos)
+        if value_short[letter] then
+          local attached = letters:sub(pos + 1)
+          local value
+          if attached ~= "" then
+            value = attached
+          else
             idx = idx + 1 -- value rides in the next argv
+            value = args[idx]
+          end
+          if letter == "H" then
+            if value then header_from_text(value) end
+          elseif letter == "X" then
+            method = (value or "GET"):upper()
+            method_forced = true
+          elseif letter == "d" then
+            if value ~= nil then
+              table.insert(data_parts, maybe_expand_data(value))
+            end
+            promote_post()
+          elseif letter == "F" then
+            local part = value and parse_form_piece(value, true)
+            if part then table.insert(form_parts, part) end
+            promote_post()
+          elseif letter == "u" then
+            add_basic_auth(headers, value)
           end
           break -- anything after the value letter was its attached value
         end
+        pos = pos + 1
       end
     else
       -- Assume it's the URL: curl sends the FIRST bare argument; a second

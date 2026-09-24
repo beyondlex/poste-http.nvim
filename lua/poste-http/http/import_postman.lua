@@ -20,9 +20,14 @@ local function parse_url(request_url)
   local query_parts = {}
   if request_url.query then
     for _, q in ipairs(request_url.query) do
-      local key = q.key or ""
-      local value = q.value or ""
-      table.insert(query_parts, key .. "=" .. value)
+      -- `disabled` params are off in Postman's UI: exporting them into the
+      -- .http request line would silently send what the collection author
+      -- switched off.
+      if not q.disabled then
+        local key = q.key or ""
+        local value = q.value or ""
+        table.insert(query_parts, key .. "=" .. value)
+      end
     end
   end
   if #query_parts > 0 then
@@ -43,16 +48,20 @@ local function parse_body(request_body)
   elseif mode == "urlencoded" then
     local parts = {}
     for _, p in ipairs(request_body.urlencoded or {}) do
-      table.insert(parts, (p.key or "") .. "=" .. (p.value or ""))
+      if not p.disabled then
+        table.insert(parts, (p.key or "") .. "=" .. (p.value or ""))
+      end
     end
     return table.concat(parts, "&")
   elseif mode == "formdata" then
     local parts = {}
     for _, p in ipairs(request_body.formdata or {}) do
-      if p.type == "file" then
-        table.insert(parts, "< " .. (p.src or ""))
-      else
-        table.insert(parts, (p.key or "") .. "=" .. (p.value or ""))
+      if not p.disabled then
+        if p.type == "file" then
+          table.insert(parts, "< " .. (p.src or ""))
+        else
+          table.insert(parts, (p.key or "") .. "=" .. (p.value or ""))
+        end
       end
     end
     return table.concat(parts, "\n")
@@ -89,7 +98,7 @@ local function parse_item(item, vars, collection_vars)
 
   local headers = {}
   for _, h in ipairs(req.header or {}) do
-    if h.key and h.key ~= "" then
+    if h.key and h.key ~= "" and not h.disabled then
       local value = resolve_postman_var(h.value, vars)
       table.insert(headers, { key = h.key, value = value })
     end
@@ -150,6 +159,9 @@ function M.import_spec(spec_path, out_dir)
 
   return { filename = filename, block_count = #blocks }
 end
+
+-- Exposed for tests (family _test convention): one item/folder → blocks.
+M._test_parse_item = parse_item
 
 function M.run()
   import_parser.run_importer({

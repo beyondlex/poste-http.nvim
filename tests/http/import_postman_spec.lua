@@ -128,3 +128,41 @@ describe("postman import", function()
     assert.equals(nil, text:match("Content%-Type"), "no body, no injected content-type")
   end)
 end)
+
+describe("import_parser one-line positions", function()
+  -- Import sources carry free text into line-oriented positions; a raw CR/LF
+  -- in a single-line position used to split the line and import the
+  -- remainder as a bogus request line (the poste-mq import family bug).
+  it("a newline in the block name cannot split the ### line", function()
+    local block = import_parser.generate_http_block(
+      "Create order\n(multiline summary)", "POST", "https://x.dev/orders",
+      {}, '{"a":1}', nil)
+    local first = block:match("^(.-)\n")
+    assert.equals("### Create order (multiline summary)", first)
+    -- exactly one ### header in the whole block
+    local _, count = block:gsub("###", "")
+    assert.equals(1, count)
+  end)
+
+  it("newlines in method/url/header fields stay on their line", function()
+    local block = import_parser.generate_http_block(
+      "B", "GET", "https://x.dev/a\r\nb", { key = "X-T", value = "v\nw" }, nil, nil)
+    for _, line in ipairs(vim.split(block, "\n", { plain = true })) do
+      if line ~= "" then -- the block's trailing blank line is legal
+        assert.truthy(line:match("^###")
+          or line:match("^GET ")
+          or line:match("^X%-T: "), "unexpected split line: " .. line)
+      end
+    end
+  end)
+
+  it("generate_file_vars flattens newlines in var names/values", function()
+    local text = import_parser.generate_file_vars({
+      { name = "base\nurl", value = "https://x.dev/\nv2" },
+    })
+    local _, count = text:gsub("\n", "")
+    -- the only newline is the trailing separator
+    assert.equals(1, count)
+    assert.equals("@base url = https://x.dev/ v2", text:match("^(.-)\n"))
+  end)
+end)

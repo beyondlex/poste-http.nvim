@@ -1,15 +1,24 @@
 local M = {}
 
+-- Import sources carry free text (OpenAPI summaries, Postman names) into
+-- line-oriented .http positions. A raw CR/LF in a single-line position
+-- splits the line and the remainder imports as a bogus request line —
+-- flatten control characters (the %c class; %r/%n are NOT pattern escapes)
+-- wherever the generated file needs ONE line.
+local function one_line(text)
+  return (tostring(text or ""):gsub("%c+", " "))
+end
+
 function M.generate_http_block(name, method, url, headers, body, prompts)
   local lines = {}
-  table.insert(lines, "### " .. name)
+  table.insert(lines, "### " .. one_line(name))
   for _, p in ipairs(prompts or {}) do
-    table.insert(lines, "<<" .. p.name .. " " .. p.options)
+    table.insert(lines, "<<" .. one_line(p.name) .. " " .. one_line(p.options))
   end
-  table.insert(lines, method .. " " .. url)
+  table.insert(lines, one_line(method) .. " " .. one_line(url))
   local has_content_type
   for _, h in ipairs(headers or {}) do
-    table.insert(lines, h.key .. ": " .. h.value)
+    table.insert(lines, one_line(h.key) .. ": " .. one_line(h.value))
     if h.key:lower() == "content-type" then
       has_content_type = true
     end
@@ -34,7 +43,7 @@ end
 function M.generate_file_vars(vars)
   local lines = {}
   for _, v in ipairs(vars or {}) do
-    table.insert(lines, "@" .. v.name .. " = " .. v.value)
+    table.insert(lines, "@" .. one_line(v.name) .. " = " .. one_line(v.value))
   end
   if #lines > 0 then
     table.insert(lines, "")

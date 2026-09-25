@@ -110,17 +110,31 @@ local function generate_boundary()
 end
 
 --- Basic auth from `-u user:pass`, as the header the .http file would write.
+--- curl appends the colon itself when only a user is given (`-u bob` sends
+--- Basic base64("bob:"), not base64("bob")) — mirror that or the imported
+--- header authenticates as a different user string than the curl did.
 local function add_basic_auth(headers, creds)
   if creds and creds ~= "" and vim.base64 and vim.base64.encode then
+    if not creds:find(":", 1, true) then
+      creds = creds .. ":"
+    end
+    for _, h in ipairs(headers) do
+      if h[1]:lower() == "authorization" then
+        h[2] = "Basic " .. vim.base64.encode(creds)
+        return
+      end
+    end
     table.insert(headers, { "Authorization", "Basic " .. vim.base64.encode(creds) })
   end
 end
 
 --- Parse curl command and extract method, URL, headers, and body.
---- Supports: curl -X METHOD, -H header (incl. empty-value `Name:`/`Name;`),
---- -d/--data/--data-binary (incl. @file), --data-raw, --data-urlencode,
---- -F/--form/--form-string (as a multipart body with `< path` file refs),
---- -u/--user (as an Authorization: Basic header), -G/--get (data moves to
+--- Supports: curl -X METHOD, -I/--head, -H header (incl. empty-value
+--- `Name:`/`Name;`), -d/--data/--data-binary (incl. @file), --data-raw,
+--- --data-urlencode, --json (curl ≥7.82), -F/--form/--form-string (as a
+--- multipart body with `< path` file refs), -u/--user (Authorization:
+--- Basic), --oauth2-bearer (Authorization: Bearer), -A/--user-agent,
+--- -e/--referer, -b/--cookie (cookie-string form), -G/--get (data moves to
 --- the query string), --url[=]. Value flags without a .http mapping (-o/-m/
 --- …) are consumed so their values can't be mistaken for the URL; the URL
 --- is the FIRST bare argument (curl semantics). Backslash escapes inside
@@ -209,6 +223,7 @@ local function parse_curl(cmd)
   -- add time and keep their position in the sequence.
   local data_parts = {}
   local had_urlencode = false
+  local had_json = false
   local form_parts = {}
   local get_flag = false
   local had_content_type = false
@@ -242,6 +257,20 @@ local function parse_curl(cmd)
     end
   end
 
+  -- Engine-set flags (-A, -e, -b, --oauth2-bearer, -u) each carry ONE value
+  -- on the wire: the last occurrence replaces the earlier one, they never
+  -- repeat like -H does. Mirror that, or `-A one --user-agent=two` imports
+  -- two User-Agent headers a real request would never send.
+  local function set_header(name, value)
+    for _, h in ipairs(headers) do
+      if h[1]:lower() == name:lower() then
+        h[2] = value
+        return
+      end
+    end
+    table.insert(headers, { name, value })
+  end
+
   local idx = 1
   -- Short flags that take a value: either their own dedicated branches
   -- above (H, X, d, F, u) or flags whose value we don't map into the .http
@@ -258,8 +287,8 @@ local function parse_curl(cmd)
   -- Same for long flags, matched in both `--flag value` and `--flag=value`
   -- shapes (the `=` shapes are handled by prefix below).
   local ignored_value_long = {
-    ["--output"] = true, ["--user-agent"] = true,
-    ["--referer"] = true, ["--cookie"] = true, ["--proxy"] = true,
+    ["--output"] = true,
+    ["--proxy"] = true,
     ["--max-time"] = true, ["--connect-timeout"] = true, ["--retry"] = true,
     ["--retry-delay"] = true, ["--dump-header"] = true, ["--cacert"] = true,
     ["--capath"] = true, ["--cert"] = true, ["--key"] = true,
@@ -271,6 +300,7 @@ local function parse_curl(cmd)
     ["--proto-redir"] = true, ["--request-target"] = true,
     ["--engine"] = true, ["--random-file"] = true, ["--crlfile"] = true,
     ["--pinnedpubkey"] = true, ["--pubkey"] = true,
+    ["--url-query"] = true,
   }
   while idx <= #args do
     local arg = args[idx]
@@ -278,6 +308,12 @@ local function parse_curl(cmd)
     if arg == "-X" or arg == "--request" then
       idx = idx + 1
       method = (args[idx] or "GET"):upper()
+      method_forced = true
+    elseif arg == "-I" or arg == "--head" then
+      -- -I is an explicit method token on the wire: HEAD, never the data
+      -- flags' POST promotion. An earlier/later -X still overrides, exactly
+      -- like the shell.
+      method = "HEAD"
       method_forced = true
     elseif arg:match("^%-X.") then
       -- Attached form: -XPOST
@@ -328,6 +364,18 @@ local function parse_curl(cmd)
       -- --data-raw never expands @file, matching curl
       table.insert(data_parts, args[idx])
       promote_post()
+    elseif arg == "--json" then
+      -- curl ≥7.82 `--json '{"a":1}'` ≈ -d '{"a":1}' with both JSON content
+      -- headers (no @file expansion — it is data-raw semantics). The value
+      -- must be consumed here or it wins the first-bare-arg URL scan.
+      idx = idx + 1
+      table.insert(data_parts, args[idx])
+      had_json = true
+      promote_post()
+    elseif arg:match("^%-%-json=") then
+      table.insert(data_parts, arg:sub(#"--json=" + 1))
+      had_json = true
+      promote_post()
     elseif arg:match("^%-%-data=") then
       table.insert(data_parts, maybe_expand_data(arg:sub(#"--data=" + 1)))
       promote_post()
@@ -360,6 +408,40 @@ local function parse_curl(cmd)
       add_basic_auth(headers, args[idx])
     elseif arg:match("^%-u.") or arg:match("^%-%-user=") then
       add_basic_auth(headers, arg:match("^%-u(.+)$") or arg:match("^%-%-user=(.+)$"))
+    elseif arg == "--oauth2-bearer" then
+      idx = idx + 1
+      -- the value must be consumed either way or it wins the URL scan
+      if args[idx] then
+        set_header("Authorization", "Bearer " .. args[idx])
+      end
+    elseif arg:match("^%-%-oauth2%-bearer=") then
+      set_header("Authorization", "Bearer " .. arg:sub(#"--oauth2-bearer=" + 1))
+    elseif arg == "-A" or arg == "--user-agent" then
+      idx = idx + 1
+      if args[idx] then
+        set_header("User-Agent", args[idx])
+      end
+    elseif arg:match("^%-%-user%-agent=") then
+      set_header("User-Agent", arg:sub(#"--user-agent=" + 1))
+    elseif arg == "-e" or arg == "--referer" then
+      idx = idx + 1
+      if args[idx] then
+        set_header("Referer", args[idx])
+      end
+    elseif arg:match("^%-%-referer=") then
+      set_header("Referer", arg:sub(#"--referer=" + 1))
+    elseif arg == "-b" or arg == "--cookie" then
+      idx = idx + 1
+      -- a value containing "=" is a cookie string sent verbatim; without one
+      -- it names a cookie-jar FILE — nothing to map, consume and move on
+      if args[idx] and args[idx]:find("=", 1, true) then
+        set_header("Cookie", args[idx])
+      end
+    elseif arg:match("^%-%-cookie=") then
+      local value = arg:sub(#"--cookie=" + 1)
+      if value:find("=", 1, true) then
+        set_header("Cookie", value)
+      end
     elseif arg == "--url" then
       idx = idx + 1
       url = url == "" and (args[idx] or "") or url
@@ -384,7 +466,11 @@ local function parse_curl(cmd)
       local pos = 1
       while pos <= #letters do
         local letter = letters:sub(pos, pos)
-        if value_short[letter] then
+        if letter == "I" then
+          -- boolean method token inside the blob (-sI): HEAD, forced
+          method = "HEAD"
+          method_forced = true
+        elseif value_short[letter] then
           local attached = letters:sub(pos + 1)
           local value
           if attached ~= "" then
@@ -397,6 +483,9 @@ local function parse_curl(cmd)
             if value then header_from_text(value) end
           elseif letter == "X" then
             method = (value or "GET"):upper()
+            method_forced = true
+          elseif letter == "I" then
+            method = "HEAD"
             method_forced = true
           elseif letter == "d" then
             if value ~= nil then
@@ -447,6 +536,24 @@ local function parse_curl(cmd)
       end
     elseif had_urlencode and not had_content_type then
       table.insert(headers, { "Content-Type", "application/x-www-form-urlencoded" })
+    end
+  end
+
+  -- --json implies BOTH application/json headers unless the user set one
+  -- themselves (curl sends both, and a manual Content-Type must not be
+  -- clobbered by the implied one).
+  if had_json then
+    local has_ct, has_accept = had_content_type, false
+    for _, h in ipairs(headers) do
+      if h[1]:lower() == "accept" then
+        has_accept = true
+      end
+    end
+    if not has_ct then
+      table.insert(headers, { "Content-Type", "application/json" })
+    end
+    if not has_accept then
+      table.insert(headers, { "Accept", "application/json" })
     end
   end
 

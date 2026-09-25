@@ -486,3 +486,127 @@ describe("curl.parse_curl tokenizer edges (2026-09-24 round)", function()
     assert.matches("No URL", err)
   end)
 end)
+
+describe("curl.parse_curl --json", function()
+  it("imports --json as a JSON body with both implied headers", function()
+    -- curl ≥7.82: --json is data-raw + Content-Type + Accept. The value used
+    -- to win the first-bare-arg URL scan and the real URL vanished.
+    local parsed = curl.parse_curl("curl --json '{\"a\":1}' https://api.example.com/x")
+    assert.equals("POST", parsed.method)
+    assert.equals("https://api.example.com/x", parsed.url)
+    assert.equals('{"a":1}', parsed.body)
+    local ct, accept
+    for _, h in ipairs(parsed.headers) do
+      if h[1] == "Content-Type" then ct = h[2] end
+      if h[1] == "Accept" then accept = h[2] end
+    end
+    assert.equals("application/json", ct)
+    assert.equals("application/json", accept)
+  end)
+
+  it("supports --json= and keeps an explicit Accept untouched", function()
+    local parsed = curl.parse_curl(
+      "curl --json='{\"a\":1}' -H 'Accept: text/plain' https://api.example.com/x")
+    local ct, accept
+    for _, h in ipairs(parsed.headers) do
+      if h[1] == "Content-Type" then ct = h[2] end
+      if h[1] == "Accept" then accept = h[2] end
+    end
+    assert.equals('{"a":1}', parsed.body)
+    assert.equals("application/json", ct)
+    assert.equals("text/plain", accept)
+  end)
+end)
+
+describe("curl.parse_curl -I/--head", function()
+  it("imports -I as HEAD, not GET", function()
+    local parsed = curl.parse_curl("curl -I https://api.example.com/health")
+    assert.equals("HEAD", parsed.method)
+    assert.equals("https://api.example.com/health", parsed.url)
+  end)
+
+  it("supports --head and the -sI blob form", function()
+    assert.equals("HEAD", curl.parse_curl("curl --head https://x.dev/a").method)
+    local blobbed = curl.parse_curl("curl -sI https://x.dev/a")
+    assert.equals("HEAD", blobbed.method)
+    assert.equals("https://x.dev/a", blobbed.url) -- -s must not eat the URL
+  end)
+
+  it("an explicit -X still wins over -I regardless of order", function()
+    assert.equals("POST", curl.parse_curl("curl -I -X POST https://x.dev/a").method)
+    assert.equals("HEAD", curl.parse_curl("curl -X POST -I https://x.dev/a").method)
+  end)
+
+  it("data flags do not promote a -I HEAD to POST", function()
+    local parsed = curl.parse_curl("curl -I -d a=1 https://x.dev/a")
+    assert.equals("HEAD", parsed.method)
+  end)
+end)
+
+describe("curl.parse_curl -u/--user", function()
+  it("appends the colon curl sends for a bare user name", function()
+    -- -u bob sends Basic base64("bob:") — the imported header used to
+    -- authenticate as base64("bob"), a different credential on the wire.
+    local parsed = curl.parse_curl("curl -u bob https://x.dev/a")
+    local auth
+    for _, h in ipairs(parsed.headers) do
+      if h[1] == "Authorization" then auth = h[2] end
+    end
+    assert.equals("Basic " .. vim.base64.encode("bob:"), auth)
+  end)
+
+  it("keeps user:pass unchanged", function()
+    local parsed = curl.parse_curl("curl -u bob:s3cret https://x.dev/a")
+    local auth
+    for _, h in ipairs(parsed.headers) do
+      if h[1] == "Authorization" then auth = h[2] end
+    end
+    assert.equals("Basic " .. vim.base64.encode("bob:s3cret"), auth)
+  end)
+end)
+
+describe("curl.parse_curl header-carrying flags", function()
+  it("maps --oauth2-bearer to an Authorization: Bearer header", function()
+    -- The token used to win the URL scan instead.
+    local parsed = curl.parse_curl("curl --oauth2-bearer tok123 https://x.dev/a")
+    assert.equals("https://x.dev/a", parsed.url)
+    local auth
+    for _, h in ipairs(parsed.headers) do
+      if h[1] == "Authorization" then auth = h[2] end
+    end
+    assert.equals("Bearer tok123", auth)
+    parsed = curl.parse_curl("curl --oauth2-bearer=tok123 https://x.dev/a")
+    for _, h in ipairs(parsed.headers) do
+      if h[1] == "Authorization" then assert.equals("Bearer tok123", h[2]) end
+    end
+  end)
+
+  it("maps -A/--user-agent and -e/--referer to headers (last wins)", function()
+    local parsed = curl.parse_curl(
+      "curl -A 'my-agent/1.0' -e https://ref.dev/ --user-agent=ua2 https://x.dev/a")
+    local ua, referer
+    for _, h in ipairs(parsed.headers) do
+      if h[1] == "User-Agent" then ua = h[2] end
+      if h[1] == "Referer" then referer = h[2] end
+    end
+    -- one User-Agent header carrying the LAST value: these flags are
+    -- engine-set on the wire (replaced, never repeated like -H)
+    assert.equals("ua2", ua)
+    assert.equals("https://ref.dev/", referer)
+  end)
+
+  it("maps a -b cookie STRING to a Cookie header; a cookie FILE is consumed", function()
+    local parsed = curl.parse_curl("curl -b 'sid=42; theme=dark' https://x.dev/a")
+    local cookie
+    for _, h in ipairs(parsed.headers) do
+      if h[1] == "Cookie" then cookie = h[2] end
+    end
+    assert.equals("sid=42; theme=dark", cookie)
+    -- jar-file form: no "=" → nothing mappable, but the URL must still win
+    parsed = curl.parse_curl("curl -b /tmp/jar.txt https://x.dev/a")
+    assert.equals("https://x.dev/a", parsed.url)
+    for _, h in ipairs(parsed.headers) do
+      assert.is_not_equal("Cookie", h[1])
+    end
+  end)
+end)

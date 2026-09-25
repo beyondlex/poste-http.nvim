@@ -11,6 +11,7 @@
 | File | Description |
 |------|-------------|
 | `init.lua` | Entry point, `setup()` |
+| `poste.lua` | Root `poste` module — delegates to `poste-http` (family module-name ownership) |
 | `state.lua` | Shared state management |
 | `select.lua` | Generic Picker UI |
 | `indicators.lua` | Spinner/✓/✘ indicators |
@@ -18,6 +19,11 @@
 | `constants.lua` | Shared constants |
 | `errors.lua` | Structured error collection |
 | `help.lua` | Help window |
+| `commands.lua` | `:Poste*` command registration + `:PosteStatus` |
+| `event.lua` | In-process pub/sub bus (`on`/`once`/`emit`/`clear`), pcall-guarded handlers |
+| `health.lua` | `:checkhealth poste-http` |
+| `install.lua` | Parser build/install helpers (`ensure_parsers`, `force_build`) |
+| `util.lua` | Shared helpers — PRNG seeding, credential redaction (`redact_url_*`, `redacted_cmd`, `SENSITIVE_HEADERS`), shell escaping, job-output line reassembly, doc-preview float |
 
 ### AI integration (`lua/poste-http/ai/`, optional poste-ai.nvim extension)
 
@@ -69,6 +75,8 @@ that hand-rolled floats used to apply unevenly).
 | `curl_exec.lua` | Build curl args, spawn via `jobstart`, temp file management; single JSON body normalization point before the body file is written |
 | `response_parser.lua` | Parse curl `-D` headers, status, cookies, stderr verbose |
 | `file_include.lua` | Expand `< path` directives in body |
+| `request_deps.lua` | Cross-request dependency resolution → wire-shaped injection (strings as-is, tables as JSON) |
+| `global_headers.lua` | Global header merge — per-request headers override by name (case-insensitive) |
 
 #### Parsing & Variable Resolution
 
@@ -81,6 +89,11 @@ that hand-rolled floats used to apply unevenly).
 | `var_collector.lua` | Variable collection/rollup for completion |
 | `resolve.lua` | Shared async resolution pipeline for prompts/deps |
 | `request_vars.lua` | Cross-request variable chaining (`{{Name.response.body.X}}`), prompt vars, form data |
+| `nested_access.lua` | Dot/bracket path walker (`data.items[0].x`, `grid[][0]` fallback) shared by completion and jq |
+| `jq_mapping.lua` | `<<` prompt jq-lite mapping — parse structured/dynamic option strings, apply dot-path mappings |
+| `prompt_vars.lua` | Prompt variable (`<<name [opts]`) collection + interactive resolution, prompt-line stripping |
+| `form_data.lua` | Multipart form-data processing + magic-var substitution |
+| `_methods.lua` | AUTO-GENERATED method token list from `grammar.js` (`npm run generate-data`); do not edit |
 
 #### UI & Rendering
 
@@ -97,7 +110,8 @@ that hand-rolled floats used to apply unevenly).
 | `highlights.lua` | HTTP syntax highlighting (extmarks) |
 | `json.lua` | JSON folding, jq filter, outline |
 | `session.lua` | Per-request HTTP session lifecycle |
-| `boundary_indicator.lua` | Block boundary indicators |
+| `boundary_indicator.lua` | Block boundary indicators (extmark rectangle; `:PosteHttpBoundary` toggle, per-buffer scope) |
+| `variable_inspector.lua` | Variable inspector — buffer/cursor-scoped variable entries for UI |
 
 #### Completion
 
@@ -157,6 +171,7 @@ that hand-rolled floats used to apply unevenly).
 | `env.lua` | Environment switching UI |
 | `history.lua` | HTTP request history UI + disk persistence (`stdpath("data")/poste-http/history.json`) |
 | `format_file.lua` | `.http` file formatter (pure Lua, string-based) |
+| `block_boundary.lua` | Single source of truth for request-block boundary rules (shared by `describe.lua` and `cache.lua`) |
 
 ## VimScript
 
@@ -195,4 +210,4 @@ that hand-rolled floats used to apply unevenly).
 
 ---
 
-*File index — Last updated: 2026-09-07*
+*File index — Last updated: 2026-09-26*

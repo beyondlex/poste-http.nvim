@@ -73,6 +73,10 @@ end
 function M.toggle()
   _disabled = not _disabled
   if _disabled then
+    -- The painted extmarks may live in ANOTHER buffer (the last one the
+    -- cursor moved in) — clearing only the current buffer used to leave
+    -- that stale rectangle behind, still visible after coming back.
+    M.clear(_prev_buf)
     M.clear(vim.api.nvim_get_current_buf())
     if _boundary_augroup then
       pcall(vim.api.nvim_del_augroup_by_id, _boundary_augroup)

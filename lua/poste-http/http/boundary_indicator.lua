@@ -85,11 +85,19 @@ function M.toggle()
     vim.notify("HTTP boundary highlight: OFF", vim.log.levels.INFO, { title = "Poste" })
   else
     _boundary_augroup = vim.api.nvim_create_augroup("PosteHttpBoundary", { clear = true })
-    vim.api.nvim_create_autocmd("CursorMoved", {
+    -- The toggle is GLOBAL (one command, one notification): every
+    -- .http buffer follows the cursor, not just the one that happened to
+    -- be focused when the command ran (the old buffer=0 binding silently
+    -- dropped tracking on the next buffer). The cache's block scan keys on
+    -- `###` lines, which any markdown file carries — so the filetype gate
+    -- lives here, not in the scan.
+    vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "BufEnter" }, {
       group = _boundary_augroup,
-      buffer = 0,
-      callback = function()
-        M.refresh(vim.api.nvim_get_current_buf(), vim.fn.line("."))
+      callback = function(ev)
+        if vim.bo[ev.buf].filetype ~= "poste_http" then
+          return
+        end
+        M.refresh(ev.buf, vim.fn.line("."))
       end,
     })
     M.refresh(vim.api.nvim_get_current_buf(), vim.fn.line("."))

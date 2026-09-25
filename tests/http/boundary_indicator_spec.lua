@@ -30,7 +30,13 @@ describe("boundary_indicator", function()
       end
       if mock.calls[i] == "nvim_create_autocmd" then
         local detail = mock.calls[i + 1]
-        if detail and type(detail) == "table" and detail.events == "CursorMoved" then
+        -- the toggle is global: CursorMoved rides in a LIST with
+        -- CursorMovedI/BufEnter (2026-09-26), not a bare string
+        local events = detail and type(detail) == "table" and detail.events or nil
+        if type(events) == "string" then
+          events = { events }
+        end
+        if events and vim.list_contains(events, "CursorMoved") then
           autocmd_created = true
         end
       end

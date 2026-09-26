@@ -4,6 +4,17 @@ local winbar = require("poste-http.ui.winbar")
 
 local M = {}
 
+--- Is this buffer an HTTP request buffer? The filetype is the primary
+--- signal; the .http/.rest NAME match covers a file open before its
+--- filetype plugin ran (both callers must agree, or an env switch updates
+--- windows that sync_winbar considers http, or vice versa).
+local function is_http_buf(buf)
+  local name = vim.api.nvim_buf_get_name(buf)
+  return vim.bo[buf].filetype == "poste_http"
+    or name:match("%.http$") ~= nil
+    or name:match("%.rest$") ~= nil
+end
+
 local function build_http_winbar()
   return winbar.http_env(state.current_env)
 end
@@ -15,12 +26,8 @@ end
 --- sync after an env switch.
 function M.sync_winbar()
   local buf = vim.api.nvim_get_current_buf()
-  local name = vim.api.nvim_buf_get_name(buf)
-  local is_http = vim.bo[buf].filetype == "poste_http"
-    or name:match("%.http$") ~= nil
-    or name:match("%.rest$") ~= nil
   local bar = winbar.http_env(state.current_env)
-  if is_http then
+  if is_http_buf(buf) then
     vim.wo.winbar = bar
   elseif vim.wo.winbar == bar then
     -- Only clear a bar we set; never touch a user's own winbar. nil
@@ -34,8 +41,7 @@ function M.set_env(env_name)
   vim.notify("Environment switched to: " .. env_name, vim.log.levels.INFO)
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     local buf = vim.api.nvim_win_get_buf(win)
-    local ft = vim.bo[buf].filetype
-    if ft == "poste_http" then
+    if is_http_buf(buf) then
       vim.wo[win].winbar = build_http_winbar()
     end
   end

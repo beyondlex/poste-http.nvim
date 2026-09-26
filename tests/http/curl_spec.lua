@@ -532,9 +532,16 @@ describe("curl.parse_curl -I/--head", function()
     assert.equals("https://x.dev/a", blobbed.url) -- -s must not eat the URL
   end)
 
-  it("an explicit -X still wins over -I regardless of order", function()
+  it("an explicit -X wins over -I in BOTH orders (wire-verified)", function()
+    -- `curl -X POST -I` and `curl -I -X POST` both send `POST` on the wire
+    -- (captured against curl 8.7.1: the -X request token beats --head no
+    -- matter which comes first). The old import turned the -X-first order
+    -- into HEAD — the -I branch clobbered the method it had no right to.
     assert.equals("POST", curl.parse_curl("curl -I -X POST https://x.dev/a").method)
-    assert.equals("HEAD", curl.parse_curl("curl -X POST -I https://x.dev/a").method)
+    assert.equals("POST", curl.parse_curl("curl -X POST -I https://x.dev/a").method)
+    assert.equals("POST", curl.parse_curl("curl -XPOST -I https://x.dev/a").method)
+    assert.equals("POST", curl.parse_curl("curl --request=POST -I https://x.dev/a").method)
+    assert.equals("GET", curl.parse_curl("curl -X GET -I https://x.dev/a").method)
   end)
 
   it("data flags do not promote a -I HEAD to POST", function()

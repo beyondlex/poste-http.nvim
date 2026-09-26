@@ -233,6 +233,11 @@ local function parse_curl(cmd)
   -- flags' POST promotion nor a --get rewrite may clobber it (curl sends
   -- the -X token — `-X GET -d a=1` is a GET with a body, not a POST).
   local method_forced = false
+  -- True when THAT explicit token came from -X/--request (not -I): on the
+  -- wire -X beats -I in BOTH orders (`curl -X POST -I` and `curl -I -X POST`
+  -- both send POST — captured against curl 8.7.1), so -I may not clobber an
+  -- earlier -X. -I alone (or with only data flags) is still a forced HEAD.
+  local method_from_x = false
 
   local function promote_post()
     if not method_forced and method == "GET" then
@@ -309,19 +314,24 @@ local function parse_curl(cmd)
       idx = idx + 1
       method = (args[idx] or "GET"):upper()
       method_forced = true
+      method_from_x = true
     elseif arg == "-I" or arg == "--head" then
       -- -I is an explicit method token on the wire: HEAD, never the data
-      -- flags' POST promotion. An earlier/later -X still overrides, exactly
-      -- like the shell.
-      method = "HEAD"
-      method_forced = true
+      -- flags' POST promotion. An explicit -X still wins in BOTH orders
+      -- (the wire check above), so -I only forces HEAD when no -X ran.
+      if not method_from_x then
+        method = "HEAD"
+        method_forced = true
+      end
     elseif arg:match("^%-X.") then
       -- Attached form: -XPOST
       method = arg:sub(3):upper()
       method_forced = true
+      method_from_x = true
     elseif arg:match("^%-%-request=") then
       method = arg:sub(#"--request=" + 1):upper()
       method_forced = true
+      method_from_x = true
     elseif arg == "-H" or arg == "--header" then
       idx = idx + 1
       local header = args[idx]

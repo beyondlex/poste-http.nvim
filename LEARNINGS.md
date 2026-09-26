@@ -245,3 +245,17 @@ pitfall, log it here. Check this file before starting any task.
 - 2026-09-26: lua-patterns — `%r`/`%n` are STRING escapes, not pattern escapes: inside `[]` a class like `[%r%n]` does not raise but silently matches the wrong things (it stripped literal `r`s and let LF through). Control bytes in a class are `%c`; otherwise embed literal `\r\n` string escapes in the pattern. Caught by the import one-line regression spec's very first run. See `lua/poste-http/http/import_parser.lua` (`one_line`), `tests/http/import_postman_spec.lua`.
 - 2026-09-26: importers — OpenAPI/Postman summaries are free text; any field pasted into a single-line .http position must flatten CR/LF first or the remainder imports as a bogus request line (family precedent: poste-mq import.generate 09-25, spaces). `one_line` in `import_parser.lua` is the single choke point for all three importers.
 - 2026-09-26: curl importer — engine-set flags (`-u`, `-A`, `-e`, `-b`, `--oauth2-bearer`) REPLACE on the wire, `-H` appends; `--json` implies both application/json headers; `-u user` sends `user:` (curl appends the colon for the empty password); `-I` is a forced HEAD the data-flag POST promotion may not clobber. Guarded by tests/http/curl_spec.lua's 2026-09-26 blocks.
+
+- 2026-09-27: curl-import -X/-I order — an importer claim verified against
+  one argument order is not verified. "-X still wins in either order" was
+  the 09-26 intent, but only `-I -X POST` was exercised; `-X POST -I`
+  clobbered the method back to HEAD while the captured wire (nc listener,
+  curl 8.7.1) sends POST both ways. Fix: track `method_from_x` separately
+  from `method_forced` so `-I` forces HEAD only when no `-X` ran. Any
+  "either order" statement needs both orders in the spec, and wire capture
+  needs exactly two lines of shell.
+- 2026-09-27: probe the API shape before probing the behavior — three
+  invalidated probes this round came from remembered-not-read shapes
+  (`collect_var_defs` is name-keyed, `parse_headers_file` takes a
+  headers-only dump, `parse_curl` returns `(parsed, err)`). Read the
+  export list / return contract first.

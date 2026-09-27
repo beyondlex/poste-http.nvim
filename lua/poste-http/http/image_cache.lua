@@ -152,7 +152,11 @@ function M.download_image_url(url)
   local ms = math.floor(((vim.uv or vim.loop).hrtime() / 1e6) % 1000)
   local tmp = cache_dir .. "/img/url_" .. os.date("%Y%m%d_%H%M%S") .. string.format("_%03d", ms) .. extension_for(ct)
   M.register_temp_file(tmp)
-  local cmd = { "curl", "-s", "-S", "-L", "--max-time", "15", "-o", tmp }
+  -- -f (--fail): an HTTP 404/500 error page must fail the call, not land in
+  -- the cache as the "image" — without it curl exits 0 with the error page
+  -- body on disk, the preview renders garbage, and the TTL serves that
+  -- garbage (as the stale fallback too) for the whole cache window.
+  local cmd = { "curl", "-s", "-S", "-f", "-L", "--max-time", "15", "-o", tmp }
   -- End-of-options guard (curl_exec precedent): the URL is the only
   -- free-position argv slot, so `--` stops a pathological URL — e.g. one
   -- harvested from a response body — from parsing as flags.

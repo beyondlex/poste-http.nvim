@@ -174,6 +174,26 @@ describe("poste-http.http.image_cache", function()
       assert.is_nil(path)
       assert.equals("image/png", ct)
     end)
+
+    it("fails the download on an HTTP error page (curl -f) instead of caching it", function()
+      -- Regression: without -f, a 404/500 error page exited curl with 0 and
+      -- its HTML body was renamed into the cache as the "image" — rendered
+      -- as garbage and served by the TTL (and the stale fallback) for the
+      -- whole cache window. -f must be part of the argv so HTTP errors take
+      -- the same fallback path as a transport failure.
+      local url = "https://cache-unit/error-page.png"
+      local seen_cmd
+      vim.fn.system = function(cmd)
+        seen_cmd = cmd
+        return ""
+      end
+      image_cache.download_image_url(url)
+      local has_fail = false
+      for _, arg in ipairs(seen_cmd) do
+        if arg == "-f" then has_fail = true end
+      end
+      assert.is_true(has_fail, "curl must run with -f so HTTP errors fail the call")
+    end)
   end)
 
   describe("temp file tracking", function()

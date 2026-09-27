@@ -259,3 +259,13 @@ pitfall, log it here. Check this file before starting any task.
   (`collect_var_defs` is name-keyed, `parse_headers_file` takes a
   headers-only dump, `parse_curl` returns `(parsed, err)`). Read the
   export list / return contract first.
+
+- 2026-09-28: image download — transport success is not protocol success:
+  curl without `--fail` exits 0 on a 404/500 and leaves the error page on
+  disk, which `download_image_url` then renamed into the cache as the
+  "image" (TTL + stale fallback served garbage for an hour+). `-f` is now
+  part of the argv. Rule: a subprocess that speaks a protocol needs its
+  protocol-level outcome checked, not just its exit path — and stub-based
+  specs never catch this class because every stub models the happy path;
+  pin the argv itself. See `lua/poste-http/http/image_cache.lua`,
+  `tests/http/image_cache_spec.lua`.

@@ -269,3 +269,14 @@ pitfall, log it here. Check this file before starting any task.
   specs never catch this class because every stub models the happy path;
   pin the argv itself. See `lua/poste-http/http/image_cache.lua`,
   `tests/http/image_cache_spec.lua`.
+
+- 2026-09-29: loader guards — one corrupt entry must cost one entry, never
+  the file: `history.load()` guarded on truthiness so a hand-edited
+  `"id": "abc"` threw on `e.id > max_id` and the setup pcall silently
+  dropped every persisted entry. Third instance of the class in the family
+  (mq toml sections, mq env keys). Same round: the nil-input guard contract
+  copied from poste-mq's vars.expand closed two more crash-on-weird-type
+  holes (`substitute(nil)`, `get_nested_value(obj, 5)`). Rule: public
+  helpers that take user/scripted values type-guard at the entry; loaders
+  validate per entry and skip. See `lua/poste-http/http/history.lua`,
+  `lua/poste-http/http/vars.lua`, `lua/poste-http/http/nested_access.lua`.

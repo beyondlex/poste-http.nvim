@@ -140,6 +140,28 @@ describe("history persistence", function()
     assert.equals(0, #state.http_history)
   end)
 
+  it("skips entries with a non-numeric id but keeps the rest", function()
+    -- One hand-edited "id": "abc" used to throw on `e.id > max_id`; the
+    -- setup pcall swallowed it and every entry silently vanished.
+    local file = tmp_dir .. "/history.json"
+    os.execute("mkdir -p " .. tmp_dir)
+    local fd = io.open(file, "w")
+    fd:write(vim.json.encode({
+      { id = "abc", name = "corrupt" },
+      { id = 7, name = "good" },
+      { name = "idless" },
+    }))
+    fd:close()
+
+    state.http_history = {}
+    state.http_history_id_counter = 0
+    history.load()
+
+    assert.equals(1, #state.http_history)
+    assert.equals("good", state.http_history[1].name)
+    assert.equals(7, state.http_history_id_counter)
+  end)
+
   it("clear wipes the ring, the id counter, and the persisted file", function()
     history.add_entry("A", { status = 200, metadata = {} })
     history.add_entry("B", { status = 200, metadata = {} })

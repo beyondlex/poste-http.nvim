@@ -105,7 +105,10 @@ function M.load()
   local loaded = {}
   local max_id = 0
   for _, e in ipairs(entries) do
-    if e and type(e) == "table" and e.id then
+    -- type(e.id) == "number": one corrupt id ("abc" from a hand-edited
+    -- file) threw on `e.id > max_id` and the wrapping pcall silently
+    -- dropped EVERY entry from that point on.
+    if e and type(e) == "table" and type(e.id) == "number" then
       table.insert(loaded, e)
       if e.id > max_id then max_id = e.id end
     end

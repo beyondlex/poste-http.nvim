@@ -64,6 +64,13 @@ describe("zero-coverage smoke specs", function()
       assert.is_nil(nested_access.get_nested_value({ a = 1 }, "b.c"))
     end)
 
+    it("returns nil for a non-string path instead of crashing", function()
+      -- A number path used to crash on `#path`; the resolver is reachable
+      -- from scripted jq filters, so non-strings read as "nothing found".
+      assert.is_nil(nested_access.get_nested_value({ a = 1 }, 5))
+      assert.is_nil(nested_access.get_nested_value({ a = 1 }, nil))
+    end)
+
     -- get_key_paths() emits `.data[0][0]`-shaped candidates for 2-D arrays,
     -- and `{{Req.response.body.data[0][1]}}` refs resolve through here too —
     -- the old single-bracket match made every trailing index after the

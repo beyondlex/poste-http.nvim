@@ -106,7 +106,9 @@ resolve_segments = function(current, segments, idx)
 end
 
 function M.get_nested_value(obj, path)
-  if not obj or path == "" then return nil end
+  -- Non-string paths (a number from a scripted jq filter, say) pass through
+  -- as "nothing found" instead of crashing on `#path`.
+  if not obj or type(path) ~= "string" or path == "" then return nil end
   local segments = parse_path_segments(path)
   return resolve_segments(obj, segments, 1)
 end

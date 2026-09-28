@@ -136,6 +136,16 @@ describe("VarResolver:substitute with table values", function()
     local result = resolver:substitute('{{unknown}}')
     assert.equals("{{unknown}}", result)
   end)
+
+  it("passes non-string input through untouched (family contract)", function()
+    -- substitute(nil) used to crash on `result:gsub`; every current caller
+    -- hands a string, but the resolver is public API (poste-mq's
+    -- vars.expand passes non-strings through).
+    local resolver = vars.new()
+    assert.equals(nil, resolver:substitute(nil))
+    assert.equals(5, resolver:substitute(5))
+    assert.equals("", resolver:substitute(""))
+  end)
 end)
 describe("magic vars", function()
   it("draws differ within a session", function()

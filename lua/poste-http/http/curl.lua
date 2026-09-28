@@ -494,9 +494,6 @@ local function parse_curl(cmd)
           elseif letter == "X" then
             method = (value or "GET"):upper()
             method_forced = true
-          elseif letter == "I" then
-            method = "HEAD"
-            method_forced = true
           elseif letter == "d" then
             if value ~= nil then
               table.insert(data_parts, maybe_expand_data(value))

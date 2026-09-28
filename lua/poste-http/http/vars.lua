@@ -60,6 +60,9 @@ local function value_to_string(v)
 end
 
 function VarResolver:substitute(input)
+  -- Mirror the family contract (poste-mq vars.expand): non-string input
+  -- passes through untouched instead of crashing on `result:gsub`.
+  if type(input) ~= "string" then return input end
   local result = input
   for _ = 1, 20 do
     -- `next_result`, not `next` — a local named `next` shadows the global.

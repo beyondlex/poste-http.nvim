@@ -83,6 +83,6 @@ load the `lua-patterns` skill before writing any `string.match`/`gmatch`/`gsub`.
 | File index | `docs/dev/file-index.md` |
 | Architecture | `docs/dev/architecture-overview.md` |
 | Build & test | `docs/dev/testing.md` |
-| User syntax | `docs/user/http/syntax.md` |
-| TDD guide | `docs/dev/http/tdd-guide.md` |
+| User syntax | `docs/user/syntax.md` |
+| TDD guide | `docs/dev/tdd-guide.md` |
 | Agent learnings | `LEARNINGS.md` |

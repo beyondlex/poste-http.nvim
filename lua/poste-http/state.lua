@@ -154,8 +154,17 @@ function M.apply_highlight_overrides(group_names)
   end
 end
 
+local util = require("poste-http.util")
+
 function M.log(level, msg)
   if not M.config.log_file or M.config.log_file == "" then return end
+  -- Sink-level URL redaction (mq log.redact rule): userinfo credentials in
+  -- any URL-ish substring never reach the log file, even when a call site
+  -- forgets to redact — call sites redact query strings and headers, this
+  -- layer owns the userinfo fallback.
+  msg = tostring(msg):gsub("%w+://%S+", function(candidate)
+    return util.redact_url_userinfo(candidate)
+  end)
   local ts = os.date("%Y-%m-%d %H:%M:%S")
   local line = string.format("[%s] [%s] %s\n", ts, level, msg)
   local f = io.open(M.config.log_file, "a")

@@ -151,6 +151,16 @@ local commands = {
     opts = { desc = "Show HTTP request history" },
   },
   {
+    name = "PosteHttpHistoryClear",
+    handler = function()
+      require("poste-http.http.history").clear()
+      vim.notify("[Poste] HTTP history cleared", vim.log.levels.INFO)
+    end,
+    -- Scriptable wipe-all (the browser's double-D guard is the interactive
+    -- route); mirrors :PosteMqHistoryClear in the family.
+    opts = { desc = "Clear HTTP request history (in-memory ring + persisted file)" },
+  },
+  {
     name = "PosteHttpClearCache",
     handler = function()
       local format = require("poste-http.http.format")

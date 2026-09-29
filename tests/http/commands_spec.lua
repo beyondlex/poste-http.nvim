@@ -22,13 +22,31 @@ describe("commands", function()
       "PosteHttpCopyAsCurl", "PosteHttpHelp", "PosteHttpImportResolve",
       "PosteHttpCmpStatus", "PosteHttpCmpProfile",
       "PosteHttpSymbols", "PosteHttpOutline", "PosteHttpFormat", "PosteHttpHistory",
-      "PosteHttpClearCache", "PosteHttpTSInspect",
+      "PosteHttpHistoryClear", "PosteHttpClearCache", "PosteHttpTSInspect",
     }
 
     for _, name in ipairs(expected) do
       assert.is_not_nil(cmds[name],
         string.format("command '%s' should be registered", name))
     end
+  end)
+
+  it("PosteHttpHistoryClear wipes the history through history.clear", function()
+    -- Scriptable wipe-all (family parity with :PosteMqHistoryClear); the
+    -- browser's double-D guard stays the interactive route. The harness
+    -- records registrations instead of dispatching vim.cmd, so fire the
+    -- recorded handler directly (opts structure of a no-arg command).
+    local cleared = 0
+    package.loaded["poste-http.http.history"] = {
+      clear = function() cleared = cleared + 1 end,
+    }
+    local commands = require("poste-http.commands")
+    commands.setup()
+    local cmd = harness.get_user_commands()["PosteHttpHistoryClear"]
+    assert.truthy(cmd, "command registered")
+    cmd.callback({ args = "", line1 = 0, line2 = 0, range = 0 })
+    assert.equals(1, cleared)
+    package.loaded["poste-http.http.history"] = nil
   end)
 
   it("never registers a command without the PosteHttp prefix", function()

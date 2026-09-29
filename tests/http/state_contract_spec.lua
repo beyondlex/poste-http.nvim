@@ -186,6 +186,29 @@ describe("state.log()", function()
     state.log("INFO", "test message")  -- should not error
     state.config.log_file = orig
   end)
+
+  it("redacts URL userinfo at the sink (mq log.redact parity)", function()
+    -- Defense in depth: call sites redact query strings and headers; the
+    -- sink owns userinfo so a forgotten call site cannot leak credentials
+    -- into the log file.
+    local orig = state.config.log_file
+    local log_file = vim.fn.tempname() .. "-poste.log"
+    state.config.log_file = log_file
+    vim.fn.delete(log_file)
+
+    state.log("INFO", "GET https://bob:s3cret@api.example.com/v1?api_key=k done")
+
+    local f = io.open(log_file, "r")
+    assert.truthy(f, "log file was written")
+    local logged = f:read("*a")
+    f:close()
+    assert.falsy(logged:find("s3cret", 1, true), "password must not reach the log")
+    assert.truthy(logged:find("bob:%*%*%*@api%.example%.com"), "userinfo is masked")
+    assert.truthy(logged:find("api_key=k"), "query strings stay readable (call sites own them)")
+
+    os.remove(log_file)
+    state.config.log_file = orig
+  end)
 end)
 
 ---------------------------------------------------------------------------

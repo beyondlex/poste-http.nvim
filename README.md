@@ -172,6 +172,10 @@ require("poste-http").setup({
   -- (e.g. terminal maximize → restore), so neither split disappears.
   result_window_ratio = 0.5,
   log_file = vim.fn.stdpath("cache") .. "/poste.log",
+  -- How :PosteHttpBoundary marks the block under the cursor:
+  -- "background" tints a full-width rectangle behind its lines, "gutter"
+  -- tints only the number column and leaves the syntax colours alone.
+  boundary_style = "background",
 
   keymaps = {
     http_source = {

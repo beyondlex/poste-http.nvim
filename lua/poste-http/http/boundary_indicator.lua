@@ -1,3 +1,5 @@
+local state = require("poste-http.state")
+
 local M = {}
 
 local _prev_buf = nil
@@ -15,6 +17,28 @@ end
 --- with hl_eol, so the background reaches the window edge on every screen
 --- row (auto-wrapped lines included). This replaces the old sign-column
 --- border, freeing the sign column for the execution status indicator.
+local function paint_background(buf, start, stop)
+  for line = start, stop do
+    vim.api.nvim_buf_set_extmark(buf, ns, line, 0, {
+      end_row = line + 1,
+      end_col = 0,
+      hl_group = "PosteHttpBoundary",
+      hl_eol = true,
+      hl_mode = "combine",
+    })
+  end
+end
+
+--- Only the number column of each line — the text keeps the parser's own
+--- colours (poste-db.nvim's boundary_style="gutter" parity).
+local function paint_gutter(buf, start, stop)
+  for line = start, stop do
+    vim.api.nvim_buf_set_extmark(buf, ns, line, 0, {
+      number_hl_group = "PosteHttpBoundaryGutter",
+    })
+  end
+end
+
 local function apply_range(buf, start, stop)
   if _prev_buf and _prev_buf ~= buf then
     clear_all(_prev_buf)
@@ -26,14 +50,10 @@ local function apply_range(buf, start, stop)
   if line_count == 0 then return end
   start = math.max(0, math.min(start, line_count - 1))
   stop  = math.max(0, math.min(stop,  line_count - 1))
-  for line = start, stop do
-    vim.api.nvim_buf_set_extmark(buf, ns, line, 0, {
-      end_row = line + 1,
-      end_col = 0,
-      hl_group = "PosteHttpBoundary",
-      hl_eol = true,
-      hl_mode = "combine",
-    })
+  if state.config.boundary_style == "gutter" then
+    paint_gutter(buf, start, stop)
+  else
+    paint_background(buf, start, stop)
   end
   _prev_buf = buf
 end

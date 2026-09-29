@@ -167,6 +167,10 @@ function M.setup()
   -- request under the cursor (poste_ai-style hl_eol extmarks)
   vim.api.nvim_set_hl(0, "PosteHttpBoundary", { bg = 0x24293f })
   vim.api.nvim_set_hl(0, "PosteHttpBoundaryBorder", { fg = 0x246e3b, bold = true })
+  -- boundary_style="gutter" marks only the number column of the block. It
+  -- links to the rectangle so one override recolours both; a `bg` of its
+  -- own would drift from whatever theme the user pointed the rectangle at.
+  vim.api.nvim_set_hl(0, "PosteHttpBoundaryGutter", { link = "PosteHttpBoundary" })
 
   -- Status code coloring in verbose view
   vim.api.nvim_set_hl(0, "PosteStatus2xx", { fg = 0x98c379, bold = true })          -- green
@@ -225,6 +229,7 @@ function M.setup()
     "PosteSymbolCurrent", "PosteSymbolMethod",
     "PosteHttpBoundaryBorder",
     "PosteHttpBoundary",
+    "PosteHttpBoundaryGutter",
     "PosteStatus2xx", "PosteStatus3xx", "PosteStatus4xx", "PosteStatus5xx",
     "PosteVerboseSeparator", "PosteVerboseSection", "PosteVerboseSubHeader", "PosteVerboseKey", "PosteVerboseValue",
     "PosteRequestKey", "PosteRequestValue",

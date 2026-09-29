@@ -12,6 +12,7 @@ CONTENTS                                                    *poste-contents*
   7. Environment ..................... |poste-env|
   8. Keymaps ......................... |poste-keymaps|
   9. Commands ........................ |poste-commands|
+  10. Boundary Highlight ............. |poste-http-boundary|
 
 ==============================================================================
 1. INTRODUCTION                                          *poste-intro*
@@ -310,6 +311,40 @@ All commands use the `PosteHttp` prefix.
     :PosteHttpCmpProfile     Profile completion latency
     :PosteHttpInfo           Show plugin environment info
     :PosteHttpBoundary       Toggle block boundary indicators
+
+==============================================================================
+10. BOUNDARY HIGHLIGHT                                  *poste-http-boundary*
+
+:PosteHttpBoundary toggles the request-block boundary highlight: while on,
+the block under the cursor is marked so you can see where it starts and
+ends. Which style of marking is used is `boundary_style`
+(|poste-http-boundary-style|). Both styles follow the cursor across every
+`poste_http` buffer.
+
+                                                    *poste-http-boundary-style*
+`boundary_style` picks how the request block under the cursor is marked.
+Both styles are switched on and off together by `:PosteHttpBoundary`.
+    "background"  default. A full-width `PosteHttpBoundary` rectangle
+                  behind every line of the request block (reaching the
+                  window edge, wrapped lines included).
+    "gutter"      no tinting of the text — only the number column of those
+                  lines is shaded, so the parser's own colours stay
+                  readable. `▏` below marks the shaded cell:
+>
+                      ▏ 1  ### Login
+                      ▏ 2  POST {{base_url}}/login
+                      ▏ 3  Authorization: Bearer x
+<
+                  Needs a number column ('number' or 'relativenumber'); with
+                  neither, the style marks nothing. The shade is
+                  `PosteHttpBoundaryGutter`, which links to
+                  `PosteHttpBoundary` so one |nvim_set_hl()| moves both.
+
+>lua
+      require("poste-http").setup({
+        boundary_style = "background", -- or "gutter"
+      })
+<
 
 ==============================================================================
  vim:tw=78:ts=8:ft=help:norl:

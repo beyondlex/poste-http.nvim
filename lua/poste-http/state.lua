@@ -16,6 +16,11 @@ M.config = {
   body_preview_lines = 20,
   default_view = "body",
   timeout = 30000,
+  -- How the request block under the cursor is marked (:PosteHttpBoundary):
+  -- "background" tints a full-width rectangle behind its lines, "gutter"
+  -- tints only the number column of those lines and leaves the text (and
+  -- its parser colours) alone.
+  boundary_style = "background",
   keymaps = {
     http_source = {
       run = "<CR>",

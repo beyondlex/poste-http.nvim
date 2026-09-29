@@ -139,7 +139,10 @@ function M.run_pre_script(code, script_vars)
         if line then
           state.script_variables_sources[name] = { file = ctx.file, line = line }
         end
-        state.log("INFO", string.format("Pre-script: request.variables.set('%s', '%s')", name, stored))
+        -- The stored VALUE never reaches the log: script variables are where
+        -- tokens land (client.global.set('token', ...)), and the log file is
+        -- a sync/screenshot leak surface. Name + length stay for debugging.
+        state.log("INFO", string.format("Pre-script: request.variables.set('%s', [REDACTED len=%d])", name, #stored))
       end,
       get = function(name)
         return variables[name]
@@ -158,7 +161,10 @@ function M.run_pre_script(code, script_vars)
         if line then
           state.global_vars_sources[name] = { file = ctx.file, line = line }
         end
-        state.log("INFO", string.format("Pre-script: client.global.set('%s', '%s')", name, stored))
+        -- The stored VALUE never reaches the log: script variables are where
+        -- tokens land (client.global.set('token', ...)), and the log file is
+        -- a sync/screenshot leak surface. Name + length stay for debugging.
+        state.log("INFO", string.format("Pre-script: client.global.set('%s', [REDACTED len=%d])", name, #stored))
       end,
       get = function(name)
         return state.global_vars[name]
@@ -173,7 +179,10 @@ function M.run_pre_script(code, script_vars)
           if line then
             state.global_headers_sources[name] = { file = ctx.file, line = line }
           end
-          state.log("INFO", string.format("Pre-script: client.global.header.set('%s', '%s')", name, stored))
+          -- The stored VALUE never reaches the log: script variables are where
+        -- tokens land (client.global.set('token', ...)), and the log file is
+        -- a sync/screenshot leak surface. Name + length stay for debugging.
+        state.log("INFO", string.format("Pre-script: client.global.header.set('%s', [REDACTED len=%d])", name, #stored))
         end,
         get = function(name)
           return state.global_headers[name]

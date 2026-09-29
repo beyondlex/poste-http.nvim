@@ -106,3 +106,34 @@ describe("collect_script_variables", function()
     vim.fn.delete(env_dir, "d")
   end)
 end)
+
+describe("pre-script variable logging", function()
+  it("never writes the stored value to the log file", function()
+    -- Regression: client.global.set / request.variables.set /
+    -- client.global.header.set logged the stored VALUE verbatim. Script
+    -- variables are where tokens land, and the log file is a sync /
+    -- screenshot leak surface — only the name and the value's length go out.
+    local secret = "super-secret-bearer-token"
+    local log_file = vim.fn.tempname() .. "-poste.log"
+    state.config.log_file = log_file
+    vim.fn.delete(log_file)
+
+    local result = scripts.run_pre_script([[
+      request.variables.set('v', ']] .. secret .. [[')
+      client.global.set('g', ']] .. secret .. [[')
+      client.global.header.set('Authorization', 'Bearer ]] .. secret .. [[')
+    ]], { variables = {}, env = {} })
+    assert.is_nil(result.error)
+
+    local f = io.open(log_file, "r")
+    assert.truthy(f, "log file was written")
+    local logged = f:read("*a")
+    f:close()
+    assert.falsy(logged:find(secret, 1, true), "the secret must not appear in the log")
+    assert.truthy(logged:find("request%.variables%.set%('v', %[REDACTED len=25%]%)"))
+    assert.truthy(logged:find("client%.global%.header%.set%('Authorization', %[REDACTED len=32%]%)"))
+
+    os.remove(log_file)
+    state.config.log_file = nil
+  end)
+end)

@@ -94,6 +94,41 @@ describe("script_sandbox.build_sandbox_env", function()
     local chunk = load("return math.floor(tonumber(variables.n) + 1) .. string.upper('ok')", "t", "t", env)
     assert.equals("42OK", chunk())
   end)
+
+  it("std-lib writes raise instead of poisoning the process-wide libraries", function()
+    -- Regression: string/table/math/os were handed out as THE process-wide
+    -- tables — `string.format = junk` inside one shared .http script
+    -- corrupted the whole nvim session (and every later script) until
+    -- restart. Writes now raise (the runner's pcall shows it as a script
+    -- failure) and the real libraries stay untouched.
+    local env = script_sandbox.build_sandbox_env({ request = {}, client = {} })
+    local ok, err = pcall(load([[
+      string.format = function() return "poisoned" end
+    ]], "t", "t", env))
+    assert.is_false(ok)
+    assert.match("read%-only", tostring(err))
+    -- the process-wide library is untouched
+    assert.equals("not-poisoned", string.format("not-%s", "poisoned"))
+    -- curated os writes are blocked too
+    local ok_os, err_os = pcall(load([[
+      os.time = function() return 0 end
+    ]], "t", "t", env))
+    assert.is_false(ok_os)
+    assert.match("read%-only", tostring(err_os))
+    assert.is_true(os.time() > 0, "real os.time untouched")
+  end)
+
+  it("std-lib reads keep working through the read-only view", function()
+    local env = script_sandbox.build_sandbox_env({ request = {}, client = {} })
+    local chunk = load([[
+      local hex = string.format("%02x", 255)
+      local joined = table.concat({ "a", "b" }, "-")
+      local biggest = math.max(1, 2)
+      local now = os.time()
+      return hex == "ff" and joined == "a-b" and biggest == 2 and type(now) == "number"
+    ]], "t", "t", env)
+    assert.is_true(chunk())
+  end)
 end)
 
 describe("run_pre_script / run_assertions still execute via the shared env", function()

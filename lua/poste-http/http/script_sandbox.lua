@@ -46,6 +46,24 @@ local sandbox_os = {
   getenv = os.getenv,
 }
 
+--- Read-only view over a standard-library table: reads fall through to the
+--- real library, writes raise (the runner's pcall surfaces it as a script
+--- failure). The sandbox hands out THE process-wide library tables — a
+--- script evaluating `string.format = junk` or `os.time = function() return
+--- 0 end` used to poison them for the whole nvim session and every later
+--- script in it. Reads keep working (`string.format(...)`, `os.time`), so
+--- no correct script changes behavior; `pairs(lib)` iterates nothing
+--- (libraries are not enumerable through the view), which nothing in the
+--- documented script API relies on.
+local function readonly_lib(lib)
+  return setmetatable({}, {
+    __index = lib,
+    __newindex = function()
+      error("sandbox: standard libraries are read-only", 2)
+    end,
+  })
+end
+
 --- Build a sandbox environment for executing script code.
 --- Exposes the whitelisted stdlibs unconditionally. `response` and `assert`
 --- are only set when provided, so runners that don't support them keep them
@@ -70,10 +88,10 @@ function M.build_sandbox_env(api)
     tonumber = tonumber,
     next = next,
     type = type,
-    string = string,
-    table = table,
-    math = math,
-    os = sandbox_os,
+    string = readonly_lib(string),
+    table = readonly_lib(table),
+    math = readonly_lib(math),
+    os = readonly_lib(sandbox_os),
     ipairs = ipairs,
     pairs = pairs,
     md5 = md5,

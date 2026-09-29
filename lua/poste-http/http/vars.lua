@@ -98,11 +98,17 @@ function M.collect_var_defs(lines, start_idx, end_idx)
     if not line then break end
     local trimmed = vim.trim(line)
     if trimmed:sub(1, 1) == "@" then
-      local name, value = trimmed:match("^@(%S+)%s*=%s*(.*)")
+      -- `%S-` (lazy), not `%S+`: the greedy form let the LAST `=` on the
+      -- line win, so the compact `@token=eyJ9.abc==` spelled its name
+      -- "token=eyJ9.abc" and its value "=". The first `=` separates name
+      -- from value (query URLs, base64 padding and JWTs all carry `=`).
+      local name, value = trimmed:match("^@(%S-)%s*=%s*(.*)")
       if not name then
         name, value = trimmed:match("^@(%S+)%s+(.+)")
       end
-      if name and value then
+      -- The lazy name may capture empty (`@=value`): an empty name is junk,
+      -- not a variable.
+      if name and name ~= "" and value then
         if value:match("^>>>%s*$") then
           local multiline = {}
           i = i + 1
@@ -137,11 +143,13 @@ function M.collect_var_defs_with_lines(lines, start_idx, end_idx)
     local line_num = i
     local trimmed = vim.trim(line)
     if trimmed:sub(1, 1) == "@" then
-      local name, value = trimmed:match("^@(%S+)%s*=%s*(.*)")
+      -- Same lazy-name rule as collect_var_defs: the first `=` separates
+      -- name from value (greedy %S+ made the last `=` win).
+      local name, value = trimmed:match("^@(%S-)%s*=%s*(.*)")
       if not name then
         name, value = trimmed:match("^@(%S+)%s+(.+)")
       end
-      if name and value then
+      if name and name ~= "" and value then
         if value:match("^>>>%s*$") then
           local multiline = {}
           i = i + 1

@@ -91,6 +91,34 @@ describe("collect_var_defs", function()
     local r = collect({ "@token=" }, 1, 1)
     assert.equals("", r.token)
   end)
+
+  -- Regression: the greedy `%S+` name let the LAST `=` on the line win, so
+  -- the compact form `@url=http://a?b=c` parsed as name "url=http://a?b",
+  -- value "c" — a JWT or query-string value was unreachable as {{name}}.
+  it("splits the compact @var=value form at the FIRST equals sign", function()
+    local r = collect({ "@url=http://a?b=c" }, 1, 1)
+    assert.equals("http://a?b=c", r.url)
+  end)
+
+  it("keeps = signs in compact values (base64 padding, JWT shape)", function()
+    local r = collect({ "@tok=eyJ9.eyJ.abc==", "@b64=dGVzdA==" }, 1, 2)
+    assert.equals("eyJ9.eyJ.abc==", r.tok)
+    assert.equals("dGVzdA==", r.b64)
+  end)
+
+  it("does not register an empty-name @=value line", function()
+    local r = collect({ "@=value" }, 1, 1)
+    assert.is_nil(r[""])
+    local count = 0
+    for _ in pairs(r) do count = count + 1 end
+    assert.equals(0, count)
+  end)
+
+  it("collect_var_defs_with_lines splits compact values at the first =", function()
+    local r = vars.collect_var_defs_with_lines({ "@url=http://a?b=c" }, 1, 1)
+    assert.equals("http://a?b=c", r.url.value)
+    assert.equals(1, r.url.line)
+  end)
 end)
 
 describe("VarResolver:substitute with table values", function()

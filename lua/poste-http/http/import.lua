@@ -30,7 +30,9 @@ local M = {}
 --- @return table|nil  { type = "bare"|"aliased", path = string, alias = string|nil }
 local function parse_import_line(line)
   local trimmed = vim.trim(line)
-  if not trimmed:match("^import ") then return nil end
+  -- Guard accepts any whitespace: the extractors below match %s+, so a
+  -- tab-separated "import\t./path" must not fall through unrecognized.
+  if not trimmed:match("^import%s") then return nil end
 
   -- import ./path as alias
   local path, alias = trimmed:match("^import%s+(%S+)%s+as%s+(%S+)")
@@ -55,7 +57,8 @@ end
 ---                      vars = { string: string } }
 local function parse_run_line(line)
   local trimmed = vim.trim(line)
-  if not trimmed:lower():match("^run ") then return nil end
+  -- Same %s guard as parse_import_line: "run\t#Name" is a run line too.
+  if not trimmed:lower():match("^run%s") then return nil end
 
   local rest = trimmed:match("^[Rr][Uu][Nn]%s+(.+)")
   if not rest then return nil end

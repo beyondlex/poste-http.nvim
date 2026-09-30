@@ -28,6 +28,18 @@ describe("parse_import_line", function()
     local r = imp.parse_import_line("  import ./auth.http")
     assert.are_equal("bare", r.type)
   end)
+
+  it("accepts a tab separator between keyword and path", function()
+    -- The guard used to require a literal space while the extractor matched
+    -- %s+, so "import\t./auth.http" was silently not an import.
+    local r = imp.parse_import_line("import\t./auth.http")
+    assert.are_equal("bare", r.type)
+    assert.are_equal("./auth.http", r.path)
+
+    local run = imp.parse_run_line("run\t#Login")
+    assert.are_equal("by_name", run.type)
+    assert.are_equal("Login", run.name)
+  end)
 end)
 
 describe("parse_run_line", function()

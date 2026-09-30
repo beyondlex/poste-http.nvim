@@ -125,13 +125,16 @@ Open a `.http` file. With cursor on a request block, press `<CR>` to execute. Re
 | Key | Action |
 |-----|--------|
 | `<CR>` | Execute request at cursor |
+| `<M-CR>` | Execute in a horizontal split |
 | `]]` / `[[` | Jump next/previous block |
 | `gd` | Go to definition |
 | `grr` | Go to references |
+| `]q` / `[q` | Quickfix next/previous |
 | `gs` | Symbol outline |
 | `<leader>rp` | Paste curl from clipboard |
 | `<leader>rc` | Copy request as curl |
 | `K` | Show variable value / response chain |
+| `gi` | Variable inspector |
 | `<leader>vv` | Pick environment |
 | `<leader>l` | Open request history |
 
@@ -151,16 +154,28 @@ Suggested path: .github/assets/history.png
 | Key | Action |
 |-----|--------|
 | `q` | Close |
-| `B` / `E` | View Body / Verbose |
-| `A` / `S` | View Assertions / Script logs |
+| `B` / `R` / `E` | View Body / Request / Verbose |
+| `M` | View Messages (WebSocket frames) |
+| `A` / `S` / `X` | View Assertions / Script logs / Errors |
+| `s` / `c` | Send into / close the active WebSocket session |
 | `<Tab>` / `<S-Tab>` | Next/previous tab |
 | `r` | Re-run request |
+| `]` / `[` | Next/previous response in a multi-response chain |
 | `K` | Image preview |
 | `<leader>j` | Interactive jq filter |
 | `<leader>jc` | Restore original JSON |
 | `<leader>jr` | Toggle raw/pretty |
 | `<leader>jo` | JSON outline |
 | `a` | Ask the AI about this response / errors (poste-ai.nvim) |
+
+### HTTP history float
+
+| Key | Action |
+|-----|--------|
+| `q` | Close |
+| `dd` | Delete entry |
+| `D` | Clear all history (press twice within 3s to confirm) |
+| `<CR>` | Focus detail |
 
 ## Configuration
 
@@ -192,20 +207,29 @@ require("poste-http").setup({
     http_response = {
       close = "q",
       view_body = "B",
+      view_request = "R",
       view_verbose = "E",
+      view_messages = "M",
       view_assertions = "A",
       view_script_logs = "S",
+      view_errors = "X",
+      ws_send = "s",
+      ws_close = "c",
       next_tab = "<Tab>",
       prev_tab = "<S-Tab>",
       rerun = "r",
+      next_response = "]",
+      prev_response = "[",
       json_filter = "<leader>j",
       json_restore = "<leader>jc",
       json_toggle_raw = "<leader>jr",
       json_outline = "<leader>jo",
+      image_preview = "K",
     },
     http_history = {
       close = "q",
       delete_entry = "dd",
+      clear_all = "D",
       focus_detail = "<CR>",
     },
   },
@@ -273,9 +297,17 @@ Prompt variables allow interactive input when running a request.
 There is no standalone CLI. Requests run directly from Neovim:
 
 - `:PosteHttpRun` (or the `run` keymap) to run the request under the cursor
-- `:PosteHttpCopyAsCurl` to copy the request as a curl command
-- `:PosteHttpChat` to open the AI chat scoped to the current `.http` file (needs poste-ai.nvim)
+- `:PosteHttpEnv [name]` to show or switch the environment
+- `:PosteHttpCopyAsCurl` / `:PosteHttpPasteCurl` to copy/paste requests as curl
+- `:PosteHttpHistory` / `:PosteHttpHistoryClear` to browse or wipe request history
+- `:PosteHttpOutline` / `:PosteHttpSymbols` for the request outline
+- `:PosteHttpFormat` to format the current `.http` buffer
+- `:PosteHttpImportResolve` to show import resolution status
 - `:PosteHttpImportOpenAPI` / `:PosteHttpImportSwagger` / `:PosteHttpImportPostman` to import specs
+- `:PosteHttpClearCache` to remove old cached response files
+- `:PosteHttpBoundary` to toggle the request-block boundary highlight
+- `:PosteHttpChat` to open the AI chat scoped to the current `.http` file (needs poste-ai.nvim)
+- `:PosteHttpInfo`, `:PosteHttpBuildParsers`, `:PosteHttpTSInspect`, `:PosteHttpCmpStatus` for diagnostics
 
 ## Documentation
 

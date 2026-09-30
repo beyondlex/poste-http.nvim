@@ -98,16 +98,29 @@ function M.import_spec(spec_path, out_dir)
   local blocks = {}
   local all_op_vars = {}
   local paths = spec.paths or {}
-  for path, path_item in pairs(paths) do
-    local methods = { "get", "post", "put", "patch", "delete", "options", "head", "trace" }
-    for _, method in ipairs(methods) do
-      local operation = path_item[method]
-      if operation then
-        local block, op_vars = parse_operation(path, method, operation, spec, server_url)
-        if block then
-          table.insert(blocks, block)
-          for k, v in pairs(op_vars) do
-            all_op_vars[k] = v
+  -- Sorted path order: the generated file is committed and reviewed, so its
+  -- block order must be a pure function of the spec — pairs() hash order
+  -- differs between runs and nvim sessions.
+  local sorted_paths = {}
+  for path in pairs(paths) do
+    table.insert(sorted_paths, path)
+  end
+  table.sort(sorted_paths)
+  for _, path in ipairs(sorted_paths) do
+    local path_item = paths[path]
+    -- Malformed specs may carry a non-table path item (a number, string, or
+    -- JSON null); skip it instead of erroring mid-import.
+    if type(path_item) == "table" then
+      local methods = { "get", "post", "put", "patch", "delete", "options", "head", "trace" }
+      for _, method in ipairs(methods) do
+        local operation = path_item[method]
+        if type(operation) == "table" then
+          local block, op_vars = parse_operation(path, method, operation, spec, server_url)
+          if block then
+            table.insert(blocks, block)
+            for k, v in pairs(op_vars) do
+              all_op_vars[k] = v
+            end
           end
         end
       end

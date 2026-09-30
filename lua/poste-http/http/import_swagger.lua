@@ -95,14 +95,24 @@ function M.import_spec(spec_path, out_dir)
 
   local blocks = {}
   local paths = spec.paths or {}
-  for path, path_item in pairs(paths) do
-    local methods = { "get", "post", "put", "patch", "delete", "options", "head", "trace" }
-    for _, method in ipairs(methods) do
-      local operation = path_item[method]
-      if operation then
-        local block = parse_operation(spec, path, method, operation)
-        if block then
-          table.insert(blocks, block)
+  -- Sorted path order + table-only path items: same rules as import_openapi
+  -- (deterministic, reviewable output; malformed specs skip, not crash).
+  local sorted_paths = {}
+  for path in pairs(paths) do
+    table.insert(sorted_paths, path)
+  end
+  table.sort(sorted_paths)
+  for _, path in ipairs(sorted_paths) do
+    local path_item = paths[path]
+    if type(path_item) == "table" then
+      local methods = { "get", "post", "put", "patch", "delete", "options", "head", "trace" }
+      for _, method in ipairs(methods) do
+        local operation = path_item[method]
+        if type(operation) == "table" then
+          local block = parse_operation(spec, path, method, operation)
+          if block then
+            table.insert(blocks, block)
+          end
         end
       end
     end

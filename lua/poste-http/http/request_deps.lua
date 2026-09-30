@@ -71,8 +71,10 @@ end
 
 --- Split a request variable reference of the form
 --- <req_name>.<source>.<target>[.<path>] where source ∈ {response, request} and
---- target ∈ {body, headers}. The request name may itself contain dots; the
---- last .response./.request. marker splits name from the source.
+--- target ∈ {body, headers}. The name is everything before the FIRST
+--- `.response.`/`.request.` marker (whichever of the two occurs later) —
+--- the grammar ai/blocks.lua dep_names mirrors. A name that itself contains
+--- the same marker twice cannot be expressed; prefer renaming such blocks.
 --- @param pattern string
 --- @return string req_name
 --- @return string|nil source

@@ -909,6 +909,39 @@ describe("execute_all_requests prompt cancellation", function()
     assert.are_equal("Cancelled", results[1].response.status_text)
     assert.are_equal("Cancelled", results[2].response.status_text)
   end)
+
+  it("progress notifications show the right ordinal for each request", function()
+    -- idx is an upvalue shared across execute_next recursions; reading it
+    -- inside vim.schedule evaluated the CURRENT value at fire time, so the
+    -- first request's notification could show the second request's ordinal
+    -- ("[2/2] one — cancelled") whenever the loop advanced first.
+    -- Pump the loop first: the previous test's vim.schedules fire here, and
+    -- without a drain they would land in this test's capture table.
+    vim.wait(50, function() return false end)
+    resolve_mod.resolve = function(_content, _opts, cb) cb(nil) end
+
+    local notified = {}
+    local orig_vim_notify = vim.notify
+    vim.notify = function(msg) table.insert(notified, msg) end
+
+    local batch_file = os.tmpname() .. ".http"
+    local f = io.open(batch_file, "w")
+    f:write("### one\nGET /one\n\n### two\nGET /two\n")
+    f:close()
+
+    local done = false
+    import_mod.execute_all_requests(batch_file, "### one\nGET /one\n\n### two\nGET /two\n", nil,
+      function() done = true end)
+    os.remove(batch_file)
+
+    vim.wait(1000, function() return done end)
+    vim.wait(1000, function() return #notified >= 2 end)
+    vim.notify = orig_vim_notify
+
+    assert.are_equal(2, #notified, "both cancellations must notify: " .. table.concat(notified, " | "))
+    assert.matches("%[1/2%] one — cancelled", notified[1])
+    assert.matches("%[2/2%] two — cancelled", notified[2])
+  end)
 end)
 
 describe("Lua import module cache invalidation", function()

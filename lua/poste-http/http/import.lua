@@ -771,8 +771,12 @@ function M.execute_all_requests(file_path, content, var_map, callback)
         table.insert(results, { name = req.name, response = {
           status = 0, status_text = "Cancelled", body = "",
         }})
+        -- Capture the ordinal now: idx is an upvalue shared with execute_next,
+        -- and by the time vim.schedule fires it has already advanced to the
+        -- next request (the notification showed "[2/2] <first request>").
+        local pos = idx - 1
         vim.schedule(function()
-          notify(string.format("[%d/%d] %s — cancelled", idx - 1, #requests, req.name),
+          notify(string.format("[%d/%d] %s — cancelled", pos, #requests, req.name),
             vim.log.levels.WARN)
         end)
         execute_next()
@@ -796,8 +800,11 @@ function M.execute_all_requests(file_path, content, var_map, callback)
             status = 0, status_text = "Failed", body = "",
           }})
         end
+        -- Same capture-as-local rule as the cancel branch above: idx has
+        -- advanced by the time this notification is delivered.
+        local pos = idx - 1
         vim.schedule(function()
-          notify(string.format("[%d/%d] %s — %s", idx - 1, #requests, req.name,
+          notify(string.format("[%d/%d] %s — %s", pos, #requests, req.name,
             response and (response.status .. " " .. (response.status_text or "")) or "failed"),
             vim.log.levels.INFO)
         end)

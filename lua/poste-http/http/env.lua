@@ -37,7 +37,39 @@ function M.sync_winbar()
   end
 end
 
+--- Env names defined by the env.json discoverable from search_dir, or nil
+--- when there is no readable env.json (walk-up miss, unreadable file, or a
+--- payload that is not a JSON object). nil means "no known universe of
+--- names" — validation is only meaningful when the file defines it.
+local function discover_env_names(search_dir)
+  local env_file = util.find_file_upwards("env.json", search_dir)
+  if not env_file then return nil end
+  local ok, data = pcall(vim.fn.readfile, env_file)
+  if not ok or not data then return nil end
+  local ok2, parsed = pcall(vim.json.decode, table.concat(data, "\n"))
+  if not ok2 or type(parsed) ~= "table" then return nil end
+  local names = {}
+  for name in pairs(parsed) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  return names
+end
+
 function M.set_env(env_name)
+  -- A typo'd `:PosteHttpEnv prodX` used to switch silently; every {{var}}
+  -- then resolved to nothing and the request went out with literal
+  -- placeholders. When a readable env.json defines the universe of names,
+  -- an unknown name is rejected with the valid ones. Without the file the
+  -- switch stays permissive — vars may come from scripts or prompt vars.
+  local buf_name = vim.api.nvim_buf_get_name(0)
+  local search_dir = buf_name ~= "" and vim.fn.fnamemodify(buf_name, ":h") or vim.fn.getcwd()
+  local names = discover_env_names(search_dir)
+  if names and not vim.list_contains(names, env_name) then
+    notify(string.format("Unknown environment '%s' — env.json defines: %s",
+      env_name, table.concat(names, ", ")), vim.log.levels.WARN)
+    return false
+  end
   state.current_env = env_name
   notify("Environment switched to: " .. env_name, vim.log.levels.INFO)
   for _, win in ipairs(vim.api.nvim_list_wins()) do
@@ -46,6 +78,7 @@ function M.set_env(env_name)
       vim.wo[win].winbar = build_http_winbar()
     end
   end
+  return true
 end
 
 function M.get_env()
@@ -53,28 +86,20 @@ function M.get_env()
 end
 
 function M.pick_env()
-  local search_dir = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":h")
-  if search_dir == "" then search_dir = vim.fn.getcwd() end
+  local buf_name = vim.api.nvim_buf_get_name(0)
+  local search_dir = buf_name ~= "" and vim.fn.fnamemodify(buf_name, ":h") or vim.fn.getcwd()
   local env_file = util.find_file_upwards("env.json", search_dir)
   if not env_file then
     notify("No env.json found", vim.log.levels.WARN)
     return
   end
-  local ok, data = pcall(vim.fn.readfile, env_file)
-  if not ok or not data then
-    notify("Cannot read env.json", vim.log.levels.WARN)
+  -- discover_env_names reports nothing for an unreadable/unparsable file;
+  -- say the file is broken rather than "no environments" (the file exists).
+  local envs = discover_env_names(search_dir)
+  if envs == nil then
+    notify("Cannot parse env.json: " .. env_file, vim.log.levels.WARN)
     return
   end
-  local ok2, parsed = pcall(vim.json.decode, table.concat(data, "\n"))
-  if not ok2 or type(parsed) ~= "table" then
-    notify("Cannot parse env.json", vim.log.levels.WARN)
-    return
-  end
-  local envs = {}
-  for name, _ in pairs(parsed) do
-    envs[#envs + 1] = name
-  end
-  table.sort(envs)
   if #envs == 0 then
     notify("No environments found in env.json", vim.log.levels.WARN)
     return

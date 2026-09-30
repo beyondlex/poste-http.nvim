@@ -10,6 +10,7 @@
 local M = {}
 local float = require("poste-http.ui.float")
 local image_cache = require("poste-http.http.image_cache")
+local notify = require("poste-http.ui.notify").notify
 
 local image_preview_state = {
   image = nil,
@@ -41,6 +42,8 @@ M.is_image_content_type = image_cache.is_image_content_type
 M.guess_image_content_type = image_cache.guess_image_content_type
 M.cache_path_for_url = image_cache.cache_path_for_url
 M.download_image_url = image_cache.download_image_url
+M.cached_image_path = image_cache.cached_image_path
+M.download_image_url_async = image_cache.download_image_url_async
 
 --- Detect terminal support for Kitty graphics protocol.
 function M.supports_kitty_protocol()
@@ -53,12 +56,12 @@ end
 --- Open an image file in the system viewer (macOS `open` / Linux `xdg-open`).
 function M.open_image_external(file_path)
   if not file_path or vim.fn.filereadable(file_path) ~= 1 then
-    vim.notify("Image file not found: " .. tostring(file_path), vim.log.levels.WARN, { title = "Poste" })
+    notify("Image file not found: " .. tostring(file_path), vim.log.levels.WARN)
     return
   end
   local opener = vim.fn.has("mac") == 1 and "open" or "xdg-open"
   vim.fn.jobstart({ opener, file_path }, { detach = true })
-  vim.notify(string.format("Opening image: %s", file_path), vim.log.levels.INFO, { title = "Poste" })
+  notify(string.format("Opening image: %s", file_path), vim.log.levels.INFO)
 end
 
 function M.close_image_preview()
@@ -121,7 +124,7 @@ local function try_snacks_image(buf, file_path, cursor_line)
     conceal = false,
   })
   if not placement_ok then
-    vim.notify("snacks.image preview failed: " .. tostring(placement), vim.log.levels.WARN, { title = "Poste" })
+    notify("snacks.image preview failed: " .. tostring(placement), vim.log.levels.WARN)
     return false
   end
   if not placement then
@@ -132,7 +135,7 @@ local function try_snacks_image(buf, file_path, cursor_line)
   vim.schedule(function()
     vim.defer_fn(function()
       if placement.img and placement.img:failed() then
-        vim.notify("snacks.image async load failed for: " .. file_path, vim.log.levels.WARN, { title = "Poste" })
+        notify("snacks.image async load failed for: " .. file_path, vim.log.levels.WARN)
       end
     end, 2000)
   end)
@@ -293,11 +296,13 @@ function M.get_url_under_cursor()
 end
 
 --- Download and preview an image URL.
---- Shows a notification while downloading, then renders inline.
+--- Fresh cache hits render synchronously; otherwise the "Downloading..."
+--- notification is truthful because the fetch runs via jobstart and the
+--- render happens from its completion callback.
 ---@param buf number
 ---@param url string
 ---@param cursor_line number
----@return boolean
+---@return boolean  render happened (cache hit) or the fetch was started
 function M.preview_image_url(buf, url, cursor_line)
   if not buf or not vim.api.nvim_buf_is_valid(buf) then return false end
   if not url or not url:match("^https?://") then return false end
@@ -305,32 +310,47 @@ function M.preview_image_url(buf, url, cursor_line)
   if not ct then return false end
 
   M.cleanup_url_preview()
-  vim.notify("Downloading image...", vim.log.levels.INFO, { title = "Poste" })
-  local file_path, content_type = M.download_image_url(url)
-  if not file_path then
-    vim.notify("Failed to download image from URL", vim.log.levels.WARN, { title = "Poste" })
-    return false
+
+  local cached = M.cached_image_path(url)
+  if cached then
+    return M.render_image_preview(buf, cached, ct, cursor_line)
   end
-  return M.render_image_preview(buf, file_path, content_type or ct, cursor_line)
+
+  notify("Downloading image...", vim.log.levels.INFO)
+  return M.download_image_url_async(url, function(file_path, content_type)
+    if not file_path then
+      notify("Failed to download image from URL", vim.log.levels.WARN)
+      return
+    end
+    M.render_image_preview(buf, file_path, content_type or ct, cursor_line)
+  end)
 end
 
 --- Download and preview an image URL in a floating window.
---- Shows a notification while downloading, then renders in a popup that can be closed with Esc.
+--- Async like preview_image_url; the popup opens from the completion callback
+--- and can be closed with Esc.
 ---@param url string
----@return boolean
+---@return boolean  render happened (cache hit) or the fetch was started
 function M.preview_image_url_float(url)
   if not url or not url:match("^https?://") then return false end
   local ct = M.guess_image_content_type(url)
   if not ct then return false end
 
   M.close_image_preview()
-  vim.notify("Downloading image...", vim.log.levels.INFO, { title = "Poste" })
-  local file_path, content_type = M.download_image_url(url)
-  if not file_path then
-    vim.notify("Failed to download image from URL", vim.log.levels.WARN, { title = "Poste" })
-    return false
+
+  local cached = M.cached_image_path(url)
+  if cached then
+    return M.render_image_float(cached, ct)
   end
-  return M.render_image_float(file_path, content_type or ct)
+
+  notify("Downloading image...", vim.log.levels.INFO)
+  return M.download_image_url_async(url, function(file_path, content_type)
+    if not file_path then
+      notify("Failed to download image from URL", vim.log.levels.WARN)
+      return
+    end
+    M.render_image_float(file_path, content_type or ct)
+  end)
 end
 
 --- Try to render image in floating window using snacks.image.

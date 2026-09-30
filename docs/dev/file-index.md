@@ -55,6 +55,7 @@ that hand-rolled floats used to apply unevenly).
 | `float.lua` | Centered floating window: `open(opts)` (scratch buffer, border/title, close keys, `on_close`, failure cleanup) and pure `center(w, h)` |
 | `picker.lua` | Floating list picker with incremental search — snacks-less fallback used by `select.lua`; every close path resolves `on_select` exactly once |
 | `keymaps.lua` | Config-driven keymap registration: `register(buf, section, action, default, handler)` / `register_all(buf, section, specs, base_opts)`; `false` in config disables an action |
+| `notify.lua` | Single entry point for user notifications: `notify(msg, level, opts)` — plugin title (`constants.NOTIFY_TITLE`), 200-column cap, NUL-strip, fast-event-safe, mirrors every message into `state.log`. Direct `vim.notify` elsewhere is a guardrail violation (§5.1) |
 
 ### HTTP Module (`lua/poste-http/http/`)
 

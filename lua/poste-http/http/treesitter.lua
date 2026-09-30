@@ -1,6 +1,7 @@
 local M = {}
 local cache = require("poste-http.http.cache")
 local state = require("poste-http.state")
+local notify = require("poste-http.ui.notify").notify
 
 local ns = vim.api.nvim_create_namespace("poste_http_var_refs")
 local mapping_ns = vim.api.nvim_create_namespace("poste_http_prompt_mapping")
@@ -214,7 +215,7 @@ function M.enable(bufnr)
   end
   local ok, err = pcall(vim.treesitter.start, bufnr, "poste_http")
   if not ok then
-    vim.notify("[Poste] tree-sitter: " .. tostring(err), vim.log.levels.WARN)
+    notify("tree-sitter: " .. tostring(err), vim.log.levels.WARN)
   end
   highlight_var_refs(bufnr)
   vim.api.nvim_buf_attach(bufnr, false, {
@@ -261,12 +262,12 @@ function M.inspect(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local ok, parser = pcall(vim.treesitter.get_parser, bufnr, "poste_http")
   if not ok or not parser then
-    vim.notify("[Poste] No tree-sitter parser active", vim.log.levels.WARN)
+    notify("No tree-sitter parser active", vim.log.levels.WARN)
     return
   end
   ok, trees = pcall(parser.parse, parser)
   if not ok or not trees or #trees == 0 then
-    vim.notify("[Poste] No parse tree available", vim.log.levels.WARN)
+    notify("No parse tree available", vim.log.levels.WARN)
     return
   end
   local root = trees[1]:root()
@@ -282,7 +283,7 @@ function M.inspect(bufnr)
     end
   end
   dump(root)
-  vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
+  notify(table.concat(lines, "\n"), vim.log.levels.INFO)
 end
 
 return M

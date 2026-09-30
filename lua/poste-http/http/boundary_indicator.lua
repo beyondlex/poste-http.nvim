@@ -1,4 +1,5 @@
 local state = require("poste-http.state")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -102,7 +103,7 @@ function M.toggle()
       pcall(vim.api.nvim_del_augroup_by_id, _boundary_augroup)
       _boundary_augroup = nil
     end
-    vim.notify("HTTP boundary highlight: OFF", vim.log.levels.INFO, { title = "Poste" })
+    notify("HTTP boundary highlight: OFF", vim.log.levels.INFO)
   else
     _boundary_augroup = vim.api.nvim_create_augroup("PosteHttpBoundary", { clear = true })
     -- The toggle is GLOBAL (one command, one notification): every
@@ -121,7 +122,7 @@ function M.toggle()
       end,
     })
     M.refresh(vim.api.nvim_get_current_buf(), vim.fn.line("."))
-    vim.notify("HTTP boundary highlight: ON", vim.log.levels.INFO, { title = "Poste" })
+    notify("HTTP boundary highlight: ON", vim.log.levels.INFO)
   end
 end
 

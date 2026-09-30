@@ -6,6 +6,7 @@ local semantics = require("poste-http.ui.semantics")
 -- ui/render is aliased: this module has its own local render() below.
 local ui_render = require("poste-http.ui.render")
 local float = require("poste-http.ui.float")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -387,7 +388,7 @@ function M.open()
   local src_win = vim.api.nvim_get_current_win()
   local ft = vim.bo[src_buf].filetype
   if ft ~= "poste_http" then
-    vim.notify("Poste outline: only available for .http files", vim.log.levels.WARN)
+    notify("only available for .http files", vim.log.levels.WARN)
     return
   end
 

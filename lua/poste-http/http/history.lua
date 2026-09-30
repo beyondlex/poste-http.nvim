@@ -7,6 +7,7 @@ local render = require("poste-http.ui.render")
 local winbar = require("poste-http.ui.winbar")
 local float = require("poste-http.ui.float")
 local keymaps = require("poste-http.ui.keymaps")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -347,7 +348,7 @@ function M.apply_jq_filter(entry, query, pane_buf)
   if vim.fn.executable("jq") == 1 then
     local ok, output = M._run_jq(query, entry.response.body)
     if not ok then
-      vim.notify("jq error: " .. (output or "unknown"), vim.log.levels.ERROR)
+      notify("jq error: " .. (output or "unknown"), vim.log.levels.ERROR)
       return false
     end
     result = format.pretty_body(output, "application/json")
@@ -547,9 +548,9 @@ local function clear_all()
     return
   end
   clear_armed_since = armed_at
-  vim.notify(
+  notify(
     string.format("Press D again within 3s to clear all %d history entries", #state.http_history),
-    vim.log.levels.WARN, { title = "Poste" })
+    vim.log.levels.WARN)
 end
 
 local function switch_tab(tab_id)

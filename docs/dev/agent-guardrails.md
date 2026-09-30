@@ -31,6 +31,7 @@
 | 键位注册 | `ui/keymaps.register(_all)` | `get_keymap + if k then keymap.set` 逐条手写 |
 | 列对齐 | `ui/columns.render` | `string.format("%-8s")` 拼列 |
 | 兜底选择器 | `ui/picker.open` | 复制一份搜索/导航/关闭兜底逻辑 |
+| 用户提示 | `ui/notify.notify` | 直接调 `vim.notify`（§5.1 可机检） |
 
 ```lua
 -- ❌ 禁止：手搓浮窗（守卫一定会漏——历史上 9 处漏了 3 种）
@@ -46,6 +47,26 @@ local buf, win = float.open({ width = w, height = h, title = t, on_close = clean
 
 需要原语没有的能力时，**扩展原语并补测试**（如 `close_keys = {}`、`win_opts`、
 `base_opts` 都是这么加的），不要绕过它。
+
+### 1.1 消息文案风格（`ui/notify` 契约，2026-09-30 收敛）
+
+**事故（2026-09-30 review）**：113 处 `vim.notify` 直接调用沉淀出 7 种前缀
+（`[Poste]`/`Poste:`/`poste:`/`poste-http`/`PosteHttp`/`[poste]`/无前缀）×
+4 种 title 写法，`run.lua` 自己就混两种。归属信息忽隐忽现，noice/fidget 用户
+无法按插件过滤。
+
+- **归属由 title 承担**（`constants.NOTIFY_TITLE`），消息正文是裸句子，禁止
+  任何前缀。确需子场景区分时用 `opts.title` 覆盖。
+- **wrapper 不改写正文**（NUL 清理 + 200 列截断除外）：句首大写由调用点负责；
+  行首工具名/占位符（`jq error`、`{{var}}`）保持原样——自动大写会把
+  "jq error" 变成 "Jq error"。
+- **level 判定**：状态告知/成功回执 = INFO；前置条件不满足、用户取消、可恢复
+  降级 = WARN；操作执行失败（请求、导入、脚本、外部命令）= ERROR。
+- **notify 与 state.log 互不重复**：`ui/notify` 已自动镜像进 log sink，调用点
+  不要再对同一条消息手写 `state.log`；反过来纯诊断信息（用户不需要看）直接
+  `state.log`，不要 notify。
+- **禁止静默失败**：任何走到 `callback(false/nil)` 的失败分支必须已有调用点
+  侧 notify（批处理路径逐项 notify 视为已覆盖），只打错误指示器不算提示。
 
 ---
 
@@ -133,6 +154,8 @@ grep -rln "PosteMethodGET\|PosteStatus2xx" lua/ | grep -v "ui/semantics.lua\|htt
 grep -rln "TabLineSel" lua/ | grep -v "ui/winbar.lua"
 # 字符级截断原语只允许 ui/text.lua 与 ui/columns.lua
 grep -rln "strcharpart\|strchars(" lua/ | grep -v "ui/text.lua\|ui/columns.lua"
+# 用户提示只允许 ui/notify.lua 触达 vim.notify（tests/run.sh 已内置此门禁）
+grep -rn "vim\.notify" lua/ | grep -v "lua/poste-http/ui/notify.lua"
 ```
 
 以上清单 = 2026-08-30 收敛后的合法残留。**新增命中必须走 ui/ 原语**；确需第

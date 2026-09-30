@@ -6,6 +6,7 @@ local import = require("poste-http.http.import")
 local nav_ts = require("poste-http.http.nav.ts")
 local nav_text = require("poste-http.http.nav.text")
 local util = require("poste-http.util")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -103,7 +104,7 @@ function M.jump_next()
       return
     end
   end
-  vim.notify("No more requests", vim.log.levels.INFO)
+  notify("No more requests", vim.log.levels.INFO)
 end
 
 function M.jump_prev()
@@ -115,7 +116,7 @@ function M.jump_prev()
       return
     end
   end
-  vim.notify("No previous requests", vim.log.levels.INFO)
+  notify("No previous requests", vim.log.levels.INFO)
 end
 
 function M.show_var_value()
@@ -138,7 +139,7 @@ function M.show_var_value()
   end
 
   if not var_name then
-    vim.notify("Not on a {{variable}} reference", vim.log.levels.WARN, { title = "Poste" })
+    notify("Not on a {{variable}} reference", vim.log.levels.WARN)
     return
   end
 

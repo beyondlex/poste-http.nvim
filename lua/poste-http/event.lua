@@ -1,3 +1,4 @@
+local notify = require("poste-http.ui.notify").notify
 local M = { _handlers = {} }
 
 function M.on(event, handler)
@@ -39,8 +40,8 @@ function M.emit(event, data)
     local ok, err = pcall(handler, data)
     if not ok then
       vim.schedule(function()
-        vim.notify(
-          string.format("[poste] event '%s' handler error: %s", event, tostring(err)),
+        notify(
+          string.format("event '%s' handler error: %s", event, tostring(err)),
           vim.log.levels.ERROR
         )
       end)

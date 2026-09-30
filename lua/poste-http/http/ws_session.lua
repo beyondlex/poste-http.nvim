@@ -14,6 +14,7 @@ local M = {}
 local state = require("poste-http.state")
 local util = require("poste-http.util")
 local executor = require("poste-http.http.executors.websocket")
+local notify = require("poste-http.ui.notify").notify
 
 local uv = vim.uv or vim.loop
 
@@ -218,7 +219,7 @@ end
 --- Prompt for a message and send it on the active session.
 function M.send_prompt()
   if not active then
-    vim.notify("No live WebSocket session", vim.log.levels.WARN, { title = "Poste" })
+    notify("No live WebSocket session", vim.log.levels.WARN)
     return
   end
   vim.ui.input({ prompt = "WS send> " }, function(msg)

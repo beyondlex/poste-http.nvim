@@ -4,6 +4,7 @@ local util = require("poste-http.util")
 local vars = require("poste-http.http.vars")
 local request_deps = require("poste-http.http.request_deps")
 local json_body = require("poste-http.http.json_body")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 -- Shell-escaping goes through util.shell_escape (the whitelist dialect).
@@ -391,7 +392,7 @@ function M.copy_to_clipboard(register)
 
   local curl_cmd, err = M.copy_as_curl()
   if not curl_cmd then
-    vim.notify("Failed to copy as curl: " .. err, vim.log.levels.ERROR, { title = "Poste" })
+    notify("Failed to copy as curl: " .. err, vim.log.levels.ERROR)
     return
   end
 
@@ -404,11 +405,9 @@ function M.copy_to_clipboard(register)
     line_count = line_count + 1
   end
 
-  vim.notify(
+  notify(
     string.format("Copied curl command (%d lines) to %s clipboard", line_count, register == "+" and "system" or "X11"),
-    vim.log.levels.INFO,
-    { title = "Poste" }
-  )
+    vim.log.levels.INFO)
 end
 
 -- Test hook: collect_vars is internal; exposed for specs only.

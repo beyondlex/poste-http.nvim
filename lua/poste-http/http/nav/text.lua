@@ -2,6 +2,7 @@ local cache = require("poste-http.http.cache")
 local context_detector = require("poste-http.http.context_detector")
 local request_vars = require("poste-http.http.request_vars")
 local nav_util = require("poste-http.http.nav.util")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -40,7 +41,7 @@ function M.goto_definition()
               return
             end
           end
-          vim.notify("Alias '" .. alias .. "' not found in import directives", vim.log.levels.WARN)
+          notify("Alias '" .. alias .. "' not found in import directives", vim.log.levels.WARN)
           return
         elseif cword == name then
           local import_mod = require("poste-http.http.import")
@@ -52,7 +53,7 @@ function M.goto_definition()
             local name_col = (target_text:find(vim.pesc(name)) or 2) - 1
             vim.api.nvim_win_set_cursor(0, { resolved.line, name_col })
           else
-            vim.notify(resolved.error or "Cannot resolve reference", vim.log.levels.WARN)
+            notify(resolved.error or "Cannot resolve reference", vim.log.levels.WARN)
           end
           return
         end
@@ -68,7 +69,7 @@ function M.goto_definition()
             local name_col = (target_text:find(vim.pesc(name)) or 2) - 1
             vim.api.nvim_win_set_cursor(0, { resolved.line, name_col })
           else
-            vim.notify(resolved.error or "Cannot resolve reference", vim.log.levels.WARN)
+            notify(resolved.error or "Cannot resolve reference", vim.log.levels.WARN)
           end
           return
         end
@@ -116,7 +117,7 @@ function M.goto_definition()
       if as_pos then
         local alias_start = as_pos + 4
         if col >= alias_start - 1 and col <= alias_start - 1 + #alias then
-          vim.notify("Alias '" .. alias .. "' defined here", vim.log.levels.INFO)
+          notify("Alias '" .. alias .. "' defined here", vim.log.levels.INFO)
           return
         end
       end
@@ -161,7 +162,7 @@ function M.goto_definition()
                 return
               end
             end
-            vim.notify("Import not found for alias '" .. alias .. "'", vim.log.levels.WARN)
+            notify("Import not found for alias '" .. alias .. "'", vim.log.levels.WARN)
             return
           end
           local import_mod = require("poste-http.http.import")
@@ -196,10 +197,10 @@ function M.goto_definition()
                 end
               end
             else
-              vim.notify("File not found: " .. full_path, vim.log.levels.WARN)
+              notify("File not found: " .. full_path, vim.log.levels.WARN)
             end
           else
-            vim.notify("Import not found for alias '" .. alias .. "'", vim.log.levels.WARN)
+            notify("Import not found for alias '" .. alias .. "'", vim.log.levels.WARN)
           end
           return
         end
@@ -253,7 +254,7 @@ function M.goto_definition()
         end
       end
     end
-    vim.notify("No named request reference under cursor", vim.log.levels.INFO)
+    notify("No named request reference under cursor", vim.log.levels.INFO)
     return
   end
 
@@ -319,7 +320,7 @@ function M.goto_definition()
 
   if nav_util.goto_env_var(buf, req_name) then return end
 
-  vim.notify("Definition not found: " .. req_name, vim.log.levels.WARN)
+  notify("Definition not found: " .. req_name, vim.log.levels.WARN)
 end
 
 function M.goto_references()
@@ -420,7 +421,7 @@ function M.goto_references()
   end
 
   if not symbol_name then
-    vim.notify("No variable or request reference under cursor", vim.log.levels.INFO)
+    notify("No variable or request reference under cursor", vim.log.levels.INFO)
     return
   end
 

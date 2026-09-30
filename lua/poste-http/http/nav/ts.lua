@@ -1,5 +1,6 @@
 local ts_query = require("poste-http.http.ts_query")
 local nav_util = require("poste-http.http.nav.util")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -11,7 +12,7 @@ function M.goto_definition()
 
   local node = ts_query.node_at_point(buf, row, col)
   if not node then
-    vim.notify("No tree-sitter node under cursor", vim.log.levels.INFO)
+    notify("No tree-sitter node under cursor", vim.log.levels.INFO)
     return
   end
 
@@ -91,13 +92,13 @@ function M.goto_definition()
               end
             end
           else
-            vim.notify("File not found: " .. full_path, vim.log.levels.WARN)
+            notify("File not found: " .. full_path, vim.log.levels.WARN)
           end
           return
         end
       end
 
-      vim.notify("Definition not found: " .. var_name, vim.log.levels.WARN)
+      notify("Definition not found: " .. var_name, vim.log.levels.WARN)
       return
     end
   end
@@ -176,13 +177,13 @@ function M.goto_definition()
             end
           end
         else
-          vim.notify("File not found: " .. full_path, vim.log.levels.WARN)
+          notify("File not found: " .. full_path, vim.log.levels.WARN)
         end
         return
       end
     end
 
-    vim.notify("Definition not found: " .. var_name, vim.log.levels.WARN)
+    notify("Definition not found: " .. var_name, vim.log.levels.WARN)
     return
   end
 
@@ -195,7 +196,7 @@ function M.goto_definition()
       vim.cmd("normal! m'")
       vim.cmd("edit " .. vim.fn.fnameescape(full_path))
     else
-      vim.notify("File not found: " .. full_path, vim.log.levels.WARN)
+      notify("File not found: " .. full_path, vim.log.levels.WARN)
     end
     return
   end
@@ -217,7 +218,7 @@ function M.goto_definition()
       vim.api.nvim_win_set_cursor(0, { sr + 1, sc })
       return
     end
-    vim.notify("Definition not found: @" .. var_name, vim.log.levels.WARN)
+    notify("Definition not found: @" .. var_name, vim.log.levels.WARN)
     return
   end
 
@@ -240,7 +241,7 @@ function M.goto_definition()
           end
         end
       end
-      vim.notify("Alias not found: " .. (alias_name or prefix_text), vim.log.levels.WARN)
+      notify("Alias not found: " .. (alias_name or prefix_text), vim.log.levels.WARN)
       return
     end
     local resolved = import_mod.resolve_run_at_cursor(buf, cursor[1])
@@ -251,7 +252,7 @@ function M.goto_definition()
         vim.api.nvim_win_set_cursor(0, { resolved.line, 0 })
       end
     else
-      vim.notify(resolved.error or "Cannot resolve reference", vim.log.levels.WARN)
+      notify(resolved.error or "Cannot resolve reference", vim.log.levels.WARN)
     end
     return
   end
@@ -299,7 +300,7 @@ function M.goto_definition()
         end
       end
       if not import_path or not import_alias_line then
-        vim.notify("Import not found for alias '" .. alias .. "'", vim.log.levels.WARN)
+        notify("Import not found for alias '" .. alias .. "'", vim.log.levels.WARN)
         return
       end
       if rel_col < #alias then
@@ -330,12 +331,12 @@ function M.goto_definition()
           end
         end
       else
-        vim.notify("File not found: " .. full_path, vim.log.levels.WARN)
+        notify("File not found: " .. full_path, vim.log.levels.WARN)
       end
       return
     end
 
-    vim.notify("Definition not found: " .. tostring(var_name), vim.log.levels.WARN)
+    notify("Definition not found: " .. tostring(var_name), vim.log.levels.WARN)
     return
   end
 
@@ -343,7 +344,7 @@ function M.goto_definition()
     local text = ts_query.node_text(node, buf)
     local alias, keypath = text:match("^(%w+)%.(.+)$")
     if not alias or not keypath then
-      vim.notify("Definition not found", vim.log.levels.WARN)
+      notify("Definition not found", vim.log.levels.WARN)
       return
     end
     local _, sc = node:start()
@@ -361,7 +362,7 @@ function M.goto_definition()
       end
     end
     if not import_path or not import_alias_line then
-      vim.notify("Import not found for alias '" .. alias .. "'", vim.log.levels.WARN)
+      notify("Import not found for alias '" .. alias .. "'", vim.log.levels.WARN)
       return
     end
     if rel_col < #alias then
@@ -392,13 +393,13 @@ function M.goto_definition()
         end
       end
     else
-      vim.notify("File not found: " .. full_path, vim.log.levels.WARN)
+      notify("File not found: " .. full_path, vim.log.levels.WARN)
     end
     return
   end
 
   if node_type == "request_name" then
-    vim.notify("Request name defined here", vim.log.levels.INFO)
+    notify("Request name defined here", vim.log.levels.INFO)
     return
   end
 
@@ -454,7 +455,7 @@ function M.goto_definition()
         end
       end
     end
-    vim.notify("Definition not found: " .. var_name, vim.log.levels.WARN)
+    notify("Definition not found: " .. var_name, vim.log.levels.WARN)
     return
   end
 
@@ -479,7 +480,7 @@ function M.goto_definition()
         return
       end
     end
-    vim.notify("File not found: " .. tostring(path), vim.log.levels.WARN)
+    notify("File not found: " .. tostring(path), vim.log.levels.WARN)
     return
   end
 
@@ -508,7 +509,7 @@ function M.goto_definition()
     s, e = line_text:find("{{(.-)}}", e + 1)
   end
 
-  vim.notify("No definition target under cursor", vim.log.levels.INFO)
+  notify("No definition target under cursor", vim.log.levels.INFO)
 end
 
 function M.goto_references()
@@ -519,7 +520,7 @@ function M.goto_references()
 
   local node = ts_query.node_at_point(buf, row, col)
   if not node then
-    vim.notify("No tree-sitter node under cursor", vim.log.levels.INFO)
+    notify("No tree-sitter node under cursor", vim.log.levels.INFO)
     return
   end
 
@@ -567,7 +568,7 @@ function M.goto_references()
   end
 
   if not symbol_name then
-    vim.notify("No reference target under cursor", vim.log.levels.INFO)
+    notify("No reference target under cursor", vim.log.levels.INFO)
     return
   end
 

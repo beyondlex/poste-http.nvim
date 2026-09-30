@@ -211,4 +211,92 @@ describe("poste-http.http.image_cache", function()
       assert.has_no_errors(image_cache.cleanup_temp_files)
     end)
   end)
+
+  describe("cached_image_path", function()
+    it("returns the cache path only while the copy is fresh", function()
+      local url = "https://cache-unit/freshlookup.png"
+      local cached = image_cache.cache_path_for_url(url)
+      make_cache_file(cached, "FRESH")
+      assert.equals(cached, image_cache.cached_image_path(url))
+    end)
+
+    it("returns nil when nothing is cached", function()
+      assert.is_nil(image_cache.cached_image_path("https://cache-unit/never.png"))
+    end)
+  end)
+
+  describe("download_image_url_async", function()
+    -- The helper schedules on_exit like the real event loop; drain with vim.wait.
+    local function stub_jobstart(exit_code, body)
+      local saved = vim.fn.jobstart
+      vim.fn.jobstart = function(cmd, opts)
+        local out
+        for i, arg in ipairs(cmd) do
+          if arg == "-o" then out = cmd[i + 1] end
+        end
+        if body and out then
+          local f = io.open(out, "wb")
+          f:write(body)
+          f:close()
+        end
+        vim.schedule(function() opts.on_exit(42, exit_code) end)
+        return 42
+      end
+      return saved
+    end
+
+    it("serves a fresh cached copy synchronously without starting a job", function()
+      local url = "https://cache-unit/async-fresh.png"
+      local cached = image_cache.cache_path_for_url(url)
+      make_cache_file(cached, "FRESH")
+      local jobs = 0
+      local saved = vim.fn.jobstart
+      vim.fn.jobstart = function() jobs = jobs + 1; return 1 end
+      local got
+      image_cache.download_image_url_async(url, function(path, ct) got = { path = path, ct = ct } end)
+      vim.fn.jobstart = saved
+      assert.equals(cached, got.path)
+      assert.equals("image/png", got.ct)
+      assert.equals(0, jobs, "cache hit must not spawn curl")
+    end)
+
+    it("downloads via jobstart and moves the file into the cache", function()
+      local url = "https://cache-unit/async-download.png"
+      local cached = image_cache.cache_path_for_url(url)
+      local saved = stub_jobstart(0, "BODY")
+      local got
+      image_cache.download_image_url_async(url, function(path, ct) got = { path = path, ct = ct } end)
+      vim.wait(2000, function() return got ~= nil end)
+      vim.fn.jobstart = saved
+      assert.is_truthy(got, "callback must fire")
+      assert.equals(cached, got.path)
+      assert.equals("image/png", got.ct)
+      local f = io.open(cached, "rb")
+      assert.equals("BODY", f:read("*a"))
+      f:close()
+    end)
+
+    it("falls back to a stale cached copy when the download fails", function()
+      local url = "https://cache-unit/async-stale.png"
+      local cached = image_cache.cache_path_for_url(url)
+      make_cache_file(cached, "STALE")
+      local saved = stub_jobstart(7, nil)
+      local got
+      image_cache.download_image_url_async(url, function(path, ct) got = { path = path, ct = ct } end)
+      vim.wait(2000, function() return got ~= nil end)
+      vim.fn.jobstart = saved
+      assert.equals(cached, got.path, "stale copy wins over total failure")
+      assert.equals("image/png", got.ct)
+    end)
+
+    it("calls back with nil when the download fails and no cache exists", function()
+      local url = "https://cache-unit/async-dead.png"
+      local saved = stub_jobstart(7, nil)
+      local got = "unset"
+      image_cache.download_image_url_async(url, function(path) got = path end)
+      vim.wait(2000, function() return got ~= "unset" end)
+      vim.fn.jobstart = saved
+      assert.is_nil(got)
+    end)
+  end)
 end)

@@ -122,36 +122,33 @@ function M.cleanup_temp_files()
   temp_files = {}
 end
 
---- Download an image URL to a cached file.
---- Reuses a fresh cached copy within `image_url_cache_ttl_seconds` (default 1h,
---- 0/negative disables caching). Falls back to a stale cached file if
---- re-download fails.
---- Returns the file path and content type, or nil on failure.
-function M.download_image_url(url)
-  local ct = M.guess_image_content_type(url) or "image/png"
+local function image_cfg()
   local state = require("poste-http.state")
   local cfg = state.config or {}
-  local cache_dir = cfg.response_cache_dir or vim.fn.stdpath("cache") .. "/poste_res"
-  local ttl = cfg.image_url_cache_ttl_seconds
-  local cache_path = M.cache_path_for_url(url, ct)
+  return cfg,
+    cfg.response_cache_dir or vim.fn.stdpath("cache") .. "/poste_res",
+    cfg.image_url_cache_ttl_seconds
+end
 
-  -- Fresh cached copy → reuse without downloading
-  if ttl and ttl > 0 and cache_path and vim.fn.filereadable(cache_path) == 1 then
-    local st = (vim.uv or vim.loop).fs_stat(cache_path)
-    local age
-    if st and st.mtime and st.mtime.sec then
-      age = os.time() - st.mtime.sec
-    end
-    if age and age < ttl then
-      return cache_path, ct
-    end
+--- Fresh-cache lookup shared by the sync and async downloaders: returns the
+--- cache path only while a cached copy exists and is within the TTL.
+local function fresh_cache_path(cache_path, ttl)
+  if not (ttl and ttl > 0) or not cache_path or vim.fn.filereadable(cache_path) ~= 1 then
+    return nil
   end
+  local st = (vim.uv or vim.loop).fs_stat(cache_path)
+  local age
+  if st and st.mtime and st.mtime.sec then
+    age = os.time() - st.mtime.sec
+  end
+  if age and age < ttl then
+    return cache_path
+  end
+  return nil
+end
 
-  -- Download to a temp file, then move it into the cache
-  vim.fn.mkdir(cache_dir .. "/img", "p")
-  local ms = math.floor(((vim.uv or vim.loop).hrtime() / 1e6) % 1000)
-  local tmp = cache_dir .. "/img/url_" .. os.date("%Y%m%d_%H%M%S") .. string.format("_%03d", ms) .. extension_for(ct)
-  M.register_temp_file(tmp)
+--- curl argv for one URL download, shared by the sync and async paths.
+local function curl_argv(url, tmp)
   -- -f (--fail): an HTTP 404/500 error page must fail the call, not land in
   -- the cache as the "image" — without it curl exits 0 with the error page
   -- body on disk, the preview renders garbage, and the TTL serves that
@@ -162,7 +159,45 @@ function M.download_image_url(url)
   -- harvested from a response body — from parsing as flags.
   cmd[#cmd + 1] = "--"
   cmd[#cmd + 1] = url
-  vim.fn.system(cmd)
+  return cmd
+end
+
+local function new_temp_download_path(cache_dir, ct)
+  vim.fn.mkdir(cache_dir .. "/img", "p")
+  local ms = math.floor(((vim.uv or vim.loop).hrtime() / 1e6) % 1000)
+  return cache_dir .. "/img/url_" .. os.date("%Y%m%d_%H%M%S") .. string.format("_%03d", ms) .. extension_for(ct)
+end
+
+--- Fresh cached copy for a URL, or nil. Sync lookup so preview flows can
+--- render instantly without touching the network.
+--- @param url string
+--- @return string|nil path
+function M.cached_image_path(url)
+  local ct = M.guess_image_content_type(url) or "image/png"
+  local _, _, ttl = image_cfg()
+  return fresh_cache_path(M.cache_path_for_url(url, ct), ttl)
+end
+
+--- Download an image URL to a cached file.
+--- Reuses a fresh cached copy within `image_url_cache_ttl_seconds` (default 1h,
+--- 0/negative disables caching). Falls back to a stale cached file if
+--- re-download fails.
+--- Returns the file path and content type, or nil on failure.
+function M.download_image_url(url)
+  local ct = M.guess_image_content_type(url) or "image/png"
+  local _, cache_dir, ttl = image_cfg()
+  local cache_path = M.cache_path_for_url(url, ct)
+
+  -- Fresh cached copy → reuse without downloading
+  local fresh = fresh_cache_path(cache_path, ttl)
+  if fresh then
+    return fresh, ct
+  end
+
+  -- Download to a temp file, then move it into the cache
+  local tmp = new_temp_download_path(cache_dir, ct)
+  M.register_temp_file(tmp)
+  vim.fn.system(curl_argv(url, tmp))
 
   if vim.v.shell_error ~= 0 then
     table.remove(temp_files)
@@ -182,6 +217,66 @@ function M.download_image_url(url)
     end
   end
   return tmp, ct
+end
+
+--- Async twin of download_image_url: identical cache/TTL/stale-fallback
+--- semantics, but curl runs via jobstart so the editor never freezes on a
+--- slow URL (the sync version blocked up to --max-time 15 inside
+--- vim.fn.system). `on_done(path, ct)` fires with a usable path, or nil when
+--- the download failed and no stale copy exists — always from the main loop.
+--- @param url string
+--- @param on_done function
+--- @return boolean  true when a download job was started (or cache served)
+function M.download_image_url_async(url, on_done)
+  local ct = M.guess_image_content_type(url) or "image/png"
+  local _, cache_dir, ttl = image_cfg()
+  local cache_path = M.cache_path_for_url(url, ct)
+
+  local fresh = fresh_cache_path(cache_path, ttl)
+  if fresh then
+    on_done(fresh, ct)
+    return true
+  end
+
+  local tmp = new_temp_download_path(cache_dir, ct)
+  M.register_temp_file(tmp)
+
+  local stale_or_nil = function()
+    if cache_path and vim.fn.filereadable(cache_path) == 1 then
+      return cache_path
+    end
+    return nil
+  end
+
+  local ok_job, job = pcall(vim.fn.jobstart, curl_argv(url, tmp), {
+    on_exit = function(_, exit_code)
+      vim.schedule(function()
+        if exit_code ~= 0 then
+          table.remove(temp_files)
+          pcall(os.remove, tmp)
+          on_done(stale_or_nil(), ct)
+          return
+        end
+        if ttl and ttl > 0 and cache_path then
+          local renamed = pcall(os.rename, tmp, cache_path)
+          if renamed then
+            table.remove(temp_files)
+            on_done(cache_path, ct)
+            return
+          end
+        end
+        on_done(tmp, ct)
+      end)
+    end,
+  })
+
+  if not ok_job or not job or job <= 0 then
+    table.remove(temp_files)
+    pcall(os.remove, tmp)
+    vim.schedule(function() on_done(stale_or_nil(), ct) end)
+    return false
+  end
+  return true
 end
 
 return M

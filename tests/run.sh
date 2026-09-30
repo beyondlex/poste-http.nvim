@@ -28,6 +28,17 @@ bash tests/grammar_spec.sh
 echo "--- tree-sitter injection tests ---"
 bash tests/injection_spec.sh
 
+# Guardrail grep (docs/dev/agent-guardrails.md §5.1): user-facing messages go
+# through ui/notify — direct vim.notify calls are how the seven-prefix/three-
+# title dialect drift of 2026-09-30 happened.
+echo "--- guardrail greps ---"
+NOTIFY_VIOLATIONS=$(grep -rn "vim\.notify" lua/ --include="*.lua" | grep -v "lua/poste-http/ui/notify.lua" || true)
+if [ -n "$NOTIFY_VIOLATIONS" ]; then
+    echo "FAIL: vim.notify outside ui/notify.lua (user messages must go through ui/notify):"
+    echo "$NOTIFY_VIOLATIONS"
+    exit 1
+fi
+
 echo "--- Lua unit tests ---"
 TEST_OUTPUT=$(nvim --headless -u NONE \
   -c "set rtp+=$PLENARY_PATH" \

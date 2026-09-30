@@ -20,6 +20,7 @@ local errors = require("poste-http.http.errors")
 local global_headers = require("poste-http.http.global_headers")
 local block_operators = require("poste-http.http.block_operators")
 local response_mod = require("poste-http.http.response")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -278,7 +279,7 @@ local function handle_curl_response(response, ctx)
       end
     end)
     if not ok then
-      vim.notify("Poste: " .. tostring(err), vim.log.levels.ERROR)
+      notify("internal error: " .. tostring(err), vim.log.levels.ERROR)
     end
     state._busy = false
   end)
@@ -290,6 +291,10 @@ local function handle_directive_response(success, response, src_buf, indicator_l
     local ok, err = pcall(function()
       if not (success and response) then
         indicators.set_indicator(src_buf, indicator_line, "error")
+        -- Callers notify their own failure causes (import.lua does for every
+        -- callback(false) branch); this log line only guarantees the bare-nil
+        -- case stays diagnosable instead of a ✘ with no trace anywhere.
+        state.log("ERROR", "run directive failed without a response")
         return
       end
 
@@ -328,7 +333,7 @@ local function handle_directive_response(success, response, src_buf, indicator_l
       end
     end)
     if not ok then
-      vim.notify("Poste: " .. tostring(err), vim.log.levels.ERROR)
+      notify("internal error: " .. tostring(err), vim.log.levels.ERROR)
     end
     state._busy = false
   end)
@@ -400,7 +405,7 @@ local function handle_orchestration_result(result, ctx)
       render_orchestration_result(result, ctx)
     end)
     if not ok then
-      vim.notify("Poste: " .. tostring(err), vim.log.levels.ERROR)
+      notify("internal error: " .. tostring(err), vim.log.levels.ERROR)
     end
     state._busy = false
   end)
@@ -600,7 +605,7 @@ local function start_curl_exec(ctx)
   if not url or url == "" then
     indicators.set_indicator(src_buf, req_line - 1, "error")
     state._busy = false
-    vim.notify("Could not determine request URL", vim.log.levels.ERROR, { title = "Poste" })
+    notify("Could not determine request URL", vim.log.levels.ERROR)
     return
   end
 
@@ -703,7 +708,7 @@ end
 --- Run the HTTP request at the current cursor position.
 function M.run_request()
   if state._busy then
-    vim.notify("Request already in progress", vim.log.levels.WARN, { title = "Poste" })
+    notify("Request already in progress", vim.log.levels.WARN)
     return
   end
   state._busy = true
@@ -731,7 +736,7 @@ function M.run_request()
     end
 
     if resolved.error then
-      vim.notify(resolved.error, vim.log.levels.ERROR, { title = "Poste" })
+      notify(resolved.error, vim.log.levels.ERROR)
       indicators.set_indicator(src_buf, (resolved.run_line or line) - 1, "error")
       state._busy = false
       return

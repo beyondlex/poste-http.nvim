@@ -5,6 +5,7 @@ local request_deps = require("poste-http.http.request_deps")
 local columns = require("poste-http.ui.columns")
 local text = require("poste-http.ui.text")
 local float = require("poste-http.ui.float")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -234,7 +235,7 @@ function M.show_inspector()
   local entries, sorted_names = collect_entries(buf, cursor_line)
 
   if vim.tbl_isempty(entries) then
-    vim.notify("No variables found", vim.log.levels.INFO, { title = "Poste" })
+    notify("No variables found", vim.log.levels.INFO)
     return
   end
 

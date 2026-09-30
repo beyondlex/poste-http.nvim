@@ -3,6 +3,7 @@ local text = require("poste-http.ui.text")
 local semantics = require("poste-http.ui.semantics")
 -- Fallback picker for the no-snacks path of show_symbols.
 local picker = require("poste-http.ui.picker")
+local notify = require("poste-http.ui.notify").notify
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -232,7 +233,7 @@ function M.show_symbols()
   local requests = collect_requests(bufnr)
 
   if #requests == 0 then
-    vim.notify("No requests found in this file", vim.log.levels.INFO)
+    notify("No requests found in this file", vim.log.levels.INFO)
     return
   end
 

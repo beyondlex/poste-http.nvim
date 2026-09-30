@@ -2,6 +2,7 @@ local request_vars = require("poste-http.http.request_vars")
 local ts_query = require("poste-http.http.ts_query")
 local state = require("poste-http.state")
 local util = require("poste-http.util")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -124,7 +125,7 @@ function M.goto_client_run_definition(buf, line_num, col)
   local import_mod = require("poste-http.http.import")
   local resolved, err = import_mod.resolve_request_reference(target, buf)
   if not resolved then
-    vim.notify(err or ("Cannot resolve request '%s'"):format(target), vim.log.levels.WARN)
+    notify(err or ("Cannot resolve request '%s'"):format(target), vim.log.levels.WARN)
     return true
   end
 
@@ -250,7 +251,7 @@ function M.show_references(buf, results, symbol_name)
   results = filtered
 
   if #results == 0 then
-    vim.notify("No other references found for: " .. symbol_name, vim.log.levels.INFO)
+    notify("No other references found for: " .. symbol_name, vim.log.levels.INFO)
     return
   end
 
@@ -362,7 +363,7 @@ function M.open_relative_file(path, buf)
     vim.cmd("edit " .. vim.fn.fnameescape(full_path))
     return true
   end
-  vim.notify("File not found: " .. full_path, vim.log.levels.WARN)
+  notify("File not found: " .. full_path, vim.log.levels.WARN)
   return false
 end
 

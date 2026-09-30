@@ -5,6 +5,7 @@
 --- The chosen bindings are displayed above the chat input, injected into the
 --- system prompt and steer auto_context + codeblock execution.
 
+local notify = require("poste-http.ui.notify").notify
 local M = {}
 
 --- Environment names from the scope file's env.json (walk-up discovery, same
@@ -59,7 +60,7 @@ end
 function M.complete_envs(prefix, scope, cb)
   local names, err = M.env_names(scope)
   if not names then
-    vim.notify(err, vim.log.levels.INFO, { title = "PosteHttp" })
+    notify(err, vim.log.levels.INFO)
     cb({})
     return
   end

@@ -1,6 +1,7 @@
 local state = require("poste-http.state")
 local completion = require("poste-http.http.completion")
 local symbols = require("poste-http.http.symbols")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -17,7 +18,7 @@ local commands = {
     handler = function(args)
       local env_mod = require("poste-http.http.env")
       if args.args == "" then
-        vim.notify("Current environment: " .. state.current_env, vim.log.levels.INFO)
+        notify("Current environment: " .. state.current_env, vim.log.levels.INFO)
       else
         env_mod.set_env(args.args)
       end
@@ -105,7 +106,7 @@ local commands = {
   {
     name = "PosteHttpCmpStatus",
     handler = function()
-      vim.notify(completion.status(), vim.log.levels.INFO)
+      notify(completion.status(), vim.log.levels.INFO)
     end,
     opts = { desc = "Check poste completion status" },
   },
@@ -136,9 +137,9 @@ local commands = {
       local format_file = require("poste-http.http.format_file")
       local changed = format_file.format_buffer()
       if changed then
-        vim.notify("poste: formatted", vim.log.levels.INFO)
+        notify("formatted", vim.log.levels.INFO)
       else
-        vim.notify("poste: already formatted", vim.log.levels.INFO)
+        notify("already formatted", vim.log.levels.INFO)
       end
     end,
     opts = { desc = "Format .http buffer" },
@@ -154,7 +155,7 @@ local commands = {
     name = "PosteHttpHistoryClear",
     handler = function()
       require("poste-http.http.history").clear()
-      vim.notify("[Poste] HTTP history cleared", vim.log.levels.INFO)
+      notify("HTTP history cleared", vim.log.levels.INFO)
     end,
     -- Scriptable wipe-all (the browser's double-D guard is the interactive
     -- route); mirrors :PosteMqHistoryClear in the family.
@@ -165,7 +166,7 @@ local commands = {
     handler = function()
       local format = require("poste-http.http.format")
       local cleaned = format.clean_response_cache()
-      vim.notify(string.format("[Poste] Cleared %d old response file(s)", cleaned), vim.log.levels.INFO)
+      notify(string.format("Cleared %d old response file(s)", cleaned), vim.log.levels.INFO)
     end,
     opts = { desc = "Remove old cached response files from stdpath(cache)/poste_res/" },
   },

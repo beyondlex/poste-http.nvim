@@ -1,3 +1,4 @@
+local notify = require("poste-http.ui.notify").notify
 local M = {}
 
 -- Import sources carry free text (OpenAPI summaries, Postman names) into
@@ -262,7 +263,7 @@ end
 function M.run_importer(opts)
   local ok, finder = pcall(require, "finder")
   if not ok then
-    vim.notify("beyondlex/finder plugin required for file selection", vim.log.levels.ERROR)
+    notify("beyondlex/finder plugin required for file selection", vim.log.levels.ERROR)
     return
   end
   finder.open({
@@ -281,12 +282,12 @@ function M.run_importer(opts)
             if not out_dir then return end
             local result, err = opts.import_fn(spec_path, out_dir)
             if result then
-              vim.notify(string.format("%s: %d blocks → %s/%s",
+              notify(string.format("%s: %d blocks → %s/%s",
                 opts.title, result.block_count, out_dir, result.filename),
-                vim.log.levels.INFO, { title = "Import " .. opts.title })
+                vim.log.levels.INFO)
             else
-              vim.notify(string.format("%s import failed: %s", opts.title, err or "unknown"),
-                vim.log.levels.ERROR, { title = "Import " .. opts.title })
+              notify(string.format("%s import failed: %s", opts.title, err or "unknown"),
+                vim.log.levels.ERROR)
             end
           end,
           on_cancel = function() end,

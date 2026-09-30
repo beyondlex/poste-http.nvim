@@ -1,5 +1,6 @@
 local M = {}
 local picker = require("poste-http.ui.picker")
+local notify = require("poste-http.ui.notify").notify
 
 local function normalize_items(items)
   local result = {}
@@ -89,7 +90,7 @@ function M.select(items, prompt, on_select)
   end
   local ok, err = pcall(picker.open, normalized, prompt, on_select)
   if not ok then
-    vim.notify("poste-http picker failed: " .. tostring(err), vim.log.levels.WARN)
+    notify("picker failed: " .. tostring(err), vim.log.levels.WARN)
     pick_vimui(normalized, prompt, on_select)
   end
 end

@@ -370,23 +370,74 @@ describe("http image preview", function()
     end)
 
     it("preview_image_url_float downloads and shows in floating window", function()
-      -- Mock the download function at the image module level
+      -- Mock the async download at the image module level; the flow must go
+      -- through download_image_url_async so curl never blocks the editor.
       local image_mod = require("poste-http.http.format.image")
       local download_called = false
-      local original_download = image_mod.download_image_url
-      image_mod.download_image_url = function(url)
+      local original_async = image_mod.download_image_url_async
+      image_mod.download_image_url_async = function(url, on_done)
         download_called = true
-        local tmp = make_tmp_file("PNG")
-        return tmp, "image/png"
+        on_done(make_tmp_file("PNG"), "image/png")
+        return true
       end
 
-      local ok = format.preview_image_url_float("https://example.com/image.png")
+      local url = "https://example.com/image-float-" .. tostring(os.clock()) .. ".png"
+      local ok = format.preview_image_url_float(url)
       assert.is_true(ok)
       assert.is_true(download_called)
       assert.is_true(has_call("nvim_open_win"))
 
       -- Restore original function
-      image_mod.download_image_url = original_download
+      image_mod.download_image_url_async = original_async
+    end)
+
+    it("preview_image_url_float renders a fresh cached copy without downloading", function()
+      local image_mod = require("poste-http.http.format.image")
+      local image_cache = require("poste-http.http.image_cache")
+      local url = "https://example.com/image-cached-" .. tostring(os.clock()) .. ".png"
+      local cached = image_cache.cache_path_for_url(url)
+      table.insert(temp_files, cached)
+      local f = assert(io.open(cached, "wb"))
+      f:write("PNG")
+      f:close()
+
+      local async_called = false
+      local original_async = image_mod.download_image_url_async
+      image_mod.download_image_url_async = function()
+        async_called = true
+        return true
+      end
+
+      local ok = format.preview_image_url_float(url)
+      image_mod.download_image_url_async = original_async
+      assert.is_true(ok)
+      assert.is_false(async_called, "fresh cache hit must not download")
+      assert.is_true(has_call("nvim_open_win"))
+    end)
+
+    it("preview_image_url_float notifies when the download fails", function()
+      local image_mod = require("poste-http.http.format.image")
+      local original_async = image_mod.download_image_url_async
+      image_mod.download_image_url_async = function(url, on_done)
+        -- job started fine, but curl exits non-zero → path is nil
+        on_done(nil, "image/png")
+        return true
+      end
+      local notified = {}
+      local orig_notify = vim.notify
+      vim.notify = function(msg, level) table.insert(notified, { msg = msg, level = level }) end
+
+      local url = "https://example.com/image-fail-" .. tostring(os.clock()) .. ".png"
+      local ok = format.preview_image_url_float(url)
+      vim.notify = orig_notify
+      image_mod.download_image_url_async = original_async
+
+      assert.is_true(ok, "the preview flow itself started")
+      -- one truthful "Downloading..." progress note, then the failure
+      assert.equals(2, #notified)
+      assert.truthy(notified[1].msg:match("Downloading image"))
+      assert.equals(vim.log.levels.WARN, notified[2].level)
+      assert.truthy(notified[2].msg:match("Failed to download"))
     end)
 
     it("render_image_float shows gray meta below the image", function()

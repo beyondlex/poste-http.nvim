@@ -1,6 +1,7 @@
 local state = require("poste-http.state")
 local util = require("poste-http.util")
 local winbar = require("poste-http.ui.winbar")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -38,7 +39,7 @@ end
 
 function M.set_env(env_name)
   state.current_env = env_name
-  vim.notify("Environment switched to: " .. env_name, vim.log.levels.INFO)
+  notify("Environment switched to: " .. env_name, vim.log.levels.INFO)
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     local buf = vim.api.nvim_win_get_buf(win)
     if is_http_buf(buf) then
@@ -56,17 +57,17 @@ function M.pick_env()
   if search_dir == "" then search_dir = vim.fn.getcwd() end
   local env_file = util.find_file_upwards("env.json", search_dir)
   if not env_file then
-    vim.notify("No env.json found", vim.log.levels.WARN, { title = "Poste" })
+    notify("No env.json found", vim.log.levels.WARN)
     return
   end
   local ok, data = pcall(vim.fn.readfile, env_file)
   if not ok or not data then
-    vim.notify("Cannot read env.json", vim.log.levels.WARN, { title = "Poste" })
+    notify("Cannot read env.json", vim.log.levels.WARN)
     return
   end
   local ok2, parsed = pcall(vim.json.decode, table.concat(data, "\n"))
   if not ok2 or type(parsed) ~= "table" then
-    vim.notify("Cannot parse env.json", vim.log.levels.WARN, { title = "Poste" })
+    notify("Cannot parse env.json", vim.log.levels.WARN)
     return
   end
   local envs = {}
@@ -75,7 +76,7 @@ function M.pick_env()
   end
   table.sort(envs)
   if #envs == 0 then
-    vim.notify("No environments found in env.json", vim.log.levels.WARN, { title = "Poste" })
+    notify("No environments found in env.json", vim.log.levels.WARN)
     return
   end
   local select_mod = require("poste-http.select")

@@ -5,6 +5,7 @@
 --- (credentials) never enter the chat.
 
 local blocks_mod = require("poste-http.ai.blocks")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -67,8 +68,8 @@ end
 --- `.http` buffer when there is one.
 function M.open_chat()
   if not M.available() then
-    vim.notify("PosteHttp AI chat needs poste-ai.nvim (beyondlex/poste-ai.nvim) installed.",
-      vim.log.levels.WARN, { title = "PosteHttp" })
+    notify("AI chat needs poste-ai.nvim (beyondlex/poste-ai.nvim) installed.",
+      vim.log.levels.WARN)
     return
   end
   M.register()
@@ -162,8 +163,8 @@ end
 --- its file and environment.
 function M.ask_view()
   if not M.available() then
-    vim.notify("PosteHttp AI chat needs poste-ai.nvim (beyondlex/poste-ai.nvim) installed.",
-      vim.log.levels.WARN, { title = "PosteHttp" })
+    notify("AI chat needs poste-ai.nvim (beyondlex/poste-ai.nvim) installed.",
+      vim.log.levels.WARN)
     return
   end
   local state = require("poste-http.state")
@@ -192,7 +193,7 @@ function M.ask_view()
     assertion_results = state.last_assertion_results,
   })
   if vim.trim(text) == "" then
-    vim.notify("nothing to ask about — run a request first", vim.log.levels.INFO, { title = "PosteHttp" })
+    notify("Nothing to ask about — run a request first", vim.log.levels.INFO)
     return
   end
   open_with_prefill(text, file, state.current_env)
@@ -202,13 +203,13 @@ end
 --- request under the cursor or the visual selection.
 function M.ask_request()
   if not M.available() then
-    vim.notify("PosteHttp AI chat needs poste-ai.nvim (beyondlex/poste-ai.nvim) installed.",
-      vim.log.levels.WARN, { title = "PosteHttp" })
+    notify("AI chat needs poste-ai.nvim (beyondlex/poste-ai.nvim) installed.",
+      vim.log.levels.WARN)
     return
   end
   local buf = vim.api.nvim_get_current_buf()
   if vim.bo[buf].filetype ~= "poste_http" then
-    vim.notify("not a .http buffer", vim.log.levels.INFO, { title = "PosteHttp" })
+    notify("Not a .http buffer", vim.log.levels.INFO)
     return
   end
 
@@ -238,7 +239,7 @@ function M.ask_request()
     local content = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
     block_text = blocks_mod.block_text_at_line(content, vim.fn.line("."))
     if not block_text then
-      vim.notify("cursor is not on a request block", vim.log.levels.INFO, { title = "PosteHttp" })
+      notify("Cursor is not on a request block", vim.log.levels.INFO)
       return
     end
   end

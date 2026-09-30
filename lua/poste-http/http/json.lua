@@ -1,5 +1,6 @@
 local state = require("poste-http.state")
 local format = require("poste-http.http.format")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -101,7 +102,7 @@ function M.apply_filter(query)
         result = output
       end
     else
-      vim.notify("jq error: " .. (output or "unknown"), vim.log.levels.ERROR)
+      notify("jq error: " .. (output or "unknown"), vim.log.levels.ERROR)
       return
     end
   else
@@ -150,7 +151,7 @@ end
 function M._jsonpath_query(body, query)
   local ok, data = pcall(vim.json.decode, body)
   if not ok then
-    vim.notify("Invalid JSON body", vim.log.levels.ERROR)
+    notify("Invalid JSON body", vim.log.levels.ERROR)
     return nil
   end
 
@@ -163,7 +164,7 @@ function M._jsonpath_query(body, query)
   for _, step in ipairs(steps) do
     for _, token in ipairs(parse_step_tokens(step)) do
       if type(current) ~= "table" then
-        vim.notify("Cannot traverse: value is " .. type(current), vim.log.levels.WARN)
+        notify("Cannot traverse: value is " .. type(current), vim.log.levels.WARN)
         return nil
       end
 
@@ -192,12 +193,12 @@ function M._jsonpath_query(body, query)
             end
           end
           if #mapped == 0 then
-            vim.notify("Key '" .. key .. "' not found", vim.log.levels.WARN)
+            notify("Key '" .. key .. "' not found", vim.log.levels.WARN)
             return nil
           end
           current = mapped
         else
-          vim.notify("Key '" .. key .. "' not found", vim.log.levels.WARN)
+          notify("Key '" .. key .. "' not found", vim.log.levels.WARN)
           return nil
         end
       end

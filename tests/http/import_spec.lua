@@ -935,3 +935,43 @@ describe("Lua import module cache invalidation", function()
     assert.truthy(out:match("GET /2"), "edited import file must invalidate the cache")
   end)
 end)
+
+describe("execute_run_directive", function()
+  it("notifies the user when the import prompt is cancelled (no silent ✘)", function()
+    -- Regression: the cancel path only wrote a state.log WARN, so the run
+    -- directive's error sign appeared with no message anywhere (REVIEW
+    -- 2026-09-30: silent-failure branch in the run-directive chain).
+    local resolve_mod = require("poste-http.http.resolve")
+    local orig_resolve = resolve_mod.resolve
+    resolve_mod.resolve = function(_content, _opts, on_complete) on_complete(nil) end
+
+    local target = os.tmpname() .. ".http"
+    local f = io.open(target, "w")
+    f:write("### GetUser\nGET https://example.com/users\n")
+    f:close()
+
+    local notified = {}
+    local orig_notify = vim.notify
+    vim.notify = function(msg, level) table.insert(notified, { msg = msg, level = level }) end
+
+    local done
+    import_mod.execute_run_directive({
+      action = "execute",
+      path = target,
+      line = 1,
+      request_name = "GetUser",
+    }, function(ok, response)
+      done = { ok = ok, response = response }
+    end)
+
+    vim.notify = orig_notify
+    resolve_mod.resolve = orig_resolve
+    os.remove(target)
+
+    assert.equals(false, done.ok)
+    assert.is_nil(done.response)
+    assert.equals(1, #notified, "cancel must be user-visible, not log-only")
+    assert.equals(vim.log.levels.WARN, notified[1].level)
+    assert.truthy(notified[1].msg:match("cancelled"))
+  end)
+end)

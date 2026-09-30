@@ -4,6 +4,7 @@ local format = require("poste-http.http.format")
 local winbar = require("poste-http.ui.winbar")
 local render = require("poste-http.ui.render")
 local keymaps = require("poste-http.ui.keymaps")
+local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
@@ -316,16 +317,16 @@ setup_keymaps = function(buf)
     { action = "rerun", default = "r", handler = function()
       local last = state.last_request
       if not last then
-        vim.notify("No request to re-run", vim.log.levels.WARN)
+        notify("No request to re-run", vim.log.levels.WARN)
         return
       end
       if not vim.api.nvim_buf_is_valid(last.buf) then
-        vim.notify("Source buffer no longer exists", vim.log.levels.WARN)
+        notify("Source buffer no longer exists", vim.log.levels.WARN)
         return
       end
       local win = vim.fn.bufwinid(last.buf)
       if win < 0 then
-        vim.notify("Source buffer not visible in any window", vim.log.levels.WARN)
+        notify("Source buffer not visible in any window", vim.log.levels.WARN)
         return
       end
       local response_win = vim.api.nvim_get_current_win()
@@ -369,7 +370,7 @@ setup_keymaps = function(buf)
     if not file_path then return end
     local opener = vim.fn.has("mac") == 1 and "open" or "xdg-open"
     vim.fn.jobstart({ opener, file_path }, { detach = true })
-    vim.notify(string.format("Opening: %s", file_path), vim.log.levels.INFO, { title = "Poste" })
+    notify(string.format("Opening: %s", file_path), vim.log.levels.INFO)
   end, { buffer = buf, noremap = true, silent = true })
 
   -- K on image/URL preview: image responses and image URLs in JSON/text open a

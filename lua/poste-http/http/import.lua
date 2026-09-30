@@ -20,6 +20,7 @@ local curl_exec = require("poste-http.http.curl_exec")
 local describe = require("poste-http.http.describe")
 local vars = require("poste-http.http.vars")
 local global_headers = require("poste-http.http.global_headers")
+local notify = require("poste-http.ui.notify").notify
 local uv = vim.uv or vim.loop
 
 local M = {}
@@ -494,7 +495,7 @@ local function execute_import_via_curl(resolved_content, file_path, block_line, 
   local meta = blocks and describe.block_at_line(blocks, block_line)
   if not meta then
     vim.schedule(function()
-      vim.notify("Could not parse request block", vim.log.levels.ERROR, { title = "Poste" })
+      notify("Could not parse request block", vim.log.levels.ERROR)
       if callback then callback(nil) end
     end)
     return
@@ -507,7 +508,7 @@ local function execute_import_via_curl(resolved_content, file_path, block_line, 
 
   if not url or url == "" then
     vim.schedule(function()
-      vim.notify("Import request has no URL", vim.log.levels.ERROR, { title = "Poste" })
+      notify("Import request has no URL", vim.log.levels.ERROR)
       if callback then callback(nil) end
     end)
     return
@@ -561,7 +562,7 @@ local function execute_import_via_curl(resolved_content, file_path, block_line, 
   }, function(response)
     if response.error then
       vim.schedule(function()
-        vim.notify("Import request failed: " .. response.error, vim.log.levels.ERROR, { title = "Poste" })
+        notify("Import request failed: " .. response.error, vim.log.levels.ERROR)
         if callback then callback(nil) end
       end)
       return
@@ -682,7 +683,7 @@ function M.execute_run_directive(opts, callback)
     -- Read target file content first for pre/post-script processing
     local f = io.open(opts.path, "r")
     if not f then
-      vim.notify("Cannot read file: " .. opts.path, vim.log.levels.ERROR, { title = "Poste" })
+      notify("Cannot read file: " .. opts.path, vim.log.levels.ERROR)
       if callback then callback(false, nil) end
       return
     end
@@ -697,6 +698,10 @@ function M.execute_run_directive(opts, callback)
     resolve_import_content(content, opts.line, opts.path, state.current_env, "import", function(prompt_resolved)
       if not prompt_resolved then
         state.log("WARN", string.format("Import prompt cancelled for '%s', aborting", opts.request_name))
+        -- User-visible: this nil flows into run.lua's error sign, which on
+        -- its own would be a silent ✘ (batch path notifies per item, so it
+        -- must not double-notify via resolve_import_content).
+        notify(string.format("Import prompt cancelled for '%s'", opts.request_name), vim.log.levels.WARN)
         if callback then callback(false, nil) end
         return
       end
@@ -742,7 +747,7 @@ end
 function M.execute_all_requests(file_path, content, var_map, callback)
   local requests = extract_request_names(content)
   if #requests == 0 then
-    vim.notify("No named requests found in " .. file_path, vim.log.levels.WARN, { title = "Poste" })
+    notify("No named requests found in " .. file_path, vim.log.levels.WARN)
     if callback then callback(false, nil) end
     return
   end
@@ -767,8 +772,8 @@ function M.execute_all_requests(file_path, content, var_map, callback)
           status = 0, status_text = "Cancelled", body = "",
         }})
         vim.schedule(function()
-          vim.notify(string.format("[%d/%d] %s — cancelled", idx - 1, #requests, req.name),
-            vim.log.levels.WARN, { title = "Poste" })
+          notify(string.format("[%d/%d] %s — cancelled", idx - 1, #requests, req.name),
+            vim.log.levels.WARN)
         end)
         execute_next()
         return
@@ -792,9 +797,9 @@ function M.execute_all_requests(file_path, content, var_map, callback)
           }})
         end
         vim.schedule(function()
-          vim.notify(string.format("[%d/%d] %s — %s", idx - 1, #requests, req.name,
+          notify(string.format("[%d/%d] %s — %s", idx - 1, #requests, req.name,
             response and (response.status .. " " .. (response.status_text or "")) or "failed"),
-            vim.log.levels.INFO, { title = "Poste" })
+            vim.log.levels.INFO)
         end)
         execute_next()
       end)

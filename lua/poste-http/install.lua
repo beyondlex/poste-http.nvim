@@ -1,3 +1,4 @@
+local notify = require("poste-http.ui.notify").notify
 local M = {}
 
 local GRAMMARS = {
@@ -59,15 +60,15 @@ local function compile_one(grammar)
   local need, reason = needs_compile(grammar_dir, so_path)
   if not need then
     if reason then
-      vim.notify("[Poste] " .. reason, vim.log.levels.WARN)
+      notify("" .. reason, vim.log.levels.WARN)
     end
     return false, reason
   end
 
   local c = cc()
   if not c then
-    vim.notify(
-      "[Poste] C compiler not found. Install cc/gcc or run :PosteHttpBuildParsers manually.",
+    notify(
+      "C compiler not found. Install cc/gcc or run :PosteHttpBuildParsers manually.",
       vim.log.levels.WARN
     )
     return false
@@ -92,7 +93,7 @@ local function compile_one(grammar)
   local out = vim.fn.system(cmd_obj)
   local ok1 = vim.v.shell_error == 0
   if not ok1 then
-    vim.notify("[Poste] Failed to compile " .. grammar.name .. " parser: " .. (out or ""), vim.log.levels.ERROR)
+    notify("Failed to compile " .. grammar.name .. " parser: " .. (out or ""), vim.log.levels.ERROR)
     pcall(vim.fn.delete, obj_path)
     return false
   end
@@ -101,12 +102,12 @@ local function compile_one(grammar)
   local ok2 = vim.v.shell_error == 0
   pcall(vim.fn.delete, obj_path)
   if not ok2 then
-    vim.notify("[Poste] Failed to link " .. grammar.name .. " parser: " .. (out or ""), vim.log.levels.ERROR)
+    notify("Failed to link " .. grammar.name .. " parser: " .. (out or ""), vim.log.levels.ERROR)
     pcall(vim.fn.delete, so_path)
     return false
   end
 
-  vim.notify("[Poste] Compiled " .. grammar.name .. " parser", vim.log.levels.INFO)
+  notify("Compiled " .. grammar.name .. " parser", vim.log.levels.INFO)
   return true
 end
 
@@ -127,7 +128,7 @@ function M.force_build()
     end
   end
   if not ok then
-    vim.notify("[Poste] No parsers were compiled. Check :PosteInfo for details.", vim.log.levels.ERROR)
+    notify("No parsers were compiled. Check :PosteInfo for details.", vim.log.levels.ERROR)
   end
 end
 

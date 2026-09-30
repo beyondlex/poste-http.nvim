@@ -1,4 +1,5 @@
 --- Curl command parser: converts curl commands to HTTP request format.
+local notify = require("poste-http.ui.notify").notify
 local M = {}
 
 --- Read a file for import-time expansion. Text-oriented on purpose: the
@@ -644,14 +645,14 @@ function M.paste_curl(register)
   -- Read from register
   local content = vim.fn.getreg(register)
   if not content or content == "" then
-    vim.notify("Clipboard is empty", vim.log.levels.WARN, { title = "Poste" })
+    notify("Clipboard is empty", vim.log.levels.WARN)
     return
   end
 
   -- Parse curl command
   local parsed, err = parse_curl(content)
   if not parsed then
-    vim.notify("Failed to parse curl: " .. err, vim.log.levels.ERROR, { title = "Poste" })
+    notify("Failed to parse curl: " .. err, vim.log.levels.ERROR)
     return
   end
 
@@ -662,7 +663,7 @@ function M.paste_curl(register)
   local row = vim.fn.line(".")
   vim.api.nvim_buf_set_lines(0, row, row, false, lines)
 
-  vim.notify("Inserted HTTP request from clipboard", vim.log.levels.INFO, { title = "Poste" })
+  notify("Inserted HTTP request from clipboard", vim.log.levels.INFO)
 end
 
 --- Exposed for tests and future importers; paste_curl is the user entry.

@@ -100,7 +100,7 @@ function M.setup_buffer_keymaps(buf)
     group = frg, buffer = buf,
     callback = function()
       if fileref_debounce then fileref_debounce:stop() end
-      fileref_debounce = vim.defer_fn(refresh_fileref_marks, 150)
+      fileref_debounce = vim.defer_fn(refresh_fileref_marks, require("poste-http.constants").SYNTAX_REFRESH_DEBOUNCE_MS)
     end,
   })
   vim.api.nvim_create_autocmd("BufDelete", {

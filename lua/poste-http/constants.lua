@@ -1,12 +1,8 @@
 return {
   SPINNER_FRAMES = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
   SPINNER_INTERVAL_MS = 100,
-  CURSOR_MOVED_DEBOUNCE_MS = 100,
+  -- fileref extmark refresh debounce in buffer_setup (TextChanged → redraw)
   SYNTAX_REFRESH_DEBOUNCE_MS = 150,
-  BLINK_SCORE_OFFSET = 1000,
-  HTTP_HISTORY_MAX = 100,
-  MAX_CONFLICT_SUFFIX = 1000,
   INDICATOR_NS_NAME = "poste_indicator",
-  SIGN_GROUP_NAME = "poste_sg_4a7f",
   NOTIFY_TITLE = "Poste HTTP",
 }

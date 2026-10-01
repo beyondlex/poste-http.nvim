@@ -82,6 +82,30 @@ describe("Event Bus", function()
       local unsub = event.once("test:event", function() end)
       assert.is_function(unsub)
     end)
+
+    it("a throwing handler still fires exactly once", function()
+      -- The wrapper must remove itself even when the handler raises: a
+      -- bare handler(data) let the error skip the removal, so a failing
+      -- "once" fired again on the next emit. emit()'s pcall keeps the
+      -- plugin alive; the error surfaces as a notify.
+      local count = 0
+      event.once("test:event", function()
+        count = count + 1
+        error("boom")
+      end)
+      local notified = {}
+      local orig_notify = vim.notify
+      vim.notify = function(msg, level) notified[#notified + 1] = { msg = msg, level = level } end
+      event.emit("test:event", {})
+      vim.wait(50, function() return #notified > 0 end)
+      vim.notify = orig_notify
+      event.emit("test:event", {})
+      event.emit("test:event", {})
+      assert.equals(1, count, "once handler must not refire after raising")
+      assert.equals(0, event.handler_count("test:event"), "wrapper must be gone")
+      assert.equals(1, #notified, "error still surfaces through emit's pcall")
+      assert.matches("boom", notified[1].msg)
+    end)
   end)
 
   -------------------------------------------------------------------------

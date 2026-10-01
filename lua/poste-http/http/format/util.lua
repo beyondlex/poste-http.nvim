@@ -109,7 +109,13 @@ function M.json_pretty(value, indent)
     else
       local keys = {}
       for k in pairs(value) do table.insert(keys, k) end
-      table.sort(keys)
+      -- Keys can mix types when the table was built in Lua rather than
+      -- decoded from JSON (sparse arrays land here too); a bare table.sort
+      -- raises "attempt to compare number with string" on that input.
+      table.sort(keys, function(a, b)
+        if type(a) == type(b) then return a < b end
+        return type(a) == "number"
+      end)
       if #keys == 0 then return "{}" end
       local items = {}
       for _, k in ipairs(keys) do
@@ -139,7 +145,10 @@ end
 --- decode %XX before '+', turning an encoded literal plus into a space).
 function M.url_decode(s)
   s = s:gsub("+", " ")
-  return s:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
+  -- Parens drop gsub's second return (the substitution count): a bare
+  -- `return s:gsub(...)` ships two values, which corrupts any caller that
+  -- consumes varargs or uses this in a table constructor.
+  return (s:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end))
 end
 
 function M.format_urlencoded_body(body)

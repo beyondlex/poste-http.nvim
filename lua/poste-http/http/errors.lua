@@ -10,8 +10,10 @@ local jump_targets = {}
 --- @param parts string|string[]  Content string(s) to scan
 --- @return string[]  Unique unresolved variable names
 function M.find_unresolved_vars(parts)
-  if not parts then return {} end
-  if type(parts) == "string" then parts = { parts } end
+  -- Same treatment for nil and any non-string/non-table garbage: a nil
+  -- part inside the list is skipped by the type check below.
+  if type(parts) == "string" then parts = { parts }
+  elseif type(parts) ~= "table" then return {} end
   local seen = {}
   local result = {}
   for _, part in ipairs(parts) do

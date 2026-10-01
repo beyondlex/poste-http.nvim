@@ -33,6 +33,15 @@ describe("graphql.split_body", function()
     assert.matches("variables", err)
   end)
 
+  it("rejects a JSON array tail — variables must be an object", function()
+    -- The GraphQL spec requires `variables` to be a map; passing an array
+    -- through only produced a server-side "variables must be an object"
+    -- error after the round trip.
+    local query, err = graphql.split_body("query { user }\n\n[1,2]")
+    assert.is_nil(query)
+    assert.matches("must be a JSON object", err)
+  end)
+
   it("trims surrounding blank lines around the query", function()
     local query = graphql.split_body("\n\nquery { user }\n\n")
     assert.equals("query { user }", query)

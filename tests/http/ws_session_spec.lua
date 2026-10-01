@@ -245,4 +245,36 @@ describe("ws_session.start", function()
     -- interactive session on the shared response buffer.
     assert.equals(0, close_autocmd_count())
   end)
+
+  it("removes the ws-only buffer keys when the session finalizes", function()
+    -- The response buffer is reused by later (non-WS) runs: stale `s`/`c`
+    -- buffer-local maps kept firing "No live WebSocket session" long after
+    -- the session ended.
+    local buffer_mod = require("poste-http.http.buffer")
+    local orig_get_buf = buffer_mod.get_buf
+    local deleted = {}
+    local orig_del = vim.keymap.del
+    vim.keymap.del = function(key, opts)
+      if opts and opts.buffer then deleted[#deleted + 1] = key end
+    end
+    local fake_buf = vim.api.nvim_create_buf(false, true)
+    buffer_mod.get_buf = function() return fake_buf end
+
+    local responses = {}
+    ws_session.start({ url = "wss://x", headers = {}, body = "" }, function(r) table.insert(responses, r) end)
+    -- open_ui runs on a schedule: pump until it has stamped session.buf,
+    -- otherwise close() finalizes before any key was registered.
+    vim.wait(200, function() return state.live_session and state.live_session.buf ~= nil end)
+    ws_session.close()
+    vim.wait(200, function() return #responses > 0 end)
+
+    buffer_mod.get_buf = orig_get_buf
+    vim.keymap.del = orig_del
+    if vim.api.nvim_buf_is_valid(fake_buf) then
+      vim.api.nvim_buf_delete(fake_buf, { force = true })
+    end
+
+    assert.truthy(vim.list_contains(deleted, "s"), "ws_send key must be unmapped")
+    assert.truthy(vim.list_contains(deleted, "c"), "ws_close key must be unmapped")
+  end)
 end)

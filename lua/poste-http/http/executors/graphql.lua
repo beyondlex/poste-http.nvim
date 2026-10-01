@@ -44,7 +44,7 @@ end
 --- Returns query, variables_json (nil when absent) on success, or nil, err.
 --- Rules:
 ---   - no blank-line tail            → the whole body is the query
----   - tail parses as a JSON table   → tail is the variables block
+---   - tail parses as a JSON object  → tail is the variables block
 ---   - tail is {/[ shaped but broken → error (fail fast, never send it)
 ---   - tail is any other text        → treated as query continuation
 function M.split_body(body)
@@ -60,8 +60,11 @@ function M.split_body(body)
     return vim.trim(body), nil
   end
   local ok, decoded = pcall(vim.json.decode, tail)
-  if not ok or type(decoded) ~= "table" then
-    return nil, "GraphQL variables block is not valid JSON: " .. tail
+  -- A JSON array tail is rejected, not passed through: the GraphQL spec
+  -- requires `variables` to be an object, so `[1,2]` would only surface as
+  -- a server-side "variables must be an object" error after the round trip.
+  if not ok or type(decoded) ~= "table" or vim.islist(decoded) then
+    return nil, "GraphQL variables block must be a JSON object: " .. tail
   end
   local parts = {}
   for i = 1, #chunks - 1 do

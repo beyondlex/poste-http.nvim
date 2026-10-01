@@ -32,6 +32,13 @@ local function latency_ms(session)
   return 0
 end
 
+--- Session-only response-panel keys: registered by open_ui, unmapped by
+--- finalize. Shared so both sites resolve the same (action, default) pairs.
+local WS_BUFFER_ACTIONS = {
+  { action = "ws_send", default = "s" },
+  { action = "ws_close", default = "c" },
+}
+
 --- Finalize the session and invoke the callback exactly once.
 --- close_reason labels why the session ended ("Session closed" for user
 --- close); without it, exit 0 means the server closed the connection.
@@ -47,6 +54,18 @@ local function finalize(session, exit_code, close_reason)
   if session.buf_autocmd then
     pcall(vim.api.nvim_del_autocmd, session.buf_autocmd)
     session.buf_autocmd = nil
+  end
+  -- Unmap the session-only keys: the response buffer outlives the session
+  -- and is reused by later (non-WS) runs, where a stale `s` only produces
+  -- "No live WebSocket session" noise. Only keys the config actually maps
+  -- are deleted; a user-disabled action was never registered.
+  if session.buf and vim.api.nvim_buf_is_valid(session.buf) then
+    for _, spec in ipairs(WS_BUFFER_ACTIONS) do
+      local key = state.get_keymap("http_response", spec.action, spec.default)
+      if key then
+        pcall(vim.keymap.del, key, { buffer = session.buf })
+      end
+    end
   end
   if session.splitter then
     session.splitter.flush(function(line)
@@ -83,12 +102,11 @@ local function open_ui(session)
   if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
   session.buf = buf
   local keymaps = require("poste-http.ui.keymaps")
-  keymaps.register(buf, "http_response", "ws_send", "s", function()
-    M.send_prompt()
-  end)
-  keymaps.register(buf, "http_response", "ws_close", "c", function()
-    M.close()
-  end)
+  for _, spec in ipairs(WS_BUFFER_ACTIONS) do
+    keymaps.register(buf, "http_response", spec.action, spec.default, function()
+      if spec.action == "ws_send" then M.send_prompt() else M.close() end
+    end)
+  end
   session.buf_autocmd = vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {
     buffer = buf,
     callback = function() M.close() end,

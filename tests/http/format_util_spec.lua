@@ -31,3 +31,41 @@ describe("format_urlencoded_body key decoding", function()
     assert.same({ "  user name: john doe", "  keep+id: 1" }, lines)
   end)
 end)
+
+describe("url_decode contract", function()
+  it("returns exactly one value (no gsub substitution count)", function()
+    -- A bare `return s:gsub(...)` shipped two values; harmless to the
+    -- current single-assignment callers but corrupts any future caller
+    -- that consumes varargs or table-constructor positions.
+    assert.equals(1, select("#", fmt_util.url_decode("a%2Bb")))
+  end)
+
+  it("decodes an encoded literal plus before treating + as space", function()
+    assert.equals("a+b c", fmt_util.url_decode("a%2Bb+c"))
+  end)
+
+  it("leaves malformed escapes as literal text", function()
+    assert.equals("100%", fmt_util.url_decode("100%"))
+    assert.equals("%ZZ", fmt_util.url_decode("%ZZ"))
+  end)
+end)
+
+describe("json_pretty mixed-type keys", function()
+  it("sorts mixed number/string keys without raising", function()
+    -- Lua-built tables (sparse arrays, e.g. from filters) can carry number
+    -- and string keys at once; a bare table.sort raised
+    -- "attempt to compare number with string".
+    local out = fmt_util.json_pretty({ ["b"] = 1, [1] = "x" })
+    local decoded = vim.json.decode(out)
+    assert.equals("x", decoded["1"])
+    assert.equals(1, decoded["b"])
+  end)
+
+  it("renders a sparse array as an object without raising", function()
+    local t = {}
+    t[1] = "a"
+    t[3] = "c"
+    local out = fmt_util.json_pretty(t)
+    assert.equals("a", vim.json.decode(out)["1"])
+  end)
+end)

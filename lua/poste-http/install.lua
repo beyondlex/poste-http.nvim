@@ -61,14 +61,17 @@ local function compile_one(grammar)
   if not need then
     if reason then
       notify("" .. reason, vim.log.levels.WARN)
+      return false, reason
     end
-    return false, reason
+    -- Fresh .so, nothing to do: force_build reports this as "up to date",
+    -- not as a failure.
+    return false, "up_to_date"
   end
 
   local c = cc()
   if not c then
     notify(
-      "C compiler not found. Install cc/gcc or run :PosteHttpBuildParsers manually.",
+      "C compiler not found. Install cc or gcc, then run :PosteHttpBuildParsers again.",
       vim.log.levels.WARN
     )
     return false
@@ -121,15 +124,31 @@ function M.ensure_parsers()
 end
 
 function M.force_build()
-  local ok = false
+  local built = 0
+  local up_to_date = 0
+  local failed = 0
   for _, grammar in ipairs(GRAMMARS) do
-    if compile_one(grammar) then
-      ok = true
+    local ok, reason = compile_one(grammar)
+    if ok then
+      built = built + 1
+    elseif reason == "up_to_date" then
+      up_to_date = up_to_date + 1
+    else
+      failed = failed + 1
     end
   end
-  if not ok then
-    notify("No parsers were compiled. Check :PosteInfo for details.", vim.log.levels.ERROR)
+  if built > 0 then
+    return true
   end
+  if up_to_date > 0 then
+    -- Everything fresh used to fall through to the ERROR below ("No
+    -- parsers were compiled"), telling the user something was wrong with
+    -- an install that is actually fine.
+    notify("All parsers are up to date.", vim.log.levels.INFO)
+    return true
+  end
+  notify("No parsers were compiled. Check :checkhealth poste-http for details.", vim.log.levels.ERROR)
+  return false
 end
 
 return M

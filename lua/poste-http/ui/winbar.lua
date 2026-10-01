@@ -44,6 +44,17 @@ function M.render_tabs(tabs, active_id)
   return table.concat(parts)
 end
 
+--- Right-aligned hint appended to the response-panel winbar while an
+--- interactive WebSocket session is live: without it the `s`/`c` keys are
+--- discoverable only through the help. keys = preassembled "key action"
+--- strings, already keymap-resolved; empty/nil → "" (no hint segment).
+--- @param keys string[]|nil
+--- @return string
+function M.live_session_hint(keys)
+  if not keys or #keys == 0 then return "" end
+  return "%=%*%#PosteSqlMetaDim#ws " .. M.escape(table.concat(keys, " · ")) .. " "
+end
+
 --- Id of the tab after stepping direction (-1/+1) from current_id, wrapping
 --- around the ends. Unknown ids start from the first tab.
 --- @param tabs table[]  array of { id = string }

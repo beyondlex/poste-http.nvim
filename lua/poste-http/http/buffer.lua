@@ -114,6 +114,18 @@ function M.update_winbar(active)
 
   table.insert(parts, winbar.render_tabs(get_active_tabs(), active))
 
+  -- Interactive WebSocket session: surface the send/close keys while the
+  -- session is live — they are buffer-local and otherwise only documented.
+  local live = state.live_session
+  if live and not live.finished then
+    local keys = {}
+    local send_key = state.get_keymap("http_response", "ws_send", "s")
+    local close_key = state.get_keymap("http_response", "ws_close", "c")
+    if send_key then keys[#keys + 1] = send_key .. " send" end
+    if close_key then keys[#keys + 1] = close_key .. " close" end
+    table.insert(parts, winbar.live_session_hint(keys))
+  end
+
   vim.wo[response_window].winbar = table.concat(parts)
 end
 

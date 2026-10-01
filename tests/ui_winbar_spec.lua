@@ -83,4 +83,22 @@ describe("poste-http.ui.winbar", function()
         env_mod.build_http_winbar())
     end)
   end)
+
+  describe("live_session_hint", function()
+    it("renders the send/close keys right-aligned and dimmed", function()
+      local out = winbar.live_session_hint({ "s send", "c close" })
+      assert.equals("%=%*%#PosteSqlMetaDim#ws s send · c close ", out)
+    end)
+
+    it("escapes % in resolved keymaps", function()
+      -- A keymap of "50%" would otherwise read as a statusline flag.
+      local out = winbar.live_session_hint({ "50% send" })
+      assert.is_truthy(out:find("50%%%% send", 1, false))
+    end)
+
+    it("renders nothing without keys (action disabled in config)", function()
+      assert.equals("", winbar.live_session_hint({}))
+      assert.equals("", winbar.live_session_hint(nil))
+    end)
+  end)
 end)

@@ -280,3 +280,16 @@ pitfall, log it here. Check this file before starting any task.
   helpers that take user/scripted values type-guard at the entry; loaders
   validate per entry and skip. See `lua/poste-http/http/history.lua`,
   `lua/poste-http/http/vars.lua`, `lua/poste-http/http/nested_access.lua`.
+
+- 2026-10-02: three small contracts, one round. (1) `return s:gsub(...)`
+  ships the substitution count with the string — a helper whose contract is
+  "returns a string" must parenthesize the tail call; the extra value is
+  invisible until a varargs/table-constructor caller eats it
+  (`format/util.url_decode`). (2) A build command must distinguish
+  built / up-to-date / failed: `force_build` collapsed "nothing to do" into
+  the failure path and told the user a healthy install was broken. Same
+  tri-state rule as network responses (empty-is-legal vs no-answer), applied
+  to tooling (`install.lua`). (3) Buffer-local keys owned by an ephemeral
+  session need teardown when the session dies, not when the buffer dies —
+  the response buffer outlives the WS session that registered `s`/`c`
+  (`ws_session.lua`, 09-28's WinClosed lesson one layer up).

@@ -72,6 +72,10 @@ Override in `setup({ keymaps = { <group_name> = { ... } } })`.
 | `M` | `view_messages` | Switch to Messages tab (WebSocket frames) |
 | `s` | `ws_send` | Send a message on the live WebSocket session |
 | `c` | `ws_close` | Close the live WebSocket session |
+
+While a WebSocket session is live the response winbar shows `s send · c close`
+on the right; the keys are buffer-local and unmap themselves when the session
+ends.
 | `<Tab>` | `next_tab` | Next tab |
 | `<S-Tab>` | `prev_tab` | Previous tab |
 | `r` | `rerun` | Re-execute current request |

@@ -293,3 +293,17 @@ pitfall, log it here. Check this file before starting any task.
   session need teardown when the session dies, not when the buffer dies —
   the response buffer outlives the WS session that registered `s`/`c`
   (`ws_session.lua`, 09-28's WinClosed lesson one layer up).
+
+- 2026-10-03: vim.NIL is not nil at decode boundaries — all three spec
+  importers crashed on `{"info": null}` because `vim.json.decode` returns
+  the vim.NIL userdata, which `== nil` guards and `or {}` fallbacks let
+  straight through (14 crash shapes from 27 probe inputs). One recursive
+  `util.clean_nil` in `read_spec` replaced them all. Same round: history
+  replay rendered entries straight from disk JSON — `format_assertions`
+  raised on a drifted `passed` field, so anything rendered from persisted
+  JSON now gets shape-checked at load AND guarded at render. And both
+  json_pretty implementations emitted bare `inf` for decoded `1e999`:
+  a Lua-side JSON writer needs the non-finite → null branch. See
+  `lua/poste-http/http/import_parser.lua`, `lua/poste-http/http/history.lua`,
+  `lua/poste-http/http/assertions.lua`, `lua/poste-http/http/format/util.lua`,
+  `docs/dev/review-2026-10-03.md`.

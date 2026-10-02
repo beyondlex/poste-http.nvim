@@ -110,6 +110,18 @@ function M.load()
     -- file) threw on `e.id > max_id` and the wrapping pcall silently
     -- dropped EVERY entry from that point on.
     if e and type(e) == "table" and type(e.id) == "number" then
+      -- The inner fields also came from disk (hand-editable, written by
+      -- older versions): the detail views index them as tables
+      -- (response.body, #script_logs, assertions shape). A drifted field
+      -- is dropped here — the entry keeps its name/time in the list —
+      -- instead of raising mid-render in format_view.
+      if type(e.response) ~= "table" then e.response = nil end
+      if e.assertion_results ~= nil and type(e.assertion_results) ~= "table" then
+        e.assertion_results = nil
+      end
+      if e.script_logs ~= nil and type(e.script_logs) ~= "table" then
+        e.script_logs = nil
+      end
       table.insert(loaded, e)
       if e.id > max_id then max_id = e.id end
     end

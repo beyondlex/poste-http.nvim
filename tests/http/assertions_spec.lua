@@ -86,3 +86,38 @@ end)
     assert.equals(0, result.failed, table.concat(result.tests[1].errors, " | "))
   end)
 end)
+
+describe("format_assertions shape drift", function()
+  -- The assertions tab also renders HISTORY entries, whose shape comes from
+  -- persisted JSON (hand-editable, written by older versions). A drifted
+  -- results object used to raise "number expected, got nil" out of
+  -- string.format mid-render instead of degrading.
+  it("renders a malformed results object as a readable tab, never raises", function()
+    local lines = assertions.format_assertions({ passed = "x", failed = nil, tests = "y", logs = 5 })
+    assert.equals(3, #lines, table.concat(lines, "\n"))
+    assert.truthy(lines[1]:match("0 passed, 0 failed"), lines[1])
+    assert.truthy(lines[1]:match("✘"))
+    assert.truthy(lines[3]:match("No test assertions executed"))
+
+    lines = assertions.format_assertions({ tests = { "not-a-table", { name = "t" } } })
+    assert.equals(4, #lines, table.concat(lines, "\n"))
+    assert.truthy(lines[3]:match("✘ %?"), "a drifted test renders as unnamed-failed")
+    assert.truthy(lines[4]:match("✓ t"))
+  end)
+
+  it("keeps the well-formed rendering byte-identical", function()
+    local lines = assertions.format_assertions({
+      passed = 1, failed = 1, error = "boom",
+      tests = { { name = "ok one", failed = 0, errors = {} },
+                { name = "bad one", failed = 1, errors = { "first", "second" } } },
+      logs = { "line1", "line2" },
+    })
+    assert.equals("▸ Test Results: 1 passed, 1 failed  ✘", lines[1])
+    assert.equals("  ✘ boom", lines[4])
+    assert.truthy(lines[6]:match("✓ ok one"))
+    assert.truthy(lines[7]:match("✘ bad one"))
+    assert.truthy(lines[8]:match("first"))
+    assert.truthy(lines[#lines - 1]:match("line1"))
+    assert.truthy(lines[#lines]:match("line2"))
+  end)
+end)

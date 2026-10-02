@@ -178,4 +178,32 @@ describe("history persistence", function()
     assert.equals(1, #state.http_history)
     assert.equals(1, state.http_history_id_counter)
   end)
+
+  it("load drops drifted inner fields instead of shipping them to the views", function()
+    -- Regression: the detail views index entry.response / #script_logs /
+    -- the assertions shape as tables. A hand-edited or old-format entry
+    -- (response = 42, script_logs = "x", assertion_results = 7) used to
+    -- reach format_view verbatim and raise mid-render; the entry itself
+    -- (name/time) stays listed.
+    local file = tmp_dir .. "/history.json"
+    os.execute("mkdir -p " .. tmp_dir)
+    local fd = io.open(file, "w")
+    fd:write(vim.json.encode({
+      { id = 99, name = "drifted", time = os.time(),
+        response = 42, script_logs = "not-a-table", assertion_results = 7 },
+    }))
+    fd:close()
+
+    state.http_history = {}
+    state.http_history_id_counter = 0
+    history.load()
+
+    assert.equals(1, #state.http_history)
+    local e = state.http_history[1]
+    assert.equals("drifted", e.name, "the entry survives the sanitize")
+    assert.is_nil(e.response, "a non-table response is dropped at the boundary")
+    assert.is_nil(e.script_logs, "non-table script logs are dropped")
+    assert.is_nil(e.assertion_results, "non-table assertion results are dropped")
+    assert.equals(99, state.http_history_id_counter)
+  end)
 end)

@@ -375,13 +375,24 @@ function M.format_assertions(results)
     return { "  ⓘ No assertions defined — add `> {% client.test(...) %}` blocks" }
   end
 
+  -- The assertions tab also renders HISTORY entries, and those come from
+  -- persisted JSON (hand-editable, written by older plugin versions, or
+  -- truncated by a crash): any field can be missing or the wrong type.
+  -- Normalize once here instead of raising "number expected, got nil" out
+  -- of string.format mid-render.
+  results = type(results) == "table" and results or {}
+  local passed = (type(results.passed) == "number") and results.passed or 0
+  local failed = (type(results.failed) == "number") and results.failed or 0
+  local tests = type(results.tests) == "table" and results.tests or {}
+  local logs = type(results.logs) == "table" and results.logs or {}
+
   local lines = {}
-  local all_passed = results.failed == 0 and #results.tests > 0
+  local all_passed = failed == 0 and #tests > 0
   local status_icon = all_passed and "✓" or "✘"
 
   -- Summary bar
   table.insert(lines, string.format("▸ Test Results: %d passed, %d failed  %s",
-    results.passed, results.failed, status_icon))
+    passed, failed, status_icon))
   table.insert(lines, "──")
 
   -- Runtime error (syntax or execution failure)
@@ -392,29 +403,36 @@ function M.format_assertions(results)
   end
 
   -- No tests but no error either
-  if #results.tests == 0 and not results.error then
+  if #tests == 0 and not results.error then
     table.insert(lines, "  ⓘ No test assertions executed")
   end
 
   -- Test results
-  for _, test in ipairs(results.tests) do
-    local passed = test.failed == 0 and #test.errors == 0
-    local icon = passed and "✓" or "✘"
-    table.insert(lines, string.format("  %s %s", icon, test.name))
+  for _, test in ipairs(tests) do
+    -- A non-table test entry is drift, not evidence of a pass: render it
+    -- failed-unknown instead of silently counting it green.
+    if type(test) ~= "table" then
+      table.insert(lines, "  ✘ ?")
+    else
+      local errors = type(test.errors) == "table" and test.errors or {}
+      local test_passed = (test.failed or 0) == 0 and #errors == 0
+      local icon = test_passed and "✓" or "✘"
+      table.insert(lines, string.format("  %s %s", icon, tostring(test.name or "?")))
 
-    if not passed then
-      for _, err in ipairs(test.errors) do
-        table.insert(lines, string.format("    ✘ %s", err))
+      if not test_passed then
+        for _, err in ipairs(errors) do
+          table.insert(lines, string.format("    ✘ %s", tostring(err)))
+        end
       end
     end
   end
 
   -- Logs section
-  if #results.logs > 0 then
+  if #logs > 0 then
     table.insert(lines, "")
     table.insert(lines, "╰ Logs")
-    for _, msg in ipairs(results.logs) do
-      for line in msg:gmatch("[^\r\n]+") do
+    for _, msg in ipairs(logs) do
+      for line in tostring(msg):gmatch("[^\r\n]+") do
         table.insert(lines, "    " .. line)
       end
     end

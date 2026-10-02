@@ -18,12 +18,13 @@ local function parse_url(request_url)
   end
   local raw = request_url.raw or ""
   local query_parts = {}
-  if request_url.query then
-    for _, q in ipairs(request_url.query) do
+  local query = request_url.query
+  if type(query) == "table" then
+    for _, q in ipairs(query) do
       -- `disabled` params are off in Postman's UI: exporting them into the
       -- .http request line would silently send what the collection author
       -- switched off.
-      if not q.disabled then
+      if type(q) == "table" and not q.disabled then
         local key = q.key or ""
         local value = q.value or ""
         table.insert(query_parts, key .. "=" .. value)
@@ -41,22 +42,24 @@ local function parse_body(request_body)
   if not request_body then return "" end
   local mode = request_body.mode or ""
   if mode == "raw" then
-    local raw = request_body.raw or ""
-    local options = request_body.options or {}
-    local _ = (options.raw and options.raw.language) or ""
-    return raw
+    -- Raw is a string by spec; a drifted table/number would flow into
+    -- generate_http_block and crash its line concat.
+    local raw = request_body.raw
+    return (type(raw) == "string") and raw or ""
   elseif mode == "urlencoded" then
     local parts = {}
-    for _, p in ipairs(request_body.urlencoded or {}) do
-      if not p.disabled then
+    local entries = request_body.urlencoded
+    for _, p in ipairs(type(entries) == "table" and entries or {}) do
+      if type(p) == "table" and not p.disabled then
         table.insert(parts, (p.key or "") .. "=" .. (p.value or ""))
       end
     end
     return table.concat(parts, "&")
   elseif mode == "formdata" then
     local parts = {}
-    for _, p in ipairs(request_body.formdata or {}) do
-      if not p.disabled then
+    local entries = request_body.formdata
+    for _, p in ipairs(type(entries) == "table" and entries or {}) do
+      if type(p) == "table" and not p.disabled then
         if p.type == "file" then
           table.insert(parts, "< " .. (p.src or ""))
         else
@@ -72,12 +75,17 @@ local function parse_body(request_body)
 end
 
 local function parse_item(item, vars, collection_vars)
-  if not item then return nil end
+  -- Total on any entry shape: callers outside the read_spec boundary (the
+  -- _test_parse_item hook, future import paths) may hand through a
+  -- vim.NIL/scalar that clean_nil never saw.
+  if type(item) ~= "table" then return nil end
 
-  if item.item then
+  -- A folder's item list must be a table; a drifted scalar has no
+  -- representable children and imports as an empty folder.
+  if type(item.item) == "table" then
     local blocks = {}
     for _, sub in ipairs(item.item) do
-      local result = parse_item(sub, vars, collection_vars)
+      local result = type(sub) == "table" and parse_item(sub, vars, collection_vars) or nil
       if result then
         for _, b in ipairs(result) do
           table.insert(blocks, b)
@@ -87,18 +95,19 @@ local function parse_item(item, vars, collection_vars)
     return blocks
   end
 
-  if not item.request then return nil end
+  if not item.request or type(item.request) ~= "table" then return nil end
 
   local req = item.request
-  local method = req.method or "GET"
+  local method = (type(req.method) == "string" and req.method ~= "") and req.method or "GET"
   local name = item.name or (method .. " Request")
 
   local url, _ = parse_url(req.url)
   url = resolve_postman_var(url, vars)
 
   local headers = {}
-  for _, h in ipairs(req.header or {}) do
-    if h.key and h.key ~= "" and not h.disabled then
+  local header_list = req.header
+  for _, h in ipairs(type(header_list) == "table" and header_list or {}) do
+    if type(h) == "table" and h.key and h.key ~= "" and not h.disabled then
       local value = resolve_postman_var(h.value, vars)
       table.insert(headers, { key = h.key, value = value })
     end
@@ -112,9 +121,13 @@ end
 
 local function collect_variables(collection)
   local vars = {}
-  local collection_vars = collection.variable or {}
-  for _, v in ipairs(collection_vars) do
-    vars[v.key or v.name or ""] = v.value or ""
+  local collection_vars = collection.variable
+  for _, v in ipairs(type(collection_vars) == "table" and collection_vars or {}) do
+    -- A drifted scalar entry carries no key/value pair; skipping it beats
+    -- indexing userdata mid-import.
+    if type(v) == "table" then
+      vars[v.key or v.name or ""] = v.value or ""
+    end
   end
   return vars
 end

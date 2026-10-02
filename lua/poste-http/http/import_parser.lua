@@ -248,14 +248,22 @@ function M.read_spec(path)
     end
     return nil, "Invalid JSON: " .. tostring(spec)
   end
+  -- JSON null decodes to the vim.NIL userdata, which `== nil` checks do NOT
+  -- catch: `spec.info.name` on a null info raised "attempt to index a
+  -- userdata value" straight through every importer (OpenAPI happened to
+  -- type-check its path items; Postman/Swagger crashed all over). Strip
+  -- vim.NIL recursively at this single boundary so every importer sees
+  -- plain nils.
+  require("poste-http.util").clean_nil(spec)
   return spec, nil
 end
 
---- Sanitize a title into a filename.
---- @param title string
+--- Sanitize a title into a filename. Spec titles are free-form JSON values
+--- (a number title used to raise on title:lower()).
+--- @param title any
 --- @return string
 function M.make_filename(title)
-  return title:lower():gsub("%s+", "_"):gsub("[^%w_]", "") .. ".http"
+  return tostring(title or ""):lower():gsub("%s+", "_"):gsub("[^%w_]", "") .. ".http"
 end
 
 --- Run the shared finder interaction flow for importing specs.

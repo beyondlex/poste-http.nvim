@@ -94,6 +94,60 @@ describe("OpenAPI import ordering", function()
     os.remove(out_dir .. "/" .. result.filename)
     os.remove(out_dir .. "/env.json")
   end)
+
+  it("swagger: survives scalar/null security, parameters, and defs sections", function()
+    -- JSON null decodes to vim.NIL (which `or {}` does NOT catch) and
+    -- hand-edited files carry scalar lists: security/parameters used to
+    -- raise ipairs-on-a-string or pairs-on-userdata mid-import.
+    local spec_path = os.tmpname() .. ".json"
+    write_json(spec_path, {
+      swagger = "2.0",
+      info = { title = "Drifted" },
+      securityDefinitions = "not-a-table",
+      paths = {
+        ["/a"] = {
+          get = {
+            summary = "G",
+            security = "not-a-table",
+            parameters = "not-a-table",
+            responses = {},
+          },
+          post = {
+            summary = "P",
+            security = { "not-a-table", { drift = {} } },
+            parameters = { "scalar", { name = "q", ["in"] = "query", type = "string" } },
+            responses = {},
+          },
+        },
+      },
+    })
+    local out_dir = os.tmpname() .. "-out"
+    os.remove(out_dir)
+
+    local result, err = swagger.import_spec(spec_path, out_dir)
+    assert.is_truthy(result, "drifted sections must degrade, not crash: " .. tostring(err))
+    assert.are_equal(2, result.block_count)
+
+    os.remove(spec_path)
+    os.remove(out_dir .. "/" .. result.filename)
+    os.remove(out_dir .. "/env.json")
+  end)
+
+  it("read_spec strips vim.NIL: JSON null anywhere imports as plain nil", function()
+    -- The boundary contract every importer relies on: {"info":null} reads
+    -- back as info == nil (not userdata), so `spec.info == nil` guards hold.
+    local parser = require("poste-http.http.import_parser")
+    local spec_path = os.tmpname() .. ".json"
+    local fd = io.open(spec_path, "w")
+    fd:write('{"info":null,"item":null,"paths":{"a":null}}')
+    fd:close()
+    local spec, err = parser.read_spec(spec_path)
+    assert.is_truthy(spec, err)
+    assert.is_nil(spec.info)
+    assert.is_nil(spec.item)
+    assert.is_nil(spec.paths.a)
+    os.remove(spec_path)
+  end)
 end)
 
 describe("Swagger import ordering", function()
@@ -162,5 +216,59 @@ describe("Swagger import ordering", function()
     os.remove(spec_path)
     os.remove(out_dir .. "/" .. result.filename)
     os.remove(out_dir .. "/env.json")
+  end)
+
+  it("swagger: survives scalar/null security, parameters, and defs sections", function()
+    -- JSON null decodes to vim.NIL (which `or {}` does NOT catch) and
+    -- hand-edited files carry scalar lists: security/parameters used to
+    -- raise ipairs-on-a-string or pairs-on-userdata mid-import.
+    local spec_path = os.tmpname() .. ".json"
+    write_json(spec_path, {
+      swagger = "2.0",
+      info = { title = "Drifted" },
+      securityDefinitions = "not-a-table",
+      paths = {
+        ["/a"] = {
+          get = {
+            summary = "G",
+            security = "not-a-table",
+            parameters = "not-a-table",
+            responses = {},
+          },
+          post = {
+            summary = "P",
+            security = { "not-a-table", { drift = {} } },
+            parameters = { "scalar", { name = "q", ["in"] = "query", type = "string" } },
+            responses = {},
+          },
+        },
+      },
+    })
+    local out_dir = os.tmpname() .. "-out"
+    os.remove(out_dir)
+
+    local result, err = swagger.import_spec(spec_path, out_dir)
+    assert.is_truthy(result, "drifted sections must degrade, not crash: " .. tostring(err))
+    assert.are_equal(2, result.block_count)
+
+    os.remove(spec_path)
+    os.remove(out_dir .. "/" .. result.filename)
+    os.remove(out_dir .. "/env.json")
+  end)
+
+  it("read_spec strips vim.NIL: JSON null anywhere imports as plain nil", function()
+    -- The boundary contract every importer relies on: {"info":null} reads
+    -- back as info == nil (not userdata), so `spec.info == nil` guards hold.
+    local parser = require("poste-http.http.import_parser")
+    local spec_path = os.tmpname() .. ".json"
+    local fd = io.open(spec_path, "w")
+    fd:write('{"info":null,"item":null,"paths":{"a":null}}')
+    fd:close()
+    local spec, err = parser.read_spec(spec_path)
+    assert.is_truthy(spec, err)
+    assert.is_nil(spec.info)
+    assert.is_nil(spec.item)
+    assert.is_nil(spec.paths.a)
+    os.remove(spec_path)
   end)
 end)

@@ -21,31 +21,38 @@ local function parse_operation(spec, path, method, operation)
   local headers = {}
   local body = ""
 
-  local security_defs = spec.securityDefinitions or {}
-  local security = operation.security or spec.security or {}
+  local security_defs = spec.securityDefinitions
+  if type(security_defs) ~= "table" then security_defs = {} end
+  local security = operation.security or spec.security
+  if type(security) ~= "table" then security = {} end
   for _, req in ipairs(security) do
-    for sec_name, _ in pairs(req) do
-      local def = security_defs[sec_name]
-      if def then
-        if def.type == "apiKey" and def["in"] == "header" then
-          table.insert(headers, { key = def.name or "X-API-Key", value = "{{api_key}}" })
-        elseif def.type == "basic" then
-          table.insert(headers, { key = "Authorization", value = "Basic {{credentials}}" })
+    if type(req) == "table" then
+      for sec_name, _ in pairs(req) do
+        local def = security_defs[sec_name]
+        if type(def) == "table" then
+          if def.type == "apiKey" and def["in"] == "header" then
+            table.insert(headers, { key = def.name or "X-API-Key", value = "{{api_key}}" })
+          elseif def.type == "basic" then
+            table.insert(headers, { key = "Authorization", value = "Basic {{credentials}}" })
+          end
         end
       end
     end
   end
 
-  local params = operation.parameters or {}
+  local params = operation.parameters
+  if type(params) ~= "table" then params = {} end
   local query_parts = {}
   for _, p in ipairs(params) do
-    local resolved = parse_swagger_parameter(p, spec)
-    if resolved then
-      if resolved["in"] == "header" then
-        table.insert(headers, { key = resolved.name, value = "{{" .. resolved.name .. "}}" })
-      elseif resolved["in"] == "query" then
-        local example = resolved["x-example"] or (resolved.type == "string" and "string" or "0")
-        table.insert(query_parts, resolved.name .. "=" .. example)
+    if type(p) == "table" then
+      local resolved = parse_swagger_parameter(p, spec)
+      if resolved then
+        if resolved["in"] == "header" then
+          table.insert(headers, { key = resolved.name, value = "{{" .. resolved.name .. "}}" })
+        elseif resolved["in"] == "query" then
+          local example = resolved["x-example"] or (resolved.type == "string" and "string" or "0")
+          table.insert(query_parts, resolved.name .. "=" .. example)
+        end
       end
     end
   end

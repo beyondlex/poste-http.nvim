@@ -166,3 +166,51 @@ describe("import_parser one-line positions", function()
     assert.equals("@base url = https://x.dev/ v2", text:match("^(.-)\n"))
   end)
 end)
+
+describe("postman import: malformed collections", function()
+  -- JSON null decodes to vim.NIL and scalar fields drift in hand-edited or
+  -- third-party exports: every shape below used to raise (index userdata,
+  -- ipairs on a string, concat on a table) instead of importing what is
+  -- representable and skipping the rest.
+  it("survives null info / null items / scalar entries and imports the rest", function()
+    local spec = {
+      info = { name = "Broken But Usable" },
+      variable = { { key = "a", value = "1" }, "scalar-entry", { value = "no key" } },
+      item = {
+        vim.NIL,
+        42,
+        "a string",
+        { name = "folder", item = { vim.NIL, { name = "inner", request = { method = "GET", url = "https://h/x" } } } },
+        { name = "flat", request = vim.NIL },
+        { name = "Login", request = {
+          method = "POST",
+          url = { raw = "https://h/login", query = vim.NIL },
+          header = { vim.NIL, { key = "X-T", value = "1" } },
+          body = { mode = "urlencoded", urlencoded = "not-a-table" },
+        } },
+      },
+    }
+    local blocks = render(spec)
+    assert.truthy(blocks:match("GET https://h/x"), "the usable request imports")
+    assert.truthy(blocks:match("POST https://h/login"), "the drifted-request imports")
+    assert.falsy(blocks:match("scalar%-entry"), "garbage items stay out of the output")
+  end)
+
+  it("a non-string raw body imports as an empty body, not a crash", function()
+    local spec = {
+      info = { name = "Raw Drift" },
+      item = { { name = "R", request = {
+        method = "POST", url = "https://h",
+        body = { mode = "raw", raw = { drifted = "table" } },
+      } } },
+    }
+    local blocks = render(spec)
+    assert.truthy(blocks:match("POST https://h"))
+  end)
+
+  it("make_filename accepts non-string titles", function()
+    assert.equals("123.http", import_parser.make_filename(123))
+    assert.equals(".http", import_parser.make_filename(nil))
+    assert.equals("t_1.http", import_parser.make_filename("T 1"))
+  end)
+end)

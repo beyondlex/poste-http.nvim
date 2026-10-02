@@ -26,3 +26,14 @@ describe("format_file JSON key escaping", function()
     assert.same({ 1, 2 }, decoded.a)
   end)
 end)
+
+describe("format_file: non-finite numbers", function()
+  it("encodes huge/tiny decoded numbers as null instead of bare inf", function()
+    -- vim.json.decode accepts 1e999 and hands back math.huge; tostring
+    -- emitted a bare "inf", invalid JSON that broke every later parse of
+    -- the formatted body (jq, treesitter, filters).
+    local out = require("poste-http.http.format_file").format('{\n"a":1e999\n}')
+    assert.truthy(out:match('"a": null'), out)
+    assert.falsy(out:match("inf"), out)
+  end)
+end)

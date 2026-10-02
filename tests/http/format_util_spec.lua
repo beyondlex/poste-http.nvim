@@ -69,3 +69,20 @@ describe("json_pretty mixed-type keys", function()
     assert.equals("a", vim.json.decode(out)["1"])
   end)
 end)
+
+describe("json_pretty non-finite numbers", function()
+  it("encodes inf/nan as null instead of bare inf/nan", function()
+    -- vim.json.decode hands back math.huge for 1e999; a bare "inf"/"nan"
+    -- token is invalid JSON and broke every later parse of the output.
+    local out = fmt_util.json_pretty({ a = math.huge, b = 0 / 0, c = -math.huge, d = 1 })
+    assert.truthy(out:match('"a": null'), out)
+    assert.truthy(out:match('"b": null'), out)
+    assert.truthy(out:match('"c": null'), out)
+    assert.truthy(out:match('"d": 1'), out)
+    -- the output must survive a decode round-trip
+    local ok, decoded = pcall(vim.json.decode, out)
+    assert.truthy(ok, out)
+    -- null decodes back to the vim.NIL sentinel, not Lua nil
+    assert.equals(vim.NIL, decoded.a)
+  end)
+end)

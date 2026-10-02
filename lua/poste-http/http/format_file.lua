@@ -44,6 +44,12 @@ local function json_pretty(value, indent)
   elseif type(value) == "string" then
     return '"' .. json_escape_string(value) .. '"'
   elseif type(value) == "number" then
+    -- vim.json.decode accepts 1e999 and hands back math.huge; tostring
+    -- emitted a bare "inf", invalid JSON that broke every later parse of
+    -- the formatted body. Non-finite encodes as null (jq/JS convention).
+    if value ~= value or value == math.huge or value == -math.huge then
+      return "null"
+    end
     return tostring(value)
   elseif type(value) == "boolean" then
     return value and "true" or "false"

@@ -307,7 +307,7 @@ There is no standalone CLI. Requests run directly from Neovim:
 - `:PosteHttpClearCache` to remove old cached response files
 - `:PosteHttpBoundary` to toggle the request-block boundary highlight
 - `:PosteHttpChat` to open the AI chat scoped to the current `.http` file (needs poste-ai.nvim)
-- `:PosteHttpInfo`, `:PosteHttpBuildParsers`, `:PosteHttpTSInspect`, `:PosteHttpCmpStatus` for diagnostics
+- `:PosteHttpBuildParsers`, `:PosteHttpTSInspect`, `:PosteHttpCmpStatus` for diagnostics
 
 ## Documentation
 

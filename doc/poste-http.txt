@@ -292,6 +292,7 @@ All commands use the `PosteHttp` prefix.
     :PosteHttpRun            Execute request at cursor
     :PosteHttpEnv [name]     Show/switch environment
     :PosteHttpHistory        Show HTTP request history
+    :PosteHttpHistoryClear   Wipe HTTP request history
     :PosteHttpOutline        Request outline picker
     :PosteHttpSymbols        Request symbol picker
     :PosteHttpFormat         Format the current .http buffer
@@ -306,10 +307,8 @@ All commands use the `PosteHttp` prefix.
     :PosteHttpBuildParsers   (Re)compile tree-sitter parsers
     :PosteHttpClearCache     Remove cached response files
     :PosteHttpTSInspect      Inspect tree-sitter parse tree
-    :PosteHttpTSStatus       Show tree-sitter feature status
     :PosteHttpCmpStatus      Show completion engine status
     :PosteHttpCmpProfile     Profile completion latency
-    :PosteHttpInfo           Show plugin environment info
     :PosteHttpBoundary       Toggle block boundary indicators
 
 ==============================================================================

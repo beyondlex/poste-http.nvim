@@ -23,6 +23,7 @@ describe("commands", function()
       "PosteHttpCmpStatus", "PosteHttpCmpProfile",
       "PosteHttpSymbols", "PosteHttpOutline", "PosteHttpFormat", "PosteHttpHistory",
       "PosteHttpHistoryClear", "PosteHttpClearCache", "PosteHttpTSInspect",
+      "PosteHttpBuildParsers",
     }
 
     for _, name in ipairs(expected) do
@@ -47,6 +48,22 @@ describe("commands", function()
     cmd.callback({ args = "", line1 = 0, line2 = 0, range = 0 })
     assert.equals(1, cleared)
     package.loaded["poste-http.http.history"] = nil
+  end)
+
+  it("PosteHttpBuildParsers runs install.force_build", function()
+    -- health.lua/install.lua direct users at this command; the registration
+    -- used to be missing, so the guidance named a command that did not exist.
+    local built = 0
+    package.loaded["poste-http.install"] = {
+      force_build = function() built = built + 1; return true end,
+    }
+    local commands = require("poste-http.commands")
+    commands.setup()
+    local cmd = harness.get_user_commands()["PosteHttpBuildParsers"]
+    assert.truthy(cmd, "command registered")
+    cmd.callback({ args = "", line1 = 0, line2 = 0, range = 0 })
+    assert.equals(1, built)
+    package.loaded["poste-http.install"] = nil
   end)
 
   it("never registers a command without the PosteHttp prefix", function()

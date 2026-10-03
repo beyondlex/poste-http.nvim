@@ -177,6 +177,16 @@ local commands = {
     end,
     opts = { desc = "Inspect tree-sitter parse tree for current buffer" },
   },
+  {
+    -- health.lua / install.lua direct users here when a parser is missing or
+    -- stale; the command registration used to be missing, so the guidance
+    -- named a command that did not exist.
+    name = "PosteHttpBuildParsers",
+    handler = function()
+      require("poste-http.install").force_build()
+    end,
+    opts = { desc = "(Re)compile poste tree-sitter parsers" },
+  },
 }
 
 function M.setup()

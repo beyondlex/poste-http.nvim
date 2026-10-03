@@ -56,32 +56,30 @@ function M.apply_jq_mapping(value, mapping)
     end
   end
 
+  -- Both iteration modes walk the same item list: the value itself when it
+  -- is an array, else the value wrapped as a one-element list.
   local items
+  if vim.islist(value) then
+    items = value
+  else
+    items = { value }
+  end
+  -- Path cleanup per mode: array paths drop their `.[]` iteration prefix
+  -- (the iteration is the outer loop here); plain paths drop one leading
+  -- dot. Either way the remainder is a per-item walk path.
+  local clean = {}
   if uses_array_iteration then
-    if vim.islist(value) then
-      items = value
-    else
-      items = { value }
-    end
-    local clean = {}
     for field, path in pairs(mapping) do
       local cleaned = path:gsub("^%.[%[%]][%[%]](%.?)", "")
       cleaned = cleaned:gsub("^%.", "")
       clean[field] = cleaned
     end
-    mapping = clean
   else
-    if vim.islist(value) then
-      items = value
-    else
-      items = { value }
-    end
-    local clean = {}
     for field, path in pairs(mapping) do
       clean[field] = path:match("^%.(.+)") or path
     end
-    mapping = clean
   end
+  mapping = clean
 
   local result = {}
   for _, item in ipairs(items) do
@@ -92,7 +90,16 @@ function M.apply_jq_mapping(value, mapping)
         if mapping[field] then
           local resolved = nested_access.get_nested_value(item, mapping[field])
           if resolved ~= nil then
-            entry[field] = tostring(resolved)
+            -- A path that lands on an object/array (user shorthand like
+            -- `desc: .items` while iterating the parent) is JSON-encoded,
+            -- not tostring()ed — a "table: 0x…" option label is never what
+            -- anyone wants to select.
+            if type(resolved) == "table" then
+              local ok, encoded = pcall(vim.json.encode, resolved)
+              entry[field] = ok and encoded or "…"
+            else
+              entry[field] = tostring(resolved)
+            end
             has_field = true
           else
             entry[field] = ""

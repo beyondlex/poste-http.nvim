@@ -204,4 +204,15 @@ describe("apply_jq_mapping", function()
     assert.equals("A", result[1].name)
     assert.equals("", result[1].key)
   end)
+
+  it("JSON-encodes a path that lands on an object, never a table address", function()
+    -- A shorthand path hitting a nested object/array used to be tostring()ed
+    -- into a "table: 0x…" option label.
+    local data = { { name = "A", extra = { deep = true, n = 1 } } }
+    local mapping = { name = ".[].name", description = ".[].extra" }
+    local result = apply_jq_mapping(data, mapping)
+    assert.equals("A", result[1].name)
+    assert.truthy(result[1].description:find('"deep":true', 1, true),
+      "object fields JSON-encode: " .. tostring(result[1].description))
+  end)
 end)

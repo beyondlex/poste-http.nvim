@@ -307,3 +307,17 @@ pitfall, log it here. Check this file before starting any task.
   `lua/poste-http/http/import_parser.lua`, `lua/poste-http/http/history.lua`,
   `lua/poste-http/http/assertions.lua`, `lua/poste-http/http/format/util.lua`,
   `docs/dev/review-2026-10-03.md`.
+
+- 2026-10-04: user guidance is part of a command's contract — health.lua
+  and install.lua pointed users at `:PosteHttpBuildParsers`, which was
+  never registered (now dispatches install.force_build), and the help/README
+  command tables listed two commands that exist nowhere (`:PosteHttpInfo`,
+  `:PosteHttpTSStatus`) while omitting `:PosteHttpHistoryClear`. Message
+  paths, registrations, and doc tables must ship in the same change set;
+  commands_spec's registry enumeration is the drift guard. Same round:
+  a jq-mapping path that lands on an object was tostring()ed into a
+  "table: 0x…" option label — a walk result is only a display string when
+  the path grammar guarantees a scalar; encode at the formatting boundary
+  (poste-mq made the same fix for env-table vars on the same day). And
+  `<CR>` with no request at the cursor now notifies instead of dying
+  silently. See `docs/dev/review-2026-10-04.md`.

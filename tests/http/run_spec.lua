@@ -559,6 +559,34 @@ describe("run.run_request run-directive assertions", function()
   end)
 end)
 
+describe("run.run_request with no request at cursor", function()
+  it("releases busy and says so instead of dying silently", function()
+    -- The no-request path used to clear indicators and return with no word:
+    -- <CR> outside a block read like a dead key.
+    package.loaded["poste-http.http.run"] = nil
+    local run = require("poste-http.http.run")
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "", "just text", "" })
+    vim.api.nvim_win_set_buf(0, buf)
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+    local seen
+    local real_notify = vim.notify
+    vim.notify = function(msg, level)
+      seen = { msg = tostring(msg), level = level }
+    end
+
+    run.run_request()
+    vim.wait(50, function() return seen ~= nil end)
+    vim.notify = real_notify
+
+    assert.truthy(seen, "the no-op must notify, not die silently")
+    assert.equal(vim.log.levels.WARN, seen.level)
+    assert.truthy(seen.msg:match("No request at cursor"))
+    assert.is_false(state._busy, "the no-op must release the busy flag")
+  end)
+end)
+
 describe("run.unresolved_var_parts", function()
   local run = require("poste-http.http.run")
   local errors = require("poste-http.http.errors")

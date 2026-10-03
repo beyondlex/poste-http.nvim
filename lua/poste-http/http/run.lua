@@ -433,6 +433,11 @@ local function prepare_request(ctx, callback)
   if not req_line then
     indicators.clear_all(src_buf)
     state._busy = false
+    -- The no-request no-op used to be silent: <CR> outside a block just
+    -- did nothing, which reads like a dead key. Say what was missing
+    -- (poste-mq's run_cursor carries the same message).
+    notify("No request at cursor — put it on a request line inside a ### block",
+      vim.log.levels.WARN)
     return
   end
   indicators.clear_other_requests(src_buf, req_line - 1)

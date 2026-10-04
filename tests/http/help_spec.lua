@@ -55,3 +55,24 @@ describe("help._classify_line", function()
     assert.equals("key", help._classify_line("  gs     Toggle outline window"))
   end)
 end)
+
+describe("help descriptions cover every configured keymap", function()
+  -- Drift guard (review-2026-10-05): eight http_response actions had no
+  -- DESCRIPTIONS entry and rendered in the help float as a bare key with an
+  -- empty description. Every action configured in state.config.keymaps must
+  -- have a description here, or the help window lies by omission.
+  local state = require("poste-http.state")
+  local help = require("poste-http.help")
+
+  for section, actions in pairs(state.config.keymaps) do
+    it("describes every " .. section .. " action", function()
+      local descriptions = help._descriptions[section] or {}
+      for action, key in pairs(actions) do
+        if key then
+          assert.truthy(descriptions[action],
+            section .. "." .. action .. " has no help description")
+        end
+      end
+    end)
+  end
+end)

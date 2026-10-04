@@ -26,11 +26,19 @@ local DESCRIPTIONS = {
     rerun = "Re-run request",
     ask_ai = "Ask the AI about this response / errors (poste-ai.nvim)",
     view_body = "View response body",
+    view_request = "View the request that produced this response",
     view_verbose = "View verbose output",
     view_assertions = "View assertion results",
+    view_errors = "View error list",
     view_script_logs = "View pre/post script logs",
     next_tab = "Next response tab",
     prev_tab = "Previous response tab",
+    next_response = "Next response in the chain",
+    prev_response = "Previous response in the chain",
+    json_filter = "Filter response body with a jq query",
+    json_restore = "Restore the unfiltered body",
+    json_toggle_raw = "Toggle raw/pretty JSON",
+    json_outline = "Toggle JSON key outline",
     image_preview = "Render image inline or open externally",
   },
   http_history = {
@@ -127,5 +135,9 @@ function M.open()
 end
 
 M._classify_line = classify_line
+-- Test hook: the drift guard (help_spec) asserts every configured keymap
+-- action has a description here — an unmapped action renders as a bare key
+-- with no text, which is how eight response keys silently went missing.
+M._descriptions = DESCRIPTIONS
 
 return M

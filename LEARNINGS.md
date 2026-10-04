@@ -321,3 +321,23 @@ pitfall, log it here. Check this file before starting any task.
   (poste-mq made the same fix for env-table vars on the same day). And
   `<CR>` with no request at the cursor now notifies instead of dying
   silently. See `docs/dev/review-2026-10-04.md`.
+
+- 2026-10-05: three contracts from the 10-05 round. (1) The resolver's
+  env layer returns RAW decoded JSON — `load_env_vars` stores env.json
+  values as-is, so `{{cfg}}` over an object resolved to a table and
+  `resolved:find` crashed in the K preview ("attempt to call a nil
+  value"); a JSON null resolved to truthy vim.NIL and crashed the same
+  line (poste-mq fixed the substitution twin on 10-04 — the inspector
+  was the http sibling). Decode boundaries hand out tables/NIL; any
+  method call on a resolved value goes through
+  `vars.value_to_string` (now exported). (2) Docs-vs-config drift runs
+  both ways — last round the docs listed commands the code lacked;
+  this round the code had live keys (view_messages/ws_send/ws_close)
+  the config defaults lacked, and eight configured actions the help
+  table lacked, so g? showed blank descriptions. Two tables claiming
+  to describe one surface need a drift-guard spec, in either
+  direction. (3) The nav import-keypath dance existed SIX times across
+  nav.ts/nav.text; a replace-all cleanup missed the second copy purely
+  by indentation. Unify duplicated blocks in the same round they are
+  found — copies only drift further apart. See
+  `docs/dev/review-2026-10-05.md`.

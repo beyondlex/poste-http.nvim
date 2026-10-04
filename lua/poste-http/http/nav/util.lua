@@ -367,4 +367,66 @@ function M.open_relative_file(path, buf)
   return false
 end
 
+--- Shared resolver for aliased Lua-import references ("m.keypath" — in a
+--- {{var}}, in an @var value, or as an import_var_ref node). Every nav entry
+--- (nav.ts identifier/variable/var_value/import_var_ref, nav.text @var)
+--- used to carry its own copy of this dance and they had started to drift.
+--- @param buf number
+--- @param alias string  the import alias ("m" in {{m.keypath}})
+--- @param keypath string  everything after the first dot
+--- @param opts table|nil  { alias_half = bool } — cursor sits on the ALIAS
+---   half of the reference: jump to the import line's alias instead of into
+---   the file (nav.ts var_value/import_var_ref and nav.text @var semantics;
+---   nav.ts identifier/variable never had it and pass nothing).
+--- @return boolean  true when handled (jumped, or the failure was notified);
+---   false when `alias` has no import directive in buf and the caller should
+---   notify its own "not found" wording.
+function M.goto_import_keypath(buf, alias, keypath, opts)
+  local import_path, import_line = nil, nil
+  local import_mod = require("poste-http.http.import")
+  for i, l in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
+    local imp = import_mod.parse_import_line(l)
+    if imp and imp.type == "aliased" and imp.alias == alias then
+      import_path = imp.path
+      import_line = i
+      break
+    end
+  end
+  if not import_path then
+    return false
+  end
+
+  if opts and opts.alias_half then
+    local l = vim.api.nvim_buf_get_lines(buf, import_line - 1, import_line, false)[1] or ""
+    local as_pos = l:find(" as " .. vim.pesc(alias) .. "%s*$")
+    local target_col = (as_pos and as_pos + 3) or 0
+    vim.cmd("normal! m'")
+    vim.api.nvim_win_set_cursor(0, { import_line, target_col })
+    return true
+  end
+
+  local buf_name = vim.api.nvim_buf_get_name(buf)
+  local buf_dir = buf_name ~= "" and vim.fn.fnamemodify(buf_name, ":h") or vim.fn.getcwd()
+  local full_path = import_path:sub(1, 1) == "/" and import_path
+    or vim.fn.simplify(buf_dir .. "/" .. import_path)
+  if vim.fn.filereadable(full_path) ~= 1 then
+    notify("File not found: " .. full_path, vim.log.levels.WARN)
+    return true
+  end
+  vim.cmd("normal! m'")
+  vim.cmd("edit " .. vim.fn.fnameescape(full_path))
+  local first_key = keypath:match("^([^%.]+)")
+  first_key = first_key and first_key:match("^([%w_]+)") or nil
+  if first_key then
+    for i, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+      if l:match('^%s*' .. vim.pesc(first_key) .. '%s*=')
+         or l:match('^%s*%w+%.' .. vim.pesc(first_key) .. '%s*=') then
+        vim.api.nvim_win_set_cursor(0, { i, 0 })
+        return true
+      end
+    end
+  end
+  return true
+end
+
 return M

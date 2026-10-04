@@ -349,3 +349,65 @@ describe("nav.jump_next / jump_prev", function()
     os.remove(req_file)
   end)
 end)
+
+describe("nav.ts.goto_definition on {{var}} references (identifier shape)", function()
+  local buf
+
+  local function setup_var_buf()
+    buf = vim.api.nvim_create_buf(true, true)
+    vim.api.nvim_buf_set_name(buf, vim.fn.tempname() .. ".http")
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "@base_url = https://api.example.com",
+      "",
+      "### Login",
+      "@token = abc123",
+      "POST {{base_url}}/login",
+      "Authorization: Bearer {{token}}",
+      "",
+      "### Reader",
+      "GET /r?ref={{Login.token}}",
+    })
+    vim.api.nvim_set_current_buf(buf)
+    vim.bo[buf].filetype = "poste_http"
+    vim.treesitter.start(buf, "poste_http")
+    return buf
+  end
+
+  local function teardown()
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    pcall(vim.cmd, "bwipeout!")
+  end
+
+  local function col_of(line_num, needle)
+    local line = vim.api.nvim_buf_get_lines(buf, line_num - 1, line_num, false)[1] or ""
+    return (line:find(needle, 1, true) or 1) - 1
+  end
+
+  it("gd on an in-block {{token}} lands on the block-level @token", function()
+    setup_var_buf()
+    vim.api.nvim_win_set_cursor(0, { 6, col_of(6, "token") })
+    require("poste-http.http.nav.ts").goto_definition()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    assert.equals(4, cursor[1], "expected the in-block '@token =' line")
+    teardown()
+  end)
+
+  it("gd on a file-level {{base_url}} lands on the pre-block @def", function()
+    setup_var_buf()
+    vim.api.nvim_win_set_cursor(0, { 5, col_of(5, "base_url") })
+    require("poste-http.http.nav.ts").goto_definition()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    assert.equals(1, cursor[1], "expected the file-level '@base_url =' line")
+    teardown()
+  end)
+
+  it("gd on {{Login.token}} (dotted request ref) lands on the ### header", function()
+    setup_var_buf()
+    vim.api.nvim_win_set_cursor(0, { 9, col_of(9, "Login") })
+    require("poste-http.http.nav.ts").goto_definition()
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local line = vim.api.nvim_buf_get_lines(0, cursor[1] - 1, cursor[1], false)[1] or ""
+    assert.truthy(line:match("^### Login$"), "expected the '### Login' header, got: " .. line)
+    teardown()
+  end)
+end)

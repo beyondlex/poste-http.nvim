@@ -4,6 +4,52 @@ local notify = require("poste-http.ui.notify").notify
 
 local M = {}
 
+-- Resolution chain shared by the identifier and variable node branches:
+-- in-block/@-file definition → request-name header → env.json → pre-script
+-- variables.set → aliased Lua import ({{m.keypath}}). Returns true when a
+-- jump happened; the caller notifies "Definition not found" on false.
+local function goto_var_definition(buf, var_name, cursor_line)
+  local def_node = nav_util.find_var_def(buf, var_name, cursor_line)
+  if def_node then
+    local sr, sc = def_node:start()
+    vim.cmd("normal! m'")
+    vim.api.nvim_win_set_cursor(0, { sr + 1, sc })
+    return true
+  end
+
+  local req_name = var_name:match("^([^%.]+)") or var_name
+  local req_blocks = ts_query.find_nodes_of_type(buf, "request_block")
+  for _, block in ipairs(req_blocks) do
+    local name_node = block:named_child(1)
+    if name_node and name_node:type() == "request_name"
+        and vim.trim(ts_query.node_text(name_node)) == req_name then
+      local sr, sc = name_node:start()
+      vim.cmd("normal! m'")
+      vim.api.nvim_win_set_cursor(0, { sr + 1, sc })
+      return true
+    end
+  end
+
+  if nav_util.goto_env_var(buf, var_name) then
+    return true
+  end
+
+  local pre_line, pre_col = nav_util.find_var_in_pre_script(buf, var_name, cursor_line)
+  if pre_line then
+    vim.cmd("normal! m'")
+    vim.api.nvim_win_set_cursor(0, { pre_line, pre_col })
+    return true
+  end
+
+  -- Lua import alias reference: {{m.keypath}} in URL/header/body
+  local alias, keypath = var_name:match("^(%w+)%.(.+)$")
+  if alias and keypath and nav_util.goto_import_keypath(buf, alias, keypath) then
+    return true
+  end
+
+  return false
+end
+
 function M.goto_definition()
   local buf = vim.api.nvim_get_current_buf()
   local cursor = vim.api.nvim_win_get_cursor(0)
@@ -19,137 +65,26 @@ function M.goto_definition()
   local node_type = node:type()
 
   if node_type == "identifier" then
-    local variable = ts_query.parent_of_type(node, "variable")
-    if variable then
+    if ts_query.parent_of_type(node, "variable") then
       local var_name = ts_query.node_text(node)
-      local req_name = var_name:match("^([^%.]+)")
-      if not req_name then req_name = var_name end
-
-      local def_node = nav_util.find_var_def(buf, var_name, cursor[1])
-      if def_node then
-        local sr, sc = def_node:start()
-        vim.cmd("normal! m'")
-        vim.api.nvim_win_set_cursor(0, { sr + 1, sc })
-        return
+      if not goto_var_definition(buf, var_name, cursor[1]) then
+        notify("Definition not found: " .. var_name, vim.log.levels.WARN)
       end
-
-      local req_blocks = ts_query.find_nodes_of_type(buf, "request_block")
-      local req_node = nil
-      for _, block in ipairs(req_blocks) do
-        local name_node = block:named_child(1)
-        if name_node and name_node:type() == "request_name" and vim.trim(ts_query.node_text(name_node)) == req_name then
-          req_node = name_node
-          break
-        end
-      end
-      if req_node then
-        local sr, sc = req_node:start()
-        vim.cmd("normal! m'")
-        vim.api.nvim_win_set_cursor(0, { sr + 1, sc })
-        return
-      end
-
-      if nav_util.goto_env_var(buf, var_name) then return end
-
-      local pre_line, pre_col = nav_util.find_var_in_pre_script(buf, var_name, cursor[1])
-      if pre_line then
-        vim.cmd("normal! m'")
-        vim.api.nvim_win_set_cursor(0, { pre_line, pre_col })
-        return
-      end
-
-      -- Lua import alias reference: {{m.keypath}} in URL/header/body
-      local alias, keypath = var_name:match("^(%w+)%.(.+)$")
-      if alias and keypath and nav_util.goto_import_keypath(buf, alias, keypath) then
-        return
-      end
-
-      notify("Definition not found: " .. var_name, vim.log.levels.WARN)
       return
     end
+    -- a bare identifier outside a {{var}}: not a reference — fall through to
+    -- the generic handlers below
   end
 
   if node_type == "variable" then
     local identifier_node = node:named_child(0)
-    if not identifier_node then return end
+    if not identifier_node then
+      return
+    end
     local var_name = ts_query.node_text(identifier_node)
-    local req_name = var_name:match("^([^%.]+)")
-    if not req_name then req_name = var_name end
-
-    local def_node = nav_util.find_var_def(buf, var_name, cursor[1])
-    if def_node then
-      local sr, sc = def_node:start()
-      vim.cmd("normal! m'")
-      vim.api.nvim_win_set_cursor(0, { sr + 1, sc })
-      return
+    if not goto_var_definition(buf, var_name, cursor[1]) then
+      notify("Definition not found: " .. var_name, vim.log.levels.WARN)
     end
-
-    local req_blocks = ts_query.find_nodes_of_type(buf, "request_block")
-    local req_node = nil
-    for _, block in ipairs(req_blocks) do
-      local name_node = block:named_child(1)
-      if name_node and name_node:type() == "request_name" and vim.trim(ts_query.node_text(name_node)) == req_name then
-        req_node = name_node
-        break
-      end
-    end
-    if req_node then
-      local sr, sc = req_node:start()
-      vim.cmd("normal! m'")
-      vim.api.nvim_win_set_cursor(0, { sr + 1, sc })
-      return
-    end
-
-    if nav_util.goto_env_var(buf, var_name) then return end
-
-    local pre_line, pre_col = nav_util.find_var_in_pre_script(buf, var_name, cursor[1])
-    if pre_line then
-      vim.cmd("normal! m'")
-      vim.api.nvim_win_set_cursor(0, { pre_line, pre_col })
-      return
-    end
-
-    -- Lua import alias reference: {{m.keypath}} in URL/header/body
-    local alias, keypath = var_name:match("^(%w+)%.(.+)$")
-    if alias and keypath then
-      local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      local import_mod = require("poste-http.http.import")
-      local import_path = nil
-      for i, l in ipairs(buf_lines) do
-        local imp = import_mod.parse_import_line(l)
-        if imp and imp.type == "aliased" and imp.alias == alias then
-          import_path = imp.path
-          break
-        end
-      end
-      if import_path then
-        local buf_name = vim.api.nvim_buf_get_name(buf)
-        local buf_dir = buf_name ~= "" and vim.fn.fnamemodify(buf_name, ":h") or vim.fn.getcwd()
-        local full_path = import_path:sub(1, 1) == "/" and import_path
-          or vim.fn.simplify(buf_dir .. "/" .. import_path)
-        if vim.fn.filereadable(full_path) == 1 then
-          vim.cmd("normal! m'")
-          vim.cmd("edit " .. vim.fn.fnameescape(full_path))
-          local first_key = keypath:match("^([^%.]+)")
-          first_key = first_key:match("^([%w_]+)")
-          if first_key then
-            local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-            for i, l in ipairs(lines) do
-              if l:match('^%s*' .. vim.pesc(first_key) .. '%s*=')
-                 or l:match('^%s*%w+%.' .. vim.pesc(first_key) .. '%s*=') then
-                vim.api.nvim_win_set_cursor(0, { i, 0 })
-                return
-              end
-            end
-          end
-        else
-          notify("File not found: " .. full_path, vim.log.levels.WARN)
-        end
-        return
-      end
-    end
-
-    notify("Definition not found: " .. var_name, vim.log.levels.WARN)
     return
   end
 

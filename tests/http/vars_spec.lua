@@ -257,3 +257,47 @@ describe("load_env_vars_with_lines section scanning", function()
     assert.equals("https://dev.example.com", env.host.value)
   end)
 end)
+
+describe("value_to_string at inspect/display boundaries", function()
+  -- K (show_var_value) fed the resolver's RAW env values into `:find` — an
+  -- env.json object crashed ("attempt to call a nil value") and a JSON null
+  -- crashed on the vim.NIL userdata. The stringifier is the contract.
+  it("JSON-encodes table values", function()
+    assert.equals('{"a":1}', vars.value_to_string({ a = 1 }))
+    assert.equals('[1,2]', vars.value_to_string({ 1, 2 }))
+  end)
+
+  it("maps vim.NIL to an empty string (not the userdata, not a crash)", function()
+    assert.equals("", vars.value_to_string(vim.NIL))
+  end)
+
+  it("keeps strings and scalar reprs verbatim", function()
+    assert.equals("plain", vars.value_to_string("plain"))
+    assert.equals("42", vars.value_to_string(42))
+    assert.equals("true", vars.value_to_string(true))
+    assert.equals("", vars.value_to_string(nil))
+  end)
+end)
+
+describe("resolver resolve() returns raw env shapes (display must stringify)", function()
+  it("an object-valued env key resolves to a table", function()
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    local env_path = dir .. "/env.json"
+    local f = io.open(env_path, "w")
+    f:write('{"dev": {"cfg": {"a": 1}, "null_v": null, "host": "h"}}')
+    f:close()
+
+    local resolver = vars.build_resolver_from_state({
+      lines = { "GET {{host}}" },
+      file_path = env_path .. ".http",
+      env_name = "dev",
+    })
+    assert.equals("h", resolver:resolve("host"))
+    assert.are_same({ a = 1 }, resolver:resolve("cfg"))
+    assert.truthy(vim.NIL == resolver:resolve("null_v") or resolver:resolve("null_v") ~= nil,
+      "null env value resolves to the vim.NIL shape, not nil")
+
+    pcall(vim.fn.delete, dir, "rf")
+  end)
+end)

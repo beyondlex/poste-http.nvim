@@ -59,6 +59,10 @@ local function value_to_string(v)
   return ""
 end
 
+-- Inspectors and renderers outside this module (nav.show_var_value) need the
+-- same table→JSON / NIL→empty normalization substitute() uses.
+M.value_to_string = value_to_string
+
 function VarResolver:substitute(input)
   -- Mirror the family contract (poste-mq vars.expand): non-string input
   -- passes through untouched instead of crashing on `result:gsub`.

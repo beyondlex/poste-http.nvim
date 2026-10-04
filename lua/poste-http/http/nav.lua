@@ -164,7 +164,11 @@ function M.show_var_value()
   if value == nil then
     value = import.resolve_lua_keypath(var_name, full_content, buf_dir)
   end
-  local resolved = value or "(unresolved)"
+  -- env.json values are stored RAW in the resolver: an object/array decodes
+  -- to a table and a JSON null to the truthy vim.NIL — both crashed the
+  -- `resolved:find` below ("attempt to call a nil value"). The display layer
+  -- goes through the same stringifier substitution() uses.
+  local resolved = (value ~= nil) and vars.value_to_string(value) or "(unresolved)"
 
   local title = " " .. var_name .. " "
   local lines = {}

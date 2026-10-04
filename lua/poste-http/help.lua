@@ -30,6 +30,7 @@ local DESCRIPTIONS = {
     view_verbose = "View verbose output",
     view_assertions = "View assertion results",
     view_errors = "View error list",
+    view_messages = "View WebSocket frame transcript",
     view_script_logs = "View pre/post script logs",
     next_tab = "Next response tab",
     prev_tab = "Previous response tab",
@@ -40,6 +41,8 @@ local DESCRIPTIONS = {
     json_toggle_raw = "Toggle raw/pretty JSON",
     json_outline = "Toggle JSON key outline",
     image_preview = "Render image inline or open externally",
+    ws_send = "Send a message on the live WebSocket session",
+    ws_close = "Close the live WebSocket session",
   },
   http_history = {
     close = "Close history window",

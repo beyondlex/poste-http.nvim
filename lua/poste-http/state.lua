@@ -48,6 +48,7 @@ M.config = {
       view_verbose = "E",
       view_assertions = "A",
       view_errors = "X",
+      view_messages = "M",
       view_script_logs = "S",
       next_tab = "<Tab>",
       prev_tab = "<S-Tab>",
@@ -60,6 +61,8 @@ M.config = {
       json_outline = "<leader>jo",
       image_preview = "K",
       ask_ai = "a",
+      ws_send = "s",
+      ws_close = "c",
     },
     http_history = {
       close = "q",

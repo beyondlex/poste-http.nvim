@@ -16,14 +16,22 @@ function VarResolver.new()
   }, VarResolver)
 end
 
+-- Resolution priority: import params > request vars > file vars > session
+-- (client.global) > script variables > env.json > magic. Layer membership is
+-- checked with explicit `v ~= nil`, NOT an `or` chain: `or` reads a `false`
+-- value as "missing", so env.json's `"flag": false` fell through every layer
+-- to the magic resolver and `{{flag}}` stayed unresolved instead of
+-- substituting "false" (poste-mq's resolve_expr checks `~= nil` too).
+local RESOLVE_LAYERS = {
+  "import_params", "request_vars", "file_vars", "session_vars", "script_vars", "env",
+}
+
 function VarResolver:resolve(name)
-  return self.import_params[name]
-      or self.request_vars[name]
-      or self.file_vars[name]
-      or self.session_vars[name]
-      or self.script_vars[name]
-      or self.env[name]
-      or self:_resolve_magic(name)
+  for _, layer in ipairs(RESOLVE_LAYERS) do
+    local v = self[layer][name]
+    if v ~= nil then return v end
+  end
+  return self:_resolve_magic(name)
 end
 
 function VarResolver:_resolve_magic(name)
@@ -71,8 +79,13 @@ function VarResolver:substitute(input)
   for _ = 1, 20 do
     -- `next_result`, not `next` — a local named `next` shadows the global.
     local next_result = result:gsub("{{([^}]+)}}", function(var_name)
-      local v = self:resolve(var_name)
+      -- Trim the captured name: poste-mq trims inside resolve_expr, and
+      -- `{{ host }}` reads the same to a human — the un-trimmed lookup made
+      -- the spaced spelling silently unresolved while `{{host}}` worked.
+      local v = self:resolve(vim.trim(var_name))
       if v ~= nil then return value_to_string(v) end
+      -- Unresolved refs keep their ORIGINAL text (spacing included), so the
+      -- unresolved-variable gate and the error report echo what's written.
       return "{{" .. var_name .. "}}"
     end)
     if next_result == result then break end
@@ -211,7 +224,15 @@ function M.load_env_vars(file_path, env_name)
         f:close()
         local ok, data = pcall(vim.json.decode, content)
         if ok and type(data) == "table" then
-          return data[env_name] or {}
+          -- The env SECTION must also be a table: `{"dev": 42}` (typo'd
+          -- file) used to hand the raw number back, and the next
+          -- `self.env[name]` index crashed the whole resolve chain —
+          -- cache.collect_env_vars (completion) already guarded this way.
+          local section = data[env_name]
+          if type(section) == "table" then
+            return section
+          end
+          return {}
         end
       end
     end

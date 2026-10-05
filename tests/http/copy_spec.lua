@@ -172,6 +172,46 @@ describe("collect_vars (multipart variable layer)", function()
     local vars = copy._collect_vars(buf, 2)
     assert.equals("abc", vars.tok)
   end)
+
+  -- 2026-10-06 round: the private env/@var copies this layer used drifted
+  -- from vars.lua (non-table env section crash, greedy @name split, table
+  -- values handed to gsub). All three now delegate to the shared module.
+  it("a non-table env section does not crash the multipart layer", function()
+    local f = io.open(vim.fs.joinpath(tmpdir, "env.json"), "w")
+    f:write('{"dev": 42}')
+    f:close()
+    make_file_buf({
+      "### Upload",
+      "POST https://example.com",
+    })
+    local vars = copy._collect_vars(buf, 1)
+    assert.are_same({}, vars)
+  end)
+
+  it("splits compact @var values at the FIRST equals sign (base64/JWT shape)", function()
+    make_file_buf({
+      "@token=eyJ9.eyJ.abc==",
+      "### Upload",
+      "POST https://example.com",
+    })
+    local vars = copy._collect_vars(buf, 2)
+    assert.equals("eyJ9.eyJ.abc==", vars.token)
+  end)
+
+  it("stringifies table-valued env vars through the shared value_to_string", function()
+    local f = io.open(vim.fs.joinpath(tmpdir, "env.json"), "w")
+    f:write('{"dev": {"cfg": {"a": 1}}}')
+    f:close()
+    make_file_buf({
+      "### Upload",
+      "POST https://example.com",
+    })
+    local vars = copy._collect_vars(buf, 1)
+    assert.are_same({ a = 1 }, vars.cfg)
+    assert.equals('{"a":1}',
+      require("poste-http.http.vars").value_to_string(vars.cfg),
+      "the multipart -F substitution renders table env values as JSON, never a raw table")
+  end)
 end)
 
 describe("copy_as_curl multipart", function()

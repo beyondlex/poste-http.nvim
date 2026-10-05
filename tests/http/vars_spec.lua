@@ -301,3 +301,69 @@ describe("resolver resolve() returns raw env shapes (display must stringify)", f
     pcall(vim.fn.delete, dir, "rf")
   end)
 end)
+
+describe("hostile env.json / var-name shapes (2026-10-06 round)", function()
+  local dir, env_path
+
+  before_each(function()
+    dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    env_path = vim.fs.joinpath(dir, "env.json")
+  end)
+
+  after_each(function()
+    pcall(vim.fn.delete, dir, "rf")
+  end)
+
+  local function write_env(content)
+    local f = io.open(env_path, "w")
+    f:write(content)
+    f:close()
+  end
+
+  local function resolver_for(env_name)
+    return vars.build_resolver_from_state({
+      lines = { "GET {{host}}" },
+      file_path = env_path .. ".http",
+      env_name = env_name,
+    })
+  end
+
+  it("a non-table env section degrades to an empty env, not a crash", function()
+    -- `{"dev": 42}` used to hand the raw number back as resolver.env; the
+    -- next `self.env[name]` crashed ("attempt to index a number value") and
+    -- the run pipeline wedged with _busy=true. cache.collect_env_vars
+    -- (completion) already guarded this way — this pins the run path.
+    write_env('{"dev": 42, "prod": "nope"}')
+    local r = resolver_for("dev")
+    assert.are_same({}, r.env)
+    assert.equals("GET {{host}}", r:substitute("GET {{host}}"))
+  end)
+
+  it("a false env value substitutes as \"false\" (no or-chain fall-through)", function()
+    -- The old `layer or layer or …` chain treated false as missing:
+    -- `"flag": false` fell through to the magic resolver and {{flag}}
+    -- stayed unresolved instead of substituting "false".
+    write_env('{"dev": {"host": false}}')
+    local r = resolver_for("dev")
+    assert.equals(false, r:resolve("host"))
+    assert.equals("GET false", r:substitute("GET {{host}}"))
+  end)
+
+  it("layer precedence survives false values (request var beats file var)", function()
+    local r = vars.new()
+    r.request_vars = { token = false }
+    r.file_vars = { token = "file-layer" }
+    assert.equals(false, r:resolve("token"))
+  end)
+
+  it("trims whitespace around the variable name ({{ host }} resolves)", function()
+    -- poste-mq trims inside resolve_expr (family contract); the un-trimmed
+    -- lookup made the spaced spelling silently unresolved.
+    write_env('{"dev": {"host": "example.com"}}')
+    local r = resolver_for("dev")
+    assert.equals("GET example.com", r:substitute("GET {{ host }}"))
+    -- unresolved refs keep their original (spaced) spelling
+    assert.equals("{{ nope }}", r:substitute("{{ nope }}"))
+  end)
+end)

@@ -13,39 +13,27 @@ local M = {}
 -- strings, so util's `''`-for-empty contract never fires here.
 
 --- Walk up from directory looking for env.json and return current env's variables.
-local function load_env_vars(file_path, env_name)
-  if not file_path or file_path == "" then return {} end
-  if not env_name or env_name == "" then return {} end
-  local dir = vim.fn.fnamemodify(file_path, ":h")
-  local seen = {}
-  while true do
-    local candidate = vim.fs.joinpath(dir, "env.json")
-    if not seen[dir] and vim.fn.filereadable(candidate) == 1 then
-      seen[dir] = true
-      local f = io.open(candidate, "r")
-      if f then
-        local content = f:read("*a")
-        f:close()
-        local ok, data = pcall(vim.json.decode, content)
-        if ok and type(data) == "table" then
-          return data[env_name] or {}
-        end
-      end
-    end
-    local parent = vim.fn.fnamemodify(dir, ":h")
-    if parent == dir then break end
-    dir = parent
-  end
-  return {}
-end
+-- Delegates to vars.load_env_vars: this module used to keep a private copy
+-- whose `data[env_name] or {}` handed a NON-TABLE env section (`"dev": 42`
+-- typo) straight back, and the multipart path's `pairs()` over it crashed.
+local load_env_vars = vars.load_env_vars
 
 --- Simple {{var}} substitution with iterative resolution (handles nested refs).
 --- `var_map` avoids shadowing the poste-http.http.vars module upvalue.
 local function substitute_vars(text, var_map)
+  -- Non-string input passes through untouched (family contract, vars
+  -- resolver parity): collect_vars feeds raw env.json values through here,
+  -- and an object-valued env key used to crash on `result:gsub`.
+  if type(text) ~= "string" then return text end
   local result = text
   for _ = 1, 20 do
     local next_result = result:gsub("{{([^}]+)}}", function(var_name)
-      return var_map[var_name] or "{{" .. var_name .. "}}"
+      -- Trim the name (vars resolver parity: `{{ host }}` resolves) and
+      -- stringify through the shared contract — an env.json object used to
+      -- come back as the table itself and gsub raised "invalid replacement".
+      local v = var_map[vim.trim(var_name)]
+      if v == nil then return "{{" .. var_name .. "}}" end
+      return vars.value_to_string(v)
     end)
     if next_result == result then break end
     result = next_result
@@ -53,30 +41,13 @@ local function substitute_vars(text, var_map)
   return result
 end
 
---- Collect @var definitions from a list of lines (single-line: @name = value or @name value).
---- Returns a table of {name = value, ...}.
-local function collect_var_defs(lines)
-  local var_map = {}
-  for _, line in ipairs(lines) do
-    local trimmed = vim.trim(line)
-    if trimmed:sub(1, 1) == "@" then
-      local name, value = trimmed:match("^@(%S+)%s*=%s*(.*)")
-      if not name then
-        name, value = trimmed:match("^@(%S+)%s+(.+)")
-      end
-      if name and value then
-        value = value:match("^'(.-)'$") or value:match('^"(.-)"$') or value
-        var_map[name] = value
-      end
-    end
-  end
-  return var_map
-end
-
 --- Collect variables from file-level @var defs, block-level @var defs,
 --- env.json, and session vars (client.global + script_variables).
 --- block_lines (optional) are the raw request-block lines; block defs
 --- override file-level ones, matching the resolver's precedence.
+-- @var collection delegates to vars.collect_var_defs (first-`=` split rule
+-- + multiline >>> values): the private copy here still used the greedy
+-- `%S+` name that made `@token=eyJ9.abc==` capture name "token=eyJ9.abc".
 local function collect_vars(buf, block_start_line, block_lines)
   -- File-level region: every line above the block's separator (the
   -- request's start_line). start_line - 1 is the 0-based exclusive end,
@@ -85,9 +56,9 @@ local function collect_vars(buf, block_start_line, block_lines)
     and vim.api.nvim_buf_get_lines(buf, 0, block_start_line - 1, false) or {}
   local file_path = vim.api.nvim_buf_get_name(buf)
   local env_vars = load_env_vars(file_path, state.current_env)
-  local var_map = collect_var_defs(file_lines)
+  local var_map = vars.collect_var_defs(file_lines)
   if block_lines then
-    for k, v in pairs(collect_var_defs(block_lines)) do
+    for k, v in pairs(vars.collect_var_defs(block_lines)) do
       var_map[k] = v
     end
   end

@@ -1020,3 +1020,50 @@ describe("execute_run_directive", function()
     assert.truthy(notified[1].msg:match("cancelled"))
   end)
 end)
+
+describe("import_parser hostile spec shapes (2026-10-06 round)", function()
+  local parser = require("poste-http.http.import_parser")
+  local spec = { info = { version = 42, title = "API", enabled = true } }
+
+  it("a $ref resolving to a scalar is its own example, not a crash", function()
+    -- resolve_ref("#/info/version") → 42 used to crash on `.example`
+    assert.equals(42, parser.schema_to_example({ ["$ref"] = "#/info/version" }, spec))
+    assert.equals(true, parser.schema_to_example({ ["$ref"] = "#/info/enabled" }, spec))
+  end)
+
+  it("a scalar schema passes through resolve_schema", function()
+    assert.equals(42, parser.resolve_schema(42, spec))
+    assert.equals(nil, parser.resolve_schema(nil, spec))
+  end)
+
+  it("junk-typed properties / enum degrade instead of crashing", function()
+    assert.are_same({}, parser.schema_to_example({ type = "object", properties = "junk" }, spec))
+    assert.equals("string", parser.schema_to_example({ type = "string", enum = "abc" }, spec))
+  end)
+
+  it("a cyclic $ref terminates at the depth cap", function()
+    local cyclic = {
+      components = { schemas = { node = { type = "object",
+        properties = { child = { ["$ref"] = "#/components/schemas/node" } } } } },
+    }
+    assert.is_true(pcall(parser.schema_to_example,
+      { ["$ref"] = "#/components/schemas/node" }, cyclic))
+  end)
+
+  it("collect_parameters skips scalar entries and string-typed enums", function()
+    local headers, query_parts, url_vars, _, prompts = parser.collect_parameters({
+      42, "junk",
+      { name = "level", ["in"] = "query", schema = { type = "string", enum = "abc" } },
+      { name = "q", ["in"] = "query", schema = { type = "string" } },
+    }, {}, spec)
+    assert.equals(0, #headers)
+    -- both params land as plain query vars: the healthy one, plus the
+    -- string-typed "enum" degraded to a plain string param (it is not a
+    -- valid options list)
+    assert.equals(2, #query_parts)
+    assert.equals(0, #prompts)
+    assert.equals(2, #url_vars)
+    assert.equals("q", url_vars[2].name)
+    assert.equals("level", url_vars[1].name)
+  end)
+end)

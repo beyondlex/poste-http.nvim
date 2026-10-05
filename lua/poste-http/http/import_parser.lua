@@ -66,7 +66,10 @@ function M.resolve_ref(ref, spec)
 end
 
 function M.resolve_schema(schema, spec)
-  if not schema then return nil end
+  -- Non-tables (a scalar parameter entry, a schema of 42) are not
+  -- indexable: they used to crash on schema["$ref"]. Pass them through —
+  -- schema_to_example treats a scalar as its own example.
+  if type(schema) ~= "table" then return schema end
   if schema["$ref"] then
     return M.resolve_ref(schema["$ref"], spec)
   end
@@ -80,6 +83,10 @@ function M.schema_to_example(schema, spec, depth)
 
   local resolved = M.resolve_schema(schema, spec)
   if not resolved then return {} end
+  -- A $ref can legally resolve to a SCALAR (#/info/version → 42, a boolean
+  -- flag): indexing it for .example crashed ("attempt to index a number").
+  -- The scalar is its own example.
+  if type(resolved) ~= "table" then return resolved end
 
   if resolved.example ~= nil then
     return resolved.example
@@ -87,7 +94,9 @@ function M.schema_to_example(schema, spec, depth)
 
   if resolved.type == "object" or resolved.properties then
     local obj = {}
-    if resolved.properties then
+    -- properties must be a table: a hand-written spec's "properties": "junk"
+    -- used to crash pairs() instead of degrading to an empty example.
+    if type(resolved.properties) == "table" then
       for k, v in pairs(resolved.properties) do
         obj[k] = M.schema_to_example(v, spec, depth + 1)
       end
@@ -100,7 +109,7 @@ function M.schema_to_example(schema, spec, depth)
   end
 
   if resolved.type == "string" then
-    if resolved.enum and #resolved.enum > 0 then
+    if type(resolved.enum) == "table" and #resolved.enum > 0 then
       return resolved.enum[1]
     end
     if resolved.default ~= nil then return resolved.default end
@@ -150,7 +159,9 @@ function M.collect_parameters(openapi_params, path_params, spec)
 
   for _, param in ipairs(openapi_params or {}) do
     local resolved = M.resolve_schema(param, spec)
-    if resolved then
+    -- A scalar entry in the parameters array (hand-edited spec) used to
+    -- crash on resolved.name; a scalar resolves to nothing useful.
+    if type(resolved) == "table" then
       local name = resolved.name or ""
       local in_location = resolved["in"] or ""
       local schema = resolved.schema or resolved
@@ -158,11 +169,13 @@ function M.collect_parameters(openapi_params, path_params, spec)
       local example = M.schema_to_example(resolved_schema or schema, spec)
       local str_example = example_to_string(example)
 
-      -- Check if parameter has enum values
+      -- Check if parameter has enum values (enum must be a real table:
+      -- `#("abc")` is truthy and table.concat on a string raised)
       local enum_values = nil
-      if resolved_schema and resolved_schema.items and resolved_schema.items.enum then
+      if type(resolved_schema) == "table" and type(resolved_schema.items) == "table"
+        and type(resolved_schema.items.enum) == "table" then
         enum_values = resolved_schema.items.enum
-      elseif resolved_schema and resolved_schema.enum then
+      elseif type(resolved_schema) == "table" and type(resolved_schema.enum) == "table" then
         enum_values = resolved_schema.enum
       end
 

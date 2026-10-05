@@ -307,8 +307,10 @@ All commands use the `PosteHttp` prefix.
     :PosteHttpBuildParsers   (Re)compile tree-sitter parsers
     :PosteHttpClearCache     Remove cached response files
     :PosteHttpTSInspect      Inspect tree-sitter parse tree
+    :PosteHttpTSStatus       Show tree-sitter subsystem enable/fallback state
     :PosteHttpCmpStatus      Show completion engine status
     :PosteHttpCmpProfile     Profile completion latency
+    :PosteHttpInfo           One-shot diagnostics: curl, parsers, completions
     :PosteHttpBoundary       Toggle block boundary indicators
 
 ==============================================================================

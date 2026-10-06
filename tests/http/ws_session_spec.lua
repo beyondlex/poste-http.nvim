@@ -277,4 +277,23 @@ describe("ws_session.start", function()
     assert.truthy(vim.list_contains(deleted, "s"), "ws_send key must be unmapped")
     assert.truthy(vim.list_contains(deleted, "c"), "ws_close key must be unmapped")
   end)
+
+  it("send fails softly when the process died before on_exit finalized", function()
+    -- The exit/on_exit race: chansend throws "invalid channel id" in the
+    -- window between process death and finalize; the keymap handler must
+    -- not surface that as a stack trace (amqp transport / poste-mq
+    -- session_conn carry the same guard).
+    local responses = {}
+    ws_session.start({ url = "wss://x", headers = {}, body = "" }, function(r) table.insert(responses, r) end)
+    local session = state.live_session
+    vim.fn.chansend = function()
+      error("invalid channel id: 900")
+    end
+    local sent = ws_session.send("hello", session)
+    assert.is_false(sent, "a failed write reports false")
+    assert.equals(0, #session.frames.sent, "the frame is not recorded as sent")
+    -- a throwing chansend must not finalize or kill the session either —
+    -- on_exit still owns the lifecycle
+    assert.equals(0, #responses)
+  end)
 end)

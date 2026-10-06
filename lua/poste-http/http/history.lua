@@ -111,11 +111,20 @@ function M.load()
     -- dropped EVERY entry from that point on.
     if e and type(e) == "table" and type(e.id) == "number" then
       -- The inner fields also came from disk (hand-editable, written by
-      -- older versions): the detail views index them as tables
-      -- (response.body, #script_logs, assertions shape). A drifted field
-      -- is dropped here — the entry keeps its name/time in the list —
-      -- instead of raising mid-render in format_view.
-      if type(e.response) ~= "table" then e.response = nil end
+      -- older versions): the detail views index them as tables/strings
+      -- (response.headers ipairs, response.body length, metadata table,
+      -- #script_logs, assertions shape). A drifted field is dropped here —
+      -- the entry keeps its name/time in the list — instead of raising
+      -- mid-render in format_view.
+      if type(e.response) ~= "table" then
+        e.response = nil
+      else
+        local r = e.response
+        if r.headers ~= nil and type(r.headers) ~= "table" then r.headers = nil end
+        if r.body ~= nil and type(r.body) ~= "string" then r.body = nil end
+        if r.content_type ~= nil and type(r.content_type) ~= "string" then r.content_type = nil end
+        if r.metadata ~= nil and type(r.metadata) ~= "table" then r.metadata = nil end
+      end
       if e.assertion_results ~= nil and type(e.assertion_results) ~= "table" then
         e.assertion_results = nil
       end

@@ -59,8 +59,8 @@ end
 --- @param max number  display column budget
 --- @return string
 function M.truncate(s, max)
-  if not s then return "" end
-  s = strip_nul(s)
+  if s == nil then return "" end
+  s = strip_nul(tostring(s))
   max = max or 0
   if max < 1 then return "" end
   if vim.fn.strdisplaywidth(s) <= max then return s end
@@ -74,8 +74,8 @@ end
 --- @param max number  display column budget
 --- @return string
 function M.middle(s, max)
-  if not s then return "" end
-  s = strip_nul(s)
+  if s == nil then return "" end
+  s = strip_nul(tostring(s))
   max = max or 0
   if max < 1 then return "" end
   if vim.fn.strdisplaywidth(s) <= max then return s end

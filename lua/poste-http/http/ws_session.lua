@@ -228,7 +228,15 @@ function M.send(msg, session)
   end
   msg = vim.trim(tostring(msg))
   if msg == "" then return false end
-  vim.fn.chansend(session.job_id, msg .. "\n")
+  -- chansend throws "invalid channel id" in the window where the process
+  -- died but on_exit has not finalized the session yet (the amqp transport
+  -- and poste-mq's session_conn carry the same guard): report the failure
+  -- instead of throwing into the keymap handler.
+  local ok, err = pcall(vim.fn.chansend, session.job_id, msg .. "\n")
+  if not ok then
+    notify("WebSocket session is gone (" .. tostring(err) .. ")", vim.log.levels.WARN)
+    return false
+  end
   table.insert(session.frames.sent, msg)
   progress(session)
   return true

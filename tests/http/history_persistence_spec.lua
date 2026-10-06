@@ -6,6 +6,7 @@
 
 local history = require("poste-http.http.history")
 local state = require("poste-http.state")
+local format = require("poste-http.http.format")
 
 local tmp_dir = "/private/tmp/poste-history-test"
 
@@ -205,5 +206,38 @@ describe("history persistence", function()
     assert.is_nil(e.script_logs, "non-table script logs are dropped")
     assert.is_nil(e.assertion_results, "non-table assertion results are dropped")
     assert.equals(99, state.http_history_id_counter)
+  end)
+
+  it("load drops drifted INNER response fields, and the views still render", function()
+    -- Regression: the boundary checked response as a whole but not its
+    -- inner fields — a hand-edited {"headers": 42} / {"body": 7} /
+    -- {"content_type": 8} / {"metadata": "x"} sailed through and raised
+    -- mid-render in format_view (ipairs over a number, # on a number).
+    local file = tmp_dir .. "/history.json"
+    os.execute("mkdir -p " .. tmp_dir)
+    local fd = io.open(file, "w")
+    fd:write(vim.json.encode({
+      { id = 5, name = "inner", time = os.time(),
+        response = { status = 200, headers = 42, body = 7, content_type = 8, metadata = "x" } },
+    }))
+    fd:close()
+
+    state.http_history = {}
+    state.http_history_id_counter = 0
+    history.load()
+
+    local r = state.http_history[1].response
+    assert.equals(200, r.status, "well-typed fields survive")
+    assert.is_nil(r.headers)
+    assert.is_nil(r.body)
+    assert.is_nil(r.content_type)
+    assert.is_nil(r.metadata)
+
+    -- Every detail view renders the sanitized entry instead of crashing.
+    for _, view in ipairs({ "body", "verbose", "request" }) do
+      assert.has_no_errors(function()
+        format.format_view(view, r, {})
+      end)
+    end
   end)
 end)

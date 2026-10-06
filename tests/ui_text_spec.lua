@@ -91,4 +91,22 @@ describe("poste-http.ui.text", function()
       assert.equals("plain", text.truncate("plain", 10))
     end)
   end)
+
+  describe("non-string inputs", function()
+    -- Numbers arrive from hand-built rows and scripted values; the display
+    -- budget must converge through tostring instead of raising E730/E511.
+    it("truncate renders a number through tostring", function()
+      assert.equals("12345", text.truncate(12345, 10))
+      -- max 1 = the ellipsis consumes the whole budget (existing contract)
+      assert.equals("…", text.truncate(12345, 1))
+    end)
+
+    it("middle renders a number through tostring", function()
+      assert.equals("12345", text.middle(12345, 10))
+    end)
+
+    it("boolean false renders as its literal text", function()
+      assert.equals("false", text.truncate(false, 10))
+    end)
+  end)
 end)

@@ -297,4 +297,13 @@ describe("ai.blocks truncate UTF-8 safety", function()
     assert.equals(50, #cut - #"\n… (truncated)")
     assert.equals("abc", blocks.truncate("abc", 10), "under budget: unchanged")
   end)
+
+  it("non-string inputs converge like method_of_text does", function()
+    -- method_of_text guards its input; the siblings used to raise on the
+    -- same values (# on nil, vim.split on a number).
+    assert.equals("", blocks.truncate(nil, 5))
+    assert.equals("", blocks.truncate(42, 5))
+    assert.equals("AI request", blocks.title_of_text(42))
+    assert.equals("GET http://x", blocks.title_of_text("GET http://x\n", "AI request"))
+  end)
 end)

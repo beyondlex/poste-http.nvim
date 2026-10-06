@@ -70,7 +70,9 @@ end
 --- @param fallback string|nil
 --- @return string
 function M.title_of_text(text, fallback)
-  local lines = vim.split(text or "", "\n", { plain = true })
+  -- vim.split needs a string: a non-string text (a scripted block value)
+  -- used to raise "s: expected string, got number" inside the split.
+  local lines = vim.split(type(text) == "string" and text or "", "\n", { plain = true })
   local method, path = M.method_path(lines, 1, #lines)
   if method and path then return method .. " " .. path end
   if method then return method end
@@ -179,6 +181,9 @@ end
 --- @param max_chars number
 --- @return string
 function M.truncate(text, max_chars)
+  -- method_of_text guards its input the same way; the siblings stayed
+  -- unguarded and crashed on the non-string values it tolerates.
+  if type(text) ~= "string" then return "" end
   if #text <= max_chars then return text end
   local head = text:sub(1, max_chars)
   -- Walk back over continuation bytes (10xxxxxx) to the last lead byte and

@@ -12,6 +12,10 @@ local MAX_CANDIDATES = 50
 --- @param token string text after the @
 --- @return table|nil { request = name }
 function M.match(token)
+  -- A non-match reads as "not a request mention" (the generic chat falls
+  -- back to file mentions), so a non-string token degrades the same way
+  -- instead of raising inside the :match.
+  if type(token) ~= "string" then return nil end
   local name = token:match(TOKEN)
   if not name then return nil end
   return { request = name }

@@ -246,4 +246,21 @@ describe("sanitize_lines", function()
       assert.is_true(err:find("table expected") ~= nil)
     end)
   end)
+
+  ---------------------------------------------------------------------------
+  -- Non-string entries (converge through tostring)
+  ---------------------------------------------------------------------------
+  describe("with non-string entries", function()
+    it("renders a number entry through tostring", function()
+      local result = buffer.sanitize_lines({ "a", 42, "b" })
+      assert.equals(3, #result)
+      assert.equals("42", result[2])
+    end)
+
+    it("a number with embedded-newline text splits like a string", function()
+      -- tostring first, then the newline split applies uniformly
+      local result = buffer.sanitize_lines({ 12 })
+      assert.equals("12", result[1])
+    end)
+  end)
 end)

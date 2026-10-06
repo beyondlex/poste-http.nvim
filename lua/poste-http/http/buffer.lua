@@ -422,6 +422,9 @@ end
 function M.sanitize_lines(lines)
   local out = {}
   for _, line in ipairs(lines) do
+    -- tostring: a number entry (a scripted value riding the render path)
+    -- used to raise "attempt to index a number value" in the :find below.
+    line = tostring(line)
     if line:find("[\n\r]") then
       local normalized = (line:gsub("\r\n", "\n")):gsub("\r", "\n")
       local parts = vim.split(normalized, "\n", { plain = true })

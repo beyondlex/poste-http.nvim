@@ -341,3 +341,18 @@ pitfall, log it here. Check this file before starting any task.
   by indentation. Unify duplicated blocks in the same round they are
   found — copies only drift further apart. See
   `docs/dev/review-2026-10-05.md`.
+
+- 2026-10-07: two contracts from the 10-07 round. (1) A guard's comment
+  can outlive its guard's scope — history.load promised "drifted fields
+  are dropped here … instead of raising mid-render" but sanitized only
+  the three top-level keys; `{"response": {"headers": 42}}` crashed the
+  detail views. When a comment claims a boundary drops drifted fields,
+  the spec must enumerate the fields it claims to cover, not just one
+  witness. (2) The chansend death-race guard (throws "invalid channel
+  id" between process death and on_exit) now exists in THREE copies —
+  amqp transport, poste-mq session_conn, ws_session. The 09-23 redaction
+  lesson generalizes: a cross-cutting guard found in two places means
+  grep the third sibling in the same round. Also verified this round:
+  import cycles are structurally impossible (build_import_index is
+  flat), and describe.lua / response_parser stayed total against 19 +
+  8 hostile shapes. See `docs/dev/review-2026-10-07.md`.

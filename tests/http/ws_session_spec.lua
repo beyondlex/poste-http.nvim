@@ -289,8 +289,8 @@ describe("ws_session.start", function()
     vim.fn.chansend = function()
       error("invalid channel id: 900")
     end
-    local sent = ws_session.send("hello", session)
-    assert.is_false(sent, "a failed write reports false")
+    local delivered = ws_session.send("hello", session)
+    assert.is_false(delivered, "a failed write reports false")
     assert.equals(0, #session.frames.sent, "the frame is not recorded as sent")
     -- a throwing chansend must not finalize or kill the session either —
     -- on_exit still owns the lifecycle

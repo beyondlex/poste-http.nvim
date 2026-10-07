@@ -356,3 +356,18 @@ pitfall, log it here. Check this file before starting any task.
   import cycles are structurally impossible (build_import_index is
   flat), and describe.lua / response_parser stayed total against 19 +
   8 hostile shapes. See `docs/dev/review-2026-10-07.md`.
+
+- 2026-10-08: three contracts from the 10-08 round. (1) A probe note that
+  asserts platform behavior must be verified in the platform — poste-mq's
+  10-07 notes recorded "nvim_buf_set_lines splits embedded newlines for
+  you"; the API REJECTS them, and the wrong conclusion postponed a real
+  crash fix (multi-line history payloads) by a round. (2) Two modules
+  extracting the same header field is a drift pair — copy.lua's
+  `boundary=([^;]+)` kept the quotes of `boundary="BOUND"` while
+  format/multipart.extract_boundary read the quoted form first; the copy
+  path silently emptied every -F flag. Reuse the one correct copy instead
+  of re-matching. (3) `PlenaryBustedFile` skips minimal_init, so a single
+  spec's exit code is only meaningful under the directory run's exact
+  child args (`--noplugin -u tests/minimal_init.lua` + rtp) — bisecting a
+  red suite per-file with the wrong harness reports load failures, not
+  test failures. See `docs/dev/review-2026-10-08.md`.

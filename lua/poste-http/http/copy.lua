@@ -296,7 +296,11 @@ function M.copy_as_curl()
   local boundary
   for _, h in ipairs(headers) do
     if h[1]:lower() == "content-type" then
-      local b = h[2]:match("boundary=([^;]+)")
+      -- format/multipart.extract_boundary reads the QUOTED form first:
+      -- boundary=([^;]+) captured the quotes of boundary="BOUND", no body
+      -- line ever matched --"BOUND", and the copied command silently lost
+      -- every -F flag. Same extraction rule as the response viewer.
+      local b = require("poste-http.http.format.multipart").extract_boundary(h[2])
       if h[2]:find("multipart/form%-data") and b then
         is_multipart = true
         boundary = vim.trim(b)

@@ -283,4 +283,31 @@ describe("copy_as_curl multipart", function()
     assert.is_true(util._random_seeded,
       "copy_as_curl must seed the PRNG before generating magic vars")
   end)
+
+  it("handles a quoted boundary without dropping the -F flags", function()
+    -- Regression: boundary=([^;]+) captured the quotes of
+    -- boundary="BOUND", so no body line ever matched --"BOUND" and the
+    -- copied command lost every -F flag (a silent empty body). The
+    -- extraction now reuses format/multipart.extract_boundary, which reads
+    -- the quoted form first — the same rule the response viewer uses.
+    local lines = {
+      "### Upload",
+      "@tok = abc",
+      "POST https://example.com/upload",
+      'Content-Type: multipart/form-data; boundary="BOUND"',
+      "",
+      "--BOUND",
+      'Content-Disposition: form-data; name="token"',
+      "",
+      "value",
+      "--BOUND--",
+    }
+    make_file_buf(lines)
+    vim.fn.setpos(".", { 0, 3, 1, 0 })
+
+    local cmd = copy.copy_as_curl()
+    assert.is_not_nil(cmd)
+    assert.truthy(cmd:find("token=value", 1, true),
+      "quoted boundary must still yield the -F flags, got: " .. cmd)
+  end)
 end)

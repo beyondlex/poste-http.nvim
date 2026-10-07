@@ -215,4 +215,14 @@ describe("apply_jq_mapping", function()
     assert.truthy(result[1].description:find('"deep":true', 1, true),
       "object fields JSON-encode: " .. tostring(result[1].description))
   end)
+
+  it("tolerates non-string inputs (options string, mapping paths)", function()
+    -- 2026-10-08 probe: the sibling parsers guard non-string input; these two
+    -- indexed nil/numbers directly. Unreachable from today's call sites (the
+    -- option text always comes from a buffer-line match), fixed for the
+    -- module's own convention.
+    assert.equals(0, #parse_structured_options(nil))
+    assert.equals(0, #parse_structured_options(42))
+    assert.equals(0, #apply_jq_mapping({ a = 1 }, { name = nil, key = 5 }))
+  end)
 end)

@@ -4,6 +4,12 @@ local M = {}
 
 function M.parse_structured_options(options_str)
   local result = {}
+  -- The option text normally comes from a buffer-line match (always a
+  -- string); a non-string converges to "no options" like the sibling
+  -- parsers instead of raising on `:gmatch`.
+  if type(options_str) ~= "string" then
+    return result
+  end
   for opt in options_str:gmatch("[^,]+") do
     local trimmed = vim.trim(opt)
     if trimmed ~= "" then
@@ -66,17 +72,23 @@ function M.apply_jq_mapping(value, mapping)
   end
   -- Path cleanup per mode: array paths drop their `.[]` iteration prefix
   -- (the iteration is the outer loop here); plain paths drop one leading
-  -- dot. Either way the remainder is a per-item walk path.
+  -- dot. Either way the remainder is a per-item walk path. Non-string paths
+  -- (a hand-built mapping) are dropped — the `:find`/`:gsub` below would
+  -- raise on them.
   local clean = {}
   if uses_array_iteration then
     for field, path in pairs(mapping) do
-      local cleaned = path:gsub("^%.[%[%]][%[%]](%.?)", "")
-      cleaned = cleaned:gsub("^%.", "")
-      clean[field] = cleaned
+      if type(path) == "string" then
+        local cleaned = path:gsub("^%.[%[%]][%[%]](%.?)", "")
+        cleaned = cleaned:gsub("^%.", "")
+        clean[field] = cleaned
+      end
     end
   else
     for field, path in pairs(mapping) do
-      clean[field] = path:match("^%.(.+)") or path
+      if type(path) == "string" then
+        clean[field] = path:match("^%.(.+)") or path
+      end
     end
   end
   mapping = clean

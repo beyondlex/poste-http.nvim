@@ -396,6 +396,11 @@ describe("http image preview", function()
       local image_cache = require("poste-http.http.image_cache")
       local url = "https://example.com/image-cached-" .. tostring(os.clock()) .. ".png"
       local cached = image_cache.cache_path_for_url(url)
+      -- The img/ directory is created by the download path (new_temp_download_path
+      -- mkdirs), never by cache_path_for_url — a clean cache dir needs it here
+      -- or io.open fails with ENOENT (2026-10-08 review: suite exit 1 with the
+      -- test never having run).
+      vim.fn.mkdir(vim.fn.fnamemodify(cached, ":h"), "p")
       table.insert(temp_files, cached)
       local f = assert(io.open(cached, "wb"))
       f:write("PNG")

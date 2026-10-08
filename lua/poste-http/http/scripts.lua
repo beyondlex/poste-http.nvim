@@ -242,29 +242,65 @@ end
 -- Inject pre-script variables into request content
 ---------------------------------------------------------------------------
 
+--- Serialize one injected value as @var syntax that parses back to the same
+--- string. Single-line values use the plain form; a value with embedded
+--- newlines (client.global.set of a multi-line body, a heredoc file var
+--- copied through a script) MUST use the grammar's >>>/<<< multiline form —
+--- the old `@name = value` string.format left the value's second line as a
+--- bare request line (silently corrupting the request) and made the caller's
+--- "one line per variable" line accounting under-count.
+--- A value of exactly ">>>" would re-parse as the multiline opener, so it is
+--- quote-wrapped (the quoted form strips its quotes back off on parse).
+local function serialize_var_line(name, value)
+  if type(value) ~= "string" then
+    value = tostring(value)
+  end
+  if value:find("\n", 1, true) then
+    return { string.format("@%s = >>>", name), value, "<<<" }
+  end
+  if value:match("^>>>%s*$") then
+    return { string.format('@%s = "%s"', name, value) }
+  end
+  return { string.format("@%s = %s", name, value) }
+end
+
+--- Physical buffer lines a serialized entry occupies (an entry may carry
+--- embedded newlines — the heredoc value does — and block_end/line
+--- bookkeeping must advance by physical lines, not entries).
+local function physical_lines(s)
+  return select(2, s:gsub("\n", "")) + 1
+end
+
 --- Inject pre-script variables as @var = value lines after the ### header.
 --- This ensures the tree-sitter parser picks them up as request-scoped variables
 --- with highest substitution priority.
---- Returns modified content (line count increases by number of variables).
+--- Returns modified content and the number of lines actually inserted —
+--- multi-line values occupy three lines (>>>/value/<<<), so callers must use
+--- the returned count for block_end/line bookkeeping, never pairs(variables).
+--- @return string, number
 function M.inject_pre_script_vars(content, block_start, variables)
   if not variables or not next(variables) then
-    return content
+    return content, 0
   end
 
   local lines = vim.split(content, "\n", { plain = true })
   local result = {}
+  local injected = 0
 
   for i, line in ipairs(lines) do
     table.insert(result, line)
     -- Insert variables right after the ### header line (block_start is 1-indexed)
     if i == block_start then
       for name, value in pairs(variables) do
-        table.insert(result, string.format("@%s = %s", name, value))
+        for _, serialized_line in ipairs(serialize_var_line(name, value)) do
+          table.insert(result, serialized_line)
+          injected = injected + physical_lines(serialized_line)
+        end
       end
     end
   end
 
-  return table.concat(result, "\n")
+  return table.concat(result, "\n"), injected
 end
 
 ---------------------------------------------------------------------------
@@ -276,7 +312,7 @@ end
 --- @param content string
 --- @param block_start number  1-indexed line to inject after
 --- @param global_vars table  { name = value, ... }
---- @return string, number  modified content, count injected
+--- @return string, number  modified content, lines actually injected
 function M.inject_global_vars(content, block_start, global_vars)
   if not block_start or not global_vars or not next(global_vars) then
     return content, 0
@@ -285,13 +321,15 @@ function M.inject_global_vars(content, block_start, global_vars)
   local lines = vim.split(content, "\n", { plain = true })
   local result = {}
   local count = 0
-  for _ in pairs(global_vars) do count = count + 1 end
 
   for i, line in ipairs(lines) do
     table.insert(result, line)
     if i == block_start then
       for name, value in pairs(global_vars) do
-        table.insert(result, string.format("@%s = %s", name, value))
+        for _, serialized_line in ipairs(serialize_var_line(name, value)) do
+          table.insert(result, serialized_line)
+          count = count + physical_lines(serialized_line)
+        end
       end
     end
   end

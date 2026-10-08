@@ -364,6 +364,78 @@ describe("scripts.inject_global_vars", function()
     assert.equal("GET /ping", lines[1])
     assert.matches("@debug = true", lines[2])
   end)
+
+  it("serializes a multi-line value as the >>>/<<< heredoc form, not a torn line", function()
+    -- A value with embedded newlines (client.global.set of a multi-line body)
+    -- used to be string.format-ed into ONE @var line: the value's second line
+    -- landed in the buffer as a bare request line, corrupting the request,
+    -- and the returned count (1) under-counted the two inserted lines.
+    local content = "### A\nGET https://x"
+    local result, count = scripts.inject_global_vars(content, 1, { tok = "line1\nline2" })
+    -- opener (1) + the value's two physical lines + closer (1)
+    assert.equal(4, count)
+    local lines = vim.split(result, "\n", { plain = true })
+    assert.equal(6, #lines)
+    assert.equal("@tok = >>>", lines[2])
+    assert.equal("line1", lines[3])
+    assert.equal("line2", lines[4])
+    assert.equal("<<<", lines[5])
+    assert.equal("GET https://x", lines[6])
+  end)
+
+  it("heredoc-injected multi-line value parses back to the original string", function()
+    local vars_mod = require("poste-http.http.vars")
+    local content = "### A\nGET https://x"
+    local injected, count = scripts.inject_global_vars(content, 1, { tok = "line1\nline2" })
+    assert.equal(4, count)
+    local collected = vars_mod.collect_var_defs(vim.split(injected, "\n", { plain = true }), 1, #vim.split(injected, "\n", { plain = true }))
+    assert.equal("line1\nline2", collected.tok)
+  end)
+
+  it("quote-wraps a value of exactly >>> so it does not re-parse as a heredoc opener", function()
+    local content = "### A\nGET https://x"
+    local result, count = scripts.inject_global_vars(content, 1, { marker = ">>>" })
+    assert.equal(1, count)
+    local lines = vim.split(result, "\n", { plain = true })
+    assert.equal('@marker = ">>>"', lines[2])
+    local collected = require("poste-http.http.vars").collect_var_defs(lines, 1, #lines)
+    assert.equal(">>>", collected.marker)
+  end)
+end)
+
+describe("scripts.inject_pre_script_vars", function()
+  local scripts
+
+  before_each(function()
+    package.loaded["poste-http.http.scripts"] = nil
+    scripts = require("poste-http.http.scripts")
+  end)
+
+  after_each(function()
+    package.loaded["poste-http.http.scripts"] = nil
+  end)
+
+  it("returns content and 0 when variables are empty or nil", function()
+    assert.equal("GET /t", scripts.inject_pre_script_vars("GET /t", 1, nil))
+    local _, count = scripts.inject_pre_script_vars("GET /t", 1, {})
+    assert.equal(0, count)
+  end)
+
+  it("returns the line count and serializes multi-line values via the heredoc form", function()
+    local content = "### A\nGET https://x"
+    local result, count = scripts.inject_pre_script_vars(content, 1, { one = "1", body = "a\nb" })
+    -- "one" = 1 line; "body" heredoc = opener + 2 physical lines + closer = 4
+    assert.equal(5, count)
+    local lines = vim.split(result, "\n", { plain = true })
+    assert.equal(7, #lines)
+    -- the request line survives uncorrupted below every injected line
+    -- (5 injected lines push it from position 2 to 7)
+    assert.equal("GET https://x", lines[7])
+    -- round-trip: the heredoc value collects back as the original string
+    local collected = require("poste-http.http.vars").collect_var_defs(lines, 1, #lines)
+    assert.equal("a\nb", collected.body)
+    assert.equal("1", collected.one)
+  end)
 end)
 
 describe("scripts.scan_script_set_calls", function()

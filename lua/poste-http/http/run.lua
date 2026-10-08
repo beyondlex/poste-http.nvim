@@ -505,9 +505,10 @@ local function execute_request(ctx, callback)
       state.set_script_logs(pre_result.logs)
     end
     if next(pre_result.variables) then
-      local injected_count = 0
-      for _ in pairs(pre_result.variables) do injected_count = injected_count + 1 end
-      buf_content = scripts.inject_pre_script_vars(buf_content, block_start, pre_result.variables)
+      -- The returned count is LINES inserted (a multi-line value serializes
+      -- as the >>>/<<< heredoc form), not variables — pairs() under-counts.
+      local injected_count
+      buf_content, injected_count = scripts.inject_pre_script_vars(buf_content, block_start, pre_result.variables)
       block_end = block_end + injected_count
       line = line + injected_count
       for name, value in pairs(pre_result.variables) do

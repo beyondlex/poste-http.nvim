@@ -625,9 +625,10 @@ local function process_target_pre_script(content, block_start, block_end, file_d
 
   -- Inject request.variables.set() vars
   if pre_result.variables and next(pre_result.variables) then
-    local count = 0
-    for _ in pairs(pre_result.variables) do count = count + 1 end
-    modified_content = scripts.inject_pre_script_vars(modified_content, block_start, pre_result.variables)
+    local count
+    -- The returned count is LINES inserted (a multi-line value serializes as
+    -- the >>>/<<< heredoc form), not variables — pairs() under-counts.
+    modified_content, count = scripts.inject_pre_script_vars(modified_content, block_start, pre_result.variables)
     total_injected = total_injected + count
     block_start = block_start + count  -- so global vars go after them
   end

@@ -13,21 +13,26 @@ local M = {}
 
 --- Resolve {{var}} references iteratively within collected vars.
 --- Same reference grammar as vars.lua: {{([^}]+)}} — names may start with
---- `_` or contain dashes, not just %w.
+--- `_` or contain dashes, not just %w. The captured name is TRIMMED before
+--- lookup, matching VarResolver:substitute — `@url = {{ base }}/u` must
+--- resolve, not silently stay raw while the resolver layer substitutes it.
 local function resolve_var_refs(vars_table)
   for _ = 1, 20 do
     local changed = false
     for k, v in pairs(vars_table) do
-      local resolved = v:gsub("{{([^}]+)}}", function(ref)
-        if vars_table[ref] ~= nil then
+      if type(v) == "string" then
+        local resolved = v:gsub("{{([^}]+)}}", function(ref)
+          local value = vars_table[vim.trim(ref)]
+          if value ~= nil then
+            changed = true
+            return tostring(value)
+          end
+          return "{{" .. ref .. "}}"
+        end)
+        if resolved ~= v then
+          vars_table[k] = resolved
           changed = true
-          return vars_table[ref]
         end
-        return "{{" .. ref .. "}}"
-      end)
-      if resolved ~= v then
-        vars_table[k] = resolved
-        changed = true
       end
     end
     if not changed then break end

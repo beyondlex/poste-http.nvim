@@ -60,6 +60,23 @@ describe("collect_script_variables", function()
     assert.equals("https://api.example.com/users", result.variables._url)
   end)
 
+  it("resolves spaced {{ base }} refs in var values (trim-before-lookup)", function()
+    -- VarResolver:substitute trims the captured name; the script layer's
+    -- private resolver used to look the SPACED name up verbatim, so
+    -- `@url = {{ base }}/u` stayed raw here while the resolver substituted it.
+    buf = with_buf("/tmp/collect_vars_spaced.http")
+    local content = table.concat({
+      "@base = https://api.example.com",
+      "@url = {{ base }}/users",
+      "",
+      "### Get",
+      "GET {{url}}",
+    }, "\n")
+
+    local result = scripts.collect_script_variables(content, 4, 5)
+    assert.equals("https://api.example.com/users", result.variables.url)
+  end)
+
   it("collects block-level vars overriding file-level", function()
     buf = with_buf("/tmp/collect_vars2.http")
     local content = table.concat({

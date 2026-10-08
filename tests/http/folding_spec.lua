@@ -95,4 +95,36 @@ describe("folding.foldexpr", function()
     assert.equals(before, folding._cache_size(),
       "BufWipeout must drop the buffer's cache entry")
   end)
+
+  it("returns = for a single-line foldable body, never the invalid >0", function()
+    if not ts_query.is_available(buf_a) then
+      return
+    end
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].filetype = "poste_http"
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      "### A",
+      "POST https://x",
+      '{"a":1}',
+      "",
+    })
+    vim.api.nvim_set_current_buf(buf)
+    -- Row 2 (lnum 3) is a one-line json_body: the old ">0" is not a legal
+    -- fold start and nested the blank line below into a phantom fold.
+    vim.v.lnum = 3
+    assert.equals("=", folding.foldexpr())
+    -- A multi-line body still folds normally.
+    vim.api.nvim_buf_set_lines(buf, 3, 4, false, {
+      "### B",
+      "POST https://y",
+      "{",
+      '  "a": 1',
+      "}",
+      "",
+    })
+    vim.v.lnum = 6
+    assert.equals(">2", folding.foldexpr())
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
 end)

@@ -76,6 +76,12 @@ function M.foldexpr()
   )
   if foldable then
     local sr, _, er, _ = foldable:range()
+    -- A single-line foldable node (POST with an inline {"a":1} body) cannot
+    -- start a fold: ">0" is an invalid fold level and used to confuse the
+    -- region nesting on the line below.
+    if er <= sr then
+      return "="
+    end
     if lnum == sr then
       return ">" .. (er - sr)
     end

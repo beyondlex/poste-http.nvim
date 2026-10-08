@@ -1460,8 +1460,29 @@
             "value": "[\\[{][^\\n]*"
           },
           {
-            "type": "PATTERN",
-            "value": "(?:\\n[^\\n]+)*"
+            "type": "REPEAT",
+            "content": {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "\n"
+                },
+                {
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "PATTERN",
+                      "value": "[ \\t]*[^ \\t#\\n][^\\n]*"
+                    },
+                    {
+                      "type": "PATTERN",
+                      "value": "[ \\t]*#[^#\\n][^\\n]*"
+                    }
+                  ]
+                }
+              ]
+            }
           }
         ]
       }
@@ -1506,8 +1527,17 @@
                   "value": "\n"
                 },
                 {
-                  "type": "PATTERN",
-                  "value": "[^\\n]+"
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "PATTERN",
+                      "value": "[ \\t]*[^ \\t#\\n][^\\n]*"
+                    },
+                    {
+                      "type": "PATTERN",
+                      "value": "[ \\t]*#[^#\\n][^\\n]*"
+                    }
+                  ]
                 }
               ]
             }

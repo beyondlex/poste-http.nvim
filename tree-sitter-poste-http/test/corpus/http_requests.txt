@@ -771,3 +771,69 @@ mutation {
     (url
       (url_path)))
   (graphql_body))
+
+================================================================================
+Adjacent JSON bodies without a blank line between blocks
+================================================================================
+
+### One
+POST https://api.example.com/a
+{"a":1}
+### Two
+POST https://api.example.com/b
+{
+  "b": 2
+}
+
+--------------------------------------------------------------------------------
+
+(document
+  (request_block
+    (separator)
+    (request_name))
+  (request_line
+    (method
+      (method_post))
+    (url
+      (url_path)))
+  (json_body)
+  (request_block
+    (separator)
+    (request_name))
+  (request_line
+    (method
+      (method_post))
+    (url
+      (url_path)))
+  (json_body))
+
+================================================================================
+Single-line JSON body followed directly by the next separator
+================================================================================
+
+### Inline
+POST https://api.example.com
+{"a":1}
+### Next
+GET https://api.example.com
+
+--------------------------------------------------------------------------------
+
+(document
+  (request_block
+    (separator)
+    (request_name))
+  (request_line
+    (method
+      (method_post))
+    (url
+      (url_path)))
+  (json_body)
+  (request_block
+    (separator)
+    (request_name))
+  (request_line
+    (method
+      (method_get))
+    (url
+      (url_path))))

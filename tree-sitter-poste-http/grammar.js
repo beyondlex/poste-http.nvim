@@ -313,9 +313,20 @@ module.exports = grammar({
     )),
 
     // ─── JSON Body ──────────────────────────────────
+    // A continuation line is any line whose first non-blank character does
+    // not start a `###`-shaped separator: `###` is ALWAYS the next block's
+    // separator, even when the user omitted the blank line after the body.
+    // The old blanket `\n[^\n]+` continuation swallowed the entire next
+    // request block into one json_body (highlight/fold bleed across the
+    // boundary, two adjacent POSTs parsed as one body). `#`-comment lines
+    // inside the body stay body text (JSON has no #-lexeme, nothing legal
+    // is lost); `##`+ lines are ambiguous and end the body.
     json_body: $ => token(seq(
       /[\[{][^\n]*/,
-      /(?:\n[^\n]+)*/,
+      repeat(seq('\n', choice(
+        /[ \t]*[^ \t#\n][^\n]*/,
+        /[ \t]*#[^#\n][^\n]*/,
+      ))),
     )),
 
     // ─── GraphQL Query Body ─────────────────────────
@@ -327,9 +338,14 @@ module.exports = grammar({
     graphql_body: $ => token(seq(
       choice(/query[ \t]/, /mutation[ \t]/, /subscription[ \t]/, /fragment[ \t]/),
       /[^\n]*/,
-      // Continuation lines stop at blank lines, so the variables JSON
-      // after the query parses as json_body.
-      repeat(seq('\n', /[^\n]+/)),
+      // Continuation lines stop at blank lines (so the variables JSON
+      // after the query parses as json_body) and at ### separator lines
+      // (same no-blank-line rule as json_body above). Single-# lines stay
+      // body: they are legal GraphQL comments.
+      repeat(seq('\n', choice(
+        /[ \t]*[^ \t#\n][^\n]*/,
+        /[ \t]*#[^#\n][^\n]*/,
+      ))),
     )),
 
     // ─── Multipart Boundary ─────────────────────────

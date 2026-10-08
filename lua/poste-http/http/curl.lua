@@ -605,6 +605,11 @@ end
 
 --- Convert parsed curl to HTTP request format lines.
 --- Returns array of lines to insert.
+--- Header values and the URL are CR/LF-folded to spaces: a quoted multi-line
+--- -H value (legal for the curl argv, impossible on the wire — bare CRLF in
+--- a header is a request-splitting vector HTTP forbids) used to reach
+--- nvim_buf_set_lines embedded in one "line" and raised "replacement string
+--- item contains newlines", so the whole paste failed and inserted nothing.
 local function curl_to_http(parsed)
   local lines = {}
 
@@ -612,11 +617,13 @@ local function curl_to_http(parsed)
   table.insert(lines, "###")
 
   -- Request line
-  table.insert(lines, string.format("%s %s", parsed.method, parsed.url))
+  local url = parsed.url:gsub("[\r\n]+", " ")
+  table.insert(lines, string.format("%s %s", parsed.method, url))
 
   -- Headers
   for _, h in ipairs(parsed.headers) do
-    table.insert(lines, string.format("%s: %s", h[1], h[2]))
+    local value = h[2]:gsub("[\r\n]+", " ")
+    table.insert(lines, string.format("%s: %s", h[1], value))
   end
 
   -- Body (if present): split multi-line body into separate lines, keeping

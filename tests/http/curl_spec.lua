@@ -381,6 +381,24 @@ describe("curl.paste_curl (conversion shape)", function()
     assert.equals(1, #lines, "buffer must stay at its initial empty row")
     assert.is_truthy(tostring(notified[1]):find("Failed to parse curl"))
   end)
+
+  it("folds a multi-line quoted header value into one line instead of failing the paste", function()
+    -- A quoted -H value may carry newlines in the curl argv (paste from a
+    -- doc), but a header line with a bare newline is impossible on the wire
+    -- — and it reached nvim_buf_set_lines embedded in one "line", which
+    -- raised "replacement string item contains newlines" and inserted
+    -- nothing. Folded to a single space now, like the wire would reject it.
+    local lines = lines_from_clipboard(
+      "curl -X POST https://api.example.com/upload -H 'X-Blob: line1\nline2' -d '{\"a\":1}'")
+    assert.same({
+      "",
+      "###",
+      "POST https://api.example.com/upload",
+      "X-Blob: line1 line2",
+      "",
+      '{"a":1}',
+    }, lines)
+  end)
 end)
 
 describe("curl.parse_curl combined short flags", function()

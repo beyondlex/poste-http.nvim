@@ -41,6 +41,19 @@ describe("symbols.collect_requests method column", function()
     assert.are_equal("RUN", requests[1].method)
   end)
 
+  it("keeps RUN when the imported body carries a bare uppercase line", function()
+    -- The scan used to continue past the RUN line and let a bare uppercase
+    -- body line (TRUE, NULL, …) overwrite the method via the %u+$ branch.
+    local requests = collect({
+      "### Chain",
+      "RUN #Login",
+      '{"a":1}',
+      "TRUE",
+    })
+    assert.are_equal("RUN", requests[1].method)
+    assert.are_equal("#Login", requests[1].url_path)
+  end)
+
   it("finds GET after pre-script with space in tag", function()
     local requests = collect({
       "### Session test",

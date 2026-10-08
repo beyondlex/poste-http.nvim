@@ -91,6 +91,10 @@ local function collect_requests(bufnr)
           if run_target then
             method = "RUN"
             url_path = run_target
+            -- RUN's target IS the request line: without this break the scan
+            -- continued and a bare uppercase body line (TRUE, NULL, …) hit
+            -- the %u+$ branch below and overwrote the method column entry.
+            break
           else
             method = next_line:match("^%s*(%u+)%s+(%S+)")
             if not method then
@@ -99,10 +103,10 @@ local function collect_requests(bufnr)
             if not method then
               method = next_line:match("^%s*(%u+)$")
             end
-          end
-          if method and method ~= "RUN" then
-            url_path = extract_url_path(next_line)
-            break
+            if method then
+              url_path = extract_url_path(next_line)
+              break
+            end
           end
         end
       end

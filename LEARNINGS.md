@@ -371,3 +371,26 @@ pitfall, log it here. Check this file before starting any task.
   child args (`--noplugin -u tests/minimal_init.lua` + rtp) — bisecting a
   red suite per-file with the wrong harness reports load failures, not
   test failures. See `docs/dev/review-2026-10-08.md`.
+
+- 2026-10-09: four contracts from the 10-09 round. (1) A value that
+  round-trips through TEXT must be serialized, not string.format-ed —
+  inject_pre_script_vars/inject_global_vars wrote any value into one
+  `@name = value` line, so an embedded newline tore the request open and
+  every caller's line accounting under-counted; the fix reuses the
+  grammar's own >>>/<<< heredoc form and returns PHYSICAL lines (a
+  heredoc value line carries the newlines), never pairs() counts.
+  (2) Reading a module's callers before believing a function is dead:
+  textobj.lua had no mapping since the tree-sitter migration, and its
+  selects could never have worked — parent_of_type(request_block) from a
+  request-line node, while the grammar's request_block node is ONLY the
+  `### Name` line. "Dead for months" + "would have crashed if called"
+  is the same smell: the wiring, not the module, was the missing half.
+  (3) A grammar token is greedy across `###` (json_body/graphql_body
+  swallowed the next block when no blank line separated them —
+  highlight/fold bleed; regex execution unaffected). Tree-sitter's regex
+  dialect has NO lookahead: exclusion is spelled as alternation over the
+  first character classes. (4) An operator-pending mapping's Lua rhs
+  cannot be a multi-motion range — vim operators consume exactly ONE
+  motion, so fed `dG d| dG d|` completes the operator on the first line.
+  Visual-only text objects (end → `o` swap → start) are the expressible
+  shape. See `docs/dev/review-2026-10-09.md`.

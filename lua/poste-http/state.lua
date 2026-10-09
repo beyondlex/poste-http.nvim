@@ -39,6 +39,11 @@ M.config = {
       show_variable_inspector = "gi",
       show_history = "<leader>l",
       ask_ai = "ga",
+      -- Visual-mode text objects (buffer_setup maps them in x-mode only)
+      textobj_block = "aR",
+      textobj_headers = "iH",
+      textobj_body = "iB",
+      textobj_script = "iS",
       help = "g?",
     },
     http_response = {

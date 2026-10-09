@@ -19,6 +19,10 @@ local DESCRIPTIONS = {
     show_variable_inspector = "Open variable inspector",
     show_history = "Open request history",
     ask_ai = "Ask the AI about the request under cursor (poste-ai.nvim)",
+    textobj_block = "Visual-select the whole request block (aR)",
+    textobj_headers = "Visual-select the header section (iH)",
+    textobj_body = "Visual-select the body under the cursor (iB)",
+    textobj_script = "Visual-select the script block (iS)",
     help = "Show this help window",
   },
   http_response = {

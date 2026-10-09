@@ -60,6 +60,34 @@ function M.setup_buffer_keymaps(buf)
     end
   end
 
+  -- Text objects (visual mode): vaR / viB … over the tree nodes.
+  -- buffer-local <Plug> aliases ride along for explicit mappings. Not
+  -- mapped in operator-pending mode: an operator consumes exactly one
+  -- motion and these ranges are a two-motion walk (see textobj.lua).
+  local textobj_ok, textobj = pcall(require, "poste-http.http.textobj")
+  if textobj_ok then
+    local plug = {
+      { plug = "<Plug>(PosteHttpSelectBlock)", handler = textobj.select_request_block },
+      { plug = "<Plug>(PosteHttpSelectHeaders)", handler = textobj.select_headers },
+      { plug = "<Plug>(PosteHttpSelectBody)", handler = textobj.select_body },
+      { plug = "<Plug>(PosteHttpSelectScript)", handler = textobj.select_script },
+    }
+    for _, entry in ipairs(plug) do
+      pcall(vim.keymap.set, "x", entry.plug, entry.handler,
+        { buffer = buf, noremap = true, silent = true, desc = "poste-http text object" })
+    end
+    local textobj_specs = {
+      { action = "textobj_block", default = "aR", handler = textobj.select_request_block },
+      { action = "textobj_headers", default = "iH", handler = textobj.select_headers },
+      { action = "textobj_body", default = "iB", handler = textobj.select_body },
+      { action = "textobj_script", default = "iS", handler = textobj.select_script },
+    }
+    for _, spec in ipairs(textobj_specs) do
+      spec.opts = { modes = "x" }
+      table.insert(specs, 1, spec)
+    end
+  end
+
   require("poste-http.ui.keymaps").register_all(buf, "http_source", specs)
 
   local group = vim.api.nvim_create_augroup("PosteClearIndicators_" .. buf, { clear = true })

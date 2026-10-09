@@ -57,7 +57,19 @@ Override in `setup({ keymaps = { <group_name> = { ... } } })`.
 | `<leader>vv` | `pick_env` | Select environment |
 | `<leader>l` | `show_history` | Open request history |
 | `ga` | `ask_ai` | Ask the AI about the request under cursor (needs poste-ai.nvim) |
+| `aR` | `textobj_block` | Visual-select the whole request block (separator to last body line) |
+| `iH` | `textobj_headers` | Visual-select the header section |
+| `iB` | `textobj_body` | Visual-select the body under the cursor |
+| `iS` | `textobj_script` | Visual-select the pre/post script block |
 | `g?` | `help` | Open help window |
+
+Text objects are visual-mode keys: press `vaR` (or `V` first, then `aR`) to
+select the request around the cursor, then `y` / `d` / `c` act on the
+selection. Each also has a buffer-local `<Plug>` alias
+(`<Plug>(PosteHttpSelectBlock)` / `…Headers` / `…Body` / `…Script`) for
+custom keys. They are deliberately not mapped in operator-pending mode —
+vim operators accept exactly one motion, which a computed two-jump range
+cannot provide.
 
 ## 2. HTTP Response Buffer (`http_response`)
 
@@ -149,6 +161,7 @@ require("poste-http").setup({
   keymaps = {
     http_source = {
       run = "<CR>",
+      run_hsplit = "<M-CR>",
       jump_next = "]]",
       jump_prev = "[[",
       goto_definition = "gd",
@@ -160,8 +173,13 @@ require("poste-http").setup({
       toggle_outline = "gs",
       pick_env = "<leader>vv",
       show_var_value = "K",
+      show_variable_inspector = "gi",
       show_history = "<leader>l",
       ask_ai = "ga",
+      textobj_block = "aR",
+      textobj_headers = "iH",
+      textobj_body = "iB",
+      textobj_script = "iS",
       help = "g?",
     },
     http_response = {

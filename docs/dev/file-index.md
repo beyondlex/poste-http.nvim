@@ -146,7 +146,7 @@ that hand-rolled floats used to apply unevenly).
 | `nav.lua` | Block navigation, variable lookup, go-to-definition |
 | `symbols.lua` | Document symbol outline |
 | `outline.lua` | Sidebar outline |
-| `textobj.lua` | Text object support |
+| `textobj.lua` | Visual-mode text objects (aR/iH/iB/iS over tree nodes) |
 | `folding.lua` | Code folding |
 | `diagnostics.lua` | Diagnostics (linting) |
 | `treesitter.lua` | Tree-sitter integration (highlights, inspect) |
